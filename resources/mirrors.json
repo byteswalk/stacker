@@ -1,0 +1,98 @@
+{
+  "schema": 1,
+  "version": "202607061700",
+  "updated_at": "2026-07-06T17:00:00+08:00",
+  "tools": [
+    {
+      "id": "python-runtime",
+      "mirrors": [
+        { "id": "official", "name": "官方", "url": "https://www.python.org/ftp/python/{version}/{filename}", "host": "www.python.org" },
+        { "id": "tuna", "name": "清华", "url": "https://mirrors.tuna.tsinghua.edu.cn/python/{version}/{filename}", "host": "mirrors.tuna.tsinghua.edu.cn" },
+        { "id": "aliyun", "name": "阿里云", "url": "https://mirrors.aliyun.com/python-release/windows/{filename}", "host": "mirrors.aliyun.com" },
+        { "id": "huawei", "name": "华为云", "url": "https://repo.huaweicloud.com/python/{version}/{filename}", "host": "repo.huaweicloud.com" },
+        { "id": "ustc", "name": "中科大", "url": "https://mirrors.ustc.edu.cn/python/{version}/{filename}", "host": "mirrors.ustc.edu.cn" },
+        { "id": "bfsu", "name": "北外", "url": "https://mirrors.bfsu.edu.cn/python/{version}/{filename}", "host": "mirrors.bfsu.edu.cn" },
+        { "id": "nju", "name": "南京大学", "url": "https://mirror.nju.edu.cn/python/{version}/{filename}", "host": "mirror.nju.edu.cn" }
+      ]
+    },
+    {
+      "id": "node-runtime",
+      "mirrors": [
+        { "id": "official", "name": "官方", "url": "https://nodejs.org/dist", "host": "nodejs.org" },
+        { "id": "npmmirror", "name": "npmmirror", "url": "https://npmmirror.com/mirrors/node", "host": "npmmirror.com" },
+        { "id": "tencent", "name": "腾讯云", "url": "https://mirrors.cloud.tencent.com/nodejs-release", "host": "mirrors.cloud.tencent.com" },
+        { "id": "huawei", "name": "华为云", "url": "https://repo.huaweicloud.com/nodejs", "host": "repo.huaweicloud.com" },
+        { "id": "tuna", "name": "清华", "url": "https://mirrors.tuna.tsinghua.edu.cn/nodejs-release", "host": "mirrors.tuna.tsinghua.edu.cn" },
+        { "id": "bfsu", "name": "北外", "url": "https://mirrors.bfsu.edu.cn/nodejs-release", "host": "mirrors.bfsu.edu.cn" },
+        { "id": "nju", "name": "南京大学", "url": "https://mirror.nju.edu.cn/nodejs-release", "host": "mirror.nju.edu.cn" },
+        { "id": "sjtug", "name": "上交", "url": "https://mirrors.sjtug.sjtu.edu.cn/nodejs-release", "host": "mirrors.sjtug.sjtu.edu.cn" }
+      ]
+    },
+    {
+      "id": "pip",
+      "mirrors": [
+        { "id": "official", "name": "官方 PyPI", "url": "https://pypi.org/simple", "host": "pypi.org" },
+        { "id": "tsinghua", "name": "清华大学", "url": "https://pypi.tuna.tsinghua.edu.cn/simple", "host": "pypi.tuna.tsinghua.edu.cn" },
+        { "id": "aliyun", "name": "阿里云", "url": "https://mirrors.aliyun.com/pypi/simple/", "host": "mirrors.aliyun.com" },
+        { "id": "ustc", "name": "中科大", "url": "https://pypi.mirrors.ustc.edu.cn/simple/", "host": "pypi.mirrors.ustc.edu.cn" },
+        { "id": "tencent", "name": "腾讯云", "url": "https://mirrors.cloud.tencent.com/pypi/simple", "host": "mirrors.cloud.tencent.com" }
+      ]
+    },
+    {
+      "id": "npm",
+      "mirrors": [
+        { "id": "official", "name": "官方 registry", "url": "https://registry.npmjs.org/", "host": "registry.npmjs.org" },
+        { "id": "npmmirror", "name": "npmmirror (淘宝)", "url": "https://registry.npmmirror.com/", "host": "registry.npmmirror.com" },
+        { "id": "tencent", "name": "腾讯云", "url": "https://mirrors.cloud.tencent.com/npm/", "host": "mirrors.cloud.tencent.com" }
+      ]
+    },
+    {
+      "id": "yarn",
+      "mirrors": [
+        { "id": "official", "name": "官方 registry", "url": "https://registry.yarnpkg.com/", "host": "registry.yarnpkg.com" },
+        { "id": "npmmirror", "name": "npmmirror (淘宝)", "url": "https://registry.npmmirror.com/", "host": "registry.npmmirror.com" }
+      ]
+    },
+    {
+      "id": "go",
+      "mirrors": [
+        { "id": "official", "name": "官方 proxy", "url": "https://proxy.golang.org,direct", "host": "" },
+        { "id": "goproxycn", "name": "goproxy.cn", "url": "https://goproxy.cn,direct", "host": "goproxy.cn" },
+        { "id": "aliyun", "name": "阿里云", "url": "https://mirrors.aliyun.com/goproxy/,direct", "host": "mirrors.aliyun.com" },
+        { "id": "tencent", "name": "腾讯云", "url": "https://mirrors.tencent.com/go/,direct", "host": "mirrors.tencent.com" }
+      ]
+    },
+    {
+      "id": "maven",
+      "mirrors": [
+        { "id": "official", "name": "官方 Central", "url": "", "host": "repo.maven.apache.org" },
+        { "id": "aliyun", "name": "阿里云", "url": "https://maven.aliyun.com/repository/public", "host": "maven.aliyun.com" },
+        { "id": "huawei", "name": "华为云", "url": "https://repo.huaweicloud.com/repository/maven/", "host": "repo.huaweicloud.com" }
+      ]
+    },
+    {
+      "id": "gradle",
+      "mirrors": [
+        { "id": "official", "name": "官方", "url": "", "host": "repo.maven.apache.org" },
+        { "id": "aliyun", "name": "阿里云", "url": "https://maven.aliyun.com/repository/public", "host": "maven.aliyun.com" }
+      ]
+    },
+    {
+      "id": "conda",
+      "mirrors": [
+        { "id": "official", "name": "官方 defaults", "url": "", "host": "" },
+        { "id": "tsinghua", "name": "清华大学", "url": "https://mirrors.tuna.tsinghua.edu.cn/anaconda", "host": "mirrors.tuna.tsinghua.edu.cn" },
+        { "id": "ustc", "name": "中科大", "url": "https://mirrors.ustc.edu.cn/anaconda", "host": "mirrors.ustc.edu.cn" }
+      ]
+    },
+    {
+      "id": "cargo",
+      "mirrors": [
+        { "id": "official", "name": "官方 crates.io", "url": "", "host": "" },
+        { "id": "rsproxy", "name": "rsproxy.cn", "url": "sparse+https://rsproxy.cn/index/", "host": "rsproxy.cn" },
+        { "id": "ustc", "name": "中科大", "url": "sparse+https://mirrors.ustc.edu.cn/crates.io-index/", "host": "mirrors.ustc.edu.cn" },
+        { "id": "tuna", "name": "清华大学", "url": "sparse+https://mirrors.tuna.tsinghua.edu.cn/crates.io-index/", "host": "mirrors.tuna.tsinghua.edu.cn" }
+      ]
+    }
+  ]
+}

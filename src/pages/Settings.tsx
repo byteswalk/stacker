@@ -1,17 +1,34 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { enable as autostartEnable, disable as autostartDisable, isEnabled as autostartIsEnabled } from "@tauri-apps/plugin-autostart";
-import { useToast } from "../ui";
+import { ConfirmModal, Modal, useToast } from "../ui";
 import { Select } from "../Select";
 import { SourceManagerModal } from "../SourceManagerModal";
 import { getTheme, setTheme, type Theme } from "../theme";
 
 type AppSettings = { minimize_to_tray: boolean; theme: Theme; proxy_host: string; proxy_port: number };
 type SourceSummary = {
-  server_version: number | null;
+  server_version: string | null;
   builtin_count: number;
   local_count: number;
   binary_count: number;
+};
+type UpdateInfo = {
+  current: string;
+  latest: string;
+  has_update: boolean;
+  release_url?: string | null;
+  installer_url?: string | null;
+  portable_url?: string | null;
+  published_at?: string | null;
+  notes: string[];
+};
+type MirrorsUpdateCheck = {
+  url: string;
+  local_version: string | null;
+  remote_version: string;
+  has_update: boolean;
+  tools: number;
 };
 
 export default function Settings() {
@@ -26,6 +43,9 @@ export default function Settings() {
   const [proxyPort, setProxyPort] = useState("7890");
   const [proxySaving, setProxySaving] = useState(false);
   const [appUpdBusy, setAppUpdBusy] = useState(false);
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [sourceUpdate, setSourceUpdate] = useState<MirrorsUpdateCheck | null>(null);
+  const [sourceUpdBusy, setSourceUpdBusy] = useState(false);
 
   function refreshSourceSummary() {
     invoke<SourceSummary>("source_catalog_status")
@@ -35,6 +55,9 @@ export default function Settings() {
 
   useEffect(() => {
     refreshSourceSummary();
+    invoke<MirrorsUpdateCheck>("mirrors_check_update", { url: null })
+      .then((r) => { if (r.has_update) setSourceUpdate(r); })
+      .catch(() => {});
     invoke<AppSettings>("settings_get").then((s) => {
       setTray(s.minimize_to_tray);
       setProxyHost(s.proxy_host || "127.0.0.1");
@@ -92,12 +115,37 @@ export default function Settings() {
   async function checkAppUpdate() {
     setAppUpdBusy(true);
     try {
-      const u = await invoke<{ current: string; latest: string; has_update: boolean }>("app_check_update");
-      toast(u.has_update ? `有新版本 v${u.latest}（当前 v${u.current}）` : `已是最新（v${u.current}）`, u.has_update ? "info" : "ok");
+      const u = await invoke<UpdateInfo>("app_check_update");
+      if (u.has_update) setUpdateInfo(u);
+      else toast(`已是最新（v${u.current}）`, "ok");
     } catch (e) {
       toast(String(e), "info");
     } finally {
       setAppUpdBusy(false);
+    }
+  }
+
+  async function openUrl(url?: string | null) {
+    if (!url) { toast("当前发布信息没有提供该下载链接", "info"); return; }
+    try {
+      await invoke("app_open_url", { url });
+    } catch (e) {
+      toast("打开链接失败：" + e, "err");
+    }
+  }
+
+  async function applySourceUpdate() {
+    if (!sourceUpdate) return;
+    setSourceUpdBusy(true);
+    try {
+      const s = await invoke<{ local_version: string | null; tools: number }>("mirrors_update", { url: sourceUpdate.url });
+      setSourceUpdate(null);
+      refreshSourceSummary();
+      toast(`公共源清单已更新到 v${s.local_version}（${s.tools} 个分组）`, "ok");
+    } catch (e) {
+      toast("更新公共源清单失败：" + e, "err");
+    } finally {
+      setSourceUpdBusy(false);
     }
   }
 
@@ -165,6 +213,33 @@ export default function Settings() {
       </div>
 
       {sourceOpen && <SourceManagerModal onClose={() => setSourceOpen(false)} onChanged={refreshSourceSummary} />}
+      {sourceUpdate && !sourceOpen && (
+        <ConfirmModal title="更新公共源清单" icon="ti-cloud-download" busy={sourceUpdBusy}
+          message={<>发现新版公共源清单：<b style={{ color: "var(--tx)" }}>v{sourceUpdate.remote_version}</b>{sourceUpdate.local_version ? <>（当前 v{sourceUpdate.local_version}）</> : <>（本机尚未同步）</>}。<br />更新后会全量替换内置源，本地自定义源不会被覆盖。</>}
+          confirmLabel="更新" onConfirm={applySourceUpdate} onClose={() => setSourceUpdate(null)} />
+      )}
+      {updateInfo && (
+        <Modal title="发现新版本" icon="ti-cloud-download" onClose={() => setUpdateInfo(null)}
+          footer={<>
+            {updateInfo.installer_url && <button className="pr sm" onClick={() => openUrl(updateInfo.installer_url)}><i className="ti ti-download" /> 下载安装版</button>}
+            {updateInfo.portable_url && <button className="gh sm" onClick={() => openUrl(updateInfo.portable_url)}><i className="ti ti-file-zip" /> 下载免安装版</button>}
+            <button className="gh sm" onClick={() => openUrl(updateInfo.release_url)}><i className="ti ti-external-link" /> 查看发布页</button>
+            <button className="gh sm" onClick={() => setUpdateInfo(null)}>关闭</button>
+          </>}>
+          <div className="banner blue" style={{ margin: 0 }}>
+            <i className="ti ti-info-circle lead" />
+            <div className="bt">当前版本 v{updateInfo.current}，最新版本 v{updateInfo.latest}。下载安装包后按提示完成升级。</div>
+          </div>
+          {updateInfo.notes.length > 0 && (
+            <div className="field">
+              <label>更新说明</label>
+              <div className="histdiff">
+                {updateInfo.notes.map((line, idx) => <div key={idx}>- {line}</div>)}
+              </div>
+            </div>
+          )}
+        </Modal>
+      )}
     </>
   );
 }

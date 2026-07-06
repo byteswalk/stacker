@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { Modal, ConfirmModal, useToast } from "./ui";
@@ -25,11 +25,18 @@ type CatalogRow = {
 };
 type CatalogStatus = {
   server_url: string;
-  server_version: number | null;
+  server_version: string | null;
   builtin_count: number;
   local_count: number;
   binary_count: number;
   rows: CatalogRow[];
+};
+type MirrorsUpdateCheck = {
+  url: string;
+  local_version: string | null;
+  remote_version: string;
+  has_update: boolean;
+  tools: number;
 };
 type Custom = { id: string; tool: string; name: string; url: string; username: string; has_password: boolean };
 type Draft = { id: string; tool: string; name: string; url: string; username: string; pw: string; pwTouched: boolean };
@@ -73,6 +80,7 @@ function matchesCategory(row: CatalogRow, category: string) {
 
 export function SourceManagerModal({ onClose, onChanged }: { onClose: () => void; onChanged?: () => void }) {
   const toast = useToast();
+  const checkedRemote = useRef(false);
   const [catalog, setCatalog] = useState<CatalogStatus | null>(null);
   const [customs, setCustoms] = useState<Custom[]>([]);
   const [category, setCategory] = useState("all");
@@ -85,12 +93,34 @@ export function SourceManagerModal({ onClose, onChanged }: { onClose: () => void
   const [pings, setPings] = useState<Record<string, number | null | undefined>>({});
   const [draft, setDraft] = useState<Draft | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [remoteUpdate, setRemoteUpdate] = useState<MirrorsUpdateCheck | null>(null);
+  const [checkingRemote, setCheckingRemote] = useState(false);
+
+  async function checkRemoteUpdate(url: string, manual = false) {
+    setCheckingRemote(true);
+    try {
+      const res = await invoke<MirrorsUpdateCheck>("mirrors_check_update", { url: url.trim() || null });
+      if (res.has_update) {
+        setRemoteUpdate(res);
+      } else if (manual) {
+        toast(`公共源清单已是最新（v${res.remote_version}）`, "ok");
+      }
+    } catch (e) {
+      if (manual) toast("检查公共源清单失败：" + e, "err");
+    } finally {
+      setCheckingRemote(false);
+    }
+  }
 
   async function load() {
     const next = await invoke<CatalogStatus>("source_catalog_status");
     setCatalog(next);
     setServerUrl((cur) => cur || next.server_url);
     invoke<Custom[]>("custom_list").then(setCustoms).catch(() => {});
+    if (!checkedRemote.current) {
+      checkedRemote.current = true;
+      checkRemoteUpdate(next.server_url, false);
+    }
   }
 
   useEffect(() => { load().catch((e) => toast("读取源目录失败：" + e, "err")); }, []);
@@ -208,11 +238,13 @@ export function SourceManagerModal({ onClose, onChanged }: { onClose: () => void
     }
   }
 
-  async function updateServer() {
-    if (!serverUrl.trim()) { toast("请输入服务器清单地址", "info"); return; }
+  async function updateServer(urlOverride?: string) {
+    const target = (urlOverride ?? serverUrl).trim();
+    if (!target) { toast("请输入服务器清单地址", "info"); return; }
     setBusy("server");
     try {
-      const s = await invoke<{ local_version: number | null; tools: number }>("mirrors_update", { url: serverUrl.trim() });
+      const s = await invoke<{ local_version: string | null; tools: number }>("mirrors_update", { url: target });
+      setRemoteUpdate(null);
       await load();
       onChanged?.();
       toast(`服务器清单已更新到 v${s.local_version}（${s.tools} 个分组）`, "ok");
@@ -303,7 +335,10 @@ export function SourceManagerModal({ onClose, onChanged }: { onClose: () => void
               </div>
               <input className="ip full" value={serverUrl} placeholder="https://raw.githubusercontent.com/user/repo/main/mirrors.json"
                 onChange={(e) => setServerUrl(e.target.value)} />
-              <button className="pr sm" disabled={busy === "server"} onClick={updateServer}>
+              <button className="gh sm" disabled={checkingRemote || busy === "server"} onClick={() => checkRemoteUpdate(serverUrl, true)}>
+                <i className={"ti " + (checkingRemote ? "ti-loader spin" : "ti-refresh")} /> {checkingRemote ? "检查中…" : "检查更新"}
+              </button>
+              <button className="pr sm" disabled={busy === "server"} onClick={() => updateServer()}>
                 <i className={"ti " + (busy === "server" ? "ti-loader spin" : "ti-cloud-download")} /> 拉取最新
               </button>
             </div>
@@ -389,6 +424,12 @@ export function SourceManagerModal({ onClose, onChanged }: { onClose: () => void
         <ConfirmModal title="删除本地源" icon="ti-trash" danger busy={busy === "delete"}
           message={<>确定删除「<b style={{ color: "var(--tx)" }}>{selectedCustom.name}</b>」？<br />这只删除源管理中的本地记录，不会回滚已写入的工具配置文件。</>}
           confirmLabel="删除" onConfirm={() => deleteCustom(selectedCustom.id)} onClose={() => setDeleteId(null)} />
+      )}
+
+      {remoteUpdate && (
+        <ConfirmModal title="更新公共源清单" icon="ti-cloud-download" busy={busy === "server"}
+          message={<>发现新版公共源清单：<b style={{ color: "var(--tx)" }}>v{remoteUpdate.remote_version}</b>{remoteUpdate.local_version ? <>（当前 v{remoteUpdate.local_version}）</> : <>（本机尚未同步）</>}。<br />更新后会全量替换内置源，本地自定义源不会被覆盖。</>}
+          confirmLabel="更新" onConfirm={() => updateServer(remoteUpdate.url)} onClose={() => setRemoteUpdate(null)} />
       )}
     </>
   );

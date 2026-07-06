@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
+use serde::{de, Deserialize, Deserializer, Serialize};
 
 use crate::sources::{self, Mirror};
 
@@ -17,7 +17,13 @@ pub struct RemoteTool {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct RemoteList {
-    pub version: u32,
+    #[serde(
+        default = "default_catalog_version",
+        deserialize_with = "de_version_string"
+    )]
+    pub version: String,
+    #[serde(default)]
+    pub updated_at: String,
     #[serde(default)]
     pub tools: Vec<RemoteTool>,
 }
@@ -26,6 +32,36 @@ pub struct RemoteList {
 struct Cfg {
     #[serde(default)]
     mirror_list_url: String,
+}
+
+const DEFAULT_MIRROR_LIST_URL: &str =
+    "https://raw.githubusercontent.com/byteswalk/stacker/main/resources/mirrors.json";
+const DEFAULT_LATEST_URL: &str =
+    "https://raw.githubusercontent.com/byteswalk/stacker/main/resources/latest.json";
+
+fn default_catalog_version() -> String {
+    "197001010000".into()
+}
+
+fn de_version_string<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    match value {
+        serde_json::Value::String(s) => Ok(s),
+        serde_json::Value::Number(n) => Ok(n.to_string()),
+        _ => Err(de::Error::custom("version 必须是字符串或数字")),
+    }
+}
+
+fn configured_mirror_url() -> String {
+    let cfg = load_cfg();
+    if cfg.mirror_list_url.trim().is_empty() {
+        DEFAULT_MIRROR_LIST_URL.into()
+    } else {
+        cfg.mirror_list_url
+    }
 }
 
 fn dir() -> PathBuf {
@@ -140,6 +176,11 @@ pub struct UpdateInfo {
     pub current: String,
     pub latest: String,
     pub has_update: bool,
+    pub release_url: Option<String>,
+    pub installer_url: Option<String>,
+    pub portable_url: Option<String>,
+    pub published_at: Option<String>,
+    pub notes: Vec<String>,
 }
 
 // Stacker 自身的发布仓库（owner/repo）。发布到 GitHub Releases 后填上即可启用「检查更新」。
@@ -156,13 +197,11 @@ pub async fn app_check_update() -> Result<UpdateInfo, String> {
                     .to_string(),
             );
         }
-        let latest = github_latest_tag(APP_REPO)?;
-        let has_update = ver_lt(&current, &latest);
-        Ok(UpdateInfo {
-            current,
-            latest,
-            has_update,
-        })
+        match github_latest_release(APP_REPO, &current) {
+            Ok(info) => Ok(info),
+            Err(primary) => latest_json_update(&current)
+                .map_err(|fallback| format!("检查更新失败：{primary}；兜底清单失败：{fallback}")),
+        }
     })
     .await
     .map_err(|e| e.to_string())?
@@ -170,6 +209,80 @@ pub async fn app_check_update() -> Result<UpdateInfo, String> {
 
 /// 取 GitHub 仓库最新 release 的 tag（去掉前导 v）。仅走官方 GitHub API。
 pub fn github_latest_tag(repo: &str) -> Result<String, String> {
+    github_latest_release(repo, env!("CARGO_PKG_VERSION")).map(|info| info.latest)
+}
+
+#[derive(Deserialize)]
+struct GitHubAsset {
+    name: String,
+    browser_download_url: String,
+}
+
+#[derive(Deserialize)]
+struct GitHubRelease {
+    tag_name: String,
+    html_url: Option<String>,
+    body: Option<String>,
+    published_at: Option<String>,
+    #[serde(default)]
+    assets: Vec<GitHubAsset>,
+}
+
+#[derive(Deserialize)]
+struct LatestFile {
+    version: String,
+    #[serde(default)]
+    release_url: Option<String>,
+    #[serde(default)]
+    installer_url: Option<String>,
+    #[serde(default)]
+    portable_url: Option<String>,
+    #[serde(default)]
+    published_at: Option<String>,
+    #[serde(default)]
+    released_at: Option<String>,
+    #[serde(default)]
+    notes: Vec<String>,
+}
+
+fn notes_from_body(body: &str) -> Vec<String> {
+    body.lines()
+        .map(|line| {
+            line.trim()
+                .trim_start_matches(['-', '*', '•', ' '])
+                .trim()
+                .to_string()
+        })
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .take(8)
+        .collect()
+}
+
+fn pick_asset(assets: &[GitHubAsset], portable: bool) -> Option<String> {
+    assets
+        .iter()
+        .find(|a| {
+            let name = a.name.to_ascii_lowercase();
+            if portable {
+                name.ends_with(".zip") && (name.contains("portable") || name.contains("免安装"))
+            } else {
+                name.ends_with(".exe") && (name.contains("setup") || name.contains("install"))
+            }
+        })
+        .or_else(|| {
+            assets.iter().find(|a| {
+                let name = a.name.to_ascii_lowercase();
+                if portable {
+                    name.ends_with(".zip")
+                } else {
+                    name.ends_with(".exe")
+                }
+            })
+        })
+        .map(|a| a.browser_download_url.clone())
+}
+
+fn github_latest_release(repo: &str, current: &str) -> Result<UpdateInfo, String> {
     let url = format!("https://api.github.com/repos/{repo}/releases/latest");
     let a = agent();
     let mut last = String::new();
@@ -177,12 +290,23 @@ pub fn github_latest_tag(repo: &str) -> Result<String, String> {
         match a.get(&u).set("User-Agent", "Stacker").call() {
             Ok(r) => match r.into_string() {
                 Ok(b) => {
-                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&b) {
-                        if let Some(t) = v["tag_name"].as_str() {
-                            return Ok(t.trim_start_matches('v').trim().to_string());
-                        }
-                    }
-                    last = "返回无 tag_name".into();
+                    let release: GitHubRelease = serde_json::from_str(&b)
+                        .map_err(|e| format!("GitHub Release 格式错误：{e}"))?;
+                    let latest = release.tag_name.trim_start_matches('v').trim().to_string();
+                    return Ok(UpdateInfo {
+                        has_update: ver_lt(current, &latest),
+                        current: current.into(),
+                        latest,
+                        release_url: release.html_url,
+                        installer_url: pick_asset(&release.assets, false),
+                        portable_url: pick_asset(&release.assets, true),
+                        published_at: release.published_at,
+                        notes: release
+                            .body
+                            .as_deref()
+                            .map(notes_from_body)
+                            .unwrap_or_default(),
+                    });
                 }
                 Err(e) => last = e.to_string(),
             },
@@ -190,6 +314,23 @@ pub fn github_latest_tag(repo: &str) -> Result<String, String> {
         }
     }
     Err(format!("获取最新版本失败：{last}"))
+}
+
+fn latest_json_update(current: &str) -> Result<UpdateInfo, String> {
+    let body = fetch(DEFAULT_LATEST_URL)?;
+    let file: LatestFile =
+        serde_json::from_str(&body).map_err(|e| format!("latest.json 格式错误：{e}"))?;
+    let latest = file.version.trim_start_matches('v').trim().to_string();
+    Ok(UpdateInfo {
+        has_update: ver_lt(current, &latest),
+        current: current.into(),
+        latest,
+        release_url: file.release_url,
+        installer_url: file.installer_url,
+        portable_url: file.portable_url,
+        published_at: file.published_at.or(file.released_at),
+        notes: file.notes,
+    })
 }
 
 /// 简单版本比较：a < b 返回 true（按数字组）。
@@ -214,22 +355,116 @@ pub fn ver_lt(a: &str, b: &str) -> bool {
     key(a) < key(b)
 }
 
+#[tauri::command]
+pub fn app_open_url(url: String) -> Result<(), String> {
+    let trimmed = url.trim();
+    if !(trimmed.starts_with("https://") || trimmed.starts_with("http://")) {
+        return Err("只能打开 http(s) 链接".into());
+    }
+    #[cfg(windows)]
+    {
+        use std::ffi::OsStr;
+        use std::os::windows::ffi::OsStrExt;
+        let verb: Vec<u16> = OsStr::new("open").encode_wide().chain(Some(0)).collect();
+        let target: Vec<u16> = OsStr::new(trimmed).encode_wide().chain(Some(0)).collect();
+        let rc = unsafe {
+            winapi::um::shellapi::ShellExecuteW(
+                std::ptr::null_mut(),
+                verb.as_ptr(),
+                target.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                winapi::um::winuser::SW_SHOWNORMAL,
+            )
+        };
+        if (rc as isize) <= 32 {
+            Err(format!("打开链接失败：ShellExecuteW 返回 {}", rc as isize))
+        } else {
+            Ok(())
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let opener = if cfg!(target_os = "macos") {
+            "open"
+        } else {
+            "xdg-open"
+        };
+        std::process::Command::new(opener)
+            .arg(trimmed)
+            .spawn()
+            .map_err(|e| format!("打开链接失败：{e}"))?;
+        Ok(())
+    }
+}
+
 #[derive(Serialize)]
 pub struct MirrorsStatus {
     pub url: String,
-    pub local_version: Option<u32>,
+    pub local_version: Option<String>,
     pub tools: usize,
 }
 
 #[tauri::command]
 pub fn mirrors_status() -> MirrorsStatus {
-    let url = load_cfg().mirror_list_url;
+    let url = configured_mirror_url();
     let list = load_list();
     MirrorsStatus {
         url,
-        local_version: list.as_ref().map(|l| l.version),
+        local_version: list.as_ref().map(|l| l.version.clone()),
         tools: list.map(|l| l.tools.len()).unwrap_or(0),
     }
+}
+
+#[derive(Serialize)]
+pub struct MirrorsUpdateCheck {
+    pub url: String,
+    pub local_version: Option<String>,
+    pub remote_version: String,
+    pub has_update: bool,
+    pub tools: usize,
+}
+
+fn version_gt(remote: &str, local: Option<&str>) -> bool {
+    let remote = remote.trim();
+    if remote.is_empty() {
+        return false;
+    }
+    match local.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(local) => remote > local,
+        None => true,
+    }
+}
+
+fn fetch_remote_list(url: &str) -> Result<RemoteList, String> {
+    let body = fetch(url.trim())?;
+    let list: RemoteList = serde_json::from_str(&body).map_err(|e| format!("清单格式错误：{e}"))?;
+    if list.tools.is_empty() {
+        return Err("服务器清单为空".into());
+    }
+    Ok(list)
+}
+
+/// 只检查远程清单版本，不写本地缓存。
+#[tauri::command]
+pub async fn mirrors_check_update(url: Option<String>) -> Result<MirrorsUpdateCheck, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let url = url
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(configured_mirror_url);
+        let remote = fetch_remote_list(&url)?;
+        let local = load_list();
+        let local_version = local.as_ref().map(|l| l.version.clone());
+        Ok(MirrorsUpdateCheck {
+            url,
+            has_update: version_gt(&remote.version, local_version.as_deref()),
+            remote_version: remote.version,
+            local_version,
+            tools: remote.tools.len(),
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 拉取并应用远程清单。url 为空则用已存配置；成功后记住该地址。
@@ -238,10 +473,7 @@ pub async fn mirrors_update(url: Option<String>) -> Result<MirrorsStatus, String
     tauri::async_runtime::spawn_blocking(move || {
         let url = url
             .filter(|s| !s.trim().is_empty())
-            .unwrap_or_else(|| load_cfg().mirror_list_url);
-        if url.trim().is_empty() {
-            return Err("未配置镜像清单地址".into());
-        }
+            .unwrap_or_else(configured_mirror_url);
         let body = fetch(url.trim())?;
         let list: RemoteList =
             serde_json::from_str(&body).map_err(|e| format!("清单格式错误：{e}"))?;
@@ -258,7 +490,7 @@ pub async fn mirrors_update(url: Option<String>) -> Result<MirrorsStatus, String
         })?;
         Ok(MirrorsStatus {
             url: url.trim().to_string(),
-            local_version: Some(list.version),
+            local_version: Some(list.version.clone()),
             tools: list.tools.len(),
         })
     })
@@ -270,7 +502,8 @@ pub async fn mirrors_update(url: Option<String>) -> Result<MirrorsStatus, String
 #[tauri::command]
 pub fn mirrors_seed() -> Result<String, String> {
     let list = RemoteList {
-        version: 1,
+        version: chrono::Local::now().format("%Y%m%d%H%M").to_string(),
+        updated_at: chrono::Local::now().to_rfc3339(),
         tools: sources::hardcoded()
             .iter()
             .map(|t| RemoteTool {

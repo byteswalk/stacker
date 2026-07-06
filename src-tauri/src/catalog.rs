@@ -25,7 +25,7 @@ pub struct SourceCatalogRow {
 #[derive(Serialize)]
 pub struct SourceCatalogStatus {
     pub server_url: String,
-    pub server_version: Option<u32>,
+    pub server_version: Option<String>,
     pub builtin_count: usize,
     pub local_count: usize,
     pub binary_count: usize,
@@ -148,9 +148,12 @@ fn mark_duplicates(rows: &mut [SourceCatalogRow]) {
 fn effective_builtin_snapshot() -> update::RemoteList {
     let mut tools = sources::hardcoded();
     update::overlay(&mut tools);
-    let version = update::remote_snapshot().map(|r| r.version).unwrap_or(0);
+    let version = update::remote_snapshot()
+        .map(|r| r.version)
+        .unwrap_or_else(|| "197001010000".into());
     update::RemoteList {
         version,
+        updated_at: chrono::Local::now().to_rfc3339(),
         tools: tools
             .into_iter()
             .map(|t| update::RemoteTool {
@@ -241,7 +244,7 @@ pub fn source_catalog_status() -> SourceCatalogStatus {
     mark_duplicates(&mut rows);
     SourceCatalogStatus {
         server_url,
-        server_version: remote.as_ref().map(|r| r.version),
+        server_version: remote.as_ref().map(|r| r.version.clone()),
         builtin_count,
         local_count,
         binary_count,

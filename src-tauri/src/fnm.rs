@@ -1125,6 +1125,11 @@ pub async fn fnm_check_update() -> Result<crate::update::UpdateInfo, String> {
             current,
             latest,
             has_update,
+            release_url: None,
+            installer_url: None,
+            portable_url: None,
+            published_at: None,
+            notes: Vec::new(),
         })
     })
     .await

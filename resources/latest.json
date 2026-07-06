@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "released_at": "2026-07-06T17:00:00+08:00",
+  "release_url": "https://github.com/byteswalk/stacker/releases",
+  "installer_url": null,
+  "portable_url": null,
+  "notes": [
+    "项目开源初始版本",
+    "后续正式发布时在 GitHub Releases 上传安装版和免安装版"
+  ]
+}

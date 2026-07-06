@@ -244,7 +244,7 @@ button{ font-family:inherit; }
 .a .smnav button.on{ background:rgba(245,130,31,.14); color:#f5a45a; }
 .a .smnav button b{ font-size:10.5px; color:inherit; font-weight:500; opacity:.8; }
 .a .smpanel{ min-width:0; display:flex; flex-direction:column; gap:10px; }
-.a .smserver{ display:grid; grid-template-columns:minmax(150px,1fr) minmax(220px,1.5fr) auto; align-items:center; gap:10px;
+.a .smserver{ display:grid; grid-template-columns:minmax(150px,1fr) minmax(220px,1.5fr) auto auto; align-items:center; gap:10px;
   background:var(--card); border:.5px solid var(--bd); border-radius:11px; padding:10px 12px; }
 .a .smtools{ display:flex; align-items:center; gap:8px; }
 .a .smlist{ display:flex; flex-direction:column; gap:7px; overflow:auto; max-height:390px; padding-right:2px; }
