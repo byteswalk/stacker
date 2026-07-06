@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { save, open } from "@tauri-apps/plugin-dialog";
 import { enable as autostartEnable, disable as autostartDisable, isEnabled as autostartIsEnabled } from "@tauri-apps/plugin-autostart";
 import { useToast } from "../ui";
 import { Select } from "../Select";
@@ -102,29 +101,6 @@ export default function Settings() {
     }
   }
 
-  async function doExport() {
-    try {
-      const path = await save({ defaultPath: "stacker-config.json", filters: [{ name: "Stacker 配置", extensions: ["json"] }] });
-      if (!path) return;
-      await invoke("bundle_export", { path });
-      toast("已导出配置方案；凭据不会写入导出文件", "ok");
-    } catch (e) {
-      toast("导出失败：" + e, "err");
-    }
-  }
-
-  async function doImport() {
-    try {
-      const path = await open({ multiple: false, directory: false, filters: [{ name: "Stacker 配置", extensions: ["json"] }] });
-      if (!path || typeof path !== "string") return;
-      const r = await invoke<{ profiles: number; customs: number }>("bundle_import", { path });
-      refreshSourceSummary();
-      toast(`已导入：方案 ${r.profiles} 个 · 自定义源 ${r.customs} 个（密码需重填）`, "ok");
-    } catch (e) {
-      toast("导入失败：" + e, "err");
-    }
-  }
-
   return (
     <>
       <div className="grouphd">
@@ -146,14 +122,6 @@ export default function Settings() {
         <button className="pr sm" disabled={noBackend} onClick={() => setSourceOpen(true)}><i className="ti ti-layout-sidebar-right-expand" /> 打开源管理</button>
       </div>
       <div className="callout"><i className="ti ti-info-circle" /><div>服务器清单用于更新内置源，拉取后会以服务器清单为准全量替换；本地自定义源由当前电脑维护，不会被服务器清单覆盖。</div></div>
-
-      <div className="grouphd" style={{ marginTop: 18 }}><span className="gt"><i className="ti ti-bookmark" /> 配置方案</span></div>
-      <div className="srcrow">
-        <span className="av st"><i className="ti ti-bookmarks" /></span>
-        <div className="mt"><div className="t">命名方案</div><div className="s dim" title="导入或导出命名方案与当前自定义源摘要；凭据不会写入导出文件。">导入或导出配置方案；凭据不会随配置导出。</div></div>
-        <button className="gh sm" disabled={noBackend} onClick={doImport}><i className="ti ti-download" /> 导入</button>
-        <button className="pr sm" disabled={noBackend} onClick={doExport}><i className="ti ti-upload" /> 导出</button>
-      </div>
 
       <div className="grouphd" style={{ marginTop: 18 }}><span className="gt"><i className="ti ti-adjustments" /> 通用与外观</span></div>
       <div className="srcrow">

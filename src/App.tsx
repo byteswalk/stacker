@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import { ToastProvider, ToastHost, useToast, Modal, BusyProvider, BusyHost } from "./ui";
 import { Select } from "./Select";
 import Overview from "./pages/Overview";
@@ -72,12 +73,10 @@ export default function App() {
 
 type SavedProfile = { name: string; sources: { tool: string; mirror: string }[]; proxy: boolean; created: string };
 
-const BUILTIN = ["国内源（全部国内镜像）", "官方源（全部官方）"];
-
 function Shell() {
   const toast = useToast();
   const [page, setPage] = useState<Page>("overview");
-  const [profile, setProfile] = useState("默认");
+  const [profile, setProfile] = useState("");
   const [applying, setApplying] = useState(false);
   const [saved, setSaved] = useState<SavedProfile[]>([]);
   const [saveOpen, setSaveOpen] = useState(false);
@@ -88,7 +87,12 @@ function Shell() {
   const cur = ALL.find((n) => n.id === page)!;
 
   function refreshProfiles() {
-    invoke<SavedProfile[]>("profile_list").then(setSaved).catch(() => {});
+    invoke<SavedProfile[]>("profile_list")
+      .then((list) => {
+        setSaved(list);
+        setProfile((cur) => list.some((p) => p.name === cur) ? cur : (list[0]?.name ?? ""));
+      })
+      .catch(() => {});
   }
   useEffect(() => {
     refreshProfiles();
@@ -96,32 +100,12 @@ function Shell() {
       .then((o) => { if (!o.supported) setOsWarn({ name: o.name, build: o.build }); }).catch(() => {});
   }, []);
 
-  // 内置模板：国内源 = 全切首个国内镜像 + 关代理；官方源 = 全切官方 + 开代理
-  async function applyBuiltin(toMirror: boolean, label: string) {
-    const tools = await invoke<{ id: string; installed: boolean; current: string | null; mirrors: { id: string }[] }[]>("list_sources");
-    let n = 0;
-    for (const t of tools) {
-      if (t.id === "python-runtime") continue;
-      if (!t.installed) continue;
-      const target = toMirror ? t.mirrors.find((m) => m.id !== "official")?.id : "official";
-      if (target && t.current !== target) { await invoke("apply_source", { toolId: t.id, mirrorId: target }); n++; }
-    }
-    const ps = await invoke<{ enabled: boolean; host: string; port: number; detected_port: number | null }>("proxy_status");
-    if (toMirror && ps.enabled) await invoke("proxy_disable", { alsoJvm: false });
-    if (!toMirror && !ps.enabled) await invoke("proxy_enable", { host: ps.host || "127.0.0.1", port: ps.port || ps.detected_port || 7890, alsoJvm: false, manual: [] });
-    toast(`已应用「${label}」· 换源 ${n} 项`, "ok");
-  }
-
   async function applyProfile() {
-    if (profile === "默认") { toast("「默认」为占位模板，未改动配置", "info"); return; }
+    if (!profile) { toast("请先保存或导入配置方案", "info"); return; }
     setApplying(true);
     try {
-      if (BUILTIN.includes(profile)) {
-        await applyBuiltin(profile.startsWith("国内源"), profile.split("（")[0]);
-      } else {
-        const n = await invoke<number>("profile_apply", { name: profile });
-        toast(`已套用方案「${profile}」· 改动 ${n} 项`, "ok");
-      }
+      const n = await invoke<number>("profile_apply", { name: profile });
+      toast(`已套用方案「${profile}」· 改动 ${n} 项`, "ok");
     } catch (e) { toast("应用失败：" + e, "err"); } finally { setApplying(false); }
   }
 
@@ -143,9 +127,32 @@ function Shell() {
     try {
       await invoke("profile_delete", { name });
       refreshProfiles();
-      if (profile === name) setProfile("默认");
+      if (profile === name) setProfile("");
       toast(`已删除方案「${name}」`, "ok");
     } catch (e) { toast("删除失败：" + e, "err"); }
+  }
+
+  async function exportProfiles() {
+    try {
+      const path = await save({ defaultPath: "stacker-config.json", filters: [{ name: "Stacker 配置", extensions: ["json"] }] });
+      if (!path) return;
+      await invoke("bundle_export", { path });
+      toast("配置方案已导出；凭据不会写入导出文件", "ok");
+    } catch (e) {
+      toast("导出失败：" + e, "err");
+    }
+  }
+
+  async function importProfiles() {
+    try {
+      const path = await open({ multiple: false, directory: false, filters: [{ name: "Stacker 配置", extensions: ["json"] }] });
+      if (!path || typeof path !== "string") return;
+      const r = await invoke<{ profiles: number; customs: number }>("bundle_import", { path });
+      refreshProfiles();
+      toast(`已导入：方案 ${r.profiles} 个 · 自定义源 ${r.customs} 个（密码需重填）`, "ok");
+    } catch (e) {
+      toast("导入失败：" + e, "err");
+    }
   }
 
   return (
@@ -175,16 +182,11 @@ function Shell() {
               <div className="profile">
                 <i className="ti ti-bookmark" style={{ fontSize: 14 }} />
                 <Select className="psel" value={profile} disabled={applying} width={196} onChange={setProfile}
-                  groups={[
-                    { options: [{ value: "默认", label: "默认" }] },
-                    { label: "内置模板", options: [
-                      { value: "国内源（全部国内镜像）", label: "国内源（全部国内镜像）" },
-                      { value: "官方源（全部官方）", label: "官方源（全部官方）" },
-                    ] },
-                    ...(saved.length > 0 ? [{ label: "我的方案", options: saved.map((p) => ({ value: p.name, label: p.name })) }] : []),
-                  ]} />
-                <button className="pbtn" title="应用方案" disabled={applying} onClick={applyProfile}><i className={"ti " + (applying ? "ti-loader" : "ti-check")} /></button>
+                  options={saved.length > 0 ? saved.map((p) => ({ value: p.name, label: p.name })) : [{ value: "", label: "暂无方案", disabled: true }]} />
+                <button className="pbtn" title="应用方案" disabled={applying || !profile} onClick={applyProfile}><i className={"ti " + (applying ? "ti-loader" : "ti-check")} /></button>
                 <button className="pbtn" title="把当前各工具的源 + 代理开关存为命名方案" disabled={applying} onClick={() => { setSaveName(""); setSaveOpen(true); }}><i className="ti ti-device-floppy" /></button>
+                <button className="pbtn" title="导入配置方案" disabled={applying} onClick={importProfiles}><i className="ti ti-download" /></button>
+                <button className="pbtn" title="导出配置方案" disabled={applying} onClick={exportProfiles}><i className="ti ti-upload" /></button>
               </div>
             </div>
           )}
