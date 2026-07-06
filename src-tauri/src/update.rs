@@ -143,7 +143,7 @@ pub struct UpdateInfo {
 }
 
 // Stacker 自身的发布仓库（owner/repo）。发布到 GitHub Releases 后填上即可启用「检查更新」。
-const APP_REPO: &str = "";
+const APP_REPO: &str = "byteswalk/stacker";
 
 /// 检查 Stacker 自身是否有新版（比对当前版本号与 GitHub 最新 release）。
 #[tauri::command]

@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Stacker — 开发生态管理器 / Dev Ecosystem Manager"
 authors = ["Stacker"]
 license = "MIT"
-repository = ""
+repository = "https://github.com/byteswalk/stacker"
 edition = "2021"
 rust-version = "1.77.2"
 

@@ -86,7 +86,7 @@ Stacker 会写入当前 Windows 用户的数据目录，主要包括：
 
 - 当前工作副本没有 Git 元数据。正式开源前需要在根目录重新初始化仓库。
 - `src-tauri/target`、`dist`、`node_modules` 都是生成物，不应提交。
-- `src-tauri/src/update.rs` 中 `APP_REPO` 为空，GitHub Releases 发布后再填 `owner/repo`，应用内“检查更新”才会启用。
+- `src-tauri/src/update.rs` 中 `APP_REPO` 已指向 `byteswalk/stacker`；发布 GitHub Releases 后，应用内“检查更新”会使用最新 release。
 - README、许可证、应用标识、仓库地址和发布流程稳定后再打第一个公开 tag。
 
 开源发布步骤见 [docs/OPEN_SOURCE.md](docs/OPEN_SOURCE.md)。
