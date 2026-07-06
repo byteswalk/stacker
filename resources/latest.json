@@ -1,11 +1,13 @@
 {
-  "version": "0.1.0",
-  "released_at": "2026-07-06T17:00:00+08:00",
-  "release_url": "https://github.com/byteswalk/stacker/releases",
-  "installer_url": null,
-  "portable_url": null,
+  "version": "0.1.1",
+  "released_at": "2026-07-06T17:30:00+08:00",
+  "release_url": "https://github.com/byteswalk/stacker/releases/tag/v0.1.1",
+  "installer_url": "https://github.com/byteswalk/stacker/releases/download/v0.1.1/Stacker-0.1.1-setup-windows-x64.exe",
+  "portable_url": "https://github.com/byteswalk/stacker/releases/download/v0.1.1/Stacker-0.1.1-portable-windows-x64.zip",
   "notes": [
-    "项目开源初始版本",
-    "后续正式发布时在 GitHub Releases 上传安装版和免安装版"
+    "接入 GitHub Releases 版本检测和下载引导",
+    "接入公共源清单版本检测与确认更新",
+    "新增 JetBrains IDE 历史版本与 Windows 临时目录清理",
+    "优化 Python、Node、Maven、Gradle 等生态源配置体验"
   ]
 }

@@ -206,7 +206,7 @@ export default function Settings() {
       <div className="grouphd" style={{ marginTop: 18 }}><span className="gt"><i className="ti ti-info-circle" /> 关于</span></div>
       <div className="srcrow">
         <span className="av st"><i className="ti ti-hexagon-letter-s" /></span>
-        <div className="mt"><div className="t">Stacker 0.1.0 <span className="bd n">开源 · 无遥测</span></div>
+        <div className="mt"><div className="t">Stacker 0.1.1 <span className="bd n">开源 · 无遥测</span></div>
           <div className="s dim" title="开发生态管理器 · gitee.com / github.com">开发生态管理器 · gitee.com / github.com</div></div>
         <button className="gh sm" disabled={appUpdBusy} onClick={checkAppUpdate}>
           <i className={"ti " + (appUpdBusy ? "ti-loader spin" : "ti-refresh")} /> {appUpdBusy ? "检查中…" : "检查更新"}</button>
