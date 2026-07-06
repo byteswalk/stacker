@@ -305,24 +305,64 @@ fn checkup_impl() -> Vec<CheckItem> {
 
     // 2) 开发缓存偏高 → 建议清理
     let caches = crate::cleanup::cleanup_scan();
-    let total: u64 = caches.iter().map(|c| c.size).sum();
+    let managed: u64 = caches
+        .iter()
+        .filter(|c| c.category == "safe" || c.category == "cautious")
+        .map(|c| c.size)
+        .sum();
     let safe: u64 = caches
         .iter()
         .filter(|c| c.category == "safe")
         .map(|c| c.size)
         .sum();
-    if total > 5 * GB {
+    let history_total: u64 = caches
+        .iter()
+        .filter(|c| c.category == "history")
+        .map(|c| c.size)
+        .sum();
+    let temp_total: u64 = caches
+        .iter()
+        .filter(|c| c.category == "temp")
+        .map(|c| c.size)
+        .sum();
+    if managed > 5 * GB {
         out.push(CheckItem {
             id: "cache_high".into(),
             sev: "info".into(),
             title: "开发缓存占用偏高".into(),
             desc: format!(
                 "各类缓存共占用 {:.1} GB，可安全释放约 {:.1} GB（安全项＝纯缓存，删后自动重下）。",
-                total as f64 / GB as f64,
+                managed as f64 / GB as f64,
                 safe as f64 / GB as f64
             ),
             page: "cleanup".into(),
             action: "清理安全项".into(),
+        });
+    }
+    if history_total > 0 {
+        out.push(CheckItem {
+            id: "jetbrains_history".into(),
+            sev: "info".into(),
+            title: "JetBrains IDE 历史版本可清理".into(),
+            desc: format!(
+                "检测到旧版 JetBrains IDE 数据目录，占用约 {:.1} GB。清理时会保留同产品最新版本。",
+                history_total as f64 / GB as f64
+            ),
+            page: "cleanup".into(),
+            action: "去清理".into(),
+        });
+    }
+    if temp_total > 0 {
+        out.push(CheckItem {
+            id: "windows_temp_high".into(),
+            sev: "info".into(),
+            title: "Windows 临时目录占用偏高".into(),
+            desc: format!(
+                "检测到临时目录占用约 {:.1} GB。可进入磁盘清理按需处理；正在被系统占用的文件会自动跳过。",
+                temp_total as f64 / GB as f64
+            ),
+            page: "cleanup".into(),
+            action: "去清理".into(),
         });
     }
 

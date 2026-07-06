@@ -52,6 +52,8 @@ export default function Cleanup() {
   if (!items) return <div className="stub"><p>扫描各生态缓存占用…</p></div>;
 
   const safe = items.filter((x) => x.category === "safe");
+  const history = items.filter((x) => x.category === "history");
+  const temp = items.filter((x) => x.category === "temp");
   const cautious = items.filter((x) => x.category === "cautious");
   const total = items.reduce((a, x) => a + x.size, 0);
   const safeTotal = safe.reduce((a, x) => a + x.size, 0);
@@ -67,39 +69,64 @@ export default function Cleanup() {
     });
   }
 
-  const row = (x: CacheItem) => (
-    <div className="clrow" key={x.path}
-      style={x.category === "cautious" ? { boxShadow: "inset 3px 0 0 var(--amber)", borderColor: "rgba(228,180,80,.3)" } : undefined}>
-      <input type="checkbox" className="ck2" checked={sel.has(x.path)} onChange={() => toggle(x.path)} />
-      <span className={"av " + x.av}><i className={"ti " + x.icon} /></span>
-      <div className="ct2"><div className="ch">{x.name} {x.category === "cautious" && <span className="bd w">谨慎</span>}</div><div className="cs">{x.path}</div></div>
-      <div className="csz"><div className="big">{fmt(x.size)}</div><div className="small">{x.category === "safe" ? "可清" : "谨慎"}</div></div>
-      <button className="gh sm" disabled={busy} onClick={() => x.category === "cautious" ? openAged(x.path) : setConfirm([x.path])}>{x.category === "cautious" ? "智能清理" : "清理"}</button>
-    </div>
-  );
+  function categoryBadge(x: CacheItem) {
+    if (x.category === "history") return <span className="bd w">历史版本</span>;
+    if (x.category === "temp") return <span className="bd w">临时文件</span>;
+    if (x.category === "cautious") return <span className="bd w">谨慎</span>;
+    return null;
+  }
+
+  function categoryHint(x: CacheItem) {
+    if (x.category === "history") return "手动清理";
+    if (x.category === "temp") return "可清";
+    if (x.category === "cautious") return "谨慎";
+    return "可清";
+  }
+
+  function rowStyle(x: CacheItem) {
+    if (x.category === "safe") return undefined;
+    return { boxShadow: "inset 3px 0 0 var(--amber)", borderColor: "rgba(228,180,80,.3)" };
+  }
+
+  function row(x: CacheItem) {
+    const agedClean = x.category === "cautious";
+    return (
+      <div className="clrow" key={x.path} style={rowStyle(x)}>
+        <input type="checkbox" className="ck2" checked={sel.has(x.path)} onChange={() => toggle(x.path)} />
+        <span className={"av " + x.av}><i className={"ti " + x.icon} /></span>
+        <div className="ct2"><div className="ch">{x.name} {categoryBadge(x)}</div><div className="cs">{x.path}</div></div>
+        <div className="csz"><div className="big">{fmt(x.size)}</div><div className="small">{categoryHint(x)}</div></div>
+        <button className="gh sm" disabled={busy} onClick={() => agedClean ? openAged(x.path) : setConfirm([x.path])}>{agedClean ? "智能清理" : "清理"}</button>
+      </div>
+    );
+  }
 
   return (
     <>
       <div className="clhero">
         <span className="clic"><i className="ti ti-database" /></span>
         <div className="clt">
-          <div className="t1">开发缓存共占用 {fmt(total)} · 可安全释放 <b>{fmt(safeTotal)}</b></div>
-          <div className="t2">勾选后清理（默认勾选安全项）；谨慎项非纯缓存 / 重下慢，需手动勾。删除只清缓存，不影响项目与已装版本。</div>
+          <div className="t1">可清理项共占用 {fmt(total)} · 可安全释放 <b>{fmt(safeTotal)}</b></div>
+          <div className="t2">默认勾选纯缓存；JetBrains 历史版本、Windows 临时目录和谨慎项需手动选择。临时目录中被占用的文件会自动跳过。</div>
         </div>
         <button className="pr" disabled={busy || sel.size === 0} onClick={() => setConfirm([...sel])}><i className="ti ti-eraser" /> 清理所选（{fmt(selTotal)}）</button>
       </div>
 
       {items.length === 0 && (
-        <div className="stub"><div className="si"><i className="ti ti-sparkles" /></div><h2>很干净</h2><p>没扫到可清理的开发缓存。</p></div>
+        <div className="stub"><div className="si"><i className="ti ti-sparkles" /></div><h2>很干净</h2><p>没扫到可清理项。</p></div>
       )}
-      {safe.length > 0 && <div className="seclabel"><i className="ti ti-shield-check" style={{ color: "#6bcf86" }} /> 可安全清理（纯缓存，删了会自动重下）</div>}
+      {safe.length > 0 && <div className="seclabel"><i className="ti ti-shield-check" style={{ color: "#6bcf86" }} /> 可安全清理（纯缓存，删后会自动重新获取）</div>}
       {safe.map(row)}
+      {history.length > 0 && <div className="seclabel"><i className="ti ti-code" style={{ color: "#e4b450" }} /> JetBrains IDE 历史版本（保留同产品最新版本）</div>}
+      {history.map(row)}
+      {temp.length > 0 && <div className="seclabel"><i className="ti ti-trash" style={{ color: "#e4b450" }} /> Windows 临时目录（超过 1 GB 才显示）</div>}
+      {temp.map(row)}
       {cautious.length > 0 && <div className="seclabel"><i className="ti ti-alert-triangle" style={{ color: "#e4b450" }} /> 谨慎（非纯缓存 / 重下很慢）</div>}
       {cautious.map(row)}
 
       {confirm && (
         <ConfirmModal title="确认清理" icon="ti-eraser"
-          message={<>将清理 <b style={{ color: "var(--tx)" }}>{confirm.length} 项</b>，释放约 <b style={{ color: "#6bcf86" }}>{fmt(items.filter((x) => confirm.includes(x.path)).reduce((a, x) => a + x.size, 0))}</b>。<br />缓存类删除后下次会自动重新下载；谨慎项（如本地仓库 / 模型）重新获取较慢，请确认。</>}
+          message={<>将清理 <b style={{ color: "var(--tx)" }}>{confirm.length} 项</b>，预计释放 <b style={{ color: "#6bcf86" }}>{fmt(items.filter((x) => confirm.includes(x.path)).reduce((a, x) => a + x.size, 0))}</b>。<br />缓存和临时目录会清理目录内容；JetBrains 历史版本会删除旧版本目录；被系统占用的临时文件会自动跳过。</>}
           confirmLabel={busy ? "清理中…" : "清理"} busy={busy} onConfirm={() => del(confirm)} onClose={() => setConfirm(null)} />
       )}
 

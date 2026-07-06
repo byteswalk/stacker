@@ -1,7 +1,7 @@
 //! 磁盘清理：扫描各开发生态的缓存目录占用，分"可安全清理 / 谨慎"，按需删除。
-//! 删除只清目录"内容"、保留目录本身（工具会自动重建）；只允许删已知候选路径。
+//! 删除只允许处理已知候选路径；缓存默认清目录内容，历史版本目录可整目录删除。
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
@@ -14,7 +14,7 @@ pub struct CacheItem {
     pub name: String,
     pub path: String,
     pub size: u64,        // 字节
-    pub category: String, // "safe" | "cautious"
+    pub category: String, // "safe" | "cautious" | "history" | "temp"
     pub icon: String,
     pub av: String,
 }
@@ -24,6 +24,9 @@ fn home() -> PathBuf {
 }
 fn lad() -> PathBuf {
     dirs::data_local_dir().unwrap_or_default()
+}
+fn rad() -> PathBuf {
+    dirs::data_dir().unwrap_or_default()
 }
 fn envp(k: &str) -> Option<PathBuf> {
     std::env::var(k)
@@ -53,6 +56,17 @@ struct Spec {
     icon: &'static str,
     av: &'static str,
     cands: Vec<PathBuf>,
+}
+
+#[derive(Clone, Copy)]
+enum DeleteMode {
+    Contents,
+    WholeDir,
+}
+
+struct ScanEntry {
+    item: CacheItem,
+    mode: DeleteMode,
 }
 
 fn specs() -> Vec<Spec> {
@@ -158,8 +172,7 @@ fn specs() -> Vec<Spec> {
     ]
 }
 
-#[tauri::command]
-pub fn cleanup_scan() -> Vec<CacheItem> {
+fn spec_entries() -> Vec<ScanEntry> {
     specs()
         .into_iter()
         .filter_map(|s| {
@@ -168,43 +181,207 @@ pub fn cleanup_scan() -> Vec<CacheItem> {
             if size == 0 {
                 return None;
             }
-            Some(CacheItem {
-                id: s.id.into(),
-                name: s.name.into(),
-                path: p.to_string_lossy().into_owned(),
-                size,
-                category: s.category.into(),
-                icon: s.icon.into(),
-                av: s.av.into(),
+            Some(ScanEntry {
+                item: CacheItem {
+                    id: s.id.into(),
+                    name: s.name.into(),
+                    path: p.to_string_lossy().into_owned(),
+                    size,
+                    category: s.category.into(),
+                    icon: s.icon.into(),
+                    av: s.av.into(),
+                },
+                mode: DeleteMode::Contents,
             })
         })
         .collect()
 }
 
-// 删除一批已知候选目录的内容（保留目录本身）。返回释放字节数。
+fn version_key(s: &str) -> Vec<u32> {
+    s.split(|c: char| !c.is_ascii_digit())
+        .filter(|p| !p.is_empty())
+        .filter_map(|p| p.parse::<u32>().ok())
+        .collect()
+}
+
+fn split_versioned_dir(name: &str) -> Option<(String, String)> {
+    let idx = name.find(|c: char| c.is_ascii_digit())?;
+    if idx == 0 || idx >= name.len() {
+        return None;
+    }
+    let product = name[..idx].trim_matches(['-', '_', '.', ' ']).to_string();
+    let version = name[idx..].trim().to_string();
+    if product.is_empty() || version_key(&version).is_empty() {
+        return None;
+    }
+    Some((product, version))
+}
+
+fn jetbrains_history_entries() -> Vec<ScanEntry> {
+    let roots = [
+        ("Local", lad().join("JetBrains")),
+        ("Roaming", rad().join("JetBrains")),
+    ];
+    let mut out = Vec::new();
+    for (scope, root) in roots {
+        let Ok(rd) = fs::read_dir(&root) else {
+            continue;
+        };
+        let mut groups: HashMap<String, Vec<(PathBuf, Vec<u32>, String, String)>> = HashMap::new();
+        for ent in rd.flatten() {
+            let path = ent.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let name = ent.file_name().to_string_lossy().to_string();
+            let Some((product, version)) = split_versioned_dir(&name) else {
+                continue;
+            };
+            groups
+                .entry(product)
+                .or_default()
+                .push((path, version_key(&version), version, name));
+        }
+        for (product, mut dirs) in groups {
+            if dirs.len() <= 1 {
+                continue;
+            }
+            dirs.sort_by(|a, b| a.1.cmp(&b.1).then(a.3.cmp(&b.3)));
+            let keep = dirs.last().map(|d| d.3.clone()).unwrap_or_default();
+            for (path, _, version, name) in dirs.into_iter().filter(|d| d.3 != keep) {
+                let size = dir_size(&path);
+                if size == 0 {
+                    continue;
+                }
+                out.push(ScanEntry {
+                    item: CacheItem {
+                        id: format!("jetbrains-history:{scope}:{name}"),
+                        name: format!("JetBrains 历史版本 · {product} {version}"),
+                        path: path.to_string_lossy().into_owned(),
+                        size,
+                        category: "history".into(),
+                        icon: "ti-code".into(),
+                        av: "st".into(),
+                    },
+                    mode: DeleteMode::WholeDir,
+                });
+            }
+        }
+    }
+    out
+}
+
+fn temp_candidates() -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    if let Some(t) = envp("TEMP").or_else(|| envp("TMP")) {
+        out.push(t);
+    }
+    out.push(lad().join("Temp"));
+    if let Some(system_root) = envp("SystemRoot").or_else(|| envp("WINDIR")) {
+        out.push(system_root.join("Temp"));
+    }
+    let mut seen = HashSet::new();
+    out.into_iter()
+        .filter(|p| seen.insert(p.to_string_lossy().to_ascii_lowercase()))
+        .collect()
+}
+
+fn temp_entries() -> Vec<ScanEntry> {
+    const GB: u64 = 1024 * 1024 * 1024;
+    temp_candidates()
+        .into_iter()
+        .filter(|p| p.is_dir())
+        .filter_map(|p| {
+            let size = dir_size(&p);
+            if size <= GB {
+                return None;
+            }
+            let is_system = p
+                .to_string_lossy()
+                .to_ascii_lowercase()
+                .contains("\\windows\\temp");
+            Some(ScanEntry {
+                item: CacheItem {
+                    id: if is_system {
+                        "windows-temp".into()
+                    } else {
+                        "user-temp".into()
+                    },
+                    name: if is_system {
+                        "Windows 临时目录".into()
+                    } else {
+                        "用户临时目录".into()
+                    },
+                    path: p.to_string_lossy().into_owned(),
+                    size,
+                    category: "temp".into(),
+                    icon: "ti-trash".into(),
+                    av: "st".into(),
+                },
+                mode: DeleteMode::Contents,
+            })
+        })
+        .collect()
+}
+
+fn scan_entries() -> Vec<ScanEntry> {
+    let mut out = spec_entries();
+    out.extend(jetbrains_history_entries());
+    out.extend(temp_entries());
+    out
+}
+
+#[tauri::command]
+pub fn cleanup_scan() -> Vec<CacheItem> {
+    scan_entries().into_iter().map(|e| e.item).collect()
+}
+
+fn delete_contents(path: &Path) -> u64 {
+    let mut freed = 0u64;
+    if let Ok(rd) = fs::read_dir(path) {
+        for entry in rd.flatten() {
+            let ep = entry.path();
+            if ep.is_dir() {
+                freed += delete_contents(&ep);
+                let _ = fs::remove_dir(&ep);
+            } else if let Ok(meta) = ep.metadata() {
+                let len = meta.len();
+                if fs::remove_file(&ep).is_ok() {
+                    freed += len;
+                }
+            }
+        }
+    }
+    freed
+}
+
+// 删除一批当前扫描出来的目录。缓存/临时目录只清内容，历史版本目录整目录删除。
 fn delete_known_paths(paths: Vec<String>) -> Result<u64, String> {
-    let known: HashSet<String> = specs()
-        .iter()
-        .flat_map(|s| s.cands.iter().map(|p| p.to_string_lossy().into_owned()))
+    let known: HashMap<String, DeleteMode> = scan_entries()
+        .into_iter()
+        .map(|entry| (entry.item.path, entry.mode))
         .collect();
     let mut freed = 0u64;
     for p in paths {
-        if !known.contains(&p) {
+        let Some(mode) = known.get(&p).copied() else {
             return Err(format!("拒绝删除未知路径：{p}"));
-        }
+        };
         let path = PathBuf::from(&p);
         if !path.exists() {
             continue;
         }
-        freed += dir_size(&path);
-        if let Ok(rd) = fs::read_dir(&path) {
-            for entry in rd.flatten() {
-                let ep = entry.path();
-                let _ = if ep.is_dir() {
-                    fs::remove_dir_all(&ep)
+        match mode {
+            DeleteMode::Contents => {
+                freed += delete_contents(&path);
+            }
+            DeleteMode::WholeDir => {
+                let size = dir_size(&path);
+                if fs::remove_dir_all(&path).is_ok() {
+                    freed += size;
                 } else {
-                    fs::remove_file(&ep)
-                };
+                    freed += delete_contents(&path);
+                    let _ = fs::remove_dir(&path);
+                }
             }
         }
     }
@@ -236,9 +413,9 @@ pub async fn cleanup_delete_safe() -> Result<u64, String> {
 }
 
 fn is_known(path: &str) -> bool {
-    specs()
-        .iter()
-        .any(|s| s.cands.iter().any(|p| p.to_string_lossy() == path))
+    scan_entries()
+        .into_iter()
+        .any(|entry| entry.item.path == path)
 }
 
 #[derive(Serialize)]
