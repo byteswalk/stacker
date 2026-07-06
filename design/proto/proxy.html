@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>终端代理 · Stacker 原型</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.31.0/dist/tabler-icons.min.css">
+<link rel="stylesheet" href="app.css">
+<style>
+  /* 终端代理专用：状态 hero + 分区卡片 */
+  .a .pxhero{ display:flex; align-items:center; gap:15px; border-radius:14px; padding:18px 20px; margin-bottom:14px;
+    border:.5px solid var(--bd); background:linear-gradient(105deg,rgba(106,176,245,.10),rgba(106,176,245,.02)); }
+  .a .pxhero.on{ background:linear-gradient(105deg,rgba(107,207,134,.12),rgba(107,207,134,.02)); border-color:rgba(107,207,134,.3); }
+  .a .pxhero .pxic{ width:46px; height:46px; border-radius:13px; background:#243a4a; color:#6ab0f5;
+    display:flex; align-items:center; justify-content:center; font-size:23px; flex-shrink:0; }
+  .a .pxhero.on .pxic{ background:rgba(107,207,134,.16); color:#6bcf86; }
+  .a .pxhero .pxt{ flex:1; min-width:0; }
+  .a .pxhero .pxname{ font-size:16px; font-weight:600; display:flex; align-items:center; gap:9px; }
+  .a .pxhero .pxstat{ font-size:11.5px; padding:2px 9px; border-radius:7px; font-weight:500; }
+  .a .pxhero .pxstat.off{ background:rgba(255,255,255,.08); color:var(--mut); }
+  .a .pxhero .pxstat.on{ background:rgba(107,207,134,.16); color:#6bcf86; }
+  .a .pxhero .pxsub{ font-size:12.5px; color:var(--mut); margin-top:5px; line-height:1.5; }
+  .a .pxhero .pxsub .code{ font-family:var(--font-mono); color:#9fb0c4; }
+  .a .sw.lg{ width:50px; height:28px; flex-shrink:0; }
+  .a .sw.lg .tk:before{ width:22px; height:22px; }
+  .a .sw.lg input:checked + .tk:before{ transform:translateX(22px); }
+  .a .pxcard{ background:var(--card); border:.5px solid var(--bd); border-radius:12px; padding:15px 16px; margin-bottom:12px; }
+  .a .pxsec{ font-size:13px; font-weight:600; display:flex; align-items:center; gap:8px; margin-bottom:11px; }
+  .a .pxsec i{ color:var(--mut); }
+  .a .pxsec .pxhint{ font-size:11px; color:var(--mut); font-weight:400; }
+</style>
+</head>
+<body>
+<div class="page">
+  <p class="crumb"><a href="index.html">← 原型集</a> · 终端代理</p>
+  <h1>终端代理</h1>
+  <p class="lead">只让<b>终端</b>走代理：设 HTTP_PROXY / HTTPS_PROXY / ALL_PROXY（覆盖约 95% CLI）。配套 <b>NO_PROXY 直连白名单</b>（随换源自动跟随，国内源永不绕境外）+ <b>Maven/Gradle 单独写配置</b>（JVM 不读环境变量）+ <b>三 shell 立即生效片段</b>。进页面先<b>检测当前状态</b>显示「未开启 / 已开启」。共 3 帧。</p>
+
+  <!-- 帧1：未开启（已检测） -->
+  <div class="frame">
+    <div class="cap"><span class="num">1</span><span class="ttl">未开启（进页已检测）</span><span class="note">检测到本机代理端口，但环境变量未设 → 未开启</span></div>
+    <div class="a short">
+      <div class="side">
+        <div class="brand"><span class="logo"><i class="ti ti-hexagon-letter-s"></i></span> Stacker</div>
+        <nav>
+          <button class="ni"><i class="ti ti-layout-dashboard"></i> 概览</button>
+          <button class="ni"><i class="ti ti-brand-python"></i> Python</button>
+          <button class="ni"><i class="ti ti-brand-nodejs"></i> Node</button>
+          <button class="ni"><i class="ti ti-coffee"></i> Java</button>
+          <button class="ni"><i class="ti ti-feather"></i> Maven</button>
+          <button class="ni"><i class="ti ti-box"></i> Gradle</button>
+          <button class="ni"><i class="ti ti-brand-golang"></i> Go</button>
+          <button class="ni"><i class="ti ti-brand-rust"></i> Rust</button>
+          <div class="navsep"></div>
+          <button class="ni on"><i class="ti ti-world-bolt"></i> 终端代理</button>
+          <button class="ni"><i class="ti ti-eraser"></i> 磁盘清理</button>
+        </nav>
+        <div class="sidefoot">
+          <button class="ni"><i class="ti ti-history"></i> 历史</button>
+          <button class="ni"><i class="ti ti-settings"></i> 设置</button>
+        </div>
+      </div>
+      <div class="main">
+        <div class="hd"><div class="htitle"><span class="ttl"><span class="eco av px"><i class="ti ti-world-bolt"></i></span> 终端代理</span></div></div>
+        <div class="content">
+          <div class="pxhero">
+            <span class="pxic"><i class="ti ti-world-bolt"></i></span>
+            <div class="pxt">
+              <div class="pxname">终端代理 <span class="pxstat off">未开启</span></div>
+              <div class="pxsub"><i class="ti ti-radar-2" style="color:#6ab0f5;"></i> 已检测到本机代理：<b style="color:#c7ccd2;">Clash mixed-port <span class="code">127.0.0.1:7890</span></b> · 当前环境变量未设代理，开启后对新终端生效</div>
+            </div>
+            <label class="sw lg"><input type="checkbox"><span class="tk"></span></label>
+          </div>
+          <div class="callout">
+            <i class="ti ti-shield-half"></i>
+            <div><b>为什么用环境变量而非 TUN？</b> 本工具只让<b>终端</b>走代理，精确可控，不接管全局流量、不必担心系统其他程序意外占用代理。若你不在意这些，在代理软件中开启 TUN 模式更省事。</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 帧2：已开启（完整） -->
+  <div class="frame">
+    <div class="cap"><span class="num">2</span><span class="ttl">已开启（完整）</span><span class="tag ok">已开启</span><span class="note">地址 + Maven/Gradle 选项 + NO_PROXY 白名单 + 立即生效</span></div>
+    <div class="a">
+      <div class="side">
+        <div class="brand"><span class="logo"><i class="ti ti-hexagon-letter-s"></i></span> Stacker</div>
+        <nav>
+          <button class="ni"><i class="ti ti-layout-dashboard"></i> 概览</button>
+          <button class="ni"><i class="ti ti-brand-python"></i> Python</button>
+          <button class="ni"><i class="ti ti-brand-nodejs"></i> Node</button>
+          <button class="ni"><i class="ti ti-coffee"></i> Java</button>
+          <button class="ni"><i class="ti ti-feather"></i> Maven</button>
+          <button class="ni"><i class="ti ti-box"></i> Gradle</button>
+          <button class="ni"><i class="ti ti-brand-golang"></i> Go</button>
+          <button class="ni"><i class="ti ti-brand-rust"></i> Rust</button>
+          <div class="navsep"></div>
+          <button class="ni on"><i class="ti ti-world-bolt"></i> 终端代理</button>
+          <button class="ni"><i class="ti ti-eraser"></i> 磁盘清理</button>
+        </nav>
+        <div class="sidefoot">
+          <button class="ni"><i class="ti ti-history"></i> 历史</button>
+          <button class="ni"><i class="ti ti-settings"></i> 设置</button>
+        </div>
+      </div>
+      <div class="main">
+        <div class="hd"><div class="htitle"><span class="ttl"><span class="eco av px"><i class="ti ti-world-bolt"></i></span> 终端代理</span></div></div>
+        <div class="content">
+          <div class="pxhero on">
+            <span class="pxic"><i class="ti ti-world-bolt"></i></span>
+            <div class="pxt">
+              <div class="pxname">终端代理 <span class="pxstat on">已开启</span></div>
+              <div class="pxsub">已设 <span class="code">HTTP_PROXY</span> / <span class="code">HTTPS_PROXY</span> / <span class="code">ALL_PROXY</span>（用户级环境变量）· 仅对新开终端自动生效</div>
+            </div>
+            <label class="sw lg"><input type="checkbox" checked><span class="tk"></span></label>
+          </div>
+
+          <div class="pxcard">
+            <div class="pxsec"><i class="ti ti-plug"></i> 代理地址</div>
+            <div class="bf" style="margin-bottom:0;">
+              <input class="ip" value="127.0.0.1"><span class="cl">:</span><input class="ip sm" value="7890">
+              <label class="ck"><input type="checkbox"> 同时为 Maven / Gradle 配置代理 <span class="ckh">（JVM 不读环境变量，需写 settings.xml / gradle.properties）</span></label>
+            </div>
+          </div>
+
+          <div class="pxcard">
+            <div class="pxsec"><i class="ti ti-route-off"></i> 直连白名单 NO_PROXY <span class="pxhint">名单内主机直连、不走代理 → 国内源永不绕境外</span></div>
+            <div class="chips" style="margin-bottom:11px;">
+              <span class="chip auto">localhost <span class="tag">自动</span></span>
+              <span class="chip auto">127.0.0.1 <span class="tag">自动</span></span>
+              <span class="chip auto">pypi.tuna.tsinghua.edu.cn <span class="tag">自动 · 跟随换源</span></span>
+              <span class="chip auto">npmmirror.com <span class="tag">自动 · 跟随换源</span></span>
+              <span class="chip auto">goproxy.cn <span class="tag">自动 · 跟随换源</span></span>
+              <span class="chip">nexus.mycorp.com <i class="ti ti-x x"></i></span>
+              <span class="chip">*.corp.local <i class="ti ti-x x"></i></span>
+            </div>
+            <div class="npadd"><input class="ip wide" placeholder="追加域名 / 主机，如 gitlab.mycorp.com"><button class="gh sm">添加</button></div>
+          </div>
+
+          <div class="pxcard">
+            <div class="pxsec"><i class="ti ti-terminal-2"></i> 让已打开的终端立即生效</div>
+            <div style="font-size:12px;color:var(--mut);line-height:1.65;margin-bottom:11px;">主开关修改的是环境变量，<b style="color:#c7ccd2;">仅对新开</b>的终端生效。已经打开的窗口，在该窗口执行一次对应片段即可立即生效，无需重开。</div>
+            <div class="anbtns" style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button class="gh sm"><i class="ti ti-code"></i> 查看三 shell 片段</button>
+              <button class="gh sm"><i class="ti ti-file-code"></i> 生成 proxy-on / off 脚本</button>
+              <button class="gh sm"><i class="ti ti-copy"></i> 复制启用命令</button>
+            </div>
+          </div>
+
+          <div class="callout">
+            <i class="ti ti-shield-half"></i>
+            <div><b>为什么用环境变量而非 TUN？</b> 只让<b>终端</b>走代理、精确可控、不怕系统别处偷跑流量；不在意就去代理软件开 TUN（全系统透明代理，无需环境变量）。</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 帧3：三 shell 立即生效片段弹窗 -->
+  <div class="frame">
+    <div class="cap"><span class="num">3</span><span class="ttl">立即生效片段 · 三 shell 切换</span><span class="tag">弹窗</span><span class="note">PowerShell / Git Bash / cmd 各给启用 / 停用命令，一键复制</span></div>
+    <div class="a short">
+      <div class="side" style="filter:brightness(.7);">
+        <div class="brand"><span class="logo"><i class="ti ti-hexagon-letter-s"></i></span> Stacker</div>
+        <nav><button class="ni on"><i class="ti ti-world-bolt"></i> 终端代理</button></nav>
+      </div>
+      <div class="main"><div class="hd"><div class="htitle"><span class="ttl"><span class="eco av px"><i class="ti ti-world-bolt"></i></span> 终端代理</span></div></div><div class="content"></div></div>
+      <div class="modalmask">
+        <div class="modal wide">
+          <div class="modalhd"><span><i class="ti ti-terminal-2"></i> 立即生效片段</span><button class="ic"><i class="ti ti-x"></i></button></div>
+          <div class="modalsub"><span>在已打开的对应终端中粘贴执行；NO_PROXY 已与白名单同步</span></div>
+          <div class="modalbody" style="gap:12px;">
+            <div class="seg" style="align-self:flex-start;"><button class="on"><i class="ti ti-brand-powershell"></i> PowerShell</button><button><i class="ti ti-brand-git"></i> Git Bash</button><button><i class="ti ti-square-letter-c"></i> cmd</button></div>
+            <div>
+              <div style="font-size:11.5px;color:#828995;margin-bottom:5px;">启用</div>
+              <div class="console" style="max-height:none;">$env:HTTP_PROXY="http://127.0.0.1:7890"
+$env:HTTPS_PROXY="http://127.0.0.1:7890"
+$env:ALL_PROXY="socks5://127.0.0.1:7890"
+$env:NO_PROXY="localhost,127.0.0.1,npmmirror.com,goproxy.cn,pypi.tuna.tsinghua.edu.cn"</div>
+            </div>
+            <div>
+              <div style="font-size:11.5px;color:#828995;margin-bottom:5px;">停用</div>
+              <div class="console" style="max-height:none;">Remove-Item Env:HTTP_PROXY,Env:HTTPS_PROXY,Env:ALL_PROXY,Env:NO_PROXY -ErrorAction SilentlyContinue</div>
+            </div>
+          </div>
+          <div class="modalft"><button class="gh sm">关闭</button><button class="gh sm"><i class="ti ti-copy"></i> 复制停用</button><button class="pr sm"><i class="ti ti-copy"></i> 复制启用</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,37 @@
+[package]
+name = "stacker"
+version = "0.1.0"
+description = "Stacker — 开发生态管理器 / Dev Ecosystem Manager"
+authors = ["Stacker"]
+license = "MIT"
+repository = ""
+edition = "2021"
+rust-version = "1.77.2"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "stacker_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.2", features = [] }
+
+[dependencies]
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+log = "0.4"
+tauri = { version = "2.11.2", features = ["tray-icon"] }
+tauri-plugin-log = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-autostart = "2"
+dirs = "5"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+rust-ini = "0.21"
+jwalk = "0.8"
+ureq = "2"
+zip = "2"
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"
+winapi = { version = "0.3", features = ["winuser", "fileapi", "shellapi", "synchapi", "processthreadsapi", "handleapi", "winbase", "dpapi", "wincrypt", "minwindef"] }

@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Stacker</title>
+    <style>
+      html, body, #root { height: 100%; margin: 0; background: #07090d; color: #e7e9ec; }
+      body { overflow: hidden; font-family: system-ui, "Microsoft YaHei", sans-serif; }
+      .boot {
+        height: 100%;
+        display: grid;
+        place-items: center;
+        background: #13161c;
+      }
+      .bootbox {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        color: #aeb6c0;
+        font-size: 13px;
+      }
+      .bootspin {
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        border: 2px solid rgba(255,255,255,.14);
+        border-top-color: #f5821f;
+        animation: bootspin .8s linear infinite;
+      }
+      @keyframes bootspin { to { transform: rotate(360deg); } }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <div class="boot">
+        <div class="bootbox"><span class="bootspin"></span><span>Stacker 正在启动…</span></div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

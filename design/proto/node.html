@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Node · Stacker 原型</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.31.0/dist/tabler-icons.min.css">
+<link rel="stylesheet" href="app.css">
+<style>
+  /* shell 集成徽标，仅 Node 页用 */
+  .a .shells{ display:flex; gap:6px; flex-shrink:0; }
+  .a .shb{ display:inline-flex; align-items:center; gap:5px; font-size:11.5px; padding:3px 9px;
+    border-radius:7px; border:.5px solid var(--bd); }
+  .a .shb.ok{ background:rgba(107,207,134,.12); color:#6bcf86; border-color:rgba(107,207,134,.3); }
+  .a .shb.bad{ background:rgba(226,98,91,.1); color:#e98a84; border-color:rgba(226,98,91,.3); cursor:pointer; }
+  .a .shb.off{ background:rgba(255,255,255,.04); color:var(--mut); }
+</style>
+</head>
+<body>
+<div class="page">
+  <p class="crumb"><a href="index.html">← 原型集</a> · Node（fnm 接管样板页）</p>
+  <h1>Node 生态页</h1>
+  <p class="lead">「管理器托管」+ <b>fnm 接管</b>。fnm 通过 <b>shell 钩子</b>在每个终端将当前版本目录<b>前置</b>到 PATH 最前，因而优先于本机现有的 nvm / 手动安装的 node——无论现有环境多复杂都能接管。代价是必须注入 shell 集成，因此顶部设有一条 <b>shell 集成状态条</b>（这是 fnm 版判断"是否生效"的关键，取代了 nvm 的"被覆盖"判断）。共 7 扇帧 + 弹窗。</p>
+
+  <!-- 帧1：默认 -->
+  <div class="frame">
+    <div class="cap"><span class="num">1</span><span class="ttl">默认状态（fnm 已装、PS+Git Bash 集成 ✓、cmd 待修、已换源）</span></div>
+    <div class="a">
+      <div class="side">
+        <div class="brand"><span class="logo"><i class="ti ti-hexagon-letter-s"></i></span> Stacker</div>
+        <nav>
+          
+          <button class="ni"><i class="ti ti-layout-dashboard"></i> 概览</button>
+          <button class="ni"><i class="ti ti-brand-python"></i> Python</button>
+          <button class="ni on"><i class="ti ti-brand-nodejs"></i> Node</button>
+          <button class="ni"><i class="ti ti-coffee"></i> Java</button>
+          <button class="ni"><i class="ti ti-feather"></i> Maven</button>
+          <button class="ni"><i class="ti ti-box"></i> Gradle</button>
+          <button class="ni"><i class="ti ti-brand-golang"></i> Go</button>
+          <button class="ni"><i class="ti ti-brand-rust"></i> Rust</button>
+          <div class="navsep"></div>
+          <button class="ni"><i class="ti ti-world-bolt"></i> 终端代理</button>
+          <button class="ni"><i class="ti ti-eraser"></i> 磁盘清理</button>
+        </nav>
+        <div class="sidefoot">
+          <button class="ni"><i class="ti ti-history"></i> 历史</button>
+          <button class="ni"><i class="ti ti-settings"></i> 设置</button>
+        </div>
+      </div>
+      <div class="main">
+        <div class="hd">
+          <div class="htitle"><span class="ttl"><span class="eco av npm"><i class="ti ti-brand-nodejs"></i></span> Node</span></div>
+          <div class="hdright"><button class="gh sm"><i class="ti ti-bolt"></i> 切换最快源</button></div>
+        </div>
+        <div class="content">
+          <!-- shell 集成状态条 -->
+          <div class="banner gray" style="align-items:center;">
+            <i class="ti ti-terminal-2 lead"></i>
+            <div class="bt"><b>Shell 集成</b> —— fnm 通过它在每个终端前置 PATH 实现接管，仅已配置的 shell 生效。</div>
+            <div class="shells">
+              <span class="shb ok"><i class="ti ti-check"></i> PowerShell</span>
+              <span class="shb ok"><i class="ti ti-check"></i> Git Bash</span>
+              <span class="shb bad"><i class="ti ti-alert-triangle"></i> cmd · 启用(AutoRun)</span>
+            </div>
+          </div>
+          <div style="font-size:11.5px;color:#6a7180;line-height:1.6;margin:-4px 2px 8px;">cmd 没有 rc / profile，只能借 AutoRun 注册表启用，且仅"默认版本"生效；按目录自动切换（.node-version）需安装 Clink。AutoRun 会影响所有 cmd 会话——因此 cmd 为有限支持，建议优先使用 PowerShell / Git Bash。</div>
+
+          <!-- ① 版本 -->
+          <div class="grouphd">
+            <span class="gt"><i class="ti ti-stack-2"></i> 运行时版本 <span class="cnt">由 fnm 管理 · 3 个已安装</span></span>
+            <div class="ghr"><button class="gh xs"><i class="ti ti-refresh"></i> 刷新</button><button class="pr sm"><i class="ti ti-plus"></i> 安装新版本</button></div>
+          </div>
+          <div class="vrow cur">
+            <span class="ver">v22.21.1</span>
+            <span class="meta">当前默认（fnm default）· 已前置到 PATH，优先于任何手动安装的 node · D:\fnm\node-versions\v22.21.1</span>
+            <div class="acts"><span class="lts">LTS</span><span class="live"><i class="ti ti-circle-check"></i> 生效中</span></div>
+          </div>
+          <div class="vrow">
+            <span class="ver">v20.18.1</span>
+            <span class="meta">D:\fnm\node-versions\v20.18.1</span>
+            <div class="acts"><span class="lts">LTS</span><button class="pr sm">设为默认</button><button class="spd" title="卸载"><i class="ti ti-trash"></i></button></div>
+          </div>
+          <div class="vrow">
+            <span class="ver">v18.20.5</span>
+            <span class="meta">D:\fnm\node-versions\v18.20.5</span>
+            <div class="acts"><button class="pr sm">设为默认</button><button class="spd" title="卸载"><i class="ti ti-trash"></i></button></div>
+          </div>
+
+          <!-- ② 包源 -->
+          <div class="grouphd" style="margin-top:18px;">
+            <span class="gt"><i class="ti ti-package"></i> 包源 / 镜像</span>
+            <span class="hint2">npm / pnpm 共用 .npmrc · 源在「设置」里维护，这里只选</span>
+          </div>
+          <div class="srcrow">
+            <span class="av npm"><i class="ti ti-brand-npm"></i></span>
+            <div class="mt"><div class="t">npm / pnpm <span class="bd g">已切国内</span></div><div class="s mono">写入 ~/.npmrc · registry = npmmirror.com</div></div>
+            <select><option>npmmirror（淘宝）</option><option>腾讯云</option><option>华为云</option><option>官方 registry.npmjs.org</option></select>
+            <button class="gh sm"><i class="ti ti-bolt"></i> 测速</button>
+            <button class="pr sm">应用</button>
+          </div>
+          <div class="srcrow">
+            <span class="av yn"><i class="ti ti-package"></i></span>
+            <div class="mt"><div class="t">yarn <span class="bd g">已切国内</span></div><div class="s mono">yarn config · npmRegistryServer = npmmirror</div></div>
+            <select><option>npmmirror（淘宝）</option><option>腾讯云</option><option>官方</option></select>
+            <button class="pr sm">应用</button>
+          </div>
+
+          <!-- 下载镜像折叠入口 -->
+          <div class="grouphd" style="margin-top:18px;"><span class="gt"><i class="ti ti-download"></i> 二进制下载镜像 <span class="cnt">换源无法解决的"附带二进制下载受阻"</span></span></div>
+          <div class="srcrow">
+            <span class="av el"><i class="ti ti-bolt"></i></span>
+            <div class="mt"><div class="t">Electron <span class="bd g">已加速</span></div><div class="s mono">ELECTRON_MIRROR → npmmirror.com/mirrors/electron/</div></div>
+            <label class="sw sm2"><input type="checkbox" checked><span class="tk"></span></label>
+          </div>
+          <div class="srcrow">
+            <span class="av el"><i class="ti ti-browser"></i></span>
+            <div class="mt"><div class="t">Puppeteer / Playwright <span class="bd n">默认</span></div><div class="s dim">下载 Chromium 经官方源（常超时）</div></div>
+            <label class="sw sm2"><input type="checkbox"><span class="tk"></span></label>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 帧2：shell 集成未装（fnm 不生效） -->
+  <div class="frame">
+    <div class="cap"><span class="num">2</span><span class="ttl">fnm 已安装，但未写入 shell 集成 → 切换不会生效</span><span class="tag warn">告警态</span><span class="note">这是 fnm 版最关键的"为何不生效"，取代 nvm 的"被手动 node 覆盖"</span></div>
+    <div class="a short">
+      <div class="side">
+        <div class="brand"><span class="logo"><i class="ti ti-hexagon-letter-s"></i></span> Stacker</div>
+        <nav>
+          <button class="ni"><i class="ti ti-layout-dashboard"></i> 概览</button>
+          <button class="ni"><i class="ti ti-brand-python"></i> Python</button>
+          <button class="ni on"><i class="ti ti-brand-nodejs"></i> Node</button>
+          <button class="ni"><i class="ti ti-coffee"></i> Java</button>
+          <button class="ni"><i class="ti ti-feather"></i> Maven</button>
+          <button class="ni"><i class="ti ti-box"></i> Gradle</button>
+          <button class="ni"><i class="ti ti-brand-golang"></i> Go</button>
+          <button class="ni"><i class="ti ti-brand-rust"></i> Rust</button>
+        </nav>
+      </div>
+      <div class="main">
+        <div class="hd"><div class="htitle"><span class="ttl"><span class="eco av npm"><i class="ti ti-brand-nodejs"></i></span> Node</span></div></div>
+        <div class="content">
+          <div class="banner red" style="align-items:flex-start;">
+            <i class="ti ti-plug-connected-x lead"></i>
+            <div class="bt"><b>fnm 已安装，但尚未写入任何 shell 集成 → 当前切换版本不会生效。</b><br>fnm 不同于 nvm 修改全局 symlink，它必须在 shell 启动时执行 <span class="code">fnm env</span> 才会前置 PATH。请先将集成写入终端配置。</div>
+            <div class="acts"><button class="pr sm"><i class="ti ti-plug"></i> 一键写入集成</button></div>
+          </div>
+          <div class="shells" style="margin:2px 2px 10px;gap:8px;">
+            <span class="shb off"><i class="ti ti-x"></i> PowerShell 未写入</span>
+            <span class="shb off"><i class="ti ti-x"></i> Git Bash 未写入</span>
+            <span class="shb off"><i class="ti ti-x"></i> cmd 未写入</span>
+          </div>
+          <div class="callout"><i class="ti ti-info-circle"></i><div><b>一键写入会做什么？</b> 向 <span style="font-family:var(--font-mono)">$PROFILE</span>（PowerShell）和 <span style="font-family:var(--font-mono)">~/.bashrc</span>（Git Bash）追加一行 <span style="font-family:var(--font-mono)">fnm env --use-on-cd | Invoke-Expression</span>，这两者完整支持。<b>cmd 为有限支持</b>：无 rc 文件，只能写入 AutoRun 注册表键，仅"默认版本"生效，按目录自动切换需 Clink，且 AutoRun 会影响所有 cmd 会话。改动均记入「历史」，可还原。</div></div>
+          <div class="grouphd" style="margin-top:8px;"><span class="gt"><i class="ti ti-stack-2"></i> 运行时版本</span></div>
+          <div class="vrow" style="opacity:.5;"><span class="ver">v22.21.1</span><span class="meta">已装但集成未生效，设默认无意义</span><div class="acts"><button class="pr sm" disabled>设为默认</button></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 帧3：未装 fnm，引导安装 -->
+  <div class="frame">
+    <div class="cap"><span class="num">3</span><span class="ttl">未安装 fnm —— 引导安装 + 写入集成（接管，不修改本机 nvm / 手动 node）</span><span class="note">换源区不依赖 fnm，照常可用</span></div>
+    <div class="a short">
+      <div class="side">
+        <div class="brand"><span class="logo"><i class="ti ti-hexagon-letter-s"></i></span> Stacker</div>
+        <nav>
+          <button class="ni"><i class="ti ti-layout-dashboard"></i> 概览</button>
+          <button class="ni"><i class="ti ti-brand-python"></i> Python</button>
+          <button class="ni on"><i class="ti ti-brand-nodejs"></i> Node</button>
+          <button class="ni"><i class="ti ti-coffee"></i> Java</button>
+          <button class="ni"><i class="ti ti-feather"></i> Maven</button>
+          <button class="ni"><i class="ti ti-box"></i> Gradle</button>
+          <button class="ni"><i class="ti ti-brand-golang"></i> Go</button>
+          <button class="ni"><i class="ti ti-brand-rust"></i> Rust</button>
+        </nav>
+      </div>
+      <div class="main">
+        <div class="hd"><div class="htitle"><span class="ttl"><span class="eco av npm"><i class="ti ti-brand-nodejs"></i></span> Node</span></div></div>
+        <div class="content">
+          <div class="grouphd"><span class="gt"><i class="ti ti-stack-2"></i> 运行时版本</span></div>
+          <div class="banner blue" style="flex-direction:column;align-items:stretch;gap:9px;">
+            <div style="display:flex;gap:11px;align-items:flex-start;">
+              <i class="ti ti-download lead"></i>
+              <div class="bt"><b>未检测到 fnm</b><br>使用 fnm 接管 Node 版本。本机现有 <b>手动安装的 node v22（C:\Program Files\nodejs）</b> 与 <b>已安装的 nvm-windows</b>——<b>Stacker 不会修改它们</b>，fnm 安装后通过 shell 前置 PATH 直接接管。</div>
+            </div>
+            <div style="display:flex;gap:8px;padding-left:29px;flex-wrap:wrap;">
+              <button class="pr sm"><i class="ti ti-download"></i> 安装 fnm 并写入集成</button>
+              <button class="gh sm">已装？指定路径</button>
+              <button class="gh sm">了解 fnm vs nvm</button>
+            </div>
+          </div>
+          <div class="banner amber"><i class="ti ti-alert-triangle lead"></i><div class="bt">检测到 PowerShell <span class="code">$PROFILE</span> 中已有 <b>nvm</b> 相关配置。fnm 集成会前置在其之前、优先生效；如需完全切换到 fnm，建议手动移除该 nvm 配置行（Stacker 不会擅自修改你的配置）。</div></div>
+
+          <div class="grouphd" style="margin-top:14px;"><span class="gt"><i class="ti ti-package"></i> 包源 / 镜像</span></div>
+          <div class="srcrow">
+            <span class="av npm"><i class="ti ti-brand-npm"></i></span>
+            <div class="mt"><div class="t">npm / pnpm <span class="bd n">官方</span></div><div class="s dim">作用于现有 node（不依赖 fnm）</div></div>
+            <select><option>npmmirror（淘宝）</option><option>腾讯云</option><option>官方</option></select>
+            <button class="pr sm">应用</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 帧4：设为默认 确认弹窗（含立即生效片段） -->
+  <div class="frame">
+    <div class="cap"><span class="num">4</span><span class="ttl">设为默认 · 确认弹窗（带"已开终端立即生效"片段）</span><span class="tag">弹窗</span><span class="note">fnm default 只对新终端生效；老窗口给三 shell 的 fnm use 片段</span></div>
+    <div class="a short">
+      <div class="side" style="filter:brightness(.7);">
+        <div class="brand"><span class="logo"><i class="ti ti-hexagon-letter-s"></i></span> Stacker</div>
+        <nav><button class="ni on"><i class="ti ti-brand-nodejs"></i> Node</button></nav>
+      </div>
+      <div class="main"><div class="hd"><div class="htitle"><span class="ttl"><span class="eco av npm"><i class="ti ti-brand-nodejs"></i></span> Node</span></div></div><div class="content"></div></div>
+      <div class="modalmask">
+        <div class="modal">
+          <div class="modalhd"><span><i class="ti ti-check"></i> 把默认 Node 切到 v20.18.1</span><button class="ic"><i class="ti ti-x"></i></button></div>
+          <div class="modalbody">
+            <div style="font-size:13px;line-height:1.7;color:#c7ccd2;">将运行 <span style="font-family:var(--font-mono);background:rgba(255,255,255,.07);padding:1px 6px;border-radius:5px;">fnm default v20.18.1</span>。<b>新开</b>的终端自动用 v20.18.1。</div>
+            <div class="banner gray" style="margin:0;"><i class="ti ti-terminal-2 lead"></i><div class="bt"><b>已经开着的终端</b>想立即切，在该窗口跑一下对应片段（无需重开）：</div></div>
+            <div class="seg" style="align-self:flex-start;"><button class="on">PowerShell</button><button>Git Bash</button><button>cmd</button></div>
+            <div class="console" style="max-height:none;"><span class="run">fnm use v20.18.1</span></div>
+          </div>
+          <div class="modalft"><button class="gh sm">取消</button><button class="gh sm"><i class="ti ti-copy"></i> 复制片段</button><button class="pr sm">设为默认</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 帧5：安装新版本弹窗 -->
+  <div class="frame">
+    <div class="cap"><span class="num">5</span><span class="ttl">安装新版本 · 弹窗</span><span class="tag">弹窗</span><span class="note">fnm ls-remote 的可装列表，LTS 过滤 + 搜索</span></div>
+    <div class="a short">
+      <div class="side" style="filter:brightness(.7);">
+        <div class="brand"><span class="logo"><i class="ti ti-hexagon-letter-s"></i></span> Stacker</div>
+        <nav><button class="ni on"><i class="ti ti-brand-nodejs"></i> Node</button></nav>
+      </div>
+      <div class="main"><div class="hd"><div class="htitle"><span class="ttl"><span class="eco av npm"><i class="ti ti-brand-nodejs"></i></span> Node</span></div></div><div class="content"></div></div>
+      <div class="modalmask">
+        <div class="modal">
+          <div class="modalhd"><span><i class="ti ti-plus"></i> 安装 Node 版本</span><button class="ic"><i class="ti ti-x"></i></button></div>
+          <div class="modalsub"><span>来自 fnm ls-remote · 下载走 npm 镜像（已套用 FNM_NODE_DIST_MIRROR）</span><label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" checked> 仅 LTS</label></div>
+          <div class="modalbody" style="gap:10px;">
+            <div class="field"><div class="row"><i class="ti ti-search" style="color:#828995;"></i><input class="ip full" placeholder="搜索版本号，如 22"></div></div>
+            <div style="display:flex;flex-direction:column;gap:5px;max-height:220px;overflow:auto;">
+              <div class="vrow" style="margin:0;"><span class="ver">v22.21.1</span><span class="meta">Jod</span><div class="acts"><span class="lts">LTS · 已装</span></div></div>
+              <div class="vrow" style="margin:0;"><span class="ver">v22.12.0</span><span class="meta">Jod</span><div class="acts"><span class="lts">LTS</span><button class="gh xs">安装</button></div></div>
+              <div class="vrow" style="margin:0;"><span class="ver">v20.18.1</span><span class="meta">Iron · 已装</span><div class="acts"><span class="lts">LTS</span></div></div>
+              <div class="vrow" style="margin:0;"><span class="ver">v18.20.5</span><span class="meta">Hydrogen · 已装</span><div class="acts"><span class="lts">LTS</span></div></div>
+              <div class="vrow" style="margin:0;"><span class="ver">v23.5.0</span><span class="meta">Current</span><div class="acts"><button class="gh xs">安装</button></div></div>
+            </div>
+          </div>
+          <div class="modalft"><button class="gh sm">关闭</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 帧6：下载镜像详情 -->
+  <div class="frame">
+    <div class="cap"><span class="num">6</span><span class="ttl">二进制下载镜像（展开）</span><span class="note">前端 / Electron 开发者的高频需求：换源无法解决的二进制下载</span></div>
+    <div class="a short">
+      <div class="side">
+        <div class="brand"><span class="logo"><i class="ti ti-hexagon-letter-s"></i></span> Stacker</div>
+        <nav>
+          <button class="ni"><i class="ti ti-layout-dashboard"></i> 概览</button>
+          <button class="ni"><i class="ti ti-brand-python"></i> Python</button>
+          <button class="ni on"><i class="ti ti-brand-nodejs"></i> Node</button>
+          <button class="ni"><i class="ti ti-coffee"></i> Java</button>
+          <button class="ni"><i class="ti ti-feather"></i> Maven</button>
+          <button class="ni"><i class="ti ti-box"></i> Gradle</button>
+          <button class="ni"><i class="ti ti-brand-golang"></i> Go</button>
+          <button class="ni"><i class="ti ti-brand-rust"></i> Rust</button>
+        </nav>
+      </div>
+      <div class="main">
+        <div class="hd"><div class="htitle"><span class="ttl"><span class="eco av npm"><i class="ti ti-brand-nodejs"></i></span> Node</span></div></div>
+        <div class="content">
+          <div class="grouphd"><span class="gt"><i class="ti ti-download"></i> 二进制下载镜像</span><span class="hint2">写用户级环境变量，新开终端生效</span></div>
+          <div class="srcrow">
+            <span class="av el"><i class="ti ti-bolt"></i></span>
+            <div class="mt"><div class="t">Electron <span class="bd g">已加速</span></div><div class="s mono">ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/</div></div>
+            <label class="sw sm2"><input type="checkbox" checked><span class="tk"></span></label>
+          </div>
+          <div class="srcrow">
+            <span class="av el"><i class="ti ti-browser"></i></span>
+            <div class="mt"><div class="t">Puppeteer <span class="bd n">默认</span></div><div class="s mono">PUPPETEER_DOWNLOAD_BASE_URL · 下 Chromium</div></div>
+            <label class="sw sm2"><input type="checkbox"><span class="tk"></span></label>
+          </div>
+          <div class="srcrow">
+            <span class="av el"><i class="ti ti-theater"></i></span>
+            <div class="mt"><div class="t">Playwright <span class="bd n">默认</span></div><div class="s mono">PLAYWRIGHT_DOWNLOAD_HOST · 下浏览器内核</div></div>
+            <label class="sw sm2"><input type="checkbox"><span class="tk"></span></label>
+          </div>
+          <div class="srcrow">
+            <span class="av hf"><i class="ti ti-package"></i></span>
+            <div class="mt"><div class="t">node-gyp / node-sass <span class="bd n">默认</span></div><div class="s mono">npm_config_disturl / SASS_BINARY_SITE · 编译期下载</div></div>
+            <label class="sw sm2"><input type="checkbox"><span class="tk"></span></label>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 帧7：npm 源覆盖 -->
+  <div class="frame">
+    <div class="cap"><span class="num">7</span><span class="ttl">npm 换源被覆盖（源覆盖仍存在，与版本无关）</span><span class="tag warn">告警态</span><span class="note">fnm 接管解决的是"版本生效"，但 npm 的"源生效"仍可能被项目 / 环境变量覆盖</span></div>
+    <div class="a short">
+      <div class="side">
+        <div class="brand"><span class="logo"><i class="ti ti-hexagon-letter-s"></i></span> Stacker</div>
+        <nav>
+          <button class="ni"><i class="ti ti-layout-dashboard"></i> 概览</button>
+          <button class="ni"><i class="ti ti-brand-python"></i> Python</button>
+          <button class="ni on"><i class="ti ti-brand-nodejs"></i> Node</button>
+          <button class="ni"><i class="ti ti-coffee"></i> Java</button>
+          <button class="ni"><i class="ti ti-feather"></i> Maven</button>
+          <button class="ni"><i class="ti ti-box"></i> Gradle</button>
+          <button class="ni"><i class="ti ti-brand-golang"></i> Go</button>
+          <button class="ni"><i class="ti ti-brand-rust"></i> Rust</button>
+        </nav>
+      </div>
+      <div class="main">
+        <div class="hd"><div class="htitle"><span class="ttl"><span class="eco av npm"><i class="ti ti-brand-nodejs"></i></span> Node</span></div></div>
+        <div class="content">
+          <div class="grouphd"><span class="gt"><i class="ti ti-package"></i> 包源 / 镜像</span></div>
+          <div class="srcrow" style="box-shadow:inset 3px 0 0 var(--amber);border-color:rgba(228,180,80,.4);">
+            <span class="av npm"><i class="ti ti-brand-npm"></i></span>
+            <div class="mt"><div class="t">npm / pnpm <span class="bd w">已切淘宝 · 但不生效</span></div><div class="s wrap dim">写了 ~/.npmrc，但实际被更高优先级覆盖</div></div>
+            <select><option>npmmirror（淘宝）</option><option>官方</option></select>
+            <button class="pr sm">应用</button>
+          </div>
+          <div class="banner amber">
+            <i class="ti ti-alert-triangle lead"></i>
+            <div class="bt"><b>环境变量 <span class="code">npm_config_registry</span> 优先级更高，正在覆盖 ~/.npmrc</b><br>当前值 <span class="code">https://registry.npmjs.org</span>（用户级）。npm 实际仍使用官方源。</div>
+            <div class="acts"><button class="gh sm danger">清除该变量</button></div>
+          </div>
+          <div class="banner gray">
+            <i class="ti ti-info-circle lead"></i>
+            <div class="bt"><b>项目级覆盖（仅提示，不会改动你的项目）</b><br>当前目录 <span class="code">.\.npmrc</span> 也设置了 registry，进入该项目会优先于用户级。Stacker 不会修改项目内文件。</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 帧8：npm 源测速弹窗 -->
+  <div class="frame">
+    <div class="cap"><span class="num">8</span><span class="ttl">npm 源测速 · 弹窗</span><span class="tag">弹窗</span><span class="note">点卡片设为 npm 默认源；官方仅基准</span></div>
+    <div class="a short">
+      <div class="side" style="filter:brightness(.7);">
+        <div class="brand"><span class="logo"><i class="ti ti-hexagon-letter-s"></i></span> Stacker</div>
+        <nav><button class="ni on"><i class="ti ti-brand-nodejs"></i> Node</button></nav>
+      </div>
+      <div class="main"><div class="hd"><div class="htitle"><span class="ttl"><span class="eco av npm"><i class="ti ti-brand-nodejs"></i></span> Node</span></div></div><div class="content"></div></div>
+      <div class="modalmask">
+        <div class="modal">
+          <div class="modalhd"><span><i class="ti ti-bolt"></i> npm 源测速</span><button class="ic"><i class="ti ti-x"></i></button></div>
+          <div class="modalsub"><span>点卡片设为 npm / pnpm 默认源</span><button class="gh sm"><i class="ti ti-bolt"></i> 全部重测</button></div>
+          <div class="modalbody">
+            <div class="ngrid">
+              <div class="ncard sel"><div class="nhd"><span class="ndot ok"></span><span class="nname">npmmirror（淘宝）</span></div><div class="ntags"><span class="ntag ok">95 ms</span><span class="ntag dn">默认源</span></div></div>
+              <div class="ncard"><div class="nhd"><span class="ndot ok"></span><span class="nname">腾讯云</span></div><div class="ntags"><span class="ntag ok">140 ms</span><span class="ntag">国内</span></div></div>
+              <div class="ncard"><div class="nhd"><span class="ndot mid"></span><span class="nname">华为云</span></div><div class="ntags"><span class="ntag mid">160 ms</span><span class="ntag">国内</span></div></div>
+              <div class="ncard"><div class="nhd"><span class="ndot ok"></span><span class="nname">公司 Nexus</span></div><div class="ntags"><span class="ntag ok">30 ms</span><span class="ntag">私有</span></div></div>
+              <div class="ncard base"><div class="nhd"><span class="ndot bad"></span><span class="nname">官方 registry</span></div><div class="ntags"><span class="ntag bad">420 ms</span><span class="ntag">基准</span></div></div>
+            </div>
+            <div class="banner gray" style="margin:0;"><i class="ti ti-file-text lead"></i><div class="bt">写入 ~/.npmrc 的 registry（pnpm 共用），仅改该行、保留其它配置，改前自动备份。</div></div>
+          </div>
+          <div class="modalft"><button class="gh sm">关闭</button><button class="pr sm">设为默认并应用</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 帧9：卸载版本确认弹窗 -->
+  <div class="frame">
+    <div class="cap"><span class="num">9</span><span class="ttl">卸载版本确认 · 弹窗</span><span class="tag warn">弹窗</span><span class="note">破坏性操作二次确认；当前默认版本禁止卸载</span></div>
+    <div class="a short">
+      <div class="side" style="filter:brightness(.7);">
+        <div class="brand"><span class="logo"><i class="ti ti-hexagon-letter-s"></i></span> Stacker</div>
+        <nav><button class="ni on"><i class="ti ti-brand-nodejs"></i> Node</button></nav>
+      </div>
+      <div class="main"><div class="hd"><div class="htitle"><span class="ttl"><span class="eco av npm"><i class="ti ti-brand-nodejs"></i></span> Node</span></div></div><div class="content"></div></div>
+      <div class="modalmask">
+        <div class="modal" style="max-width:420px;">
+          <div class="modalhd"><span><i class="ti ti-trash" style="color:#e2625b;"></i> 卸载 Node v18.20.5</span><button class="ic"><i class="ti ti-x"></i></button></div>
+          <div class="modalbody">
+            <div style="font-size:13px;line-height:1.7;color:#c7ccd2;">将运行 <span style="font-family:var(--font-mono);background:rgba(255,255,255,.07);padding:1px 6px;border-radius:5px;">fnm uninstall v18.20.5</span>，删除该版本及其全局安装的包。此操作不可撤销。</div>
+            <div class="banner gray" style="margin:10px 0 0;"><i class="ti ti-info-circle lead"></i><div class="bt">该版本不是当前默认，卸载不影响生效中的 v22.21.1。</div></div>
+          </div>
+          <div class="modalft"><button class="gh sm">取消</button><button class="pr sm" style="background:#d6463d;">确认卸载</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

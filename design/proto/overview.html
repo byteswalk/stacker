@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>概览 · Stacker 原型</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.31.0/dist/tabler-icons.min.css">
+<link rel="stylesheet" href="app.css">
+<style>
+  /* 体检 hero */
+  .a .checkup{ display:flex; align-items:center; gap:16px; border-radius:14px; padding:17px 20px; margin-bottom:14px;
+    border:.5px solid rgba(245,130,31,.28); background:linear-gradient(105deg,rgba(245,130,31,.13),rgba(245,130,31,.03)); }
+  .a .checkup.ok{ border-color:rgba(107,207,134,.3); background:linear-gradient(105deg,rgba(107,207,134,.12),rgba(107,207,134,.02)); }
+  .a .checkup .cnum{ width:52px; height:52px; border-radius:14px; flex-shrink:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; background:rgba(245,130,31,.16); color:#f5a45a; }
+  .a .checkup.ok .cnum{ background:rgba(107,207,134,.16); color:#6bcf86; }
+  .a .checkup .cnum b{ font-size:21px; line-height:1; } .a .checkup .cnum span{ font-size:9px; margin-top:2px; }
+  .a .checkup .ct{ flex:1; min-width:0; }
+  .a .checkup .ct .t1{ font-size:16px; font-weight:600; }
+  .a .checkup .ct .t2{ font-size:12.5px; color:var(--mut); margin-top:4px; }
+  .a .checkup .cacts{ display:flex; gap:8px; flex-shrink:0; align-items:center; }
+  /* 可优化项 */
+  .a .fixrow{ display:flex; align-items:center; gap:12px; background:var(--card); border:.5px solid var(--bd);
+    border-radius:11px; padding:11px 14px; margin-bottom:7px; }
+  .a .fixrow .fdot{ width:9px; height:9px; border-radius:50%; flex-shrink:0; }
+  .a .fixrow .fdot.warn{ background:#e2625b; } .a .fixrow .fdot.mid{ background:#e4b450; } .a .fixrow .fdot.info{ background:#6aa3f5; }
+  .a .fixrow .ft{ flex:1; min-width:0; }
+  .a .fixrow .fh{ font-size:13.5px; font-weight:500; display:flex; align-items:center; gap:8px; }
+  .a .fixrow .fs{ font-size:12px; color:var(--mut); margin-top:2px; line-height:1.5; }
+  .a .fixrow .fs .code{ font-family:var(--font-mono); color:#9fb0c4; }
+  .a .seclabel{ font-size:12px; font-weight:600; color:var(--mut); margin:16px 2px 8px; display:flex; align-items:center; gap:7px; }
+</style>
+</head>
+<body>
+<div class="page">
+  <p class="crumb"><a href="index.html">← 原型集</a> · 概览（体检 / 一键就绪）</p>
+  <h1>概览 —— 体检 + 一键就绪</h1>
+  <p class="lead">改版后概览不只是"看状态"，而是<b>检测 → 推荐 → 一键</b>：进来先体检，把所有"可优化项"列出来，能自动修的一键修。这是产品主轴，其它功能都作为可优化项挂上来。共 5 帧（含首次向导 / 一键优化进度 / 结果）。</p>
+
+  <!-- 帧1：体检默认（有可优化项） -->
+  <div class="frame">
+    <div class="cap"><span class="num">1</span><span class="ttl">体检默认（发现可优化项）</span></div>
+    <div class="a">
+      <div class="side">
+        <div class="brand"><span class="logo"><i class="ti ti-hexagon-letter-s"></i></span> Stacker</div>
+        <nav>
+          <button class="ni on"><i class="ti ti-layout-dashboard"></i> 概览</button>
+          <button class="ni"><i class="ti ti-brand-python"></i> Python</button>
+          <button class="ni"><i class="ti ti-brand-nodejs"></i> Node <span class="dotwarn"></span></button>
+          <button class="ni"><i class="ti ti-coffee"></i> Java</button>
+          <button class="ni"><i class="ti ti-feather"></i> Maven</button>
+          <button class="ni"><i class="ti ti-box"></i> Gradle</button>
+          <button class="ni"><i class="ti ti-brand-golang"></i> Go</button>
+          <button class="ni"><i class="ti ti-brand-rust"></i> Rust</button>
+          <div class="navsep"></div>
+          <button class="ni"><i class="ti ti-world-bolt"></i> 终端代理</button>
+          <button class="ni"><i class="ti ti-eraser"></i> 磁盘清理</button>
+        </nav>
+        <div class="sidefoot">
+          <button class="ni"><i class="ti ti-history"></i> 历史</button>
+          <button class="ni"><i class="ti ti-settings"></i> 设置</button>
+        </div>
+      </div>
+      <div class="main">
+        <div class="hd">
+          <div class="htitle"><span class="ttl">概览</span></div>
+          <div class="hdright">
+            <div class="profile"><i class="ti ti-bookmark" style="font-size:14px;"></i>
+              <select class="psel"><option>默认</option><option>国内源（全部国内镜像）</option><option>官方源（全部官方）</option></select>
+              <button class="pbtn" title="应用方案"><i class="ti ti-check"></i></button>
+              <button class="pbtn" title="另存为方案"><i class="ti ti-device-floppy"></i></button>
+            </div>
+          </div>
+        </div>
+        <div class="content">
+          <div class="checkup">
+            <span class="cnum"><b>5</b><span>可优化</span></span>
+            <div class="ct">
+              <div class="t1">开发环境体检</div>
+              <div class="t2">扫了 5 个生态 + 终端代理 + 磁盘 · 发现 5 处可优化 · 上次体检 2 分钟前</div>
+            </div>
+            <div class="cacts">
+              <button class="gh sm"><i class="ti ti-refresh"></i> 重新体检</button>
+              <button class="pr"><i class="ti ti-wand"></i> 一键优化全部</button>
+            </div>
+          </div>
+
+          <div class="seclabel"><i class="ti ti-list-check"></i> 可优化项</div>
+          <div class="fixrow">
+            <span class="fdot warn"></span>
+            <div class="ft"><div class="fh">Node 的 fnm 集成缺 cmd <span class="bd r">影响生效</span></div><div class="fs">PowerShell / Git Bash 已集成，cmd 未写入 → 在 cmd 里切版本不生效</div></div>
+            <button class="pr sm">补全</button>
+          </div>
+          <div class="fixrow">
+            <span class="fdot mid"></span>
+            <div class="ft"><div class="fh">Java 命令与 JAVA_HOME 不一致 <span class="bd w">建议</span></div><div class="fs">命令 <span class="code">java</span> 是 17，<span class="code">JAVA_HOME</span> 是 21 → 命令行与 Maven/IDE 用了不同版本</div></div>
+            <button class="pr sm">一键对齐</button>
+          </div>
+          <div class="fixrow">
+            <span class="fdot mid"></span>
+            <div class="ft"><div class="fh">pip 仍在用官方源 <span class="bd w">建议</span></div><div class="fs">下载慢；切到最快国内源（实测清华 82ms）</div></div>
+            <button class="pr sm">切最快源</button>
+          </div>
+          <div class="fixrow">
+            <span class="fdot warn"></span>
+            <div class="ft"><div class="fh">终端代理已配置，但未检测到代理软件 <span class="bd r">可能失效</span></div><div class="fs">环境变量指向 <span class="code">127.0.0.1:7890</span>，但该端口当前无程序监听 → 终端联网会超时</div></div>
+            <button class="gh sm">检查</button>
+          </div>
+          <div class="fixrow">
+            <span class="fdot info"></span>
+            <div class="ft"><div class="fh">C 盘开发缓存偏高 <span class="bd b">提示</span></div><div class="fs">.m2 / .gradle / 各 cache 共占 C 盘 12.6 GB，可安全释放约 9 GB</div></div>
+            <button class="gh sm">去清理</button>
+          </div>
+
+          <div class="seclabel"><i class="ti ti-stack-2"></i> 生态总览</div>
+          <div class="ecorow">
+            <span class="av py big"><i class="ti ti-brand-python"></i></span>
+            <div class="ecocols">
+              <div class="ecocell"><div class="k">默认版本</div><div class="v">Python 3.14.2 <span class="bd o" style="font-size:10px;">pyenv</span></div></div>
+              <div class="ecocell"><div class="k">主包源 · pip</div><div class="v" style="color:#e4b450;">官方（建议换源）</div></div>
+              <div class="ecocell"><div class="k">状态</div><div class="v" style="color:#e4b450;">可优化</div></div>
+            </div>
+            <i class="ti ti-chevron-right chev"></i>
+          </div>
+          <div class="ecorow">
+            <span class="av npm big"><i class="ti ti-brand-nodejs"></i></span>
+            <div class="ecocols">
+              <div class="ecocell"><div class="k">默认版本</div><div class="v">Node v22.21.1 <span class="bd o" style="font-size:10px;">fnm</span></div></div>
+              <div class="ecocell"><div class="k">主包源 · npm</div><div class="v">npmmirror <span class="live" style="font-size:11px;"><i class="ti ti-circle-check"></i></span></div></div>
+              <div class="ecocell"><div class="k">状态</div><div class="v" style="color:#e98a84;"><i class="ti ti-alert-triangle" style="font-size:14px;"></i> cmd 未集成</div></div>
+            </div>
+            <i class="ti ti-chevron-right chev"></i>
+          </div>
+          <div class="ecorow">
+            <span class="av jv big"><i class="ti ti-coffee"></i></span>
+            <div class="ecocols">
+              <div class="ecocell"><div class="k">默认版本</div><div class="v">JDK 21.0.3 · Zulu</div></div>
+              <div class="ecocell"><div class="k">主包源 · Maven</div><div class="v">阿里云</div></div>
+              <div class="ecocell"><div class="k">状态</div><div class="v" style="color:#e4b450;">命令/JAVA_HOME 不一致</div></div>
+            </div>
+            <i class="ti ti-chevron-right chev"></i>
+          </div>
+          <div class="ecorow">
+            <span class="av go big"><i class="ti ti-brand-golang"></i></span>
+            <div class="ecocols">
+              <div class="ecocell"><div class="k">默认版本</div><div class="v">Go 1.23.4</div></div>
+              <div class="ecocell"><div class="k">主包源 · GOPROXY</div><div class="v">goproxy.cn <span class="live" style="font-size:11px;"><i class="ti ti-circle-check"></i></span></div></div>
+              <div class="ecocell"><div class="k">状态</div><div class="v" style="color:#6bcf86;">正常</div></div>
+            </div>
+            <i class="ti ti-chevron-right chev"></i>
+          </div>
+          <div class="ecorow">
+            <span class="av rs big"><i class="ti ti-brand-rust"></i></span>
+            <div class="ecocols">
+              <div class="ecocell"><div class="k">默认工具链</div><div class="v">stable 1.83.0</div></div>
+              <div class="ecocell"><div class="k">主包源 · crates</div><div class="v">字节 rsproxy</div></div>
+              <div class="ecocell"><div class="k">状态</div><div class="v" style="color:#6bcf86;">正常</div></div>
+            </div>
+            <i class="ti ti-chevron-right chev"></i>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 帧2：全部就绪 -->
+  <div class="frame">
+    <div class="cap"><span class="num">2</span><span class="ttl">全部就绪（无可优化项）</span><span class="tag ok">绿色态</span><span class="note">一键优化后 / 老手机器：让人安心的"一切就绪"</span></div>
+    <div class="a short">
+      <div class="side">
+        <div class="brand"><span class="logo"><i class="ti ti-hexagon-letter-s"></i></span> Stacker</div>
+        <nav>
+          <button class="ni on"><i class="ti ti-layout-dashboard"></i> 概览</button>
+          <button class="ni"><i class="ti ti-brand-python"></i> Python</button>
+          <button class="ni"><i class="ti ti-brand-nodejs"></i> Node</button>
+          <button class="ni"><i class="ti ti-coffee"></i> Java</button>
+          <button class="ni"><i class="ti ti-feather"></i> Maven</button>
+          <button class="ni"><i class="ti ti-box"></i> Gradle</button>
+          <button class="ni"><i class="ti ti-brand-golang"></i> Go</button>
+          <button class="ni"><i class="ti ti-brand-rust"></i> Rust</button>
+          <div class="navsep"></div>
+          <button class="ni"><i class="ti ti-world-bolt"></i> 终端代理</button>
+          <button class="ni"><i class="ti ti-eraser"></i> 磁盘清理</button>
+        </nav>
+        <div class="sidefoot">
+          <button class="ni"><i class="ti ti-history"></i> 历史</button>
+          <button class="ni"><i class="ti ti-settings"></i> 设置</button>
+        </div>
+      </div>
+      <div class="main">
+        <div class="hd"><div class="htitle"><span class="ttl">概览</span></div></div>
+        <div class="content">
+          <div class="checkup ok">
+            <span class="cnum"><i class="ti ti-circle-check" style="font-size:26px;"></i></span>
+            <div class="ct">
+              <div class="t1">一切就绪</div>
+              <div class="t2">5 个生态已换国内源 · 版本管理器集成完整 · 命令与变量一致 · 代理正常 · 上次体检 1 分钟前</div>
+            </div>
+            <div class="cacts"><button class="gh sm"><i class="ti ti-refresh"></i> 重新体检</button></div>
+          </div>
+          <div class="seclabel"><i class="ti ti-stack-2"></i> 生态总览</div>
+          <div class="ecorow"><span class="av py big"><i class="ti ti-brand-python"></i></span><div class="ecocols"><div class="ecocell"><div class="k">默认版本</div><div class="v">Python 3.14.2</div></div><div class="ecocell"><div class="k">主包源</div><div class="v">清华 <span class="live" style="font-size:11px;"><i class="ti ti-circle-check"></i></span></div></div><div class="ecocell"><div class="k">状态</div><div class="v" style="color:#6bcf86;">正常</div></div></div><i class="ti ti-chevron-right chev"></i></div>
+          <div class="ecorow"><span class="av npm big"><i class="ti ti-brand-nodejs"></i></span><div class="ecocols"><div class="ecocell"><div class="k">默认版本</div><div class="v">Node v22.21.1</div></div><div class="ecocell"><div class="k">主包源</div><div class="v">npmmirror <span class="live" style="font-size:11px;"><i class="ti ti-circle-check"></i></span></div></div><div class="ecocell"><div class="k">状态</div><div class="v" style="color:#6bcf86;">正常</div></div></div><i class="ti ti-chevron-right chev"></i></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 帧3：首次运行向导弹窗 -->
+  <div class="frame">
+    <div class="cap"><span class="num">3</span><span class="ttl">首次运行向导 · 弹窗（体检 → 推荐勾选 → 一键应用）</span><span class="tag">弹窗</span><span class="note">新机器第一次打开，先引导而不是丢仪表盘</span></div>
+    <div class="a short">
+      <div class="side" style="filter:brightness(.7);">
+        <div class="brand"><span class="logo"><i class="ti ti-hexagon-letter-s"></i></span> Stacker</div>
+        <nav><button class="ni on"><i class="ti ti-layout-dashboard"></i> 概览</button></nav>
+      </div>
+      <div class="main"><div class="hd"><div class="htitle"><span class="ttl">概览</span></div></div><div class="content"></div></div>
+      <div class="modalmask">
+        <div class="modal wide">
+          <div class="modalhd"><span><i class="ti ti-wand"></i> 欢迎使用 Stacker · 环境体检</span><button class="ic"><i class="ti ti-x"></i></button></div>
+          <div class="modalsub"><span>已扫描完成，以下为推荐操作（默认勾选安全项），一键应用即可就绪</span></div>
+          <div class="modalbody" style="gap:8px;">
+            <label class="fixrow" style="margin:0;cursor:pointer;"><input type="checkbox" checked style="margin-right:3px;"><div class="ft"><div class="fh">为 5 个生态切换最快国内源</div><div class="fs">pip / npm / Go / Maven / Cargo —— 测速后各取最快</div></div><span class="bd g">安全</span></label>
+            <label class="fixrow" style="margin:0;cursor:pointer;"><input type="checkbox" checked style="margin-right:3px;"><div class="ft"><div class="fh">补全 fnm 的 cmd shell 集成</div><div class="fs">让 cmd 也能用 fnm 切版本</div></div><span class="bd g">安全</span></label>
+            <label class="fixrow" style="margin:0;cursor:pointer;"><input type="checkbox" checked style="margin-right:3px;"><div class="ft"><div class="fh">对齐 Java 命令与 JAVA_HOME 到 21</div><div class="fs">需系统级，将触发一次 UAC 提权</div></div><span class="bd w">需 UAC</span></label>
+            <label class="fixrow" style="margin:0;cursor:pointer;"><input type="checkbox" style="margin-right:3px;"><div class="ft"><div class="fh">开启终端代理</div><div class="fs">检测到 Clash 7890，但默认不替你开（按需）</div></div><span class="bd n">可选</span></label>
+          </div>
+          <div class="modalft"><button class="gh sm">跳过，进入概览</button><button class="pr sm"><i class="ti ti-wand"></i> 一键应用所选（3 项）</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 帧4：一键优化进行中 -->
+  <div class="frame">
+    <div class="cap"><span class="num">4</span><span class="ttl">一键优化进行中 · 弹窗</span><span class="tag">弹窗</span><span class="note">逐项执行，实时回显；改前已备份</span></div>
+    <div class="a short">
+      <div class="side" style="filter:brightness(.7);">
+        <div class="brand"><span class="logo"><i class="ti ti-hexagon-letter-s"></i></span> Stacker</div>
+        <nav><button class="ni on"><i class="ti ti-layout-dashboard"></i> 概览</button></nav>
+      </div>
+      <div class="main"><div class="hd"><div class="htitle"><span class="ttl">概览</span></div></div><div class="content"></div></div>
+      <div class="modalmask">
+        <div class="modal">
+          <div class="modalhd"><span><i class="ti ti-wand"></i> 正在一键优化</span></div>
+          <div class="modalbody" style="gap:9px;">
+            <div class="vrow" style="margin:0;"><span class="ver" style="min-width:0;flex:1;font-family:inherit;font-weight:400;">切换 5 个生态最快源</span><span class="live" style="font-size:11.5px;"><i class="ti ti-circle-check"></i> 完成</span></div>
+            <div class="vrow" style="margin:0;"><span class="ver" style="min-width:0;flex:1;font-family:inherit;font-weight:400;">补全 fnm cmd 集成</span><span class="live" style="font-size:11.5px;"><i class="ti ti-circle-check"></i> 完成</span></div>
+            <div class="instbar" style="margin:0;"><div class="pbarwrap"><div class="pbar" style="width:70%;"></div></div><span class="ptxt">对齐 JAVA_HOME（等待 UAC…）</span></div>
+            <div class="banner gray" style="margin:0;"><i class="ti ti-history lead"></i><div class="bt">每项改动前都已自动备份，可在「历史」逐条还原。</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 帧5：优化结果 -->
+  <div class="frame">
+    <div class="cap"><span class="num">5</span><span class="ttl">优化结果 · 弹窗（含应用后自动验证）</span><span class="tag ok">弹窗</span><span class="note">不仅说"做了"，还回显真实命令证明生效</span></div>
+    <div class="a short">
+      <div class="side" style="filter:brightness(.7);">
+        <div class="brand"><span class="logo"><i class="ti ti-hexagon-letter-s"></i></span> Stacker</div>
+        <nav><button class="ni on"><i class="ti ti-layout-dashboard"></i> 概览</button></nav>
+      </div>
+      <div class="main"><div class="hd"><div class="htitle"><span class="ttl">概览</span></div></div><div class="content"></div></div>
+      <div class="modalmask">
+        <div class="modal">
+          <div class="modalhd"><span><i class="ti ti-circle-check" style="color:#6bcf86;"></i> 优化完成 · 3 项</span><button class="ic"><i class="ti ti-x"></i></button></div>
+          <div class="modalsub"><span>已自动验证（回显真实命令结果），改动可在「历史」还原</span></div>
+          <div class="modalbody" style="gap:7px;">
+            <div class="vrow" style="margin:0;"><span class="ver" style="min-width:88px;">pip 源</span><span class="meta">官方 → 清华</span><span class="ntag ok">已验证</span></div>
+            <div class="vrow" style="margin:0;"><span class="ver" style="min-width:88px;">npm 源</span><span class="meta">官方 → npmmirror</span><span class="ntag ok">已验证</span></div>
+            <div class="vrow" style="margin:0;"><span class="ver" style="min-width:88px;">fnm cmd</span><span class="meta">已写入 AutoRun</span><span class="ntag ok">已验证</span></div>
+            <div class="vrow" style="margin:0;"><span class="ver" style="min-width:88px;">JAVA 对齐</span><span class="meta">命令 + JAVA_HOME → 21</span><span class="ntag ok">已验证</span></div>
+            <div class="console" style="max-height:96px;margin-top:4px;"><span class="dim"># 应用后自动验证</span>
+<span class="run">$ pip config get global.index-url</span>
+https://pypi.tuna.tsinghua.edu.cn/simple
+<span class="run">$ java -version</span>
+openjdk version "21.0.3" 2024-04-16</div>
+          </div>
+          <div class="modalft"><button class="pr sm">完成</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

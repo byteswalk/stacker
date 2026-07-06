@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>设置 · Stacker 原型</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.31.0/dist/tabler-icons.min.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div class="page">
+  <p class="crumb"><a href="index.html">← 原型集</a> · 设置</p>
+  <h1>设置</h1>
+  <p class="lead">源的<b>增删改全部集中在此</b>（各生态换源处只从已有源里选）。含：<b>源管理</b>（内置 + 自定义私有源，带鉴权）、<b>源清单更新</b>与测速、<b>配置方案</b>（导入 / 导出）、通用与外观、关于。共 3 帧 + 弹窗。</p>
+
+  <!-- 帧1：设置主页 -->
+  <div class="frame">
+    <div class="cap"><span class="num">1</span><span class="ttl">设置主页（全部分区）</span></div>
+    <div class="a">
+      <div class="side">
+        <div class="brand"><span class="logo"><i class="ti ti-hexagon-letter-s"></i></span> Stacker</div>
+        <nav>
+          
+          <button class="ni"><i class="ti ti-layout-dashboard"></i> 概览</button>
+          <button class="ni"><i class="ti ti-brand-python"></i> Python</button>
+          <button class="ni"><i class="ti ti-brand-nodejs"></i> Node</button>
+          <button class="ni"><i class="ti ti-coffee"></i> Java</button>
+          <button class="ni"><i class="ti ti-feather"></i> Maven</button>
+          <button class="ni"><i class="ti ti-box"></i> Gradle</button>
+          <button class="ni"><i class="ti ti-brand-golang"></i> Go</button>
+          <button class="ni"><i class="ti ti-brand-rust"></i> Rust</button>
+          <div class="navsep"></div>
+          <button class="ni"><i class="ti ti-world-bolt"></i> 终端代理</button>
+          <button class="ni"><i class="ti ti-eraser"></i> 磁盘清理</button>
+        </nav>
+        <div class="sidefoot">
+          <button class="ni"><i class="ti ti-history"></i> 历史</button>
+          <button class="ni on"><i class="ti ti-settings"></i> 设置</button>
+        </div>
+      </div>
+      <div class="main">
+        <div class="hd"><div class="htitle"><span class="ttl"><span class="eco av st"><i class="ti ti-settings"></i></span> 设置</span></div></div>
+        <div class="content">
+          <!-- 源管理 -->
+          <div class="grouphd">
+            <span class="gt"><i class="ti ti-list-details"></i> 源管理 <span class="cnt">内置只读 · 自定义可编辑</span></span>
+            <div class="ghr"><span class="hint2">查看</span><select><option>pip</option><option>npm / pnpm</option><option>Maven</option><option>Cargo</option><option>conda</option></select><button class="pr sm"><i class="ti ti-plus"></i> 新建自定义源</button></div>
+          </div>
+          <div class="srcrow">
+            <span class="av py"><i class="ti ti-world"></i></span>
+            <div class="mt"><div class="t">清华大学 <span class="bd n">内置</span></div><div class="s mono">https://pypi.tuna.tsinghua.edu.cn/simple</div></div>
+            <span class="single">只读</span>
+          </div>
+          <div class="srcrow">
+            <span class="av py"><i class="ti ti-world"></i></span>
+            <div class="mt"><div class="t">阿里云 <span class="bd n">内置</span></div><div class="s mono">https://mirrors.aliyun.com/pypi/simple</div></div>
+            <span class="single">只读</span>
+          </div>
+          <div class="srcrow">
+            <span class="av st"><i class="ti ti-lock"></i></span>
+            <div class="mt"><div class="t">公司 Nexus <span class="bd b">自定义 · 含鉴权</span></div><div class="s mono">https://nexus.mycorp.com/repository/pypi/simple · 用户 ci-bot</div></div>
+            <button class="spd" title="编辑"><i class="ti ti-pencil"></i></button>
+            <button class="spd" title="删除"><i class="ti ti-trash"></i></button>
+          </div>
+
+          <!-- 源清单更新 -->
+          <div class="grouphd" style="margin-top:18px;"><span class="gt"><i class="ti ti-refresh"></i> 源清单更新 <span class="cnt">镜像地址作为数据，可从远端更新</span></span></div>
+          <div class="srcrow">
+            <span class="av st"><i class="ti ti-cloud-download"></i></span>
+            <div class="mt"><div class="t">内置镜像清单 <span class="bd g">最新</span></div><div class="s dim">来自 Gitee / GitHub raw · 上次更新 2026-06-15 · 也可填企业内部清单 URL</div></div>
+            <button class="gh sm"><i class="ti ti-bolt"></i> 软件源测速</button>
+            <button class="gh sm">检查更新</button>
+          </div>
+
+          <!-- 配置方案 -->
+          <div class="grouphd" style="margin-top:18px;"><span class="gt"><i class="ti ti-bookmark"></i> 配置方案 <span class="cnt">把整套选择存为命名方案，一键切换</span></span></div>
+          <div class="srcrow">
+            <span class="av st"><i class="ti ti-bookmarks"></i></span>
+            <div class="mt"><div class="t">当前方案：默认</div><div class="s dim">内置「国内源」「官方源」两个开箱模板 · 可另存自定义方案 · 导入导出文件，换机或发同事一键导入</div></div>
+            <button class="gh sm">管理方案</button>
+            <button class="gh sm"><i class="ti ti-download"></i> 导入</button>
+            <button class="pr sm"><i class="ti ti-upload"></i> 导出</button>
+          </div>
+
+          <!-- 通用与外观 -->
+          <div class="grouphd" style="margin-top:18px;"><span class="gt"><i class="ti ti-adjustments"></i> 通用与外观</span></div>
+          <div class="srcrow">
+            <span class="av st"><i class="ti ti-device-desktop"></i></span>
+            <div class="mt"><div class="t">最小化到托盘 / 开机自启</div><div class="s dim">托盘右键可快速开关终端代理</div></div>
+            <label class="sw sm2"><input type="checkbox" checked><span class="tk"></span></label>
+          </div>
+          <div class="srcrow">
+            <span class="av st"><i class="ti ti-moon"></i></span>
+            <div class="mt"><div class="t">外观</div><div class="s dim">深色 / 浅色 / 跟随系统</div></div>
+            <select><option>深色</option><option>浅色</option><option>跟随系统</option></select>
+          </div>
+
+          <!-- 关于 -->
+          <div class="grouphd" style="margin-top:18px;"><span class="gt"><i class="ti ti-info-circle"></i> 关于</span></div>
+          <div class="srcrow">
+            <span class="av st"><i class="ti ti-package"></i></span>
+            <div class="mt"><div class="t">Stacker 0.1.0 <span class="bd g">开源 · 无遥测 · 绿色免安装</span></div><div class="s mono">gitee.com / github.com · 单 exe，无后台联网</div></div>
+            <button class="gh sm">检查更新</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 帧2：新建 / 编辑自定义源弹窗 -->
+  <div class="frame">
+    <div class="cap"><span class="num">2</span><span class="ttl">新建 / 编辑自定义源 · 弹窗（含私有源鉴权）</span><span class="tag">弹窗</span><span class="note">类型决定写入位置；可选鉴权，密码本地加密</span></div>
+    <div class="a short">
+      <div class="side" style="filter:brightness(.7);">
+        <div class="brand"><span class="logo"><i class="ti ti-hexagon-letter-s"></i></span> Stacker</div>
+        <nav><div class="navlabel">工具</div><button class="ni on"><i class="ti ti-settings"></i> 设置</button></nav>
+      </div>
+      <div class="main"><div class="hd"><div class="htitle"><span class="ttl"><span class="eco av st"><i class="ti ti-settings"></i></span> 设置</span></div></div><div class="content"></div></div>
+      <div class="modalmask">
+        <div class="modal">
+          <div class="modalhd"><span><i class="ti ti-plus"></i> 新建自定义源</span><button class="ic"><i class="ti ti-x"></i></button></div>
+          <div class="modalbody" style="gap:11px;">
+            <div class="row" style="gap:11px;">
+              <div class="field" style="flex:1;"><label>名称</label><input class="ip full" placeholder="如 公司 Nexus"></div>
+              <div class="field" style="flex:1;"><label>类型</label><select style="width:100%;"><option>pip index</option><option>npm registry</option><option>Maven mirror</option><option>Cargo registry</option><option>Go GOPROXY</option><option>conda channel</option></select></div>
+            </div>
+            <div class="field"><label>地址 URL</label><input class="ip full" placeholder="https://nexus.mycorp.com/repository/pypi/simple"></div>
+            <div class="field"><label style="display:flex;align-items:center;gap:7px;"><input type="checkbox" checked> 需要鉴权</label>
+              <div class="row" style="gap:11px;margin-top:4px;">
+                <input class="ip full" placeholder="用户名 / Token 名" value="ci-bot">
+                <input class="ip full" type="password" placeholder="密码 / Token" value="••••••••">
+              </div>
+              <div class="hint">密码用 Windows DPAPI 加密存本地，按各工具规范写入（npm 用 _auth / Maven 用 servers / pip 用 URL 内联）。</div>
+            </div>
+            <div class="banner gray" style="margin:0;"><i class="ti ti-bookmark lead"></i><div class="bt">保存后该源出现在对应生态的换源下拉中，并随<b>配置方案</b>一起导出。</div></div>
+          </div>
+          <div class="modalft"><button class="gh sm">取消</button><button class="gh sm"><i class="ti ti-bolt"></i> 测试连通</button><button class="pr sm">保存</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 帧3：配置方案管理弹窗 -->
+  <div class="frame">
+    <div class="cap"><span class="num">3</span><span class="ttl">配置方案管理 · 弹窗</span><span class="tag">弹窗</span><span class="note">保存 / 应用 / 重命名 / 删除；导入导出文件</span></div>
+    <div class="a short">
+      <div class="side" style="filter:brightness(.7);">
+        <div class="brand"><span class="logo"><i class="ti ti-hexagon-letter-s"></i></span> Stacker</div>
+        <nav><div class="navlabel">工具</div><button class="ni on"><i class="ti ti-settings"></i> 设置</button></nav>
+      </div>
+      <div class="main"><div class="hd"><div class="htitle"><span class="ttl"><span class="eco av st"><i class="ti ti-settings"></i></span> 设置</span></div></div><div class="content"></div></div>
+      <div class="modalmask">
+        <div class="modal">
+          <div class="modalhd"><span><i class="ti ti-bookmark"></i> 配置方案</span><button class="ic"><i class="ti ti-x"></i></button></div>
+          <div class="modalsub"><span>一个方案 = 各生态版本 + 各源 + 代理开关的整套快照</span><button class="gh sm"><i class="ti ti-plus"></i> 存为新方案</button></div>
+          <div class="modalbody" style="gap:7px;">
+            <div class="vrow cur" style="margin:0;"><span class="ver" style="font-family:inherit;font-weight:500;min-width:120px;">默认</span><span class="meta">当前应用中</span><div class="acts"><span class="live"><i class="ti ti-circle-check"></i></span></div></div>
+            <div class="vrow" style="margin:0;"><span class="ver" style="font-family:inherit;font-weight:500;min-width:120px;">国内源 <span class="bd g" style="font-size:10px;">内置</span></span><span class="meta">全部国内镜像 + 关终端代理</span><div class="acts"><button class="pr sm">应用</button></div></div>
+            <div class="vrow" style="margin:0;"><span class="ver" style="font-family:inherit;font-weight:500;min-width:120px;">官方源 <span class="bd n" style="font-size:10px;">内置</span></span><span class="meta">全部官方源 + 开终端代理</span><div class="acts"><button class="pr sm">应用</button></div></div>
+            <div class="vrow" style="margin:0;"><span class="ver" style="font-family:inherit;font-weight:500;min-width:120px;">我的公司</span><span class="meta">自定义 · 国内镜像 + 私服</span><div class="acts"><button class="pr sm">应用</button><button class="spd"><i class="ti ti-pencil"></i></button><button class="spd"><i class="ti ti-trash"></i></button></div></div>
+          </div>
+          <div class="modalft"><button class="gh sm"><i class="ti ti-download"></i> 从文件导入</button><button class="gh sm"><i class="ti ti-upload"></i> 导出选中</button><button class="pr sm">完成</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 帧4：全局软件源测速弹窗 -->
+  <div class="frame">
+    <div class="cap"><span class="num">4</span><span class="ttl">软件源测速 · 弹窗（全量，跨所有包管理器）</span><span class="tag">弹窗</span><span class="note">设置→源清单更新→「软件源测速」打开；点卡片把该工具默认源设为它，首页「一键切换最快源」即按各工具默认切换</span></div>
+    <div class="a short">
+      <div class="side" style="filter:brightness(.7);">
+        <div class="brand"><span class="logo"><i class="ti ti-hexagon-letter-s"></i></span> Stacker</div>
+        <nav><div class="navlabel">工具</div><button class="ni on"><i class="ti ti-settings"></i> 设置</button></nav>
+      </div>
+      <div class="main"><div class="hd"><div class="htitle"><span class="ttl"><span class="eco av st"><i class="ti ti-settings"></i></span> 设置</span></div></div><div class="content"></div></div>
+      <div class="modalmask">
+        <div class="modal wide" style="max-height:92%;">
+          <div class="modalhd"><span><i class="ti ti-bolt"></i> 软件源测速</span><button class="ic"><i class="ti ti-x"></i></button></div>
+          <div class="modalsub"><span>点卡片把该工具的默认源设为它（最快的标「默认源」）；官方源仅作基准、不参与</span><button class="gh sm"><i class="ti ti-bolt"></i> 全部测速</button></div>
+          <div class="modalbody" style="gap:16px;">
+
+            <div>
+              <div style="font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:7px;margin-bottom:8px;"><i class="ti ti-brand-python" style="color:#828995;"></i> pip</div>
+              <div class="ngrid">
+                <div class="ncard sel"><div class="nhd"><span class="ndot ok"></span><span class="nname">清华大学</span></div><div class="ntags"><span class="ntag ok">82 ms</span><span class="ntag dn">默认源</span></div></div>
+                <div class="ncard"><div class="nhd"><span class="ndot ok"></span><span class="nname">中科大</span></div><div class="ntags"><span class="ntag ok">120 ms</span><span class="ntag">国内</span></div></div>
+                <div class="ncard"><div class="nhd"><span class="ndot mid"></span><span class="nname">阿里云</span></div><div class="ntags"><span class="ntag mid">156 ms</span><span class="ntag">国内</span></div></div>
+                <div class="ncard base"><div class="nhd"><span class="ndot bad"></span><span class="nname">官方 PyPI</span></div><div class="ntags"><span class="ntag bad">超时</span><span class="ntag">基准</span></div></div>
+              </div>
+            </div>
+
+            <div>
+              <div style="font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:7px;margin-bottom:8px;"><i class="ti ti-brand-npm" style="color:#828995;"></i> npm / pnpm</div>
+              <div class="ngrid">
+                <div class="ncard sel"><div class="nhd"><span class="ndot ok"></span><span class="nname">npmmirror</span></div><div class="ntags"><span class="ntag ok">95 ms</span><span class="ntag dn">默认源</span></div></div>
+                <div class="ncard"><div class="nhd"><span class="ndot ok"></span><span class="nname">腾讯云</span></div><div class="ntags"><span class="ntag ok">140 ms</span><span class="ntag">国内</span></div></div>
+                <div class="ncard base"><div class="nhd"><span class="ndot mid"></span><span class="nname">官方 registry</span></div><div class="ntags"><span class="ntag mid">420 ms</span><span class="ntag">基准</span></div></div>
+              </div>
+            </div>
+
+            <div>
+              <div style="font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:7px;margin-bottom:8px;"><i class="ti ti-brand-golang" style="color:#828995;"></i> Go（GOPROXY）</div>
+              <div class="ngrid">
+                <div class="ncard sel"><div class="nhd"><span class="ndot ok"></span><span class="nname">goproxy.cn</span></div><div class="ntags"><span class="ntag ok">88 ms</span><span class="ntag dn">默认源</span></div></div>
+                <div class="ncard"><div class="nhd"><span class="ndot mid"></span><span class="nname">阿里云</span></div><div class="ntags"><span class="ntag mid">150 ms</span><span class="ntag">国内</span></div></div>
+              </div>
+            </div>
+
+            <div>
+              <div style="font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:7px;margin-bottom:8px;"><i class="ti ti-package" style="color:#828995;"></i> Maven</div>
+              <div class="ngrid">
+                <div class="ncard sel"><div class="nhd"><span class="ndot ok"></span><span class="nname">阿里云</span></div><div class="ntags"><span class="ntag ok">99 ms</span><span class="ntag dn">默认源</span></div></div>
+                <div class="ncard"><div class="nhd"><span class="ndot ok"></span><span class="nname">华为云</span></div><div class="ntags"><span class="ntag ok">130 ms</span><span class="ntag">国内</span></div></div>
+              </div>
+            </div>
+
+            <div>
+              <div style="font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:7px;margin-bottom:8px;"><i class="ti ti-brand-rust" style="color:#828995;"></i> Cargo</div>
+              <div class="ngrid">
+                <div class="ncard sel"><div class="nhd"><span class="ndot ok"></span><span class="nname">字节 rsproxy</span></div><div class="ntags"><span class="ntag ok">62 ms</span><span class="ntag dn">默认源</span></div></div>
+                <div class="ncard"><div class="nhd"><span class="ndot ok"></span><span class="nname">中科大</span></div><div class="ntags"><span class="ntag ok">98 ms</span><span class="ntag">国内</span></div></div>
+              </div>
+            </div>
+
+            <div style="opacity:.6;">
+              <div style="font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:7px;margin-bottom:8px;"><i class="ti ti-package" style="color:#828995;"></i> conda <span style="font-size:11px;color:#6a7180;font-weight:400;">（未检测到 conda，已隐藏；装了才出现）</span></div>
+            </div>
+
+          </div>
+          <div class="modalft"><button class="gh sm">关闭</button><button class="pr sm">保存各工具默认源</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

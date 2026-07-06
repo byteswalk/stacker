@@ -1,0 +1,48 @@
+//! 配置导入/导出：把命名方案 + 自定义源定义打成一个 JSON 配置包，便于换机迁移。
+//! 出于安全，自定义源的密码不导出（DPAPI 密文跨机/换用户无法解，明文又不安全），
+//! 导入后需在新机重新填密码。
+
+use serde::{Deserialize, Serialize};
+
+use crate::{custom, profile};
+
+#[derive(Serialize, Deserialize)]
+pub struct Bundle {
+    pub version: u32,
+    pub app: String,
+    #[serde(default)]
+    pub profiles: Vec<profile::Profile>,
+    #[serde(default)]
+    pub customs: Vec<custom::CustomDTO>,
+}
+
+#[derive(Serialize)]
+pub struct ImportResult {
+    pub profiles: usize,
+    pub customs: usize,
+}
+
+#[tauri::command]
+pub fn bundle_export(path: String) -> Result<(), String> {
+    let b = Bundle {
+        version: 1,
+        app: "stacker".into(),
+        profiles: profile::export_all(),
+        customs: custom::export_all(),
+    };
+    let s = serde_json::to_string_pretty(&b).map_err(|e| e.to_string())?;
+    std::fs::write(&path, s).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn bundle_import(path: String) -> Result<ImportResult, String> {
+    let s = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let b: Bundle = serde_json::from_str(&s)
+        .map_err(|_| "文件格式无法识别（需 Stacker 导出的配置 JSON）".to_string())?;
+    if b.app != "stacker" {
+        return Err("这不是 Stacker 配置文件".into());
+    }
+    let profiles = profile::import_merge(b.profiles)?;
+    let customs = custom::import_merge(b.customs)?;
+    Ok(ImportResult { profiles, customs })
+}

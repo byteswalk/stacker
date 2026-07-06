@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rust · Stacker 原型</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.31.0/dist/tabler-icons.min.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div class="page">
+  <p class="crumb"><a href="index.html">← 原型集</a> · Rust（rustup 接管，管理器托管）</p>
+  <h1>Rust 生态页</h1>
+  <p class="lead">「管理器托管」，由 <b>rustup</b> 接管（near-universal，几乎人人都用）。<b>工具链 GUI</b>（default / install / uninstall，含 stable/beta/nightly）+ <b>Cargo 源</b>（写 ~/.cargo/config.toml）+ <b>rustup 自身下载镜像</b>（RUSTUP_DIST_SERVER）。不扫盘、无层级。共 4 帧 + 弹窗。</p>
+
+  <!-- 帧1：默认 -->
+  <div class="frame">
+    <div class="cap"><span class="num">1</span><span class="ttl">默认状态（rustup 已装、已换源）</span></div>
+    <div class="a">
+      <div class="side">
+        <div class="brand"><span class="logo"><i class="ti ti-hexagon-letter-s"></i></span> Stacker</div>
+        <nav>
+          
+          <button class="ni"><i class="ti ti-layout-dashboard"></i> 概览</button>
+          <button class="ni"><i class="ti ti-brand-python"></i> Python</button>
+          <button class="ni"><i class="ti ti-brand-nodejs"></i> Node</button>
+          <button class="ni"><i class="ti ti-coffee"></i> Java</button>
+          <button class="ni"><i class="ti ti-feather"></i> Maven</button>
+          <button class="ni"><i class="ti ti-box"></i> Gradle</button>
+          <button class="ni"><i class="ti ti-brand-golang"></i> Go</button>
+          <button class="ni on"><i class="ti ti-brand-rust"></i> Rust</button>
+          <div class="navsep"></div>
+          <button class="ni"><i class="ti ti-world-bolt"></i> 终端代理</button>
+          <button class="ni"><i class="ti ti-eraser"></i> 磁盘清理</button>
+        </nav>
+        <div class="sidefoot">
+          <button class="ni"><i class="ti ti-history"></i> 历史</button>
+          <button class="ni"><i class="ti ti-settings"></i> 设置</button>
+        </div>
+      </div>
+      <div class="main">
+        <div class="hd">
+          <div class="htitle"><span class="ttl"><span class="eco av rs"><i class="ti ti-brand-rust"></i></span> Rust</span></div>
+          <div class="hdright"><button class="gh sm"><i class="ti ti-bolt"></i> 切换最快源</button></div>
+        </div>
+        <div class="content">
+          <!-- ① 工具链 -->
+          <div class="grouphd">
+            <span class="gt"><i class="ti ti-stack-2"></i> 工具链 <span class="cnt">由 rustup 管理 · 3 个</span></span>
+            <div class="ghr"><button class="gh xs"><i class="ti ti-refresh"></i> 刷新</button><button class="pr sm"><i class="ti ti-plus"></i> 安装工具链</button></div>
+          </div>
+          <div class="vrow cur">
+            <span class="ver">stable</span>
+            <span class="meta">默认工具链（rustup default）· 1.83.0 · ~/.rustup/toolchains/stable-x86_64-pc-windows-msvc</span>
+            <div class="acts"><span class="live"><i class="ti ti-circle-check"></i> 生效中</span></div>
+          </div>
+          <div class="vrow">
+            <span class="ver">nightly</span>
+            <span class="meta">2025-06-10 · 1.89.0-nightly</span>
+            <div class="acts"><button class="pr sm">设为默认</button><button class="spd" title="卸载"><i class="ti ti-trash"></i></button></div>
+          </div>
+          <div class="vrow">
+            <span class="ver">1.75.0</span>
+            <span class="meta">固定旧版（项目兼容用）</span>
+            <div class="acts"><button class="pr sm">设为默认</button><button class="spd" title="卸载"><i class="ti ti-trash"></i></button></div>
+          </div>
+          <div class="callout"><i class="ti ti-info-circle"></i><div>组件（rustfmt / clippy）与交叉编译 target 的增删属高级操作，请在终端用 <span style="font-family:var(--font-mono)">rustup component / target</span> 完成；本页聚焦工具链与换源。</div></div>
+
+          <!-- ② Cargo 源 -->
+          <div class="grouphd" style="margin-top:18px;">
+            <span class="gt"><i class="ti ti-package"></i> Cargo 源 <span class="cnt">写入 ~/.cargo/config.toml</span></span>
+          </div>
+          <div class="srcrow">
+            <span class="av rs"><i class="ti ti-package"></i></span>
+            <div class="mt"><div class="t">crates 源 <span class="bd g">已切国内</span></div><div class="s mono">[source.crates-io] replace-with = "rsproxy"（字节跳动）</div></div>
+            <select><option>字节 rsproxy</option><option>中科大</option><option>上海交大</option><option>官方 crates.io</option></select>
+            <button class="gh sm"><i class="ti ti-bolt"></i> 测速</button>
+            <button class="pr sm">应用</button>
+          </div>
+          <div class="srcrow">
+            <span class="av rs"><i class="ti ti-download"></i></span>
+            <div class="mt"><div class="t">rustup 下载镜像 <span class="bd g">已加速</span></div><div class="s mono">RUSTUP_DIST_SERVER / RUSTUP_UPDATE_ROOT → 中科大 rust-static</div></div>
+            <label class="sw sm2"><input type="checkbox" checked><span class="tk"></span></label>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 帧2：未装 rustup -->
+  <div class="frame">
+    <div class="cap"><span class="num">2</span><span class="ttl">未安装 rustup —— 引导安装（下载走国内镜像）</span><span class="note">没有 rustup 时 Rust 生态无从谈起，先引导安装</span></div>
+    <div class="a short">
+      <div class="side">
+        <div class="brand"><span class="logo"><i class="ti ti-hexagon-letter-s"></i></span> Stacker</div>
+        <nav>
+          <button class="ni"><i class="ti ti-layout-dashboard"></i> 概览</button>
+          <button class="ni"><i class="ti ti-brand-python"></i> Python</button>
+          <button class="ni"><i class="ti ti-brand-nodejs"></i> Node</button>
+          <button class="ni"><i class="ti ti-coffee"></i> Java</button>
+          <button class="ni"><i class="ti ti-feather"></i> Maven</button>
+          <button class="ni"><i class="ti ti-box"></i> Gradle</button>
+          <button class="ni"><i class="ti ti-brand-golang"></i> Go</button>
+          <button class="ni on"><i class="ti ti-brand-rust"></i> Rust</button>
+        </nav>
+      </div>
+      <div class="main">
+        <div class="hd"><div class="htitle"><span class="ttl"><span class="eco av rs"><i class="ti ti-brand-rust"></i></span> Rust</span></div></div>
+        <div class="content">
+          <div class="grouphd"><span class="gt"><i class="ti ti-stack-2"></i> 工具链</span></div>
+          <div class="banner blue" style="flex-direction:column;align-items:stretch;gap:9px;">
+            <div style="display:flex;gap:11px;align-items:flex-start;">
+              <i class="ti ti-download lead"></i>
+              <div class="bt"><b>未检测到 rustup</b><br>rustup 是 Rust 官方的工具链管理器。Stacker 将下载 rustup-init 并安装，<b>下载默认走中科大镜像</b>（设 RUSTUP_DIST_SERVER），避免官方源在国内安装缓慢。</div>
+            </div>
+            <div style="display:flex;gap:8px;padding-left:29px;flex-wrap:wrap;">
+              <button class="pr sm"><i class="ti ti-download"></i> 安装 rustup（国内镜像）</button>
+              <button class="gh sm">已装？指定路径</button>
+            </div>
+          </div>
+          <div class="callout" style="margin-top:10px;"><i class="ti ti-info-circle"></i><div>安装时一并写入 ~/.cargo/config.toml 的国内 crates 源，装完即可全速 <span style="font-family:var(--font-mono)">cargo build</span>。</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 帧3：安装工具链弹窗 -->
+  <div class="frame">
+    <div class="cap"><span class="num">3</span><span class="ttl">安装工具链 · 弹窗</span><span class="tag">弹窗</span><span class="note">rustup toolchain install；channel 选择 + 实时控制台</span></div>
+    <div class="a short">
+      <div class="side" style="filter:brightness(.7);">
+        <div class="brand"><span class="logo"><i class="ti ti-hexagon-letter-s"></i></span> Stacker</div>
+        <nav><button class="ni on"><i class="ti ti-brand-rust"></i> Rust</button></nav>
+      </div>
+      <div class="main"><div class="hd"><div class="htitle"><span class="ttl"><span class="eco av rs"><i class="ti ti-brand-rust"></i></span> Rust</span></div></div><div class="content"></div></div>
+      <div class="modalmask">
+        <div class="modal">
+          <div class="modalhd"><span><i class="ti ti-plus"></i> 安装工具链</span><button class="ic"><i class="ti ti-x"></i></button></div>
+          <div class="modalbody" style="gap:11px;">
+            <div class="field"><label>渠道 / 版本</label>
+              <div class="seg" style="align-self:flex-start;"><button class="on">stable</button><button>beta</button><button>nightly</button><button>指定版本</button></div>
+            </div>
+            <div class="instbar" style="margin:0;"><div class="pbarwrap"><div class="pbar" style="width:40%;"></div></div><span class="ptxt">下载 nightly … 40%</span><button class="gh xs">取消</button></div>
+            <div class="console" style="max-height:130px;"><span class="run">&gt; rustup toolchain install nightly</span>
+info: syncing channel updates for 'nightly-x86_64-pc-windows-msvc'
+info: downloading component 'rust-std'  <span class="dim">（RUSTUP_DIST_SERVER = 中科大）</span>
+<span class="ok">######################  40%</span>  28.4 MB / 71.0 MB
+            </div>
+            <div class="banner gray" style="margin:0;"><i class="ti ti-info-circle lead"></i><div class="bt">下载经国内镜像；安装完成后可在工具链列表设为默认。</div></div>
+          </div>
+          <div class="modalft"><button class="gh sm">关闭</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 帧4：Cargo 源测速弹窗 -->
+  <div class="frame">
+    <div class="cap"><span class="num">4</span><span class="ttl">Cargo 源测速 · 弹窗</span><span class="tag">弹窗</span><span class="note">点卡片设为默认源；写入 config.toml 的 source replace-with</span></div>
+    <div class="a short">
+      <div class="side" style="filter:brightness(.7);">
+        <div class="brand"><span class="logo"><i class="ti ti-hexagon-letter-s"></i></span> Stacker</div>
+        <nav><button class="ni on"><i class="ti ti-brand-rust"></i> Rust</button></nav>
+      </div>
+      <div class="main"><div class="hd"><div class="htitle"><span class="ttl"><span class="eco av rs"><i class="ti ti-brand-rust"></i></span> Rust</span></div></div><div class="content"></div></div>
+      <div class="modalmask">
+        <div class="modal">
+          <div class="modalhd"><span><i class="ti ti-bolt"></i> Cargo 源测速</span><button class="ic"><i class="ti ti-x"></i></button></div>
+          <div class="modalsub"><span>点卡片设为默认 crates 源</span><button class="gh sm"><i class="ti ti-bolt"></i> 全部重测</button></div>
+          <div class="modalbody">
+            <div class="ngrid">
+              <div class="ncard sel"><div class="nhd"><span class="ndot ok"></span><span class="nname">字节 rsproxy</span></div><div class="ntags"><span class="ntag ok">62 ms</span><span class="ntag dn">默认源</span></div></div>
+              <div class="ncard"><div class="nhd"><span class="ndot ok"></span><span class="nname">中科大</span></div><div class="ntags"><span class="ntag ok">98 ms</span><span class="ntag">国内</span></div></div>
+              <div class="ncard"><div class="nhd"><span class="ndot mid"></span><span class="nname">上海交大</span></div><div class="ntags"><span class="ntag mid">145 ms</span><span class="ntag">国内</span></div></div>
+              <div class="ncard base"><div class="nhd"><span class="ndot bad"></span><span class="nname">官方 crates.io</span></div><div class="ntags"><span class="ntag bad">超时</span><span class="ntag">基准</span></div></div>
+            </div>
+            <div class="banner gray" style="margin:0;"><i class="ti ti-info-circle lead"></i><div class="bt">写入 ~/.cargo/config.toml 的 <span class="code">[source.crates-io] replace-with</span> 与对应 registry，改前自动备份。</div></div>
+          </div>
+          <div class="modalft"><button class="gh sm">关闭</button><button class="pr sm">设为默认并应用</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 帧5：卸载工具链确认弹窗 -->
+  <div class="frame">
+    <div class="cap"><span class="num">5</span><span class="ttl">卸载工具链确认 · 弹窗</span><span class="tag warn">弹窗</span><span class="note">二次确认；默认工具链禁止卸载</span></div>
+    <div class="a short">
+      <div class="side" style="filter:brightness(.7);">
+        <div class="brand"><span class="logo"><i class="ti ti-hexagon-letter-s"></i></span> Stacker</div>
+        <nav><button class="ni on"><i class="ti ti-brand-rust"></i> Rust</button></nav>
+      </div>
+      <div class="main"><div class="hd"><div class="htitle"><span class="ttl"><span class="eco av rs"><i class="ti ti-brand-rust"></i></span> Rust</span></div></div><div class="content"></div></div>
+      <div class="modalmask">
+        <div class="modal" style="max-width:420px;">
+          <div class="modalhd"><span><i class="ti ti-trash" style="color:#e2625b;"></i> 卸载工具链 nightly</span><button class="ic"><i class="ti ti-x"></i></button></div>
+          <div class="modalbody">
+            <div style="font-size:13px;line-height:1.7;color:#c7ccd2;">将运行 <span style="font-family:var(--font-mono);background:rgba(255,255,255,.07);padding:1px 6px;border-radius:5px;">rustup toolchain uninstall nightly</span>，删除该工具链及其组件、交叉编译 target。此操作不可撤销。</div>
+            <div class="banner gray" style="margin:10px 0 0;"><i class="ti ti-info-circle lead"></i><div class="bt">nightly 不是默认工具链，卸载不影响生效中的 stable。</div></div>
+          </div>
+          <div class="modalft"><button class="gh sm">取消</button><button class="pr sm" style="background:#d6463d;">确认卸载</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

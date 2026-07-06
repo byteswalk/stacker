@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gradle · Stacker 原型</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.31.0/dist/tabler-icons.min.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div class="page">
+  <p class="crumb"><a href="index.html">← 原型集</a> · Gradle（从 Java 拆出的独立生态）</p>
+  <h1>Gradle 生态页</h1>
+  <p class="lead">与 Maven 对称：<b>多版本（GRADLE_HOME+PATH）</b> + <b>GRADLE_USER_HOME 缓存目录</b>（默认 ~/.gradle，含 caches / wrapper，通常占用数 GB，可迁移磁盘）+ <b>仓库镜像（init.gradle）</b> + <b>代理（gradle.properties）</b>。共 4 帧 + 弹窗。</p>
+
+  <!-- 帧1：默认 -->
+  <div class="frame">
+    <div class="cap"><span class="num">1</span><span class="ttl">默认状态</span></div>
+    <div class="a">
+      <div class="side">
+        <div class="brand"><span class="logo"><i class="ti ti-hexagon-letter-s"></i></span> Stacker</div>
+        <nav>
+          
+          <button class="ni"><i class="ti ti-layout-dashboard"></i> 概览</button>
+          <button class="ni"><i class="ti ti-brand-python"></i> Python</button>
+          <button class="ni"><i class="ti ti-brand-nodejs"></i> Node</button>
+          <button class="ni"><i class="ti ti-coffee"></i> Java</button>
+          <button class="ni"><i class="ti ti-feather"></i> Maven</button>
+          <button class="ni on"><i class="ti ti-box"></i> Gradle</button>
+          <button class="ni"><i class="ti ti-brand-golang"></i> Go</button>
+          <button class="ni"><i class="ti ti-brand-rust"></i> Rust</button>
+          <div class="navsep"></div>
+          <button class="ni"><i class="ti ti-world-bolt"></i> 终端代理</button>
+          <button class="ni"><i class="ti ti-eraser"></i> 磁盘清理</button>
+        </nav>
+        <div class="sidefoot">
+          <button class="ni"><i class="ti ti-history"></i> 历史</button>
+          <button class="ni"><i class="ti ti-settings"></i> 设置</button>
+        </div>
+      </div>
+      <div class="main">
+        <div class="hd">
+          <div class="htitle"><span class="ttl"><span class="eco av gr"><i class="ti ti-box"></i></span> Gradle</span></div>
+          <div class="hdright"><button class="gh sm"><i class="ti ti-file-text"></i> 打开 init.gradle</button></div>
+        </div>
+        <div class="content">
+          <!-- ① 版本 -->
+          <div class="grouphd">
+            <span class="gt"><i class="ti ti-box"></i> Gradle 版本 <span class="cnt">扫到 2 个</span></span>
+            <div class="ghr"><button class="gh xs"><i class="ti ti-refresh"></i> 扫描</button><button class="pr sm"><i class="ti ti-download"></i> 下载新版本</button></div>
+          </div>
+          <div class="effbox">
+            <div class="eh"><i class="ti ti-target"></i> 生效情况</div>
+            <div class="effrow"><span class="ek"><i class="ti ti-terminal-2"></i> 命令 gradle</span><span class="ev">走 PATH → <b>8.10</b></span><span class="bd g">生效中</span></div>
+            <div class="effrow"><span class="ek"><i class="ti ti-variable"></i> GRADLE_HOME</span><span class="ev">用户级 → <span class="mono">D:\Gradle\gradle-8.10</span></span></div>
+          </div>
+          <div class="callout" style="margin:0 0 8px;"><i class="ti ti-info-circle"></i><div>项目里大多用 <b>gradlew（wrapper）</b>，版本由 <span style="font-family:var(--font-mono)">gradle-wrapper.properties</span> 锁定；这里设的是<b>全局 gradle 命令</b>用哪个版本。</div></div>
+          <div class="vrow cur"><span class="ver">8.10</span><span class="meta">D:\Gradle\gradle-8.10 · 当前默认</span><div class="acts"><span class="bd b" style="font-size:10.5px;">GRADLE_HOME</span><span class="live"><i class="ti ti-circle-check"></i></span></div></div>
+          <div class="vrow"><span class="ver">7.6.4</span><span class="meta">D:\Gradle\gradle-7.6.4</span><div class="acts"><button class="pr sm">设为默认</button></div></div>
+
+          <!-- ② GRADLE_USER_HOME -->
+          <div class="grouphd" style="margin-top:18px;"><span class="gt"><i class="ti ti-folder"></i> 缓存目录 <span class="cnt">GRADLE_USER_HOME</span></span></div>
+          <div class="srcrow" style="box-shadow:inset 3px 0 0 var(--amber);border-color:rgba(228,180,80,.35);">
+            <span class="av file"><i class="ti ti-folder"></i></span>
+            <div class="mt"><div class="t">~/.gradle <span class="bd w">在 C 盘 · 占空间</span></div><div class="s mono">C:\Users\simpl\.gradle · 6.8 GB（caches + wrapper + daemon）</div></div>
+            <button class="gh sm"><i class="ti ti-arrows-exchange"></i> 迁移目录</button>
+          </div>
+          <div class="callout"><i class="ti ti-bulb"></i><div><b>迁移到 D 盘？</b> 设置 <span style="font-family:var(--font-mono)">GRADLE_USER_HOME</span> 环境变量（用户级），可选迁移现有 6.8 GB。caches 重新下载较慢，建议一并迁移。</div></div>
+
+          <!-- ③ 镜像 -->
+          <div class="grouphd" style="margin-top:18px;"><span class="gt"><i class="ti ti-world-download"></i> 仓库镜像 <span class="cnt">init.gradle</span></span></div>
+          <div class="srcrow">
+            <span class="av gr"><i class="ti ti-world-download"></i></span>
+            <div class="mt"><div class="t">全局仓库镜像 <span class="bd g">已切国内</span></div><div class="s mono">~/.gradle/init.gradle · 把 mavenCentral/google 重定向到阿里云</div></div>
+            <select><option>阿里云</option><option>腾讯云</option><option>华为云</option><option>官方</option></select>
+            <button class="gh sm"><i class="ti ti-bolt"></i> 测速</button>
+            <button class="pr sm">应用</button>
+          </div>
+          <div class="callout" style="margin:0;"><i class="ti ti-alert-triangle" style="color:#e4b450;"></i><div>init.gradle 为<b>全局默认（回退）</b>；若项目 <span style="font-family:var(--font-mono)">build.gradle</span> 硬编码了 repositories，可能优先于全局——将在下方给出覆盖提示。</div></div>
+
+          <!-- ④ 代理 -->
+          <div class="grouphd" style="margin-top:18px;"><span class="gt"><i class="ti ti-world-bolt"></i> 代理 <span class="cnt">gradle.properties</span></span></div>
+          <div class="srcrow">
+            <span class="av px"><i class="ti ti-world-bolt"></i></span>
+            <div class="mt"><div class="t">HTTP/HTTPS 代理 <span class="bd n">关闭</span></div><div class="s wrap dim">写 ~/.gradle/gradle.properties 的 systemProp.http(s).proxyHost/Port。可跟随「终端代理」</div></div>
+            <label class="sw sm2"><input type="checkbox"><span class="tk"></span></label>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 帧2：GRADLE_USER_HOME 迁移弹窗 -->
+  <div class="frame">
+    <div class="cap"><span class="num">2</span><span class="ttl">缓存目录迁移 · 弹窗</span><span class="tag">弹窗</span><span class="note">设置 GRADLE_USER_HOME + 可选迁移 6.8 GB</span></div>
+    <div class="a short">
+      <div class="side" style="filter:brightness(.7);">
+        <div class="brand"><span class="logo"><i class="ti ti-hexagon-letter-s"></i></span> Stacker</div>
+        <nav><button class="ni on"><i class="ti ti-box"></i> Gradle</button></nav>
+      </div>
+      <div class="main"><div class="hd"><div class="htitle"><span class="ttl"><span class="eco av gr"><i class="ti ti-box"></i></span> Gradle</span></div></div><div class="content"></div></div>
+      <div class="modalmask">
+        <div class="modal wide">
+          <div class="modalhd"><span><i class="ti ti-arrows-exchange"></i> 迁移 Gradle 缓存目录</span><button class="ic"><i class="ti ti-x"></i></button></div>
+          <div class="modalbody" style="gap:11px;">
+            <div class="field"><label>当前目录</label><div class="s mono" style="color:#9fb0c4;">C:\Users\simpl\.gradle · 6.8 GB</div></div>
+            <div class="field"><label>新目录（设为 GRADLE_USER_HOME）</label><div class="row"><input class="ip full" value="D:\.gradle"><button class="gh sm"><i class="ti ti-folder"></i> 浏览</button></div></div>
+            <div class="field"><label>现有缓存怎么处理</label>
+              <div class="opt"><span class="rd"></span><div><div class="ot">仅设变量</div><div class="od">仅设置 GRADLE_USER_HOME；原 6.8 GB 保留在原位置，新构建将重新下载（较慢）。</div></div></div>
+              <div class="opt sel"><span class="rd"></span><div><div class="ot">设变量并移动现有缓存 <span class="rec">推荐</span></div><div class="od">将 6.8 GB 迁移到 D:\.gradle。请先停止 Gradle daemon 再迁移。</div></div></div>
+            </div>
+            <div class="banner amber" style="margin:0;"><i class="ti ti-alert-triangle lead"></i><div class="bt">将设用户级环境变量 <span class="code">GRADLE_USER_HOME=D:\.gradle</span>，<b>新开终端 / 重启 IDE</b> 后生效；已开的 Gradle daemon 需重启。</div></div>
+          </div>
+          <div class="modalft"><button class="gh sm">取消</button><button class="pr sm"><i class="ti ti-arrows-exchange"></i> 开始迁移</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 帧3：设为默认弹窗 -->
+  <div class="frame">
+    <div class="cap"><span class="num">3</span><span class="ttl">设为默认版本 · 弹窗</span><span class="tag">弹窗</span><span class="note">GRADLE_HOME+PATH 捆绑同级写</span></div>
+    <div class="a short">
+      <div class="side" style="filter:brightness(.7);">
+        <div class="brand"><span class="logo"><i class="ti ti-hexagon-letter-s"></i></span> Stacker</div>
+        <nav><button class="ni on"><i class="ti ti-box"></i> Gradle</button></nav>
+      </div>
+      <div class="main"><div class="hd"><div class="htitle"><span class="ttl"><span class="eco av gr"><i class="ti ti-box"></i></span> Gradle</span></div></div><div class="content"></div></div>
+      <div class="modalmask">
+        <div class="modal wide">
+          <div class="modalhd"><span><i class="ti ti-package"></i> 把默认 Gradle 切到 7.6.4</span><button class="ic"><i class="ti ti-x"></i></button></div>
+          <div class="modalsub"><span><b style="color:#c7ccd2;">GRADLE_HOME 和 PATH 一起改、同级同步。</b></span></div>
+          <div class="modalbody" style="gap:10px;">
+            <div class="field"><label>作用范围</label>
+              <div class="opt sel"><span class="rd"></span><div><div class="ot">仅当前用户 <span class="rec">推荐</span><span class="bd n" style="font-size:10px;">免管理员</span></div><div class="od">写 HKCU：用户级 GRADLE_HOME + 用户 PATH。</div></div></div>
+              <div class="opt"><span class="rd"></span><div><div class="ot"><i class="ti ti-shield-lock" style="color:#f5a45a;"></i> 系统全局<span class="bd w" style="font-size:10px;">需管理员 · 需 UAC 提权</span></div><div class="od">写 HKLM：所有用户生效。</div></div></div>
+            </div>
+            <div class="banner gray" style="margin:0;"><i class="ti ti-history lead"></i><div class="bt">改前自动备份，可在「历史」还原。</div></div>
+          </div>
+          <div class="modalft"><button class="gh sm">取消</button><button class="pr sm">应用</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 帧4：镜像覆盖提示 -->
+  <div class="frame">
+    <div class="cap"><span class="num">4</span><span class="ttl">init.gradle 镜像被项目 build.gradle 覆盖</span><span class="tag warn">告警态</span><span class="note">全局默认可能被项目内 repositories{} 覆盖，仅提示，不修改项目</span></div>
+    <div class="a short">
+      <div class="side">
+        <div class="brand"><span class="logo"><i class="ti ti-hexagon-letter-s"></i></span> Stacker</div>
+        <nav>
+          <button class="ni"><i class="ti ti-layout-dashboard"></i> 概览</button>
+          <button class="ni"><i class="ti ti-brand-python"></i> Python</button>
+          <button class="ni"><i class="ti ti-brand-nodejs"></i> Node</button>
+          <button class="ni"><i class="ti ti-coffee"></i> Java</button>
+          <button class="ni"><i class="ti ti-feather"></i> Maven</button>
+          <button class="ni on"><i class="ti ti-box"></i> Gradle</button>
+          <button class="ni"><i class="ti ti-brand-golang"></i> Go</button>
+          <button class="ni"><i class="ti ti-brand-rust"></i> Rust</button>
+        </nav>
+      </div>
+      <div class="main">
+        <div class="hd"><div class="htitle"><span class="ttl"><span class="eco av gr"><i class="ti ti-box"></i></span> Gradle</span></div></div>
+        <div class="content">
+          <div class="grouphd"><span class="gt"><i class="ti ti-world-download"></i> 仓库镜像</span></div>
+          <div class="srcrow" style="box-shadow:inset 3px 0 0 var(--amber);border-color:rgba(228,180,80,.4);">
+            <span class="av gr"><i class="ti ti-world-download"></i></span>
+            <div class="mt"><div class="t">全局仓库镜像 <span class="bd w">已配 · 项目可能不吃</span></div><div class="s mono">~/.gradle/init.gradle → 阿里云</div></div>
+            <select><option>阿里云</option><option>官方</option></select>
+            <button class="pr sm">应用</button>
+          </div>
+          <div class="banner gray">
+            <i class="ti ti-info-circle lead"></i>
+            <div class="bt"><b>项目级覆盖（仅提示，不会改动你的项目）</b><br>当前目录 <span class="code">.\build.gradle</span> 的 <span class="code">repositories { }</span> 硬编码了 mavenCentral()，会优先于全局 init.gradle。若需让该项目也使用国内源，需修改项目文件或使用 settings 的 <span class="code">dependencyResolutionManagement(PREFER_PROJECT)</span>——Stacker 不会修改项目内文件。</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 帧5：Gradle 仓库镜像测速弹窗 -->
+  <div class="frame">
+    <div class="cap"><span class="num">5</span><span class="ttl">仓库镜像测速 · 弹窗</span><span class="tag">弹窗</span><span class="note">点卡片设为默认镜像；写入 init.gradle 仓库重定向</span></div>
+    <div class="a short">
+      <div class="side" style="filter:brightness(.7);">
+        <div class="brand"><span class="logo"><i class="ti ti-hexagon-letter-s"></i></span> Stacker</div>
+        <nav><button class="ni on"><i class="ti ti-box"></i> Gradle</button></nav>
+      </div>
+      <div class="main"><div class="hd"><div class="htitle"><span class="ttl"><span class="eco av gr"><i class="ti ti-box"></i></span> Gradle</span></div></div><div class="content"></div></div>
+      <div class="modalmask">
+        <div class="modal">
+          <div class="modalhd"><span><i class="ti ti-bolt"></i> Gradle 仓库镜像测速</span><button class="ic"><i class="ti ti-x"></i></button></div>
+          <div class="modalsub"><span>点卡片设为默认镜像</span><button class="gh sm"><i class="ti ti-bolt"></i> 全部重测</button></div>
+          <div class="modalbody">
+            <div class="ngrid">
+              <div class="ncard sel"><div class="nhd"><span class="ndot ok"></span><span class="nname">阿里云</span></div><div class="ntags"><span class="ntag ok">110 ms</span><span class="ntag dn">默认源</span></div></div>
+              <div class="ncard"><div class="nhd"><span class="ndot ok"></span><span class="nname">华为云</span></div><div class="ntags"><span class="ntag ok">140 ms</span><span class="ntag">国内</span></div></div>
+              <div class="ncard"><div class="nhd"><span class="ndot mid"></span><span class="nname">腾讯云</span></div><div class="ntags"><span class="ntag mid">175 ms</span><span class="ntag">国内</span></div></div>
+              <div class="ncard base"><div class="nhd"><span class="ndot bad"></span><span class="nname">官方 mavenCentral</span></div><div class="ntags"><span class="ntag bad">超时</span><span class="ntag">基准</span></div></div>
+            </div>
+            <div class="banner gray" style="margin:0;"><i class="ti ti-file-text lead"></i><div class="bt">写入 <span class="code">~/.gradle/init.gradle</span> 的仓库重定向（mavenCentral / google → 镜像），改前自动备份。</div></div>
+          </div>
+          <div class="modalft"><button class="gh sm">关闭</button><button class="pr sm">设为默认并应用</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 帧6：下载新版本弹窗 -->
+  <div class="frame">
+    <div class="cap"><span class="num">6</span><span class="ttl">下载 Gradle 版本 · 弹窗</span><span class="tag">弹窗</span><span class="note">由 Stacker 下载解压（走国内镜像）</span></div>
+    <div class="a short">
+      <div class="side" style="filter:brightness(.7);">
+        <div class="brand"><span class="logo"><i class="ti ti-hexagon-letter-s"></i></span> Stacker</div>
+        <nav><button class="ni on"><i class="ti ti-box"></i> Gradle</button></nav>
+      </div>
+      <div class="main"><div class="hd"><div class="htitle"><span class="ttl"><span class="eco av gr"><i class="ti ti-box"></i></span> Gradle</span></div></div><div class="content"></div></div>
+      <div class="modalmask">
+        <div class="modal wide">
+          <div class="modalhd"><span><i class="ti ti-download"></i> 下载 Gradle 版本</span><button class="ic"><i class="ti ti-x"></i></button></div>
+          <div class="modalbody" style="gap:12px;">
+            <div class="row" style="gap:11px;">
+              <div class="field" style="flex:1;"><label>版本</label><select style="width:100%;"><option>8.12（最新）</option><option>8.10</option><option>7.6.4</option></select></div>
+              <div class="field" style="flex:1;"><label>下载镜像</label><select style="width:100%;"><option>腾讯云 gradle 镜像</option><option>官方 services.gradle.org</option></select></div>
+            </div>
+            <div class="field"><label>发行包</label>
+              <div class="seg" style="align-self:flex-start;"><button class="on">bin（仅运行时，体积小）</button><button>all（含源码 / 文档）</button></div>
+            </div>
+            <div class="field"><label>安装目录</label><div class="row"><input class="ip full" value="D:\Gradle\gradle-8.12"><button class="gh sm"><i class="ti ti-folder"></i> 浏览</button></div>
+              <div class="hint"><i class="ti ti-alert-circle" style="color:#e4b450;"></i> 不会装进 Stacker 程序目录；可自选磁盘。</div>
+            </div>
+            <div class="banner gray" style="margin:0;"><i class="ti ti-info-circle lead"></i><div class="bt">下载 zip → 校验 → 解压 → 登记；可勾选<label style="margin-left:6px;"><input type="checkbox"> 安装后设为默认</label>。</div></div>
+          </div>
+          <div class="modalft"><button class="gh sm">取消</button><button class="pr sm"><i class="ti ti-download"></i> 下载并安装</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

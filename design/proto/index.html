@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stacker 原型集 · 总览</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.31.0/dist/tabler-icons.min.css">
+<link rel="stylesheet" href="app.css">
+<style>
+  .idx{ max-width:920px; margin:0 auto; }
+  .idx h1{ font-size:22px; font-weight:600; margin:0 0 6px; }
+  .idx .lead{ font-size:13px; color:#828995; line-height:1.7; margin:0 0 24px; max-width:680px; }
+  .idx .lead b{ color:#c7ccd2; }
+  .navmap{ display:flex; gap:14px; align-items:flex-start; background:#13161c; border:.5px solid rgba(255,255,255,.07);
+    border-radius:12px; padding:16px 18px; margin-bottom:28px; font-size:12.5px; color:#aeb6c0; line-height:1.9; flex-wrap:wrap; }
+  .navmap .col{ display:flex; flex-direction:column; }
+  .navmap .ch{ font-size:11px; color:#5a616d; text-transform:uppercase; letter-spacing:.05em; margin-bottom:4px; }
+  .navmap .mi{ display:flex; align-items:center; gap:7px; }
+  .navmap .mi i{ width:16px; color:#828995; }
+  .sec{ font-size:12px; color:#5a616d; text-transform:uppercase; letter-spacing:.05em; margin:6px 2px 12px; }
+  .grid{ display:grid; grid-template-columns:1fr 1fr; gap:13px; margin-bottom:26px; }
+  .card{ display:block; text-decoration:none; background:#13161c; border:.5px solid rgba(255,255,255,.08);
+    border-radius:12px; padding:15px 16px; color:#e7e9ec; }
+  .card:hover{ border-color:rgba(255,255,255,.2); background:#171b22; }
+  .card.todo{ opacity:.5; pointer-events:none; }
+  .card .ct{ display:flex; align-items:center; gap:9px; font-size:14px; font-weight:600; }
+  .card .ic{ width:30px; height:30px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:16px; }
+  .card .cd{ font-size:12px; color:#828995; line-height:1.6; margin:9px 0 0; }
+  .card .frames{ font-size:11px; color:#6a7180; margin-top:10px; display:flex; flex-wrap:wrap; gap:5px; }
+  .card .frames span{ background:rgba(255,255,255,.05); border-radius:5px; padding:1px 7px; }
+  .badge{ margin-left:auto; font-size:10.5px; padding:1px 8px; border-radius:6px; }
+  .badge.done{ background:rgba(107,207,134,.16); color:#6bcf86; }
+  .badge.todo{ background:rgba(255,255,255,.07); color:#828995; }
+</style>
+</head>
+<body>
+<div class="idx">
+  <h1><span style="display:inline-flex;width:26px;height:26px;border-radius:7px;background:#f5821f;color:#fff;align-items:center;justify-content:center;font-size:15px;vertical-align:-5px;"><i class="ti ti-hexagon-letter-s"></i></span> Stacker · 原型集</h1>
+  <p style="font-size:13px;color:#9aa2ad;margin:0 0 14px;">开发生态管理器 · Dev Ecosystem Manager —— 为国内开发者统一管理运行时版本、包源镜像与终端代理</p>
+  <p class="lead">生态中心化重构版。每个生态页 = <b>①运行时版本管理</b> + <b>②包源/镜像</b>。点开任意页，里面用多扇<b>状态帧</b>把默认 / 空 / 扫描中 / 未生效 / 出错等情形和所有弹窗都摆出来，方便逐处确认。静态原型，按钮多为演示。</p>
+
+  <div class="navmap">
+    <div class="col">
+      <div class="ch">主导航</div>
+      <div class="mi"><i class="ti ti-layout-dashboard"></i> 概览</div>
+      <div class="mi"><i class="ti ti-brand-python"></i> Python</div>
+      <div class="mi"><i class="ti ti-brand-nodejs"></i> Node</div>
+      <div class="mi"><i class="ti ti-coffee"></i> Java</div>
+      <div class="mi"><i class="ti ti-feather"></i> Maven</div>
+      <div class="mi"><i class="ti ti-box"></i> Gradle</div>
+      <div class="mi"><i class="ti ti-brand-golang"></i> Go</div>
+      <div class="mi"><i class="ti ti-brand-rust"></i> Rust</div>
+      <div class="mi"><i class="ti ti-world-bolt"></i> 终端代理</div>
+      <div class="mi"><i class="ti ti-eraser"></i> 磁盘清理</div>
+    </div>
+    <div class="col">
+      <div class="ch">底部</div>
+      <div class="mi"><i class="ti ti-history"></i> 历史</div>
+      <div class="mi"><i class="ti ti-settings"></i> 设置</div>
+    </div>
+    <div class="col" style="flex:1;min-width:220px;">
+      <div class="ch">两种生态页模型</div>
+      <div class="mi"><i class="ti ti-robot"></i> <b style="color:#c7ccd2;font-weight:500;">管理器托管</b>：Node/Python/Rust —— 调 fnm / pyenv / rustup，装卸+切换，不扫盘</div>
+      <div class="mi"><i class="ti ti-folder-search"></i> <b style="color:#c7ccd2;font-weight:500;">手动多版本</b>：Java/Go/Maven/Gradle —— 扫盘发现 + HOME 变量 + PATH + 层级</div>
+    </div>
+  </div>
+
+  <div class="sec">生态页（运行时 + 包源整合）</div>
+  <div class="grid">
+    <a class="card" href="overview.html">
+      <div class="ct"><span class="ic" style="background:#2a2f38;color:#aeb6c0;"><i class="ti ti-layout-dashboard"></i></span> 概览 <span class="badge done">已出</span></div>
+      <div class="cd"><b style="color:#c7ccd2;font-weight:500;">体检 + 一键就绪</b>（产品主轴）。进来先体检，列出全部「可优化项」，能自动修的一键修；含首次向导与应用后自动验证。下接生态总览。</div>
+      <div class="frames"><span>体检默认</span><span>全部就绪</span><span>首次向导</span><span>一键优化进度</span><span>优化结果(含验证)</span></div>
+    </a>
+    <a class="card" href="python.html">
+      <div class="ct"><span class="ic av py" style="background:#27384a;color:#7cc1ff;"><i class="ti ti-brand-python"></i></span> Python <span class="badge done">已出</span></div>
+      <div class="cd">管理器托管样板页。pyenv-win 版本 GUI（装/卸/设默认/列表）+ pip 换源（conda 检测到才出现）+ 生效检测保障（pyenv 可能被系统 Python 覆盖）。</div>
+      <div class="frames"><span>默认</span><span>conda 检测到</span><span>未装 pyenv</span><span>安装版本·控制台</span><span>env 覆盖</span><span>装新版本弹窗</span><span>卸载确认</span><span>测速</span></div>
+    </a>
+    <a class="card" href="node.html">
+      <div class="ct"><span class="ic av npm" style="background:#3a2530;color:#f08aa0;"><i class="ti ti-brand-nodejs"></i></span> Node <span class="badge done">已出</span></div>
+      <div class="cd"><b style="color:#c7ccd2;font-weight:500;">fnm 接管</b>（前置 PATH，不受本机 nvm / 手动 node 影响）版本 GUI + shell 集成状态条 + npm/yarn/pnpm 换源 + Electron/Puppeteer 下载加速。</div>
+      <div class="frames"><span>默认</span><span>shell 集成未装</span><span>未装 fnm·引导安装</span><span>设默认(含片段)</span><span>装新版本</span><span>下载镜像</span><span>npm 覆盖</span><span>npm 测速</span><span>卸载确认</span></div>
+    </a>
+    <a class="card" href="java.html">
+      <div class="ct"><span class="ic av jv" style="background:#2f3340;color:#9fb3d6;"><i class="ti ti-coffee"></i></span> Java <span class="badge done">已出</span></div>
+      <div class="cd">手动多版本样板，<b style="color:#c7ccd2;font-weight:500;">纯 JDK</b>（Maven/Gradle 已拆出）。java 命令 vs JAVA_HOME 分裂 + JAVA_HOME/PATH 捆绑写 + 作用范围(用户/系统·UAC) + 覆盖项清理。<b style="color:#c7ccd2;font-weight:500;">无 JDK 时 Stacker 直接下载安装</b>（Temurin/Zulu…走国内镜像）。</div>
+      <div class="frames"><span>默认</span><span>命令/JAVA_HOME 不一致</span><span>扫盘</span><span>设默认弹窗(捆绑+UAC)</span><span>无 JDK·引导下载</span><span>下载 JDK 弹窗</span><span>下载进度</span></div>
+    </a>
+    <a class="card" href="maven.html">
+      <div class="ct"><span class="ic av mv2" style="background:#2a3550;color:#8fa8e0;"><i class="ti ti-feather"></i></span> Maven <span class="badge done">已出</span></div>
+      <div class="cd">从 Java 拆出。多版本 + <b style="color:#c7ccd2;font-weight:500;">本地仓库目录迁移</b>（localRepository，节省 C 盘空间）+ 镜像 + 代理 + 私服鉴权，全在 settings.xml。</div>
+      <div class="frames"><span>默认</span><span>仓库迁移弹窗</span><span>迁移进行中</span><span>设默认</span><span>镜像测速</span><span>私服鉴权</span><span>下载新版本</span></div>
+    </a>
+    <a class="card" href="gradle.html">
+      <div class="ct"><span class="ic av gr" style="background:#26323a;color:#7fd1c6;"><i class="ti ti-box"></i></span> Gradle <span class="badge done">已出</span></div>
+      <div class="cd">与 Maven 对称。多版本 + <b style="color:#c7ccd2;font-weight:500;">GRADLE_USER_HOME 缓存迁移</b> + init.gradle 镜像 + gradle.properties 代理 + 项目覆盖提示。</div>
+      <div class="frames"><span>默认</span><span>缓存迁移弹窗</span><span>设默认</span><span>镜像被项目覆盖</span><span>镜像测速</span><span>下载新版本</span></div>
+    </a>
+    <a class="card" href="go.html">
+      <div class="ct"><span class="ic av go" style="background:#234048;color:#67d4e6;"><i class="ti ti-brand-golang"></i></span> Go <span class="badge done">已出</span></div>
+      <div class="cd">手动多版本 + GOPROXY/GOSUMDB 换源 + GOPATH/GOROOT 说明。</div>
+      <div class="frames"><span>默认</span><span>扫盘</span><span>设默认</span><span>GOPROXY 覆盖</span><span>GOPROXY 测速</span><span>GOPATH 迁移</span><span>GOPRIVATE</span><span>下载新版本</span></div>
+    </a>
+    <a class="card" href="rust.html">
+      <div class="ct"><span class="ic av rs" style="background:#3a2c24;color:#e89b6c;"><i class="ti ti-brand-rust"></i></span> Rust <span class="badge done">已出</span></div>
+      <div class="cd">rustup 工具链 GUI（default/install/uninstall）+ Cargo 源 + dist server 加速。</div>
+      <div class="frames"><span>默认</span><span>未装 rustup</span><span>装工具链</span><span>crates 测速</span><span>卸载确认</span></div>
+    </a>
+  </div>
+
+  <div class="sec">工具页</div>
+  <div class="grid">
+    <a class="card" href="proxy.html">
+      <div class="ct"><span class="ic av px" style="background:#243a4a;color:#6ab0f5;"><i class="ti ti-world-bolt"></i></span> 终端代理 <span class="badge done">已出</span></div>
+      <div class="cd">三 shell 立即生效片段 + NO_PROXY 白名单 + Maven/Gradle 代理写配置 + TUN 对比。</div>
+      <div class="frames"><span>关</span><span>开</span><span>三 shell tab</span><span>复制片段</span></div>
+    </a>
+    <a class="card" href="settings.html">
+      <div class="ct"><span class="ic av st" style="background:#2a2f38;color:#aeb6c0;"><i class="ti ti-settings"></i></span> 设置 <span class="badge done">已出</span></div>
+      <div class="cd">源 CRUD（全部在此）+ 新建自定义私有源（含鉴权）+ 清单更新 + 方案 + 通用/外观。</div>
+      <div class="frames"><span>源管理</span><span>新建源(鉴权)</span><span>配置方案</span><span>全量软件源测速</span></div>
+    </a>
+    <a class="card" href="cleanup.html">
+      <div class="ct"><span class="ic" style="background:#243a4a;color:#6ab0f5;"><i class="ti ti-eraser"></i></span> 磁盘清理 <span class="badge done">已出</span></div>
+      <div class="cd"><b style="color:#c7ccd2;font-weight:500;">"C 盘又满了"</b>。各生态缓存占用总览，标注可安全清理 / 谨慎，一键释放；谨慎项按未使用时长智能清理。</div>
+      <div class="frames"><span>占用总览</span><span>清理确认</span><span>清理进度</span><span>智能清理(按时长)</span></div>
+    </a>
+    <a class="card" href="history.html">
+      <div class="ct"><span class="ic av file" style="background:#262b34;color:#9aa2ad;"><i class="ti ti-history"></i></span> 历史 <span class="badge done">已出</span></div>
+      <div class="cd">改动前自动备份列表，逐条还原/删除，diff 预览弹窗。</div>
+      <div class="frames"><span>列表</span><span>还原确认</span><span>diff 预览</span></div>
+    </a>
+    <a class="card todo">
+      <div class="ct"><span class="ic" style="background:#2a2f38;color:#aeb6c0;"><i class="ti ti-dots"></i></span> 组件库 <span class="badge todo">规划中</span></div>
+      <div class="cd">Modal / Toast / 确认弹窗 / 进度等可复用件，先在各页内嵌示范，确认后抽取。</div>
+    </a>
+  </div>
+</div>
+</body>
+</html>

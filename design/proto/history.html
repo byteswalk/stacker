@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>历史 · Stacker 原型</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.31.0/dist/tabler-icons.min.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div class="page">
+  <p class="crumb"><a href="index.html">← 原型集</a> · 历史</p>
+  <h1>历史</h1>
+  <p class="lead">每次换源 / 改环境变量前<b>自动备份</b>，逐条可<b>还原</b>或<b>删除</b>，可<b>预览改动 diff</b>。环境变量类备份会记录用户级与系统级两侧的原值。共 3 帧。</p>
+
+  <!-- 帧1：列表 -->
+  <div class="frame">
+    <div class="cap"><span class="num">1</span><span class="ttl">备份列表</span></div>
+    <div class="a">
+      <div class="side">
+        <div class="brand"><span class="logo"><i class="ti ti-hexagon-letter-s"></i></span> Stacker</div>
+        <nav>
+          
+          <button class="ni"><i class="ti ti-layout-dashboard"></i> 概览</button>
+          <button class="ni"><i class="ti ti-brand-python"></i> Python</button>
+          <button class="ni"><i class="ti ti-brand-nodejs"></i> Node</button>
+          <button class="ni"><i class="ti ti-coffee"></i> Java</button>
+          <button class="ni"><i class="ti ti-feather"></i> Maven</button>
+          <button class="ni"><i class="ti ti-box"></i> Gradle</button>
+          <button class="ni"><i class="ti ti-brand-golang"></i> Go</button>
+          <button class="ni"><i class="ti ti-brand-rust"></i> Rust</button>
+          <div class="navsep"></div>
+          <button class="ni"><i class="ti ti-world-bolt"></i> 终端代理</button>
+          <button class="ni"><i class="ti ti-eraser"></i> 磁盘清理</button>
+        </nav>
+        <div class="sidefoot">
+          <button class="ni on"><i class="ti ti-history"></i> 历史</button>
+          <button class="ni"><i class="ti ti-settings"></i> 设置</button>
+        </div>
+      </div>
+      <div class="main">
+        <div class="hd">
+          <div class="htitle"><span class="ttl"><span class="eco av file"><i class="ti ti-history"></i></span> 历史</span></div>
+          <div class="hdright"><button class="gh sm"><i class="ti ti-filter"></i> 全部类型</button><button class="gh sm danger"><i class="ti ti-trash"></i> 清空</button></div>
+        </div>
+        <div class="content">
+          <div class="grouphd"><span class="gt">今天</span></div>
+          <div class="srcrow">
+            <span class="av jv"><i class="ti ti-variable"></i></span>
+            <div class="mt"><div class="t">JAVA_HOME + PATH <span class="bd o">环境变量</span></div><div class="s mono">14:22 · 设默认前 JDK 21 → 17 · 含用户级 + 系统级原值</div></div>
+            <button class="gh sm"><i class="ti ti-git-compare"></i> 预览</button>
+            <button class="gh sm">还原</button>
+            <button class="spd"><i class="ti ti-trash"></i></button>
+          </div>
+          <div class="srcrow">
+            <span class="av py"><i class="ti ti-file"></i></span>
+            <div class="mt"><div class="t">pip.ini <span class="bd b">换源</span></div><div class="s mono">11:48 · 切换前（官方 → 清华）</div></div>
+            <button class="gh sm"><i class="ti ti-git-compare"></i> 预览</button>
+            <button class="gh sm">还原</button>
+            <button class="spd"><i class="ti ti-trash"></i></button>
+          </div>
+          <div class="srcrow">
+            <span class="av mv2"><i class="ti ti-file"></i></span>
+            <div class="mt"><div class="t">settings.xml <span class="bd b">换源</span></div><div class="s mono">11:50 · 切换前（官方 → 阿里云）· 仅改 mirrors，保留 servers</div></div>
+            <button class="gh sm"><i class="ti ti-git-compare"></i> 预览</button>
+            <button class="gh sm">还原</button>
+            <button class="spd"><i class="ti ti-trash"></i></button>
+          </div>
+
+          <div class="grouphd" style="margin-top:14px;"><span class="gt">昨天</span></div>
+          <div class="srcrow">
+            <span class="av file"><i class="ti ti-folder"></i></span>
+            <div class="mt"><div class="t">本地仓库迁移 <span class="bd w">目录</span></div><div class="s mono">昨天 19:03 · ~/.m2/repository：C:\…\.m2 → D:\.m2-repo</div></div>
+            <button class="gh sm">还原</button>
+            <button class="spd"><i class="ti ti-trash"></i></button>
+          </div>
+          <div class="srcrow">
+            <span class="av npm"><i class="ti ti-file"></i></span>
+            <div class="mt"><div class="t">.npmrc <span class="bd b">换源</span></div><div class="s mono">昨天 19:03 · 切换前（官方 → npmmirror）</div></div>
+            <button class="gh sm"><i class="ti ti-git-compare"></i> 预览</button>
+            <button class="gh sm">还原</button>
+            <button class="spd"><i class="ti ti-trash"></i></button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 帧2：还原确认弹窗 -->
+  <div class="frame">
+    <div class="cap"><span class="num">2</span><span class="ttl">还原确认 · 弹窗</span><span class="tag warn">弹窗</span><span class="note">环境变量类还原若涉及系统级，会提示需 UAC 提权</span></div>
+    <div class="a short">
+      <div class="side" style="filter:brightness(.7);">
+        <div class="brand"><span class="logo"><i class="ti ti-hexagon-letter-s"></i></span> Stacker</div>
+        <nav><div class="navlabel">工具</div><button class="ni on"><i class="ti ti-history"></i> 历史</button></nav>
+      </div>
+      <div class="main"><div class="hd"><div class="htitle"><span class="ttl"><span class="eco av file"><i class="ti ti-history"></i></span> 历史</span></div></div><div class="content"></div></div>
+      <div class="modalmask">
+        <div class="modal">
+          <div class="modalhd"><span><i class="ti ti-arrow-back-up"></i> 还原 JAVA_HOME + PATH</span><button class="ic"><i class="ti ti-x"></i></button></div>
+          <div class="modalbody" style="gap:11px;">
+            <div style="font-size:13px;line-height:1.7;color:#c7ccd2;">将把 JAVA_HOME 与 PATH 还原到 <b>14:22 备份前</b> 的状态（JDK 21）。</div>
+            <div class="banner amber" style="margin:0;"><i class="ti ti-shield-half lead"></i><div class="bt">该备份含<b>系统级</b>原值，还原会写 HKLM，<b>将触发 UAC 提权</b>。</div></div>
+            <div class="banner gray" style="margin:0;"><i class="ti ti-info-circle lead"></i><div class="bt">还原本身也会先备份当前状态，可再次回退。</div></div>
+          </div>
+          <div class="modalft"><button class="gh sm">取消</button><button class="pr" style="background:#d97a1f;"><i class="ti ti-shield-half"></i> 还原（将触发 UAC 提权）</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 帧3：diff 预览弹窗 -->
+  <div class="frame">
+    <div class="cap"><span class="num">3</span><span class="ttl">改动预览 diff · 弹窗</span><span class="tag">弹窗</span><span class="note">备份前 vs 当前，逐行高亮；文件类与变量类通用</span></div>
+    <div class="a short">
+      <div class="side" style="filter:brightness(.7);">
+        <div class="brand"><span class="logo"><i class="ti ti-hexagon-letter-s"></i></span> Stacker</div>
+        <nav><div class="navlabel">工具</div><button class="ni on"><i class="ti ti-history"></i> 历史</button></nav>
+      </div>
+      <div class="main"><div class="hd"><div class="htitle"><span class="ttl"><span class="eco av file"><i class="ti ti-history"></i></span> 历史</span></div></div><div class="content"></div></div>
+      <div class="modalmask">
+        <div class="modal wide">
+          <div class="modalhd"><span><i class="ti ti-git-compare"></i> pip.ini · 改动预览</span><button class="ic"><i class="ti ti-x"></i></button></div>
+          <div class="modalsub"><span>11:48 备份前（左）vs 当前（右）· %APPDATA%\pip\pip.ini</span></div>
+          <div class="modalbody">
+            <div class="console" style="max-height:none;background:#0c0f14;">[global]
+<span class="err">- index-url = https://pypi.org/simple</span>
+<span class="ok">+ index-url = https://pypi.tuna.tsinghua.edu.cn/simple</span>
+<span class="ok">+ trusted-host = pypi.tuna.tsinghua.edu.cn</span>
+<span class="dim">  timeout = 60</span>      <span class="dim">（保留，未改动）</span></div>
+          </div>
+          <div class="modalft"><button class="gh sm">关闭</button><button class="gh sm">还原此条</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
