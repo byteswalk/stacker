@@ -1,6 +1,8 @@
 # Stacker
 
-面向 Windows 开发者和 AI 编程新手的开发环境管理器。Stacker 把 Python、Node.js、Java、Maven、Gradle、Go、Rust 的运行时管理、包仓库镜像、终端代理、环境体检和缓存清理集中到一个桌面应用里，让一台新 Windows 机器更快进入可开发状态，也让后续维护有状态、有进度、可回退。
+AI Coding Runtime Manager for Windows.
+
+Stacker 帮助 Windows 开发者和 AI 编程新手把本机整理成适合 Codex、Claude Code、Cursor、VS Code Agent 等工具工作的开发环境。它把 Python、Node.js、Java、Maven、Gradle、Go、Rust 的运行时管理、包仓库镜像、终端代理、Agent 就绪体检和缓存清理集中到一个桌面应用里，让一台新 Windows 机器更快进入可开发状态，也让后续维护有状态、有进度、可回退。
 
 [![Release](https://img.shields.io/github/v/release/byteswalk/stacker?label=release)](https://github.com/byteswalk/stacker/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-blue)](#)
@@ -11,7 +13,7 @@
 
 ## Summary
 
-Stacker is a Windows desktop app for setting up and maintaining developer environments. It helps manage Python, Node.js, Java, Maven, Gradle, Go and Rust toolchains, configure registries and mirrors, keep terminal proxy settings predictable, and clean common development caches with backup and restore support.
+Stacker is a Windows desktop app for preparing local machines for AI coding agents. It helps manage Python, Node.js, Java, Maven, Gradle, Go and Rust toolchains, configure registries and mirrors, keep terminal proxy settings predictable, and clean common development caches with backup and restore support.
 
 It is designed for Windows developers, beginners using AI coding tools, and teams working behind slow networks, enterprise proxies or private registries.
 
@@ -22,23 +24,23 @@ It is designed for Windows developers, beginners using AI coding tools, and team
 - 安装版：适合日常使用，带开始菜单和卸载入口。
 - 免安装版：解压后运行 `Stacker.exe`，适合临时测试或放在工具盘。
 
-Stacker 面向 Windows 10 和 Windows 11。首次启动后，建议从“概览”页开始体检，再进入对应语言页面安装运行时、切换默认版本或配置镜像源。
+Stacker 面向 Windows 10 和 Windows 11。首次启动后，建议从“概览”页开始 Agent 就绪体检，再进入对应语言页面安装运行时、切换默认版本或配置镜像源。
 
 ## 它解决什么问题
 
-在 Windows 上，开发环境的问题往往不是“少装了一个工具”这么简单，而是运行时版本、PATH、包仓库、代理、终端集成和缓存状态交织在一起。AI 编程工具会更频繁地产生跨语言项目，新手很容易卡在 `python`、`node`、`java`、`mvn`、`gradle` 命令不可用，或者下载依赖一直失败，却不知道该从哪里排查。
+在 Windows 上，开发环境的问题往往不是“少装了一个工具”这么简单，而是运行时版本、PATH、包仓库、代理、终端集成和缓存状态交织在一起。AI 编程 Agent 会更频繁地产生跨语言项目，也会直接调用本机 shell 安装依赖、运行测试和构建项目。新手很容易卡在 `python`、`node`、`java`、`mvn`、`gradle` 命令不可用，或者下载依赖一直失败，却不知道该从哪里排查。
 
-Stacker 的产品思路是“先体检，再处理”：先告诉用户 Python、Node、JDK、包仓库、终端代理和开发缓存哪里有问题，再在对应生态页面完成运行时安装、默认版本切换、镜像配置和清理。耗时操作展示进度，关键写入前自动备份，出了问题可以从历史记录恢复。
+Stacker 的产品思路是“先确认 Agent 能不能干活，再处理环境问题”：先告诉用户 Git、Agent CLI、Node、Python、JDK、包仓库、终端代理和开发缓存哪里有问题，再在对应生态页面完成运行时安装、默认版本切换、镜像配置和清理。耗时操作展示进度，关键写入前自动备份，出了问题可以从历史记录恢复。
 
 它特别适合 Windows 开发者、刚开始使用 AI 编程工具的新手，以及需要在企业代理、私有仓库或受限网络中维护开发环境的团队。
 
-它不会替代 pyenv-win、fnm、rustup、Maven 或 Gradle。它负责把这些工具在 Windows 上装好、接好、配置好，并在出问题时把状态展示清楚。
+它不会替代 Codex、Claude Code、Cursor、pyenv-win、fnm、rustup、Maven 或 Gradle。它负责把本机运行时、包管理器、代理和终端入口整理好，让本地 Agent 更稳定地安装依赖、运行测试和构建项目。
 
 ## 功能
 
-### 开发环境体检
+### Agent 就绪体检
 
-Stacker 会检查常见开发生态的状态，包括 Python、Node、Go、Maven、Gradle、Rust、终端代理和开发缓存。体检结果会直接给出可处理项，例如包源仍在默认源、开发缓存偏高、Windows 临时目录过大等，用户可以从概览页跳转到对应页面处理。
+Stacker 会检查本机是否适合运行本地 AI 编程 Agent，包括 Git、Codex CLI、Claude Code、Node/npm、Python/pip、Java、Maven、Gradle、Go、Rust、终端代理和开发缓存。体检结果会直接给出可处理项，例如基础命令缺失、包源仍在默认源、开发缓存偏高、Windows 临时目录过大等，用户可以从概览页跳转到对应页面处理。
 
 ### Python
 

@@ -108,6 +108,7 @@ pub fn run() {
             fnm::fnm_migrate_from_nvm,
             fnm::fnm_speedtest_sources,
             checkup::checkup_extra,
+            checkup::agent_readiness,
             pyenv::pyenv_status,
             pyenv::pyenv_root_dir,
             pyenv::pyenv_set_global,

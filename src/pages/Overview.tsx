@@ -15,6 +15,27 @@ const TOOL_ECO: Record<string, Page> = {
   go: "go", maven: "maven", gradle: "gradle", cargo: "rust",
 };
 type CheckItem = { id: string; sev: string; title: string; desc: string; page: Page; action: string };
+type AgentCheck = {
+  id: string;
+  name: string;
+  category: string;
+  required: boolean;
+  status: "ok" | "warn" | "missing";
+  version?: string | null;
+  path?: string | null;
+  message: string;
+  page?: Page | null;
+  action?: string | null;
+};
+type AgentReadiness = {
+  status: "ready" | "partial" | "blocked";
+  score: number;
+  title: string;
+  summary: string;
+  blockers: string[];
+  warnings: string[];
+  checks: AgentCheck[];
+};
 function firstMirror(t: ToolState) { return t.mirrors.find((m) => m.id !== "official"); }
 function onOfficial(t: ToolState) { return !["python-runtime", "node-runtime"].includes(t.id) && t.installed && (t.current === "official" || !t.current) && !!firstMirror(t); }
 
@@ -42,11 +63,30 @@ const DEMO_FIXES: DemoFix[] = [
   { sev: "mid", title: "pip 仍在用默认源", badge: ["w", "建议"], desc: <>可切换到响应更快的镜像源</>, action: "切换镜像", go: "python" },
   { sev: "info", title: "C 盘开发缓存偏高", badge: ["b", "提示"], desc: <>各 cache 共占 C 盘 12.6 GB，可安全释放约 9 GB</>, action: "去清理", go: "cleanup" },
 ];
+const DEMO_AGENT: AgentReadiness = {
+  status: "partial",
+  score: 76,
+  title: "基本就绪",
+  summary: "核心命令可用；Claude Code、Maven、Gradle 属于项目相关或 Agent CLI 可选项，可按需补齐。",
+  blockers: [],
+  warnings: ["Claude Code", "Maven", "Gradle"],
+  checks: [
+    { id: "git", name: "Git", category: "基础工具", required: true, status: "ok", version: "git version 2.x", message: "命令可用" },
+    { id: "node", name: "Node.js", category: "运行时", required: true, status: "ok", version: "v24.x", message: "命令可用", page: "node", action: "配置 Node" },
+    { id: "python", name: "Python", category: "运行时", required: true, status: "ok", version: "Python 3.x", message: "命令可用", page: "python", action: "配置 Python" },
+    { id: "claude", name: "Claude Code", category: "Agent CLI", required: false, status: "warn", message: "未检测到命令", page: "node", action: "准备 Node" },
+  ],
+};
+
+function agentDot(status: AgentCheck["status"]) {
+  return status === "missing" ? "warn" : status === "warn" ? "mid" : "info";
+}
 
 export default function Overview({ goto }: { goto: (p: Page) => void }) {
   const toast = useToast();
   const [tools, setTools] = useState<ToolState[] | null>(null);
   const [extra, setExtra] = useState<CheckItem[]>([]);
+  const [agent, setAgent] = useState<AgentReadiness | null>(null);
   const [demo, setDemo] = useState(false);
   const [busy, setBusy] = useState(false);
   const [checking, setChecking] = useState(false);
@@ -56,8 +96,15 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
     try {
       setTools(await invoke<ToolState[]>("list_sources")); setDemo(false);
       setChecking(true);
-      try { setExtra(await invoke<CheckItem[]>("checkup_extra")); } catch { setExtra([]); } finally { setChecking(false); }
-    } catch { setDemo(true); setTools([]); setChecking(false); }
+      try {
+        const [nextExtra, nextAgent] = await Promise.all([
+          invoke<CheckItem[]>("checkup_extra").catch(() => []),
+          invoke<AgentReadiness>("agent_readiness").catch(() => null),
+        ]);
+        setExtra(nextExtra);
+        setAgent(nextAgent);
+      } finally { setChecking(false); }
+    } catch { setDemo(true); setTools([]); setAgent(DEMO_AGENT); setChecking(false); }
   }
   useEffect(() => { load(); }, []);
 
@@ -68,6 +115,7 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
   const emptySetup = !demo && tools !== null && installedCount === 0 && extra.length === 0;
   const count = emptySetup ? 0 : demo ? DEMO_FIXES.length : realFixes.length + extra.length;
   const allOk = !demo && !emptySetup && count === 0;
+  const agentIssues = (agent?.checks ?? []).filter((c) => c.status !== "ok");
   // 标题如实拆分：换源类（可一键优化）vs 环境/缓存类（各自单独处理）
   const subtitle = (() => {
     const parts: string[] = [];
@@ -110,10 +158,40 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
 
   return (
     <>
+      {agent && (
+        <>
+          <div className={"checkup agent " + (agent.status === "ready" ? "ok" : agent.status === "blocked" ? "bad" : "")}>
+            <span className="cnum">
+              {checking ? <i className="ti ti-loader spin" style={{ fontSize: 24 }} /> : <><b>{agent.score}</b><span>READY</span></>}
+            </span>
+            <div className="ct">
+              <div className="t1">Agent 就绪体检 · {agent.title}</div>
+              <div className="t2">{checking ? "正在检测 Git / Agent CLI / Node / Python / Java / Go / Rust 与包管理器…" : agent.summary}</div>
+            </div>
+            <div className="cacts">
+              <button className="gh sm" disabled={checking} onClick={() => load().then(() => toast("已重新体检", "ok"))}>
+                <i className={"ti " + (checking ? "ti-loader spin" : "ti-refresh")} /> {checking ? "体检中…" : "重新体检"}
+              </button>
+            </div>
+          </div>
+          {agentIssues.length > 0 && <div className="seclabel"><i className="ti ti-robot" /> Agent 需处理项</div>}
+          {agentIssues.map((c) => (
+            <div className="fixrow" key={c.id}>
+              <span className={"fdot " + agentDot(c.status)} />
+              <div className="ft">
+                <div className="fh">{c.name} <span className={"bd " + (c.required ? "r" : "w")}>{c.required ? "必需" : "建议"}</span><span className="bd n">{c.category}</span></div>
+                <div className="fs">{c.message}{c.version ? ` · ${c.version}` : ""}</div>
+              </div>
+              {c.page && c.action && <button className={c.required ? "pr sm" : "gh sm"} disabled={busy} onClick={() => goto(c.page!)}>{c.action}</button>}
+            </div>
+          ))}
+        </>
+      )}
+
       <div className={"checkup" + (allOk ? " ok" : "")}>
         <span className="cnum">{allOk ? <i className="ti ti-circle-check" style={{ fontSize: 26 }} /> : emptySetup ? <i className="ti ti-package-off" style={{ fontSize: 26 }} /> : <><b>{count}</b><span>可优化</span></>}</span>
         <div className="ct">
-          <div className="t1">{emptySetup ? "未检测到开发工具" : allOk ? "一切就绪" : "开发环境体检"}</div>
+          <div className="t1">{emptySetup ? "未检测到开发工具" : allOk ? "环境状态正常" : "开发环境可优化项"}</div>
           <div className="t2">{checking ? "正在体检：检测 Python / Node / 代理 / 缓存 / Java 版本一致性…"
             : demo ? "演示数据（在 Tauri 应用内运行可读取真实状态）"
             : emptySetup ? "这像是一台新机器：先进入左侧 Python / Node / Java 等页面安装运行时，再配置对应包源。"

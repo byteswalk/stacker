@@ -19,6 +19,31 @@ pub struct CheckItem {
     pub action: String,
 }
 
+#[derive(Serialize, Clone)]
+pub struct AgentCheck {
+    pub id: String,
+    pub name: String,
+    pub category: String,
+    pub required: bool,
+    pub status: String, // ok | warn | missing
+    pub version: Option<String>,
+    pub path: Option<String>,
+    pub message: String,
+    pub page: Option<String>,
+    pub action: Option<String>,
+}
+
+#[derive(Serialize, Default)]
+pub struct AgentReadiness {
+    pub status: String, // ready | partial | blocked
+    pub score: u8,
+    pub title: String,
+    pub summary: String,
+    pub blockers: Vec<String>,
+    pub warnings: Vec<String>,
+    pub checks: Vec<AgentCheck>,
+}
+
 fn port_listening(host: &str, port: u16) -> bool {
     let addr = format!("{host}:{port}");
     match addr.to_socket_addrs() {
@@ -86,6 +111,33 @@ fn command_output_timeout(mut c: Command, timeout: Duration) -> Result<Output, S
     }
 }
 
+fn command_output_timeout_named(
+    mut c: Command,
+    name: &str,
+    timeout: Duration,
+) -> Result<Output, String> {
+    let mut child = c
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("启动 {name} 命令失败：{e}"))?;
+    let start = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => return child.wait_with_output().map_err(|e| e.to_string()),
+            Ok(None) => {
+                if start.elapsed() >= timeout {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(format!("{name} 命令响应超时"));
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+}
+
 fn apply_fresh_command_env(c: &mut Command) {
     let mut dirs = crate::env::fresh_path_dirs();
     if let Some(paths) = std::env::var_os("PATH") {
@@ -98,6 +150,172 @@ fn apply_fresh_command_env(c: &mut Command) {
         if let Some(value) = fresh_env_value(name) {
             c.env(name, value);
         }
+    }
+}
+
+fn command_dirs() -> Vec<PathBuf> {
+    let mut dirs = crate::env::fresh_path_dirs();
+    if let Some(paths) = std::env::var_os("PATH") {
+        dirs.extend(std::env::split_paths(&paths));
+    }
+    dirs
+}
+
+fn resolve_command(candidates: &[&str]) -> Option<PathBuf> {
+    for dir in command_dirs() {
+        if windowsapps_dir(&dir) {
+            continue;
+        }
+        for name in candidates {
+            let p = dir.join(name);
+            if p.is_file() {
+                return Some(p);
+            }
+        }
+    }
+    None
+}
+
+fn command_for_path(program: &Path, args: &[&str]) -> Command {
+    let ext = program
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or_default()
+        .to_lowercase();
+    if matches!(ext.as_str(), "bat" | "cmd") {
+        let quoted_args = args
+            .iter()
+            .map(|arg| format!("\"{}\"", arg.replace('"', "\\\"")))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let mut cmd = Command::new("cmd.exe");
+        let line = if quoted_args.is_empty() {
+            format!("\"{}\"", program.display())
+        } else {
+            format!("\"{}\" {quoted_args}", program.display())
+        };
+        cmd.args(["/d", "/s", "/c"]).arg(line);
+        cmd
+    } else {
+        let mut cmd = Command::new(program);
+        cmd.args(args);
+        cmd
+    }
+}
+
+fn run_command_probe(
+    display_name: &str,
+    candidates: &[&str],
+    args: &[&str],
+) -> Result<(String, String), String> {
+    let program = resolve_command(candidates).ok_or_else(|| "未找到命令".to_string())?;
+    let mut cmd = command_for_path(&program, args);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+    apply_fresh_command_env(&mut cmd);
+    let out = command_output_timeout_named(cmd, display_name, Duration::from_secs(6))?;
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    if !out.status.success() {
+        return Err(text.trim().to_string());
+    }
+    let version = text
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or("可用")
+        .to_string();
+    Ok((version, program.to_string_lossy().into_owned()))
+}
+
+fn agent_check(
+    id: &str,
+    name: &str,
+    category: &str,
+    required: bool,
+    candidates: &[&str],
+    args: &[&str],
+    page: Option<&str>,
+    action: Option<&str>,
+) -> AgentCheck {
+    match run_command_probe(name, candidates, args) {
+        Ok((version, path)) => AgentCheck {
+            id: id.into(),
+            name: name.into(),
+            category: category.into(),
+            required,
+            status: "ok".into(),
+            version: Some(version),
+            path: Some(path),
+            message: "命令可用".into(),
+            page: page.map(str::to_string),
+            action: action.map(str::to_string),
+        },
+        Err(err) => AgentCheck {
+            id: id.into(),
+            name: name.into(),
+            category: category.into(),
+            required,
+            status: if required { "missing" } else { "warn" }.into(),
+            version: None,
+            path: None,
+            message: if err == "未找到命令" {
+                "未检测到命令".into()
+            } else {
+                format!("命令不可用：{err}")
+            },
+            page: page.map(str::to_string),
+            action: action.map(str::to_string),
+        },
+    }
+}
+
+fn python_agent_check() -> AgentCheck {
+    match python_command_candidate() {
+        Some(path) => match run_python_version(&path) {
+            Ok(version) => AgentCheck {
+                id: "python".into(),
+                name: "Python".into(),
+                category: "运行时".into(),
+                required: true,
+                status: "ok".into(),
+                version: Some(format!("Python {version}")),
+                path: Some(path.to_string_lossy().into_owned()),
+                message: "Python 命令可用".into(),
+                page: Some("python".into()),
+                action: Some("配置 Python".into()),
+            },
+            Err(err) => AgentCheck {
+                id: "python".into(),
+                name: "Python".into(),
+                category: "运行时".into(),
+                required: true,
+                status: "missing".into(),
+                version: None,
+                path: Some(path.to_string_lossy().into_owned()),
+                message: format!("Python 命令不可用：{err}"),
+                page: Some("python".into()),
+                action: Some("修复 Python".into()),
+            },
+        },
+        None => AgentCheck {
+            id: "python".into(),
+            name: "Python".into(),
+            category: "运行时".into(),
+            required: true,
+            status: "missing".into(),
+            version: None,
+            path: None,
+            message: "未检测到 python 命令".into(),
+            page: Some("python".into()),
+            action: Some("安装 Python".into()),
+        },
     }
 }
 
@@ -261,6 +479,199 @@ pub async fn checkup_extra() -> Vec<CheckItem> {
     tauri::async_runtime::spawn_blocking(checkup_impl)
         .await
         .unwrap_or_default()
+}
+
+#[tauri::command]
+pub async fn agent_readiness() -> AgentReadiness {
+    tauri::async_runtime::spawn_blocking(agent_readiness_impl)
+        .await
+        .unwrap_or_default()
+}
+
+fn agent_readiness_impl() -> AgentReadiness {
+    let mut checks = vec![
+        agent_check(
+            "git",
+            "Git",
+            "基础工具",
+            true,
+            &["git.exe", "git.cmd", "git.bat"],
+            &["--version"],
+            None,
+            None,
+        ),
+        agent_check(
+            "codex",
+            "Codex CLI",
+            "Agent CLI",
+            false,
+            &["codex.exe", "codex.cmd", "codex.bat"],
+            &["--version"],
+            Some("node"),
+            Some("准备 Node"),
+        ),
+        agent_check(
+            "claude",
+            "Claude Code",
+            "Agent CLI",
+            false,
+            &["claude.exe", "claude.cmd", "claude.bat"],
+            &["--version"],
+            Some("node"),
+            Some("准备 Node"),
+        ),
+        agent_check(
+            "node",
+            "Node.js",
+            "运行时",
+            true,
+            &["node.exe", "node.cmd", "node.bat"],
+            &["--version"],
+            Some("node"),
+            Some("配置 Node"),
+        ),
+        agent_check(
+            "npm",
+            "npm",
+            "包管理器",
+            true,
+            &["npm.cmd", "npm.exe", "npm.bat"],
+            &["--version"],
+            Some("node"),
+            Some("配置 npm"),
+        ),
+        python_agent_check(),
+        agent_check(
+            "pip",
+            "pip",
+            "包管理器",
+            true,
+            &["pip.exe", "pip.cmd", "pip.bat"],
+            &["--version"],
+            Some("python"),
+            Some("配置 pip"),
+        ),
+        agent_check(
+            "java",
+            "Java",
+            "运行时",
+            false,
+            &["java.exe", "java.cmd", "java.bat"],
+            &["-version"],
+            Some("java"),
+            Some("配置 JDK"),
+        ),
+        agent_check(
+            "maven",
+            "Maven",
+            "构建工具",
+            false,
+            &["mvn.cmd", "mvn.exe", "mvn.bat"],
+            &["--version"],
+            Some("maven"),
+            Some("配置 Maven"),
+        ),
+        agent_check(
+            "gradle",
+            "Gradle",
+            "构建工具",
+            false,
+            &["gradle.exe", "gradle.cmd", "gradle.bat"],
+            &["--version"],
+            Some("gradle"),
+            Some("配置 Gradle"),
+        ),
+        agent_check(
+            "go",
+            "Go",
+            "运行时",
+            false,
+            &["go.exe", "go.cmd", "go.bat"],
+            &["version"],
+            Some("go"),
+            Some("配置 Go"),
+        ),
+        agent_check(
+            "cargo",
+            "Cargo",
+            "构建工具",
+            false,
+            &["cargo.exe", "cargo.cmd", "cargo.bat"],
+            &["--version"],
+            Some("rust"),
+            Some("配置 Rust"),
+        ),
+    ];
+
+    let has_agent_cli = checks
+        .iter()
+        .any(|c| matches!(c.id.as_str(), "codex" | "claude") && c.status == "ok");
+    if !has_agent_cli {
+        checks.push(AgentCheck {
+            id: "agent_cli".into(),
+            name: "本地 Agent CLI".into(),
+            category: "Agent CLI".into(),
+            required: false,
+            status: "warn".into(),
+            version: None,
+            path: None,
+            message: "未检测到 Codex CLI 或 Claude Code；仍可配合 Cursor、VS Code 等 IDE Agent 使用。".into(),
+            page: Some("node".into()),
+            action: Some("准备 Node".into()),
+        });
+    }
+
+    let blockers: Vec<String> = checks
+        .iter()
+        .filter(|c| c.required && c.status != "ok")
+        .map(|c| c.name.clone())
+        .collect();
+    let warnings: Vec<String> = checks
+        .iter()
+        .filter(|c| !c.required && c.status != "ok")
+        .map(|c| c.name.clone())
+        .collect();
+    let ok = checks.iter().filter(|c| c.status == "ok").count();
+    let score = if checks.is_empty() {
+        0
+    } else {
+        ((ok * 100) / checks.len()) as u8
+    };
+    let status = if !blockers.is_empty() {
+        "blocked"
+    } else if !warnings.is_empty() {
+        "partial"
+    } else {
+        "ready"
+    };
+    let title = match status {
+        "ready" => "Agent Ready",
+        "partial" => "基本就绪",
+        _ => "需要处理",
+    };
+    let summary = if !blockers.is_empty() {
+        format!(
+            "缺少 {}。本地 Agent 可能无法安装依赖、运行测试或构建项目。",
+            blockers.join("、")
+        )
+    } else if !warnings.is_empty() {
+        format!(
+            "核心命令可用；{} 属于项目相关或 Agent CLI 可选项，可按需补齐。",
+            warnings.join("、")
+        )
+    } else {
+        "核心运行时、包管理器和常见构建工具都可用，适合运行本地 AI 编程 Agent。".into()
+    };
+
+    AgentReadiness {
+        status: status.into(),
+        score,
+        title: title.into(),
+        summary,
+        blockers,
+        warnings,
+        checks,
+    }
 }
 
 fn checkup_impl() -> Vec<CheckItem> {
