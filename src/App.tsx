@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { ToastProvider, ToastHost, useToast, Modal, BusyProvider, BusyHost } from "./ui";
@@ -85,6 +85,7 @@ function Shell() {
   const [saving, setSaving] = useState(false);
   const [osWarn, setOsWarn] = useState<{ name: string; build: number } | null>(null);
   const [osDismiss, setOsDismiss] = useState(false);
+  const contentRef = useRef<HTMLDivElement | null>(null);
   const cur = ALL.find((n) => n.id === page)!;
 
   function refreshProfiles() {
@@ -100,6 +101,9 @@ function Shell() {
     invoke<{ name: string; build: number; supported: boolean }>("os_info")
       .then((o) => { if (!o.supported) setOsWarn({ name: o.name, build: o.build }); }).catch(() => {});
   }, []);
+  useEffect(() => {
+    if (contentRef.current) contentRef.current.scrollTop = 0;
+  }, [page]);
 
   async function applyProfile() {
     if (!profile) { toast("请先保存或导入配置方案", "info"); return; }
@@ -193,7 +197,7 @@ function Shell() {
           )}
         </div>
 
-        <div className="content">
+        <div className="content" ref={contentRef}>
           {osWarn && !osDismiss && (
             <div className="banner amber" style={{ marginBottom: 12, alignItems: "center" }}>
               <i className="ti ti-alert-triangle lead" />

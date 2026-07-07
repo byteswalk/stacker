@@ -183,24 +183,25 @@ fn command_for_path(program: &Path, args: &[&str]) -> Command {
         .unwrap_or_default()
         .to_lowercase();
     if matches!(ext.as_str(), "bat" | "cmd") {
-        let quoted_args = args
-            .iter()
-            .map(|arg| format!("\"{}\"", arg.replace('"', "\\\"")))
-            .collect::<Vec<_>>()
-            .join(" ");
         let mut cmd = Command::new("cmd.exe");
-        let line = if quoted_args.is_empty() {
-            format!("\"{}\"", program.display())
-        } else {
-            format!("\"{}\" {quoted_args}", program.display())
-        };
-        cmd.args(["/d", "/s", "/c"]).arg(line);
+        cmd.args(["/d", "/c", "call"]).arg(program);
+        cmd.args(args);
         cmd
     } else {
         let mut cmd = Command::new(program);
         cmd.args(args);
         cmd
     }
+}
+
+fn output_text(out: &Output) -> String {
+    String::from_utf8_lossy(if out.stdout.is_empty() {
+        &out.stderr
+    } else {
+        &out.stdout
+    })
+    .trim()
+    .to_string()
 }
 
 fn run_command_probe(
@@ -217,15 +218,11 @@ fn run_command_probe(
     }
     apply_fresh_command_env(&mut cmd);
     let out = command_output_timeout_named(cmd, display_name, Duration::from_secs(6))?;
-    let text = format!(
-        "{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
     if !out.status.success() {
-        return Err(text.trim().to_string());
+        return Err("命令返回失败状态".into());
     }
-    let version = text
+    let version_text = output_text(&out);
+    let version = version_text
         .lines()
         .map(str::trim)
         .find(|line| !line.is_empty())
@@ -320,21 +317,7 @@ fn python_agent_check() -> AgentCheck {
 }
 
 fn run_python_version(program: &Path) -> Result<String, String> {
-    let ext = program
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or_default()
-        .to_lowercase();
-    let mut c = if matches!(ext.as_str(), "bat" | "cmd") {
-        let mut cmd = Command::new("cmd.exe");
-        cmd.args(["/d", "/s", "/c"])
-            .arg(format!("\"{}\" --version", program.display()));
-        cmd
-    } else {
-        let mut cmd = Command::new(program);
-        cmd.arg("--version");
-        cmd
-    };
+    let mut c = command_for_path(program, &["--version"]);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -342,21 +325,17 @@ fn run_python_version(program: &Path) -> Result<String, String> {
     }
     apply_fresh_command_env(&mut c);
     let out = command_output_timeout(c, Duration::from_secs(5))?;
-    let text = format!(
-        "{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
     if !out.status.success() {
-        return Err(text.trim().to_string());
+        return Err("命令返回失败状态".into());
     }
+    let text = output_text(&out);
     for line in text.lines() {
         let line = line.trim();
         if let Some(version) = line.strip_prefix("Python ") {
             return Ok(version.trim().to_string());
         }
     }
-    Err(text.trim().to_string())
+    Err("无法识别 Python 版本输出".into())
 }
 
 fn python_default_check() -> Option<CheckItem> {
