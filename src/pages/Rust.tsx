@@ -27,13 +27,13 @@ export default function Rust() {
   }
   async function installRustup() {
     try {
-      await runBusy({ title: "安装 rustup", message: "下载 rustup-init（rsproxy.cn 国内镜像）并静默安装 stable 工具链，体积较大请耐心等待…", progressEvent: "install-progress", cancel: { label: "取消", onCancel: () => { invoke("op_cancel").catch(() => {}); } } }, () => invoke("rustup_install_self"));
-      await load(); setSrcKey((k) => k + 1); toast("已安装 rustup（rsproxy 镜像，新终端生效）", "ok");
+      await runBusy({ title: "安装 rustup", message: "正在下载 rustup-init 并安装 stable 工具链，体积较大请耐心等待。", progressEvent: "install-progress", cancel: { label: "取消", onCancel: () => { invoke("op_cancel").catch(() => {}); } } }, () => invoke("rustup_install_self"));
+      await load(); setSrcKey((k) => k + 1); toast("rustup 已安装，新终端生效", "ok");
     } catch (e) { toast("安装失败：" + e, "err"); }
   }
   async function updateRustup() {
     try {
-      await runBusy({ title: "更新 rustup", message: "检查并更新 rustup 自身（走 rsproxy 镜像）…", progressEvent: "install-progress", cancel: { label: "取消", onCancel: () => { invoke("op_cancel").catch(() => {}); } } }, () => invoke("rustup_self_update"));
+      await runBusy({ title: "更新 rustup", message: "正在检查并更新 rustup。", progressEvent: "install-progress", cancel: { label: "取消", onCancel: () => { invoke("op_cancel").catch(() => {}); } } }, () => invoke("rustup_self_update"));
       await load(); toast("rustup 已是最新或已更新", "ok");
     } catch (e) { toast("更新失败：" + e, "err"); }
   }
@@ -41,7 +41,7 @@ export default function Rust() {
     const c = channel.trim();
     setInstallOpen(false);
     try {
-      await runBusy({ title: `安装工具链 ${c}`, message: "通过 rustup 下载安装（走已配置的 rsproxy 镜像）…", progressEvent: "install-progress", cancel: { label: "取消安装", onCancel: () => { invoke("op_cancel").catch(() => {}); } } }, () => invoke("rustup_install", { channel: c }));
+      await runBusy({ title: `安装工具链 ${c}`, message: "正在通过 rustup 下载并安装工具链。", progressEvent: "install-progress", cancel: { label: "取消安装", onCancel: () => { invoke("op_cancel").catch(() => {}); } } }, () => invoke("rustup_install", { channel: c }));
       await load(); toast("已安装 " + c, "ok");
     } catch (e) { toast("安装失败：" + e, "err"); }
   }
@@ -59,10 +59,10 @@ export default function Rust() {
         <div className="banner blue" style={{ flexDirection: "column", alignItems: "stretch", gap: 9 }}>
           <div style={{ display: "flex", gap: 11, alignItems: "flex-start" }}>
             <i className="ti ti-download lead" />
-            <div className="bt"><b>用 rustup 管理 Rust 工具链</b><br />rustup 是 Rust 官方工具链管理器。一键安装会下 rustup-init 并**预设 <span className="code">RUSTUP_DIST_SERVER</span> 走 rsproxy.cn 国内镜像**，装好 stable 即可用。下面的 Cargo 换源现在就能用。</div>
+            <div className="bt"><b>用 rustup 管理 Rust 工具链</b><br />Stacker 会安装 rustup，并预设 <span className="code">RUSTUP_DIST_SERVER</span>，用于后续工具链下载。Cargo 镜像可在下方单独配置。</div>
           </div>
           <div style={{ paddingLeft: 29 }}>
-            <button className="pr sm" onClick={installRustup}><i className="ti ti-download" /> 一键安装 rustup（rsproxy 镜像）</button>
+            <button className="pr sm" onClick={installRustup}><i className="ti ti-download" /> 一键安装 rustup</button>
           </div>
         </div>
       ) : ru.toolchains.length === 0 ? (
@@ -81,9 +81,9 @@ export default function Rust() {
           </div>
         </div>
       ))}
-      <div className="callout"><i className="ti ti-info-circle" /><div>组件（rustfmt / clippy）与交叉编译 target 的增删请在终端用 <span className="code">rustup component / target</span>；本页聚焦工具链与换源。</div></div>
+      <div className="callout"><i className="ti ti-info-circle" /><div>组件（rustfmt / clippy）与交叉编译 target 的增删请在终端用 <span className="code">rustup component / target</span>；本页聚焦工具链与镜像配置。</div></div>
 
-      <div className="grouphd" style={{ marginTop: 18 }}><span className="gt"><i className="ti ti-package" /> Cargo 源 <span className="cnt">~/.cargo/config.toml</span></span><span className="hint2">改用户级，切换前自动备份</span></div>
+      <div className="grouphd" style={{ marginTop: 18 }}><span className="gt"><i className="ti ti-package" /> Cargo 源 <span className="cnt">~/.cargo/config.toml</span></span><span className="hint2">写入当前用户配置，改动前自动备份</span></div>
       <SourcesPanel toolIds={["cargo"]} refresh={srcKey} />
 
       {installOpen && (

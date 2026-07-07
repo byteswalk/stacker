@@ -16,7 +16,7 @@ export default function Go() {
             { id: "aliyun", name: "阿里云镜像", host: "mirrors.aliyun.com", urlFor: (v) => `https://mirrors.aliyun.com/golang/go${v}.windows-amd64.zip` },
           ],
           defaultSource: "aliyun",
-          note: "下载解压。国内选阿里云、慢可换官方 go.dev。",
+          note: "下载后解压安装；如连接较慢，可测速后切换下载源。",
           staticVersions: ["1.23.4", "1.22.10", "1.21.13"],
         }} />
 

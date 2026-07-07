@@ -169,7 +169,7 @@ export default function Java() {
 
       {versions.length === 0 ? (
         <div className="stub"><div className="si"><i className="ti ti-coffee-off" /></div><h2>未检测到 JDK</h2>
-          <p>点「扫描磁盘」发现已装 JDK，或「下载 JDK」由 Stacker 直接装一个（走国内镜像）。</p></div>
+          <p>点「扫描磁盘」发现已装 JDK，或通过「下载 JDK」安装一个新的 JDK。</p></div>
       ) : versions.map((v) => (
         <div className={"vrow" + (v.current ? " cur" : "")} key={v.path}>
           <span className="ver">{v.version}</span>
@@ -184,7 +184,7 @@ export default function Java() {
         </div>
       ))}
 
-      <div className="callout"><i className="ti ti-info-circle" /><div><b>JDK 没有"包源"。</b> Java 依赖走 Maven/Gradle，换源在它们各自页里。本页只管 JDK 版本与 JAVA_HOME/PATH。</div></div>
+      <div className="callout"><i className="ti ti-info-circle" /><div><b>JDK 没有"包源"。</b> Java 依赖走 Maven/Gradle，仓库镜像在它们各自页面配置。本页只管理 JDK 版本与 JAVA_HOME/PATH。</div></div>
 
       {dlg && (
         <Modal wide title={`把默认 JDK 切到 ${dlg.version} · ${dlg.vendor}`} icon="ti-coffee" onClose={() => setDlg(null)}
@@ -245,8 +245,8 @@ export default function Java() {
             </div>
           )}
           <div className="banner gray" style={{ margin: 0 }}><i className="ti ti-info-circle lead" /><div className="bt">{
-            vendor === "dragonwell" ? "将从 Dragonwell 官方国内镜像获取最新 Windows x64 安装包。"
-            : vendor === "zulu" ? "将从 Azul 官方服务获取最新 GA 版本；当前未配置国内镜像。"
+            vendor === "dragonwell" ? "将从 Dragonwell 官方下载源获取最新 Windows x64 安装包。"
+            : vendor === "zulu" ? "将从 Azul 官方服务获取最新 GA 版本。"
             : "将从清华 TUNA Adoptium 镜像获取所选大版本的最新 GA 补丁版。"}</div></div>
         </Modal>
       )}

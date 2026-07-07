@@ -122,28 +122,28 @@ fn specs() -> &'static [BinaryMirrorSpec] {
             id: "electron",
             name: "Electron",
             icon: "ti-bolt",
-            description: "Electron 与 electron-builder 下载预编译二进制时使用国内镜像。",
+            description: "Electron 与 electron-builder 下载预编译二进制时使用指定镜像。",
             envs: ELECTRON_ENVS,
         },
         BinaryMirrorSpec {
             id: "browser",
             name: "Puppeteer / Playwright",
             icon: "ti-browser",
-            description: "浏览器自动化工具下载 Chromium / Playwright 浏览器包时使用国内镜像。",
+            description: "浏览器自动化工具下载 Chromium / Playwright 浏览器包时使用指定镜像。",
             envs: BROWSER_ENVS,
         },
         BinaryMirrorSpec {
             id: "cypress",
             name: "Cypress",
             icon: "ti-test-pipe",
-            description: "Cypress 安装或更新桌面运行器时使用国内镜像。",
+            description: "Cypress 安装或更新桌面运行器时使用指定镜像。",
             envs: CYPRESS_ENVS,
         },
         BinaryMirrorSpec {
             id: "native",
             name: "常见原生二进制",
             icon: "ti-package",
-            description: "node-sass、SWC、sharp、Prisma、better-sqlite3 等安装时使用国内镜像。",
+            description: "node-sass、SWC、sharp、Prisma、better-sqlite3 等安装时使用指定镜像。",
             envs: NATIVE_ENVS,
         },
         BinaryMirrorSpec {
@@ -224,7 +224,7 @@ fn state_for(spec: &BinaryMirrorSpec) -> BinaryMirrorState {
     let configured = vars.iter().any(|v| v.current.is_some());
     let enabled = !vars.is_empty() && vars.iter().all(|v| v.matched);
     let status_label = if enabled {
-        "已加速"
+        "已配置"
     } else if configured {
         "自定义"
     } else {

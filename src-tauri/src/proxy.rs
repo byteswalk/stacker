@@ -1,5 +1,5 @@
 //! 终端代理：设用户级 HTTP_PROXY/HTTPS_PROXY/ALL_PROXY，覆盖几乎所有 CLI 工具。
-//! NO_PROXY 自动带上 localhost + 当前国内源域名，避免国内源绕国外。
+//! NO_PROXY 自动带上 localhost + 当前镜像源域名，避免镜像源请求进入终端代理。
 
 use crate::{backup, sources, winenv};
 use serde::Serialize;
@@ -12,7 +12,7 @@ pub struct ProxyStatus {
     pub host: String,
     pub port: u16,
     pub detected_port: Option<u16>,
-    pub no_proxy_auto: Vec<String>, // localhost + 国内源域名（只读展示）
+    pub no_proxy_auto: Vec<String>, // localhost + 当前镜像源域名（只读展示）
     pub no_proxy_manual: Vec<String>, // 用户追加的（NO_PROXY 里非自动项）
     pub jvm: bool,                  // gradle.properties 是否已配代理
 }
@@ -65,7 +65,7 @@ pub fn detect_clash_port() -> Option<u16> {
     None
 }
 
-// ── 自动白名单：localhost + 当前国内源域名 ──
+// ── 自动白名单：localhost + 当前镜像源域名 ──
 fn auto_no_proxy() -> Vec<String> {
     let mut list = vec!["localhost".to_string(), "127.0.0.1".to_string()];
     for h in sources::domestic_hosts() {

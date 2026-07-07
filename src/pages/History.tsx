@@ -101,13 +101,13 @@ export default function History() {
       <div className="grouphd">
         <span className="gt">备份记录 <span className="cnt">{items.length} 条</span></span>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span className="hint2">换源 / 改环境变量 / 写终端集成前自动备份，可一键还原</span>
+          <span className="hint2">配置镜像 / 改环境变量 / 写终端集成前自动备份，可一键还原</span>
           {items.length > 0 && <button className="gh sm" onClick={() => setClearOpen(true)}><i className="ti ti-trash-x" /> 全部清除</button>}
         </div>
       </div>
       {items.length === 0 && (
         <div className="stub"><div className="si"><i className="ti ti-history" /></div><h2>暂无备份</h2>
-          <p>做过一次换源或改环境后，这里会自动出现可还原的备份。</p></div>
+          <p>配置过镜像或修改过环境后，这里会自动出现可还原的备份。</p></div>
       )}
       {items.map((h) => (
         <div className="srcrow" key={h.path}>

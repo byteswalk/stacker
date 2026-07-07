@@ -138,7 +138,7 @@ pub async fn maven_versions(source: Option<String>) -> Result<Vec<String>, Strin
     .map_err(|e| e.to_string())?
 }
 
-/// Gradle 版本。官方源读 services JSON；国内镜像读目录中实际存在的 bin zip。
+/// Gradle 版本。官方源读 services JSON；镜像源读目录中实际存在的 bin zip。
 #[tauri::command]
 pub async fn gradle_versions(source: Option<String>) -> Result<Vec<String>, String> {
     tauri::async_runtime::spawn_blocking(move || {

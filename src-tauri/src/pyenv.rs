@@ -2246,7 +2246,7 @@ pub async fn pyenv_install_list(
     .map_err(|e| e.to_string())?
 }
 
-/// 检查 pyenv-win 自身是否有新版。官方源查 GitHub Release，国内源查对应 PyPI 镜像。
+/// 检查 pyenv-win 自身是否有新版。官方源查 GitHub Release，其他镜像查对应 PyPI 索引。
 #[tauri::command]
 pub async fn pyenv_check_update(
     source: Option<String>,
@@ -2439,7 +2439,7 @@ fn speedtest_pyenv_source(spec: Mirror) -> Option<u64> {
     Some(start.elapsed().as_millis() as u64)
 }
 
-/// Python 下载源测速：官方源和国内源都参与；1500ms 内 pyenv-win 与 Python 安装包链路都通过才算可用。
+/// Python 下载源测速：官方源和镜像源都参与；1500ms 内 pyenv-win 与 Python 安装包链路都通过才算可用。
 #[tauri::command]
 pub async fn pyenv_speedtest_sources(window: tauri::Window) -> Vec<PyenvSourcePing> {
     tauri::async_runtime::spawn_blocking(move || {

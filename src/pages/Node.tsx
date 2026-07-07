@@ -281,7 +281,7 @@ export default function Node() {
     }
   }
   function binaryBadge(row: BinaryMirrorState) {
-    if (row.enabled) return <span className="bd g">已加速</span>;
+    if (row.enabled) return <span className="bd g">已配置</span>;
     if (row.configured) return <span className="bd w">自定义</span>;
     return <span className="bd n">默认</span>;
   }
@@ -409,7 +409,7 @@ export default function Node() {
           <div className="mt">
             <div className="t">{row.name} {binaryBadge(row)}</div>
             <div className="s dim" title={binaryTitle(row)}>{row.description}</div>
-            <div className="s mono" title={binaryTitle(row)}>{row.vars[0]?.name} → {row.enabled ? "npmmirror / 国内镜像" : row.configured ? "自定义配置" : "官方默认"}</div>
+            <div className="s mono" title={binaryTitle(row)}>{row.vars[0]?.name} → {row.enabled ? "npmmirror 镜像" : row.configured ? "自定义配置" : "官方默认"}</div>
           </div>
           <button className="pr sm" disabled={!!busy} onClick={() => applyBinaryMirror(row)}>
             <i className={"ti " + (busy === `binary:${row.id}` ? "ti-loader spin" : "ti-check")} /> {row.enabled ? "重新应用" : "启用"}

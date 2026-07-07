@@ -15,38 +15,39 @@ import Go from "./pages/Go";
 import Cleanup from "./pages/Cleanup";
 import Node from "./pages/Node";
 import Settings from "./pages/Settings";
+import { t, type MessageKey } from "./i18n";
 
 export type Page =
   | "overview" | "python" | "node" | "java" | "maven" | "gradle" | "go" | "rust"
   | "proxy" | "cleanup" | "history" | "settings";
 
-type NavItem = { id: Page; icon: string; label: string };
+type NavItem = { id: Page; icon: string; labelKey: MessageKey };
 
 // 主导航：概览 + 8 生态 ─（分隔）─ 终端代理 / 磁盘清理
 const NAV_TOP: NavItem[] = [
-  { id: "overview", icon: "ti-layout-dashboard", label: "概览" },
-  { id: "python", icon: "ti-brand-python", label: "Python" },
-  { id: "node", icon: "ti-brand-nodejs", label: "Node" },
-  { id: "java", icon: "ti-coffee", label: "Java" },
-  { id: "maven", icon: "ti-feather", label: "Maven" },
-  { id: "gradle", icon: "ti-box", label: "Gradle" },
-  { id: "go", icon: "ti-brand-golang", label: "Go" },
-  { id: "rust", icon: "ti-brand-rust", label: "Rust" },
+  { id: "overview", icon: "ti-layout-dashboard", labelKey: "nav.overview" },
+  { id: "python", icon: "ti-brand-python", labelKey: "nav.python" },
+  { id: "node", icon: "ti-brand-nodejs", labelKey: "nav.node" },
+  { id: "java", icon: "ti-coffee", labelKey: "nav.java" },
+  { id: "maven", icon: "ti-feather", labelKey: "nav.maven" },
+  { id: "gradle", icon: "ti-box", labelKey: "nav.gradle" },
+  { id: "go", icon: "ti-brand-golang", labelKey: "nav.go" },
+  { id: "rust", icon: "ti-brand-rust", labelKey: "nav.rust" },
 ];
 const NAV_TOOLS: NavItem[] = [
-  { id: "proxy", icon: "ti-world-bolt", label: "终端代理" },
-  { id: "cleanup", icon: "ti-eraser", label: "磁盘清理" },
+  { id: "proxy", icon: "ti-world-bolt", labelKey: "nav.proxy" },
+  { id: "cleanup", icon: "ti-eraser", labelKey: "nav.cleanup" },
 ];
 const NAV_FOOT: NavItem[] = [
-  { id: "history", icon: "ti-history", label: "历史" },
-  { id: "settings", icon: "ti-settings", label: "设置" },
+  { id: "history", icon: "ti-history", labelKey: "nav.history" },
+  { id: "settings", icon: "ti-settings", labelKey: "nav.settings" },
 ];
 const ALL = [...NAV_TOP, ...NAV_TOOLS, ...NAV_FOOT];
 
 function NavBtn({ item, page, set }: { item: NavItem; page: Page; set: (p: Page) => void }) {
   return (
     <button className={"ni" + (page === item.id ? " on" : "")} onClick={() => set(item.id)}>
-      <i className={"ti " + item.icon} /> {item.label}
+      <i className={"ti " + item.icon} /> {t(item.labelKey)}
     </button>
   );
 }
@@ -55,8 +56,8 @@ function Stub({ item }: { item: NavItem }) {
   return (
     <div className="stub">
       <div className="si"><i className={"ti " + item.icon} /></div>
-      <h2>{item.label}</h2>
-      <p>此页正在按原型实现中。设计稿见 <code style={{ fontFamily: "var(--font-mono)", color: "var(--mut)" }}>design/proto/{item.id}.html</code>，后端 handler 接入后填充。</p>
+      <h2>{t(item.labelKey)}</h2>
+      <p>{t("state.comingSoonDesc")}</p>
     </div>
   );
 }
@@ -174,7 +175,7 @@ function Shell() {
           <div className="htitle">
             <span className="ttl">
               {page !== "overview" && <span className="eco av st"><i className={"ti " + cur.icon} /></span>}
-              {cur.label}
+              {t(cur.labelKey)}
             </span>
           </div>
           {page === "overview" && (
@@ -227,7 +228,7 @@ function Shell() {
           </>}>
           <div className="field">
             <label>方案名</label>
-            <input className="ip full" autoFocus value={saveName} placeholder="如：公司内网 / 出差官方源"
+            <input className="ip full" autoFocus value={saveName} placeholder="如：公司内网 / 公开网络"
               onChange={(e) => setSaveName(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") doSave(); }} />
             {saved.some((p) => p.name === saveName.trim()) && saveName.trim() &&

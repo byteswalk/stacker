@@ -1,5 +1,5 @@
 //! 内置镜像清单的远程更新：从用户配置的 GitHub URL 拉取 mirrors.json，覆盖兜底清单。
-//! 因 raw.githubusercontent.com 在国内常被墙，自动追加 jsDelivr 兜底。
+//! raw.githubusercontent.com 在部分网络环境下不可达，自动追加 jsDelivr 兜底。
 //! 本地缓存 %APPDATA%\stacker\mirrors.json；地址存 config.json（运行时可配，不写死仓库）。
 
 use std::path::PathBuf;
@@ -132,13 +132,13 @@ pub fn overlay(tools: &mut [sources::Tool]) {
     }
 }
 
-// ── 拉取（带国内兜底）──
+// ── 拉取（带 CDN 兜底）──
 fn candidates(url: &str) -> Vec<String> {
     let mut v = vec![url.to_string()];
     if let Some(rest) = url.strip_prefix("https://raw.githubusercontent.com/") {
         let p: Vec<&str> = rest.splitn(4, '/').collect();
         if p.len() == 4 {
-            // OWNER/REPO/BRANCH/PATH → jsDelivr CDN（国内多可达）
+            // OWNER/REPO/BRANCH/PATH → jsDelivr CDN
             v.push(format!(
                 "https://cdn.jsdelivr.net/gh/{}/{}@{}/{}",
                 p[0], p[1], p[2], p[3]

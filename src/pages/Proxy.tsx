@@ -85,7 +85,7 @@ export default function Proxy() {
       </div>
 
       <div className="pxcard">
-        <div className="pxsec"><i className="ti ti-route-off" /> 直连白名单 NO_PROXY <span className="pxhint">名单内主机直连、不走代理 → 国内源永不绕境外</span></div>
+        <div className="pxsec"><i className="ti ti-route-off" /> 直连白名单 NO_PROXY <span className="pxhint">名单内主机直连，不经过终端代理</span></div>
         <div className="chips" style={{ marginBottom: 11 }}>
           {st.no_proxy_auto.map((h) => <span className="chip auto" key={h}>{h} <span className="tag">自动</span></span>)}
           {manual.map((h) => <span className="chip" key={h}>{h} <i className="ti ti-x x" onClick={() => setManual(manual.filter((x) => x !== h))} /></span>)}

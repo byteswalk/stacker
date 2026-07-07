@@ -39,7 +39,7 @@ const BATCH_EXTRA = new Set(["fnm_no_integration"]);
 type DemoFix = { sev: "warn" | "mid" | "info"; title: string; badge: [string, string]; desc: ReactNode; action: string; go?: Page };
 const DEMO_FIXES: DemoFix[] = [
   { sev: "warn", title: "Node 的 fnm 集成缺 cmd", badge: ["r", "影响生效"], desc: <>cmd 未写入集成 → 切版本不生效</>, action: "补全", go: "node" },
-  { sev: "mid", title: "pip 仍在用官方源", badge: ["w", "建议"], desc: <>下载慢；切到最快国内源</>, action: "切最快源", go: "python" },
+  { sev: "mid", title: "pip 仍在用默认源", badge: ["w", "建议"], desc: <>可切换到响应更快的镜像源</>, action: "切换镜像", go: "python" },
   { sev: "info", title: "C 盘开发缓存偏高", badge: ["b", "提示"], desc: <>各 cache 共占 C 盘 12.6 GB，可安全释放约 9 GB</>, action: "去清理", go: "cleanup" },
 ];
 
@@ -71,7 +71,7 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
   // 标题如实拆分：换源类（可一键优化）vs 环境/缓存类（各自单独处理）
   const subtitle = (() => {
     const parts: string[] = [];
-    if (realFixes.length) parts.push(`${realFixes.length} 个包管理器仍在官方源`);
+    if (realFixes.length) parts.push(`${realFixes.length} 个包管理器仍在默认源`);
     if (extra.length) parts.push(`${extra.length} 项环境 / 缓存可优化`);
     return parts.join(" · ") || "检测到可优化项";
   })();
@@ -137,9 +137,9 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
         : realFixes.map((t) => (
           <div className="fixrow" key={t.id}>
             <span className="fdot mid" />
-            <div className="ft"><div className="fh">{t.name} 仍在用官方源 <span className="bd w">建议</span></div>
-              <div className="fs">当前：{t.current_label || "官方"} → 切到国内源更快（{firstMirror(t)?.name}）</div></div>
-            <button className="pr sm" disabled={busy} onClick={() => fixOne(t)}>切到国内源</button>
+            <div className="ft"><div className="fh">{t.name} 仍在用默认源 <span className="bd w">建议</span></div>
+              <div className="fs">当前：{t.current_label || "官方"} → 可切换到推荐镜像（{firstMirror(t)?.name}）</div></div>
+            <button className="pr sm" disabled={busy} onClick={() => fixOne(t)}>切换镜像</button>
           </div>
         ))}
 
@@ -170,7 +170,7 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
             <span className={"av " + meta.av + " big"}><i className={"ti " + meta.icon} /></span>
             <div className="ecocols">
               <div className="ecocell"><div className="k">生态</div><div className="v">{meta.label}</div></div>
-              <div className="ecocell"><div className="k">主包源</div><div className="v">{demo ? meta.demoSrc : t ? (t.current === "official" || !t.current ? <span style={{ color: "#e4b450" }}>官方（建议换源）</span> : <>{t.current_label} <span className="live" style={{ fontSize: 11 }}><i className="ti ti-circle-check" /></span></>) : <span style={{ color: "#828995" }}>未检测到</span>}</div></div>
+              <div className="ecocell"><div className="k">主包源</div><div className="v">{demo ? meta.demoSrc : t ? (t.current === "official" || !t.current ? <span style={{ color: "#e4b450" }}>默认源（建议配置）</span> : <>{t.current_label} <span className="live" style={{ fontSize: 11 }}><i className="ti ti-circle-check" /></span></>) : <span style={{ color: "#828995" }}>未检测到</span>}</div></div>
               <div className="ecocell"><div className="k">状态</div><div className="v" style={{ color: statusColor }}>{statusText}</div></div>
             </div>
             <i className="ti ti-chevron-right chev" />
@@ -183,7 +183,7 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
           sub={<span>改动已自动备份，可在「历史」还原</span>}
           footer={<button className="pr sm" onClick={() => setResult(null)}>完成</button>}>
           {result.length === 0
-            ? <div style={{ fontSize: 13, color: "var(--tx)" }}>没有需要切换的源，全部已是国内源。</div>
+            ? <div style={{ fontSize: 13, color: "var(--tx)" }}>没有需要切换的源，已完成镜像配置。</div>
             : <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
               {result.map((r, i) => (
                 <div className="vrow" key={i} style={{ margin: 0 }}>
@@ -200,7 +200,7 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
 }
 
 const ECO_META: Record<string, { av: string; icon: string; label: string; demoSrc: ReactNode }> = {
-  python: { av: "py", icon: "ti-brand-python", label: "Python · pip", demoSrc: <span style={{ color: "#e4b450" }}>官方（建议换源）</span> },
+  python: { av: "py", icon: "ti-brand-python", label: "Python · pip", demoSrc: <span style={{ color: "#e4b450" }}>默认源（建议配置）</span> },
   node: { av: "npm", icon: "ti-brand-nodejs", label: "Node · npm", demoSrc: <>npmmirror</> },
   go: { av: "go", icon: "ti-brand-golang", label: "Go · GOPROXY", demoSrc: <>goproxy.cn</> },
   maven: { av: "mv2", icon: "ti-feather", label: "Maven", demoSrc: <>阿里云</> },

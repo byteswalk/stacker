@@ -1,4 +1,4 @@
-/* Stacker 设计系统 —— 深色，生态中心化。移植自原型 design/proto/app.css。 */
+/* Stacker design system: dark theme, ecosystem-centered layout. */
 :root{ --font-mono: ui-monospace, "Cascadia Code", Consolas, monospace; color-scheme: dark; }
 *{ box-sizing:border-box; }
 @keyframes spin{ to{ transform:rotate(360deg); } }

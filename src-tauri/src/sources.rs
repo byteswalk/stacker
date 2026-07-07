@@ -935,7 +935,7 @@ pub fn apply(tool: &Tool, mirror: &Mirror) -> Result<(), String> {
     }
 }
 
-/// 当前各工具所选国内源的域名（用于终端代理的 NO_PROXY 白名单）。
+/// 当前各工具所选镜像源的域名（用于终端代理的 NO_PROXY 白名单）。
 pub fn domestic_hosts() -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for t in tools() {

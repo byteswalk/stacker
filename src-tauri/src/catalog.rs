@@ -230,7 +230,7 @@ pub fn source_catalog_status() -> SourceCatalogStatus {
             source: "builtin".into(),
             source_label: "内置".into(),
             mirror_id: item.id,
-            name: "国内镜像".into(),
+            name: "推荐镜像".into(),
             url: item.url,
             host: item.host,
             description: item.description,

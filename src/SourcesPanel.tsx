@@ -75,14 +75,14 @@ const CUSTOM_CONFIG_PATH_KEYS: Record<string, string> = {
 function badge(t: ToolState) {
   if (!t.installed) return <span className="bd off">未检测到</span>;
   if (t.current === "official") return <span className="bd n">官方</span>;
-  if (t.current) return <span className="bd g">已切国内</span>;
+  if (t.current) return <span className="bd g">已配置</span>;
   return <span className="bd w">未识别</span>;
 }
 
 function customSourceBadge(path: string, state?: SourceFileState) {
   if (!path.trim()) return <span className="bd off">未选择</span>;
   if (state?.current === "official") return <span className="bd n">官方</span>;
-  if (state?.current) return <span className="bd g">已切国内</span>;
+  if (state?.current) return <span className="bd g">已配置</span>;
   return <span className="bd w">未识别</span>;
 }
 
@@ -205,13 +205,13 @@ export function SourcesPanel({ toolIds, refresh }: { toolIds: string[]; refresh?
         const picked = n[x.id] || x.current || fallback;
         if (picked && !x.mirrors.some((m) => m.id === picked)) {
           n[x.id] = fallback;
-          warned.push(`${x.name} 当前选择的源已不在清单中，页面已恢复为官方源；点击「应用」后写入配置。`);
+          warned.push(`${x.name} 当前选择的源已不在清单中，页面已恢复为官方源；点击「应用」后写入。`);
         } else if (!n[x.id]) {
           n[x.id] = picked;
         }
         if (!x.current && x.current_label === "未识别" && fallback) {
           n[x.id] = fallback;
-          warned.push(`${x.name} 当前配置不在源清单中，页面已恢复为官方源；点击「应用」后写入配置。`);
+          warned.push(`${x.name} 当前配置不在源清单中，页面已恢复为官方源；点击「应用」后写入。`);
         }
       });
       warned.forEach((msg) => toast(msg, "info"));

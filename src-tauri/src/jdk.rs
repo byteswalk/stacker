@@ -90,7 +90,7 @@ pub async fn jdk_resolve(major: String, arch: String) -> Result<JdkAsset, String
         .map_err(|e| e.to_string())?
 }
 
-// ── 阿里 Dragonwell：从 release 元数据解析 Windows x64 资产，实际下载走官方国内 OSS 镜像 ──
+// ── 阿里 Dragonwell：从 release 元数据解析 Windows x64 资产，实际下载走官方 OSS 镜像 ──
 fn agent() -> ureq::Agent {
     ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(8))
