@@ -217,6 +217,8 @@ fn split_versioned_dir(name: &str) -> Option<(String, String)> {
     Some((product, version))
 }
 
+type VersionedDirectory = (PathBuf, Vec<u32>, String, String);
+
 fn jetbrains_history_entries() -> Vec<ScanEntry> {
     let roots = [
         ("Local", lad().join("JetBrains")),
@@ -227,7 +229,7 @@ fn jetbrains_history_entries() -> Vec<ScanEntry> {
         let Ok(rd) = fs::read_dir(&root) else {
             continue;
         };
-        let mut groups: HashMap<String, Vec<(PathBuf, Vec<u32>, String, String)>> = HashMap::new();
+        let mut groups: HashMap<String, Vec<VersionedDirectory>> = HashMap::new();
         for ent in rd.flatten() {
             let path = ent.path();
             if !path.is_dir() {
@@ -331,6 +333,23 @@ fn scan_entries() -> Vec<ScanEntry> {
     out
 }
 
+fn is_link_or_reparse_point(path: &Path) -> bool {
+    let Ok(meta) = fs::symlink_metadata(path) else {
+        return false;
+    };
+    if meta.file_type().is_symlink() {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
+        meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+    }
+    #[cfg(not(windows))]
+    false
+}
+
 #[tauri::command]
 pub fn cleanup_scan() -> Vec<CacheItem> {
     scan_entries().into_iter().map(|e| e.item).collect()
@@ -341,6 +360,11 @@ fn delete_contents(path: &Path) -> u64 {
     if let Ok(rd) = fs::read_dir(path) {
         for entry in rd.flatten() {
             let ep = entry.path();
+            // 缓存目录中可能包含符号链接或 Windows Junction。绝不沿链接递归，
+            // 否则一次缓存清理可能越过已确认的根目录。
+            if is_link_or_reparse_point(&ep) {
+                continue;
+            }
             if ep.is_dir() {
                 freed += delete_contents(&ep);
                 let _ = fs::remove_dir(&ep);
@@ -370,18 +394,16 @@ fn delete_known_paths(paths: Vec<String>) -> Result<u64, String> {
         if !path.exists() {
             continue;
         }
+        if is_link_or_reparse_point(&path) {
+            return Err(format!("拒绝清理链接或目录联接：{p}"));
+        }
         match mode {
             DeleteMode::Contents => {
                 freed += delete_contents(&path);
             }
             DeleteMode::WholeDir => {
-                let size = dir_size(&path);
-                if fs::remove_dir_all(&path).is_ok() {
-                    freed += size;
-                } else {
-                    freed += delete_contents(&path);
-                    let _ = fs::remove_dir(&path);
-                }
+                freed += delete_contents(&path);
+                let _ = fs::remove_dir(&path);
             }
         }
     }
@@ -430,6 +452,9 @@ pub fn cleanup_aged_stats(path: String, days: u64) -> Result<AgedStats, String> 
     if !is_known(&path) {
         return Err(format!("未知路径：{path}"));
     }
+    if is_link_or_reparse_point(Path::new(&path)) {
+        return Err(format!("拒绝扫描链接或目录联接：{path}"));
+    }
     let older = Duration::from_secs(days * 86400);
     let now = SystemTime::now();
     let (mut count, mut size) = (0u64, 0u64);
@@ -462,6 +487,9 @@ pub fn cleanup_delete_aged(path: String, days: u64) -> Result<u64, String> {
     if !is_known(&path) {
         return Err(format!("未知路径：{path}"));
     }
+    if is_link_or_reparse_point(Path::new(&path)) {
+        return Err(format!("拒绝清理链接或目录联接：{path}"));
+    }
     let older = Duration::from_secs(days * 86400);
     let now = SystemTime::now();
     let mut freed = 0u64;
@@ -474,6 +502,9 @@ pub fn cleanup_delete_aged(path: String, days: u64) -> Result<u64, String> {
             continue;
         }
         let p = e.path();
+        if is_link_or_reparse_point(&p) {
+            continue;
+        }
         if let Ok(m) = p.metadata() {
             let last = m.accessed().or_else(|_| m.modified()).unwrap_or(now);
             if now
@@ -489,4 +520,27 @@ pub fn cleanup_delete_aged(path: String, days: u64) -> Result<u64, String> {
         }
     }
     Ok(freed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn splits_jetbrains_product_and_version() {
+        assert_eq!(
+            split_versioned_dir("IntelliJIdea2026.1"),
+            Some(("IntelliJIdea".into(), "2026.1".into()))
+        );
+        assert_eq!(
+            split_versioned_dir("AndroidStudio2025.3.4"),
+            Some(("AndroidStudio".into(), "2025.3.4".into()))
+        );
+    }
+
+    #[test]
+    fn ignores_directories_without_a_version() {
+        assert_eq!(split_versioned_dir("SharedIndex"), None);
+        assert_eq!(split_versioned_dir("2026.1"), None);
+    }
 }

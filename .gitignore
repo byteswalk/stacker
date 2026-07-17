@@ -10,6 +10,7 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+release/
 src-tauri/target
 src-tauri/gen/schemas
 *.local
@@ -19,6 +20,7 @@ docs/
 design/
 CLAUDE.md
 claude.md
+AGENTS.md
 AI*.md
 ai*.md
 *AI*.md

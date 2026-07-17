@@ -57,6 +57,33 @@ fn run_pyenv_bat(bat: &str, root: Option<&str>, args: &[&str]) -> Result<String,
         Err(if se.trim().is_empty() { so } else { se })
     }
 }
+
+fn parse_pyenv_global_output(output: &str) -> Option<String> {
+    let value = output.trim();
+    if value.is_empty()
+        || value.eq_ignore_ascii_case("system")
+        || value
+            .to_ascii_lowercase()
+            .contains("no global version configured")
+    {
+        None
+    } else {
+        Some(value.to_string())
+    }
+}
+
+fn pyenv_global_version() -> Option<String> {
+    run_pyenv(&["global"])
+        .ok()
+        .and_then(|output| parse_pyenv_global_output(&output))
+}
+
+fn pyenv_global_version_at(root: &str) -> Option<String> {
+    run_pyenv_at(root, &["global"])
+        .ok()
+        .and_then(|output| parse_pyenv_global_output(&output))
+}
+
 fn has_conda() -> bool {
     crate::env::resolve_fresh("conda.exe").is_some()
         || crate::env::resolve_fresh("conda.bat").is_some()
@@ -194,10 +221,7 @@ fn pyenv_status_impl() -> PyenvStatus {
     let mut versions = Vec::new();
     let mut default = None;
     if installed {
-        let global = run_pyenv(&["global"])
-            .ok()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty() && !s.contains("no global"));
+        let global = pyenv_global_version();
         default = global.clone();
         if let Ok(list) = run_pyenv(&["versions", "--bare"]) {
             let root_path = pyenv_root().map(PathBuf::from);
@@ -256,7 +280,18 @@ pub(crate) fn pyenv_integration_ready() -> bool {
                 == needle.trim_end_matches(['\\', '/'])
         })
     };
-    has(&bin) && has(&shims)
+    if !(has(&bin) && has(&shims)) {
+        return false;
+    }
+    let default = pyenv_global_version();
+    let Some(default) = default else { return true };
+    let Some(expected) = pyenv_python_exe(&default) else {
+        return false;
+    };
+    let Some(actual) = crate::env::resolve_fresh("python.exe") else {
+        return false;
+    };
+    same_existing_path(&actual, &expected)
 }
 
 #[tauri::command]
@@ -264,6 +299,8 @@ pub async fn pyenv_set_global(version: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         run_pyenv(&["global", &version])?;
         let _ = run_pyenv(&["rehash"]);
+        let root = pyenv_root().ok_or("未找到 pyenv-win 安装目录")?;
+        write_pyenv_integration_for_root(&root)?;
         Ok::<(), String>(())
     })
     .await
@@ -284,11 +321,46 @@ fn write_pyenv_integration_for_root(root: &str) -> Result<(), String> {
         "pyenv",
         &["PYENV", "PYENV_HOME", "PYENV_ROOT"],
     );
-    crate::winenv::set_user("PYENV", &root)?;
-    crate::winenv::set_user("PYENV_HOME", &root)?;
-    crate::winenv::set_user("PYENV_ROOT", &root)?;
+    crate::winenv::set_user("PYENV", root)?;
+    crate::winenv::set_user("PYENV_HOME", root)?;
+    crate::winenv::set_user("PYENV_ROOT", root)?;
     crate::winenv::prepend_path_in(crate::winenv::Hive::User, &format!("{root}shims"))?;
     crate::winenv::prepend_path_in(crate::winenv::Hive::User, &format!("{root}bin"))?;
+    if let Some(default) = pyenv_global_version_at(root) {
+        sync_default_python_paths(root, &default)?;
+    }
+    Ok(())
+}
+
+fn normalized_path(path: &Path) -> String {
+    path.to_string_lossy()
+        .replace('/', "\\")
+        .trim_end_matches('\\')
+        .to_lowercase()
+}
+
+fn same_existing_path(left: &Path, right: &Path) -> bool {
+    let left = std::fs::canonicalize(left).unwrap_or_else(|_| left.to_path_buf());
+    let right = std::fs::canonicalize(right).unwrap_or_else(|_| right.to_path_buf());
+    normalized_path(&left) == normalized_path(&right)
+}
+
+fn sync_default_python_paths(root: &str, version: &str) -> Result<(), String> {
+    let version_dir = PathBuf::from(root).join("versions").join(version);
+    if !installed_python_ready(&version_dir, version) {
+        return Err(format!("默认 Python {version} 的安装目录不存在或不完整"));
+    }
+
+    let managed_root = format!("{}\\versions\\", normalized_path(Path::new(root)));
+    for entry in crate::winenv::get_path_in(crate::winenv::Hive::User) {
+        if normalized_path(Path::new(&entry)).starts_with(&managed_root) {
+            crate::winenv::remove_path_in(crate::winenv::Hive::User, &entry)?;
+        }
+    }
+
+    let scripts = version_dir.join("Scripts");
+    crate::winenv::prepend_path_in(crate::winenv::Hive::User, &scripts.to_string_lossy())?;
+    crate::winenv::prepend_path_in(crate::winenv::Hive::User, &version_dir.to_string_lossy())?;
     Ok(())
 }
 
@@ -546,8 +618,8 @@ fn ver_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     fn key(v: &str) -> [u32; 5] {
         let mut nums = [0u32; 5];
         let parts: Vec<&str> = v.split('.').collect();
-        for i in 0..2 {
-            nums[i] = parts.get(i).and_then(|p| p.parse().ok()).unwrap_or(0);
+        for (i, slot) in nums.iter_mut().enumerate().take(2) {
+            *slot = parts.get(i).and_then(|p| p.parse().ok()).unwrap_or(0);
         }
         let patch_part = parts.get(2).copied().unwrap_or_default();
         let digit_len = patch_part
@@ -760,10 +832,13 @@ fn preseed_python(
         .timeout_write(Duration::from_secs(STALL_TIMEOUT_SECS))
         .timeout(Duration::from_secs(STALL_TIMEOUT_SECS))
         .build();
-    let probe_result = probe.head(&url).call().or_else(|e| {
-        log.line(format!("preseed HEAD failed err={e}; trying range GET"));
-        probe.get(&url).set("Range", "bytes=0-0").call()
-    });
+    let probe_result = match probe.head(&url).call() {
+        Ok(response) => Ok(response),
+        Err(e) => {
+            log.line(format!("preseed HEAD failed err={e}; trying range GET"));
+            probe.get(&url).set("Range", "bytes=0-0").call()
+        }
+    };
     match probe_result {
         Ok(resp) => log.line(format!(
             "preseed probe ok status={} content_length={}",
@@ -872,12 +947,15 @@ fn download_file_to_cache(
         .timeout_write(Duration::from_secs(STALL_TIMEOUT_SECS))
         .timeout(Duration::from_secs(STALL_TIMEOUT_SECS))
         .build();
-    let probe_result = probe.head(url).call().or_else(|e| {
-        log.line(format!(
-            "download HEAD failed label={label} err={e}; trying range GET"
-        ));
-        probe.get(url).set("Range", "bytes=0-0").call()
-    });
+    let probe_result = match probe.head(url).call() {
+        Ok(response) => Ok(response),
+        Err(e) => {
+            log.line(format!(
+                "download HEAD failed label={label} err={e}; trying range GET"
+            ));
+            probe.get(url).set("Range", "bytes=0-0").call()
+        }
+    };
     match probe_result {
         Ok(resp) => log.line(format!(
             "download probe ok label={label} status={} content_length={}",
@@ -1109,14 +1187,12 @@ fn is_stacker_managed_python_dir(path: &Path, version_dir: &Path) -> bool {
 }
 
 fn registered_python_conflict(version: &str) -> Option<PathBuf> {
-    for dir in registered_python_install_dirs(version) {
-        if python_core_layout_ready(&dir)
-            && !python_exe_version_matches(&dir.join("python.exe"), version)
-        {
-            return Some(dir);
-        }
-    }
-    None
+    registered_python_install_dirs(version)
+        .into_iter()
+        .find(|dir| {
+            python_core_layout_ready(dir)
+                && !python_exe_version_matches(&dir.join("python.exe"), version)
+        })
 }
 
 fn has_stale_stacker_python_registration(version: &str, version_dir: &Path) -> bool {
@@ -1569,7 +1645,7 @@ fn extract_msi_to_python_dir(
     let msi_arg = msi.to_string_lossy().to_string();
     let msiexec_log = log.sidecar(&format!("msiexec-{label}"));
     let msiexec_log_arg = msiexec_log.to_string_lossy().to_string();
-    let args = vec![
+    let args = [
         "/a".to_string(),
         msi_arg,
         "/qn".to_string(),
@@ -2213,10 +2289,9 @@ pub fn pyenv_uninstall_version(version: String) -> Result<(), String> {
     if !target.starts_with(&versions_dir) {
         return Err("Python 版本目录异常，已拒绝卸载".into());
     }
-    if run_pyenv(&["global"])
-        .ok()
-        .map(|s| s.trim().eq_ignore_ascii_case(&version))
-        .unwrap_or(false)
+    if pyenv_global_version()
+        .as_deref()
+        .is_some_and(|default| default.eq_ignore_ascii_case(&version))
     {
         let _ = run_pyenv(&["global", "system"]);
     }

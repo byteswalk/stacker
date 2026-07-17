@@ -1,13 +1,13 @@
 {
-  "version": "0.1.1",
-  "released_at": "2026-07-06T17:30:00+08:00",
-  "release_url": "https://github.com/byteswalk/stacker/releases/tag/v0.1.1",
-  "installer_url": "https://github.com/byteswalk/stacker/releases/download/v0.1.1/Stacker-0.1.1-setup-windows-x64.exe",
-  "portable_url": "https://github.com/byteswalk/stacker/releases/download/v0.1.1/Stacker-0.1.1-portable-windows-x64.zip",
+  "version": "0.2.0",
+  "released_at": "2026-07-17T18:22:00+08:00",
+  "release_url": "https://github.com/byteswalk/stacker/releases/tag/v0.2.0",
+  "installer_url": "https://github.com/byteswalk/stacker/releases/download/v0.2.0/Stacker-0.2.0-setup-windows-x64.exe",
+  "portable_url": "https://github.com/byteswalk/stacker/releases/download/v0.2.0/Stacker-0.2.0-portable-windows-x64.zip",
   "notes": [
-    "接入 GitHub Releases 版本检测和下载引导",
-    "接入公共源清单版本检测与确认更新",
-    "新增 JetBrains IDE 历史版本与 Windows 临时目录清理",
-    "优化 Python、Node、Maven、Gradle 等生态源配置体验"
+    "新增 Git 多平台账号执行环境、仓库初始化与迁移能力",
+    "新增 AI 工作智能体安装、状态检查和本机生态摘要",
+    "完善 Git、Python、Node、Java、Maven、Gradle、Go 与 Rust 的版本管理和后台提醒",
+    "统一下载源、仓库镜像、终端验证、日志和磁盘清理体验"
   ]
 }

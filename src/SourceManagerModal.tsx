@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { invoke } from "./invoke";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { Modal, ConfirmModal, useToast } from "./ui";
 import { Select } from "./Select";
@@ -96,7 +96,7 @@ export function SourceManagerModal({ onClose, onChanged }: { onClose: () => void
   const [remoteUpdate, setRemoteUpdate] = useState<MirrorsUpdateCheck | null>(null);
   const [checkingRemote, setCheckingRemote] = useState(false);
 
-  async function checkRemoteUpdate(url: string, manual = false) {
+  const checkRemoteUpdate = useCallback(async (url: string, manual = false) => {
     setCheckingRemote(true);
     try {
       const res = await invoke<MirrorsUpdateCheck>("mirrors_check_update", { url: url.trim() || null });
@@ -110,20 +110,24 @@ export function SourceManagerModal({ onClose, onChanged }: { onClose: () => void
     } finally {
       setCheckingRemote(false);
     }
-  }
+  }, [toast]);
 
-  async function load() {
+  const load = useCallback(async () => {
     const next = await invoke<CatalogStatus>("source_catalog_status");
     setCatalog(next);
     setServerUrl((cur) => cur || next.server_url);
-    invoke<Custom[]>("custom_list").then(setCustoms).catch(() => {});
+    try {
+      setCustoms(await invoke<Custom[]>("custom_list"));
+    } catch (error) {
+      toast("读取本地自定义源失败：" + error, "err");
+    }
     if (!checkedRemote.current) {
       checkedRemote.current = true;
       checkRemoteUpdate(next.server_url, false);
     }
-  }
+  }, [checkRemoteUpdate, toast]);
 
-  useEffect(() => { load().catch((e) => toast("读取源目录失败：" + e, "err")); }, []);
+  useEffect(() => { load().catch((e) => toast("读取源目录失败：" + e, "err")); }, [load, toast]);
 
   const toolOptions = useMemo(() => {
     const map = new Map<string, string>();

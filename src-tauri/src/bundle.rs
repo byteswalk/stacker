@@ -3,6 +3,7 @@
 //! 导入后需在新机重新填密码。
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 use crate::{custom, profile};
 
@@ -14,21 +15,28 @@ pub struct Bundle {
     pub profiles: Vec<profile::Profile>,
     #[serde(default)]
     pub customs: Vec<custom::CustomDTO>,
+    #[serde(default)]
+    pub frontend_settings: BTreeMap<String, String>,
 }
 
 #[derive(Serialize)]
 pub struct ImportResult {
     pub profiles: usize,
     pub customs: usize,
+    pub frontend_settings: BTreeMap<String, String>,
 }
 
 #[tauri::command]
-pub fn bundle_export(path: String) -> Result<(), String> {
+pub fn bundle_export(
+    path: String,
+    frontend_settings: BTreeMap<String, String>,
+) -> Result<(), String> {
     let b = Bundle {
-        version: 1,
+        version: 2,
         app: "stacker".into(),
         profiles: profile::export_all(),
         customs: custom::export_all(),
+        frontend_settings,
     };
     let s = serde_json::to_string_pretty(&b).map_err(|e| e.to_string())?;
     std::fs::write(&path, s).map_err(|e| e.to_string())
@@ -44,5 +52,22 @@ pub fn bundle_import(path: String) -> Result<ImportResult, String> {
     }
     let profiles = profile::import_merge(b.profiles)?;
     let customs = custom::import_merge(b.customs)?;
-    Ok(ImportResult { profiles, customs })
+    Ok(ImportResult {
+        profiles,
+        customs,
+        frontend_settings: b.frontend_settings,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Bundle;
+
+    #[test]
+    fn version_one_bundle_defaults_frontend_settings() {
+        let bundle: Bundle =
+            serde_json::from_str(r#"{"version":1,"app":"stacker","profiles":[],"customs":[]}"#)
+                .expect("旧版配置包应继续可读");
+        assert!(bundle.frontend_settings.is_empty());
+    }
 }

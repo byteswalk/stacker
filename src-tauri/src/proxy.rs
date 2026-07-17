@@ -92,10 +92,14 @@ pub fn status() -> ProxyStatus {
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect();
-    let manual: Vec<String> = current_np
-        .into_iter()
-        .filter(|h| !auto.contains(h))
-        .collect();
+    let manual: Vec<String> = if enabled {
+        current_np
+            .into_iter()
+            .filter(|h| !auto.contains(h))
+            .collect()
+    } else {
+        crate::settings::proxy_manual()
+    };
 
     ProxyStatus {
         enabled,
@@ -135,6 +139,7 @@ pub fn enable(host: &str, port: u16, also_jvm: bool, manual: Vec<String>) -> Res
     winenv::set_user("HTTPS_PROXY", &http)?;
     winenv::set_user("ALL_PROXY", &socks)?;
 
+    let manual = crate::settings::save_proxy_manual(&manual)?;
     let mut list = auto_no_proxy();
     for h in manual {
         let h = h.trim().to_string();
@@ -149,6 +154,21 @@ pub fn enable(host: &str, port: u16, also_jvm: bool, manual: Vec<String>) -> Res
         maven_set_proxy(host, port, &list)?;
     }
     Ok(())
+}
+
+pub(crate) fn sync_manual(manual: &[String]) -> Result<(), String> {
+    let status = status();
+    if !status.enabled {
+        return Ok(());
+    }
+    let mut list = auto_no_proxy();
+    for value in manual {
+        let value = value.trim().to_string();
+        if !value.is_empty() && !list.contains(&value) {
+            list.push(value);
+        }
+    }
+    winenv::set_user("NO_PROXY", &list.join(","))
 }
 
 pub fn disable(also_jvm: bool) -> Result<(), String> {
@@ -261,7 +281,10 @@ fn maven_opts_kept() -> Vec<String> {
 }
 
 fn maven_set_proxy(host: &str, port: u16, no_proxy: &[String]) -> Result<(), String> {
-    let non = no_proxy.join("|");
+    let non = no_proxy.join("|").replace('"', "");
+    // Windows cmd treats `|` as a pipe when mvn.cmd expands MAVEN_OPTS.
+    // Quoting keeps nonProxyHosts as a single JVM property value.
+    let non = format!("\"{non}\"");
     let mut toks = maven_opts_kept();
     toks.push(format!("-Dhttp.proxyHost={host}"));
     toks.push(format!("-Dhttp.proxyPort={port}"));
@@ -279,35 +302,6 @@ fn maven_clear_proxy() -> Result<(), String> {
     } else {
         winenv::set_user("MAVEN_OPTS", &toks.join(" "))
     }
-}
-
-// ── 立即生效脚本 ──
-pub fn gen_scripts(host: &str, port: u16) -> Result<String, String> {
-    let dir = dirs::config_dir().unwrap_or_default().join("stacker");
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let http = format!("http://{host}:{port}");
-    let socks = format!("socks5://{host}:{port}");
-    let no_proxy = auto_no_proxy().join(",");
-
-    let on = format!(
-        "# 在当前 PowerShell 窗口立即开启代理：  . .\\proxy-on.ps1\n\
-         $env:HTTP_PROXY  = \"{http}\"\n\
-         $env:HTTPS_PROXY = \"{http}\"\n\
-         $env:ALL_PROXY   = \"{socks}\"\n\
-         $env:NO_PROXY    = \"{no_proxy}\"\n\
-         Write-Host \"[stacker] 代理已开启 -> {http}\" -ForegroundColor Green\n"
-    );
-    let off = "# 在当前 PowerShell 窗口立即关闭代理：  . .\\proxy-off.ps1\n\
-         Remove-Item Env:HTTP_PROXY  -ErrorAction SilentlyContinue\n\
-         Remove-Item Env:HTTPS_PROXY -ErrorAction SilentlyContinue\n\
-         Remove-Item Env:ALL_PROXY   -ErrorAction SilentlyContinue\n\
-         Remove-Item Env:NO_PROXY    -ErrorAction SilentlyContinue\n\
-         Write-Host \"[stacker] 代理已关闭\" -ForegroundColor Yellow\n";
-
-    let on_path = dir.join("proxy-on.ps1");
-    std::fs::write(&on_path, on).map_err(|e| e.to_string())?;
-    std::fs::write(dir.join("proxy-off.ps1"), off).map_err(|e| e.to_string())?;
-    Ok(on_path.to_string_lossy().to_string())
 }
 
 // ── Tauri 命令 ──
@@ -329,9 +323,4 @@ pub fn proxy_enable(
 #[tauri::command]
 pub fn proxy_disable(also_jvm: bool) -> Result<(), String> {
     disable(also_jvm)
-}
-
-#[tauri::command]
-pub fn proxy_gen_scripts(host: String, port: u16) -> Result<String, String> {
-    gen_scripts(&host, port)
 }

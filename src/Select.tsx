@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
 
 export type SelOption = { value: string; label: ReactNode; disabled?: boolean; title?: string };
 export type SelGroup = { label?: string; options: SelOption[] };
@@ -21,18 +22,63 @@ export function Select({ value, onChange, options, groups, disabled, placeholder
   const cur = all.find((o) => o.value === value);
   const labelTitle = (o?: SelOption) => o?.title ?? (typeof o?.label === "string" ? o.label : undefined);
   const [open, setOpen] = useState(false);
-  const [pos, setPos] = useState<{ left: number; top: number; width: number } | null>(null);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const [pos, setPos] = useState<{ left: number; top?: number; bottom?: number; width: number; maxHeight: number } | null>(null);
   const trig = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
+  const menuId = useId();
+  const enabled = all.filter((option) => !option.disabled);
 
   function place() {
     const el = trig.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    setPos({ left: r.left, top: r.bottom + 4, width: r.width });
+    const margin = 8;
+    const gap = 4;
+    const optionCount = grps.reduce((sum, g) => sum + g.options.length + (g.label ? 1 : 0), 0);
+    const desiredHeight = Math.min(300, Math.max(44, optionCount * 34 + 8));
+    const below = window.innerHeight - r.bottom - margin;
+    const above = r.top - margin;
+    const openUp = below < desiredHeight && above > below;
+    const maxHeight = Math.max(96, Math.min(300, (openUp ? above : below) - gap));
+    const left = Math.max(margin, Math.min(r.left, window.innerWidth - r.width - margin));
+    setPos(openUp
+      ? { left, bottom: window.innerHeight - r.top + gap, width: r.width, maxHeight }
+      : { left, top: r.bottom + gap, width: r.width, maxHeight });
   }
-  function toggle() { if (disabled) return; if (!open) place(); setOpen((o) => !o); }
+  function toggle() {
+    if (disabled) return;
+    if (!open) {
+      place();
+      const index = enabled.findIndex((option) => option.value === value);
+      setActiveIndex(index >= 0 ? index : 0);
+    }
+    setOpen((o) => !o);
+  }
   function pick(o: SelOption) { if (o.disabled) return; onChange(o.value); setOpen(false); }
+  function onTriggerKeyDown(e: ReactKeyboardEvent<HTMLButtonElement>) {
+    if (disabled) return;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!open) {
+        place();
+        setOpen(true);
+      }
+      const delta = e.key === "ArrowDown" ? 1 : -1;
+      setActiveIndex((current) => {
+        if (!enabled.length) return -1;
+        const start = current < 0 ? (delta > 0 ? -1 : 0) : current;
+        return (start + delta + enabled.length) % enabled.length;
+      });
+    } else if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      if (!open) toggle();
+      else if (activeIndex >= 0 && enabled[activeIndex]) pick(enabled[activeIndex]);
+    } else if (e.key === "Escape" && open) {
+      e.preventDefault();
+      setOpen(false);
+    }
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -61,7 +107,9 @@ export function Select({ value, onChange, options, groups, disabled, placeholder
 
   return (
     <>
-      <button ref={trig} type="button" disabled={disabled} onClick={toggle}
+      <button ref={trig} type="button" disabled={disabled} onClick={toggle} onKeyDown={onTriggerKeyDown}
+        aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? menuId : undefined}
+        aria-activedescendant={open && activeIndex >= 0 ? `${menuId}-option-${activeIndex}` : undefined}
         className={"sel2" + (open ? " open" : "") + (className ? " " + className : "")}
         title={labelTitle(cur)}
         style={width ? { width } : undefined}>
@@ -69,18 +117,29 @@ export function Select({ value, onChange, options, groups, disabled, placeholder
         <i className="ti ti-chevron-down sel2c" />
       </button>
       {open && pos && (
-        <div ref={menu} className="selmenu" style={{ left: pos.left, top: pos.top, minWidth: pos.width }}>
+        <div ref={menu} id={menuId} role="listbox" className="selmenu" style={{
+          left: pos.left,
+          top: pos.top,
+          bottom: pos.bottom,
+          minWidth: pos.width,
+          maxHeight: pos.maxHeight,
+          maxWidth: `calc(100vw - ${pos.left + 8}px)`,
+        }}>
           {grps.map((g, gi) => (
-            <div key={gi}>
+            <div key={gi} role={g.label ? "group" : undefined} aria-label={g.label}>
               {g.label && <div className="selgl">{g.label}</div>}
-              {g.options.map((o) => (
-                <button key={o.value} type="button" disabled={o.disabled}
+              {g.options.map((o) => {
+                const enabledIndex = enabled.indexOf(o);
+                return (
+                <button key={o.value} id={enabledIndex >= 0 ? `${menuId}-option-${enabledIndex}` : undefined}
+                  role="option" aria-selected={o.value === value} tabIndex={-1} type="button" disabled={o.disabled}
                   title={labelTitle(o)}
-                  className={"selopt" + (o.value === value ? " on" : "")} onClick={() => pick(o)}>
+                  className={"selopt" + (o.value === value ? " on" : "") + (enabledIndex === activeIndex ? " active" : "")}
+                  onMouseEnter={() => { if (enabledIndex >= 0) setActiveIndex(enabledIndex); }} onClick={() => pick(o)}>
                   <span className="selopt-l">{o.label}</span>
                   {o.value === value && <i className="ti ti-check selck" />}
                 </button>
-              ))}
+              );})}
             </div>
           ))}
         </div>

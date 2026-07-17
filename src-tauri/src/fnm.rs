@@ -82,7 +82,7 @@ fn node_lts(e: &NodeIndexEntry) -> bool {
 }
 
 fn node_has_windows_zip(e: &NodeIndexEntry) -> bool {
-    e.files.iter().any(|f| f == "win-x64-zip") || e.files.is_empty()
+    e.files.iter().any(|f| f == "win-x64-zip")
 }
 
 fn node_versions_from_source(lts_only: bool, source: &str) -> Result<Vec<String>, String> {
@@ -115,7 +115,7 @@ fn node_versions_from_source(lts_only: bool, source: &str) -> Result<Vec<String>
 fn parse_ver(line: &str) -> Option<String> {
     line.split_whitespace().find_map(|t| {
         let t = t.trim_start_matches('*').trim();
-        if t.starts_with('v') && t.as_bytes().get(1).map_or(false, |b| b.is_ascii_digit()) {
+        if t.starts_with('v') && t.as_bytes().get(1).is_some_and(|b| b.is_ascii_digit()) {
             Some(t.to_string())
         } else {
             None
@@ -683,116 +683,6 @@ fn install_node_runtime_zip_at(
             install_dir.display()
         ))
     }
-}
-
-// ── 从 nvm 迁移已装版本到 fnm（本地复制，免重新下载）──
-#[derive(Serialize)]
-pub struct MigrateResult {
-    pub migrated: Vec<String>,
-    pub skipped: Vec<String>,
-}
-
-#[cfg(windows)]
-fn nvm_home() -> Option<PathBuf> {
-    crate::winenv::get_raw_in(crate::winenv::Hive::User, "NVM_HOME")
-        .or_else(|| crate::winenv::get_raw_in(crate::winenv::Hive::System, "NVM_HOME"))
-        .or_else(|| std::env::var("NVM_HOME").ok())
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .map(PathBuf::from)
-}
-
-#[cfg(windows)]
-fn copy_dir_all(src: &Path, dst: &Path) -> Result<(), String> {
-    std::fs::create_dir_all(dst).map_err(|e| e.to_string())?;
-    for ent in std::fs::read_dir(src).map_err(|e| e.to_string())?.flatten() {
-        if crate::installer::op_cancelled() {
-            return Err("已取消".into());
-        }
-        let p = ent.path();
-        let dest = dst.join(ent.file_name());
-        match ent.file_type() {
-            Ok(ft) if ft.is_dir() => copy_dir_all(&p, &dest)?,
-            Ok(_) => {
-                std::fs::copy(&p, &dest).map_err(|e| e.to_string())?;
-            }
-            Err(e) => return Err(e.to_string()),
-        }
-    }
-    Ok(())
-}
-
-#[cfg(windows)]
-fn migrate_impl(window: &tauri::Window) -> Result<MigrateResult, String> {
-    use tauri::Emitter;
-    crate::installer::op_reset();
-    let nvm = nvm_home().ok_or("未检测到 nvm（NVM_HOME 未设置）")?;
-    // nvm 各版本目录：<NVM_HOME>\vX.Y.Z\node.exe
-    let mut found: Vec<(String, PathBuf)> = Vec::new();
-    for ent in std::fs::read_dir(&nvm)
-        .map_err(|e| e.to_string())?
-        .flatten()
-    {
-        let p = ent.path();
-        if !p.is_dir() || !p.join("node.exe").is_file() {
-            continue;
-        }
-        let ver = ent
-            .file_name()
-            .to_string_lossy()
-            .trim_start_matches('v')
-            .to_string();
-        let parts: Vec<&str> = ver.split('.').collect();
-        if parts.len() == 3
-            && parts
-                .iter()
-                .all(|s| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()))
-        {
-            found.push((ver, p));
-        }
-    }
-    if found.is_empty() {
-        return Err("nvm 里没有找到已安装的 Node 版本".into());
-    }
-
-    let nv_root = fnm_dir().join("node-versions");
-    let (mut migrated, mut skipped) = (Vec::new(), Vec::new());
-    for (ver, src) in &found {
-        if crate::installer::op_cancelled() {
-            return Err("已取消".into());
-        }
-        let dest = nv_root.join(format!("v{ver}")).join("installation");
-        if dest.join("node.exe").is_file() {
-            skipped.push(ver.clone());
-            continue;
-        } // fnm 已有
-        let _ = window.emit("install-progress", format!("复制 v{ver}（本地，免下载）…"));
-        if let Err(e) = copy_dir_all(src, &dest) {
-            // 复制中途失败/取消：清掉残缺目录，避免 fnm 看到半成品
-            let _ = std::fs::remove_dir_all(nv_root.join(format!("v{ver}")));
-            return Err(e);
-        }
-        migrated.push(ver.clone());
-    }
-    Ok(MigrateResult { migrated, skipped })
-}
-
-/// 从 nvm 迁移已装 Node 版本到 fnm：本地复制 <NVM_HOME>\vX → fnm node-versions，免重新下载。
-#[tauri::command]
-pub async fn fnm_migrate_from_nvm(window: tauri::Window) -> Result<MigrateResult, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        #[cfg(windows)]
-        {
-            migrate_impl(&window)
-        }
-        #[cfg(not(windows))]
-        {
-            let _ = &window;
-            Err("仅 Windows".to_string())
-        }
-    })
-    .await
-    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

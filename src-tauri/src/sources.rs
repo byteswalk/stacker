@@ -70,6 +70,11 @@ pub fn tools_builtin_ids() -> Vec<&'static str> {
     vec![
         "python-runtime",
         "node-runtime",
+        "git-runtime",
+        "maven-runtime",
+        "gradle-runtime",
+        "go-runtime",
+        "rust-runtime",
         "pip",
         "npm",
         "yarn",
@@ -83,6 +88,44 @@ pub fn tools_builtin_ids() -> Vec<&'static str> {
 
 pub const PYTHON_RUNTIME_TOOL_ID: &str = "python-runtime";
 pub const NODE_RUNTIME_TOOL_ID: &str = "node-runtime";
+pub const GIT_RUNTIME_TOOL_ID: &str = "git-runtime";
+pub const MAVEN_RUNTIME_TOOL_ID: &str = "maven-runtime";
+pub const GRADLE_RUNTIME_TOOL_ID: &str = "gradle-runtime";
+pub const GO_RUNTIME_TOOL_ID: &str = "go-runtime";
+pub const RUST_RUNTIME_TOOL_ID: &str = "rust-runtime";
+
+fn rust_runtime_mirrors_builtin() -> Vec<Mirror> {
+    vec![
+        m(
+            "official",
+            "官方 Rust",
+            "https://static.rust-lang.org",
+            "static.rust-lang.org",
+        ),
+        m("rsproxy", "rsproxy.cn", "https://rsproxy.cn", "rsproxy.cn"),
+        m(
+            "tuna",
+            "清华大学",
+            "https://mirrors.tuna.tsinghua.edu.cn/rustup",
+            "mirrors.tuna.tsinghua.edu.cn",
+        ),
+        m(
+            "ustc",
+            "中科大",
+            "https://mirrors.ustc.edu.cn/rust-static",
+            "mirrors.ustc.edu.cn",
+        ),
+    ]
+}
+
+#[allow(dead_code)]
+pub fn rust_runtime_mirrors() -> Vec<Mirror> {
+    tools()
+        .into_iter()
+        .find(|t| t.id == RUST_RUNTIME_TOOL_ID)
+        .map(|t| t.mirrors)
+        .unwrap_or_else(rust_runtime_mirrors_builtin)
+}
 
 fn python_runtime_mirrors_builtin() -> Vec<Mirror> {
     vec![
@@ -195,6 +238,131 @@ pub fn node_runtime_mirrors() -> Vec<Mirror> {
         .unwrap_or_else(node_runtime_mirrors_builtin)
 }
 
+fn git_runtime_mirrors_builtin() -> Vec<Mirror> {
+    vec![
+        m(
+            "official",
+            "官方",
+            "https://github.com/git-for-windows/git/releases/latest",
+            "github.com",
+        ),
+        m(
+            "npmmirror",
+            "npmmirror",
+            "https://registry.npmmirror.com/-/binary/git-for-windows/",
+            "registry.npmmirror.com",
+        ),
+        m(
+            "tuna",
+            "清华",
+            "https://mirrors.tuna.tsinghua.edu.cn/github-release/git-for-windows/git/",
+            "mirrors.tuna.tsinghua.edu.cn",
+        ),
+        m(
+            "huawei",
+            "华为云",
+            "https://repo.huaweicloud.com/git-for-windows/",
+            "repo.huaweicloud.com",
+        ),
+    ]
+}
+
+pub fn git_runtime_mirrors() -> Vec<Mirror> {
+    tools()
+        .into_iter()
+        .find(|t| t.id == GIT_RUNTIME_TOOL_ID)
+        .and_then(|t| (!t.mirrors.is_empty()).then_some(t.mirrors))
+        .unwrap_or_else(git_runtime_mirrors_builtin)
+}
+
+fn maven_runtime_mirrors_builtin() -> Vec<Mirror> {
+    vec![
+        m(
+            "official",
+            "官方 Apache",
+            "https://archive.apache.org/dist/maven",
+            "archive.apache.org",
+        ),
+        m(
+            "apache-cdn",
+            "Apache CDN",
+            "https://dlcdn.apache.org/maven",
+            "dlcdn.apache.org",
+        ),
+        m(
+            "tuna",
+            "清华大学",
+            "https://mirrors.tuna.tsinghua.edu.cn/apache/maven",
+            "mirrors.tuna.tsinghua.edu.cn",
+        ),
+        m(
+            "ustc",
+            "中科大",
+            "https://mirrors.ustc.edu.cn/apache/maven",
+            "mirrors.ustc.edu.cn",
+        ),
+        m(
+            "aliyun",
+            "阿里云",
+            "https://mirrors.aliyun.com/apache/maven",
+            "mirrors.aliyun.com",
+        ),
+        m(
+            "huawei",
+            "华为云",
+            "https://repo.huaweicloud.com/apache/maven",
+            "repo.huaweicloud.com",
+        ),
+        m(
+            "tencent",
+            "腾讯云",
+            "https://mirrors.cloud.tencent.com/apache/maven",
+            "mirrors.cloud.tencent.com",
+        ),
+    ]
+}
+
+fn gradle_runtime_mirrors_builtin() -> Vec<Mirror> {
+    vec![
+        m(
+            "official",
+            "官方 Gradle",
+            "https://services.gradle.org/distributions",
+            "services.gradle.org",
+        ),
+        m(
+            "tencent",
+            "腾讯云",
+            "https://mirrors.cloud.tencent.com/gradle",
+            "mirrors.cloud.tencent.com",
+        ),
+        m(
+            "aliyun",
+            "阿里云",
+            "https://mirrors.aliyun.com/gradle/distributions",
+            "mirrors.aliyun.com",
+        ),
+        m(
+            "huawei",
+            "华为云",
+            "https://repo.huaweicloud.com/gradle",
+            "repo.huaweicloud.com",
+        ),
+    ]
+}
+
+fn go_runtime_mirrors_builtin() -> Vec<Mirror> {
+    vec![
+        m("official", "官方 go.dev", "https://go.dev/dl", "go.dev"),
+        m(
+            "aliyun",
+            "阿里云镜像",
+            "https://mirrors.aliyun.com/golang",
+            "mirrors.aliyun.com",
+        ),
+    ]
+}
+
 /// 代码里写死的兜底工具 + 镜像清单（不含远程覆盖与自定义源）。
 pub fn hardcoded() -> Vec<Tool> {
     vec![
@@ -213,6 +381,46 @@ pub fn hardcoded() -> Vec<Tool> {
             "runtime_download",
             "",
             node_runtime_mirrors_builtin(),
+        ),
+        mk(
+            GIT_RUNTIME_TOOL_ID,
+            "Git 下载源",
+            "st",
+            "runtime_download",
+            "",
+            git_runtime_mirrors_builtin(),
+        ),
+        mk(
+            MAVEN_RUNTIME_TOOL_ID,
+            "Maven 下载源",
+            "mv2",
+            "runtime_download",
+            "",
+            maven_runtime_mirrors_builtin(),
+        ),
+        mk(
+            GRADLE_RUNTIME_TOOL_ID,
+            "Gradle 下载源",
+            "gr",
+            "runtime_download",
+            "",
+            gradle_runtime_mirrors_builtin(),
+        ),
+        mk(
+            GO_RUNTIME_TOOL_ID,
+            "Go 下载源",
+            "go",
+            "runtime_download",
+            "",
+            go_runtime_mirrors_builtin(),
+        ),
+        mk(
+            RUST_RUNTIME_TOOL_ID,
+            "Rust 工具链下载源",
+            "rs",
+            "runtime_download",
+            "",
+            rust_runtime_mirrors_builtin(),
         ),
         mk(
             "pip",
@@ -315,6 +523,12 @@ pub fn hardcoded() -> Vec<Tool> {
                     "",
                 ),
                 m(
+                    "goproxyio",
+                    "goproxy.io",
+                    "https://goproxy.io,direct",
+                    "goproxy.io",
+                ),
+                m(
                     "goproxycn",
                     "goproxy.cn",
                     "https://goproxy.cn,direct",
@@ -343,6 +557,18 @@ pub fn hardcoded() -> Vec<Tool> {
             vec![
                 m("official", "官方 Central", "", "repo.maven.apache.org"),
                 m(
+                    "maven-central-repo1",
+                    "Maven Central (repo1)",
+                    "https://repo1.maven.org/maven2/",
+                    "repo1.maven.org",
+                ),
+                m(
+                    "tencent",
+                    "腾讯云",
+                    "https://mirrors.cloud.tencent.com/nexus/repository/maven-public/",
+                    "mirrors.cloud.tencent.com",
+                ),
+                m(
                     "aliyun",
                     "阿里云",
                     "https://maven.aliyun.com/repository/public",
@@ -365,10 +591,28 @@ pub fn hardcoded() -> Vec<Tool> {
             vec![
                 m("official", "官方", "", "repo.maven.apache.org"),
                 m(
+                    "maven-central-repo1",
+                    "Maven Central (repo1)",
+                    "https://repo1.maven.org/maven2/",
+                    "repo1.maven.org",
+                ),
+                m(
+                    "tencent",
+                    "腾讯云",
+                    "https://mirrors.cloud.tencent.com/nexus/repository/maven-public/",
+                    "mirrors.cloud.tencent.com",
+                ),
+                m(
                     "aliyun",
                     "阿里云",
                     "https://maven.aliyun.com/repository/public",
                     "maven.aliyun.com",
+                ),
+                m(
+                    "huawei",
+                    "华为云",
+                    "https://repo.huaweicloud.com/repository/maven/",
+                    "repo.huaweicloud.com",
                 ),
             ],
         ),
@@ -445,7 +689,14 @@ fn condarc_path() -> PathBuf {
     home().join(".condarc")
 }
 pub fn cargo_path() -> PathBuf {
-    home().join(".cargo").join("config.toml")
+    let cargo_home = winenv::get_raw_in(winenv::Hive::User, "CARGO_HOME")
+        .or_else(|| winenv::get_raw_in(winenv::Hive::System, "CARGO_HOME"))
+        .or_else(|| std::env::var("CARGO_HOME").ok())
+        .map(|s| s.trim().trim_matches('"').to_string())
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home().join(".cargo"));
+    cargo_home.join("config.toml")
 }
 pub fn maven_path() -> PathBuf {
     home().join(".m2").join("settings.xml")
@@ -597,8 +848,61 @@ fn cargo_template(url: &str) -> String {
 fn condarc_template(base: &str) -> String {
     format!("channels:\n  - defaults\nshow_channel_urls: true\ndefault_channels:\n  - {base}/pkgs/main\n  - {base}/pkgs/r\n  - {base}/pkgs/msys2\ncustom_channels:\n  conda-forge: {base}/cloud\n  pytorch: {base}/cloud\n")
 }
+fn gradle_repo_urls(url: &str) -> Vec<String> {
+    let mut urls = vec![url.to_string()];
+    if url
+        .trim_end_matches('/')
+        .eq_ignore_ascii_case("https://maven.aliyun.com/repository/public")
+    {
+        urls.push("https://maven.aliyun.com/repository/google".into());
+        urls.push("https://maven.aliyun.com/repository/gradle-plugin".into());
+    }
+    urls
+}
+
+fn groovy_list(values: &[String]) -> String {
+    values
+        .iter()
+        .map(|v| format!("'{}'", groovy_single_escape(v)))
+        .collect::<Vec<_>>()
+        .join(",\n    ")
+}
+
 fn gradle_template(url: &str) -> String {
-    format!("allprojects {{\n    repositories {{\n        maven {{ url '{url}' }}\n        mavenCentral()\n    }}\n}}\n")
+    let urls = gradle_repo_urls(url);
+    let urls = groovy_list(&urls);
+    format!(
+        "def stackerRepoUrls = [\n\
+    {urls}\n\
+]\n\
+def stackerApplyRepos = {{ settings, repositories, includePluginPortal ->\n\
+    repositories.clear()\n\
+    stackerRepoUrls.each {{ repoUrl -> repositories.maven {{ url = settings.uri(repoUrl) }} }}\n\
+    repositories.google()\n\
+    repositories.mavenCentral()\n\
+    if (includePluginPortal) {{ repositories.gradlePluginPortal() }}\n\
+}}\n\
+def stackerSettingsReposApplied = false\n\
+settingsEvaluated {{ settings ->\n\
+    try {{\n\
+        settings.pluginManagement {{ repositories {{ stackerApplyRepos(settings, delegate, true) }} }}\n\
+    }} catch (Throwable ignored) {{}}\n\
+    try {{\n\
+        settings.dependencyResolutionManagement {{ repositories {{ stackerApplyRepos(settings, delegate, false) }} }}\n\
+        stackerSettingsReposApplied = true\n\
+    }} catch (Throwable ignored) {{}}\n\
+}}\n\
+gradle.projectsLoaded {{ gradle ->\n\
+    if (!stackerSettingsReposApplied) {{\n\
+        gradle.rootProject.allprojects {{ project ->\n\
+            project.repositories.clear()\n\
+            stackerRepoUrls.each {{ repoUrl -> project.repositories.maven {{ url = project.uri(repoUrl) }} }}\n\
+            project.repositories.google()\n\
+            project.repositories.mavenCentral()\n\
+        }}\n\
+    }}\n\
+}}\n"
+    )
 }
 
 struct ToolProxy {
@@ -647,36 +951,59 @@ const MAVEN_PROXY_FLAGS: [&str; 6] = [
     "-Dhttps.nonProxyHosts",
 ];
 
-fn strip_maven_legacy_proxy_opts(raw: &str) -> String {
+pub(crate) fn strip_maven_legacy_proxy_opts(raw: &str) -> String {
     raw.split_whitespace()
         .filter(|t| !MAVEN_PROXY_FLAGS.iter().any(|p| t.starts_with(p)))
         .collect::<Vec<_>>()
         .join(" ")
 }
 
-fn clear_maven_legacy_proxy_opts() -> Result<(), String> {
-    let raw = winenv::get_user_raw("MAVEN_OPTS").unwrap_or_default();
-    if raw.trim().is_empty() {
-        return Ok(());
+fn has_maven_legacy_proxy_opts(raw: &str) -> bool {
+    MAVEN_PROXY_FLAGS.iter().any(|p| raw.contains(p))
+}
+
+pub(crate) fn clear_maven_legacy_proxy_opts() -> Result<bool, String> {
+    let user_raw = winenv::get_user_raw("MAVEN_OPTS").unwrap_or_default();
+    let process_raw = std::env::var("MAVEN_OPTS").unwrap_or_default();
+    let user_has = has_maven_legacy_proxy_opts(&user_raw);
+    let process_has = has_maven_legacy_proxy_opts(&process_raw);
+    if !user_has && !process_has {
+        return Ok(false);
+    }
+
+    if process_has {
+        let keep = strip_maven_legacy_proxy_opts(&process_raw);
+        if keep.trim().is_empty() {
+            std::env::remove_var("MAVEN_OPTS");
+        } else {
+            std::env::set_var("MAVEN_OPTS", keep);
+        }
+    }
+
+    if !user_has {
+        return Ok(true);
+    }
+
+    if user_raw.trim().is_empty() {
+        return Ok(true);
     }
     backup::backup_env(winenv::Hive::User, "maven-proxy", &["MAVEN_OPTS"]);
-    let keep = strip_maven_legacy_proxy_opts(&raw);
+    let keep = strip_maven_legacy_proxy_opts(&user_raw);
     if keep.trim().is_empty() {
-        winenv::remove_user("MAVEN_OPTS")
+        winenv::remove_user("MAVEN_OPTS")?;
     } else {
-        winenv::set_user("MAVEN_OPTS", &keep)
+        winenv::set_user("MAVEN_OPTS", &keep)?;
     }
+    Ok(true)
 }
 
 fn maven_apply(
     path: PathBuf,
     mirror: &Mirror,
     proxy: Option<&ToolProxy>,
-    proxy_requested: bool,
+    _proxy_requested: bool,
 ) -> Result<(), String> {
-    if proxy_requested {
-        clear_maven_legacy_proxy_opts()?;
-    }
+    clear_maven_legacy_proxy_opts()?;
     backup::backup_file(&path);
     if mirror.id == "official" && proxy.is_none() {
         if path.exists() {
@@ -831,7 +1158,9 @@ pub fn detect(tool: &Tool) -> Option<String> {
         "maven_settings" => managed_detect_contains(tool, &maven_path(), false),
         "gradle_init" => managed_detect_contains(tool, &gradle_path(), false),
         "condarc" => managed_detect_contains(tool, &condarc_path(), true),
-        "runtime_download" => Some("official".into()),
+        // 下载源选择保存在各生态页面的本地设置中；后端无法可靠判断当前项，
+        // 因此源目录不伪造“官方源为当前源”的状态。
+        "runtime_download" => None,
         _ => None,
     }
 }
@@ -1093,12 +1422,8 @@ pub fn source_proxy_state(tool_id: String, path: Option<String>) -> Result<bool,
         .map(PathBuf::from);
     match tool.handler.as_str() {
         "maven_settings" => {
-            let legacy = target.is_none()
-                && winenv::get_user_raw("MAVEN_OPTS")
-                    .unwrap_or_default()
-                    .contains("-Dhttp.proxyHost");
             let p = target.unwrap_or_else(maven_path);
-            Ok(legacy || maven_proxy_has_at(&p))
+            Ok(maven_proxy_has_at(&p))
         }
         "gradle_init" => {
             let p = target.unwrap_or_else(gradle_path);
@@ -1443,4 +1768,28 @@ pub fn delete_backup(path: String) -> Result<(), String> {
 #[tauri::command]
 pub fn clear_backups() -> Result<usize, String> {
     backup::clear_backups()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn runtime_catalog_contains_all_managed_downloads() {
+        let ids: Vec<String> = hardcoded()
+            .into_iter()
+            .filter(|tool| tool.handler == "runtime_download")
+            .map(|tool| tool.id)
+            .collect();
+        for expected in [
+            PYTHON_RUNTIME_TOOL_ID,
+            NODE_RUNTIME_TOOL_ID,
+            GIT_RUNTIME_TOOL_ID,
+            MAVEN_RUNTIME_TOOL_ID,
+            GRADLE_RUNTIME_TOOL_ID,
+            GO_RUNTIME_TOOL_ID,
+        ] {
+            assert!(ids.iter().any(|id| id == expected), "missing {expected}");
+        }
+    }
 }

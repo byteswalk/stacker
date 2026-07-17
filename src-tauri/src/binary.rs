@@ -4,6 +4,7 @@ use serde::Serialize;
 struct BinaryMirrorSpec {
     id: &'static str,
     name: &'static str,
+    source_name: &'static str,
     icon: &'static str,
     description: &'static str,
     envs: &'static [(&'static str, &'static str)],
@@ -14,6 +15,7 @@ pub struct BinaryMirrorVar {
     pub name: String,
     pub value: String,
     pub current: Option<String>,
+    pub scope: Option<String>,
     pub matched: bool,
 }
 
@@ -21,10 +23,13 @@ pub struct BinaryMirrorVar {
 pub struct BinaryMirrorState {
     pub id: String,
     pub name: String,
+    pub source_name: String,
     pub icon: String,
     pub description: String,
     pub enabled: bool,
     pub configured: bool,
+    pub user_configured: bool,
+    pub system_configured: bool,
     pub status_label: String,
     pub vars: Vec<BinaryMirrorVar>,
 }
@@ -32,7 +37,9 @@ pub struct BinaryMirrorState {
 #[derive(Serialize, Clone)]
 pub struct BinaryCatalogEntry {
     pub id: String,
+    pub tool_id: String,
     pub name: String,
+    pub source_name: String,
     pub description: String,
     pub url: String,
     pub host: String,
@@ -100,6 +107,11 @@ const NATIVE_ENVS: &[(&str, &str)] = &[
         "PRISMA_ENGINES_MIRROR",
         "https://cdn.npmmirror.com/binaries/prisma",
     ),
+];
+
+// npm 11 会把这些旧式 npm_config_* 变量当作无效 npm 配置并在每次命令启动时警告。
+// 旧版本 Stacker 曾写入这些值；启动时仅清理与旧内置值完全一致的用户级变量。
+const LEGACY_NATIVE_ENVS: &[(&str, &str)] = &[
     (
         "npm_config_sharp_binary_host",
         "https://cdn.npmmirror.com/binaries/sharp",
@@ -121,6 +133,7 @@ fn specs() -> &'static [BinaryMirrorSpec] {
         BinaryMirrorSpec {
             id: "electron",
             name: "Electron",
+            source_name: "npmmirror",
             icon: "ti-bolt",
             description: "Electron 与 electron-builder 下载预编译二进制时使用指定镜像。",
             envs: ELECTRON_ENVS,
@@ -128,6 +141,7 @@ fn specs() -> &'static [BinaryMirrorSpec] {
         BinaryMirrorSpec {
             id: "browser",
             name: "Puppeteer / Playwright",
+            source_name: "npmmirror",
             icon: "ti-browser",
             description: "浏览器自动化工具下载 Chromium / Playwright 浏览器包时使用指定镜像。",
             envs: BROWSER_ENVS,
@@ -135,25 +149,50 @@ fn specs() -> &'static [BinaryMirrorSpec] {
         BinaryMirrorSpec {
             id: "cypress",
             name: "Cypress",
+            source_name: "npmmirror",
             icon: "ti-test-pipe",
             description: "Cypress 安装或更新桌面运行器时使用指定镜像。",
             envs: CYPRESS_ENVS,
         },
         BinaryMirrorSpec {
             id: "native",
-            name: "常见原生二进制",
+            name: "Node 原生工具",
+            source_name: "npmmirror",
             icon: "ti-package",
-            description: "node-sass、SWC、sharp、Prisma、better-sqlite3 等安装时使用指定镜像。",
+            description: "node-sass、SWC 与 Prisma 下载原生组件时使用指定镜像。",
             envs: NATIVE_ENVS,
         },
         BinaryMirrorSpec {
             id: "huggingface",
             name: "HuggingFace 模型",
+            source_name: "HF-Mirror",
             icon: "ti-robot",
             description: "huggingface_hub / transformers 下载模型和数据集时使用 HF-Mirror。",
             envs: MODEL_ENVS,
         },
     ]
+}
+
+pub fn migrate_legacy_envs() {
+    let stale = LEGACY_NATIVE_ENVS.iter().any(|(name, expected)| {
+        winenv::get_raw_in(winenv::Hive::User, name)
+            .is_some_and(|current| normalize(&current) == normalize(expected))
+    });
+    if !stale {
+        return;
+    }
+    let names = LEGACY_NATIVE_ENVS
+        .iter()
+        .map(|(name, _)| *name)
+        .collect::<Vec<_>>();
+    backup::backup_env(winenv::Hive::User, "binary-mirror-legacy", &names);
+    for (name, expected) in LEGACY_NATIVE_ENVS {
+        if winenv::get_raw_in(winenv::Hive::User, name)
+            .is_some_and(|current| normalize(&current) == normalize(expected))
+        {
+            let _ = winenv::remove_user(name);
+        }
+    }
 }
 
 fn find_spec(id: &str) -> Result<&'static BinaryMirrorSpec, String> {
@@ -174,7 +213,7 @@ fn host_of(url: &str) -> String {
         .next()
         .unwrap_or("")
         .split('@')
-        .last()
+        .next_back()
         .unwrap_or("")
         .to_string()
 }
@@ -182,25 +221,51 @@ fn host_of(url: &str) -> String {
 pub fn catalog_entries() -> Vec<BinaryCatalogEntry> {
     specs()
         .iter()
-        .filter_map(|spec| {
+        .flat_map(|spec| {
             let (_, url) = spec.envs.first()?;
-            Some(BinaryCatalogEntry {
-                id: spec.id.into(),
-                name: spec.name.into(),
-                description: spec.description.into(),
-                url: (*url).into(),
-                host: host_of(url),
-            })
+            let official = match spec.id {
+                "electron" => "https://github.com/electron/electron/releases",
+                "browser" => "https://playwright.azureedge.net",
+                "cypress" => "https://download.cypress.io",
+                "native" => "https://github.com",
+                "huggingface" => "https://huggingface.co",
+                _ => "",
+            };
+            Some(vec![
+                BinaryCatalogEntry {
+                    id: format!("{}-official", spec.id),
+                    tool_id: spec.id.into(),
+                    name: spec.name.into(),
+                    source_name: "官方默认".into(),
+                    description: format!("{}；不写入镜像环境变量。", spec.description),
+                    url: official.into(),
+                    host: host_of(official),
+                },
+                BinaryCatalogEntry {
+                    id: format!("{}-recommended", spec.id),
+                    tool_id: spec.id.into(),
+                    name: spec.name.into(),
+                    source_name: spec.source_name.into(),
+                    description: spec.description.into(),
+                    url: (*url).into(),
+                    host: host_of(url),
+                },
+            ])
         })
+        .flatten()
         .collect()
 }
 
-fn read_effective_env(name: &str) -> Option<String> {
-    winenv::get_raw_in(winenv::Hive::User, name)
-        .or_else(|| winenv::get_raw_in(winenv::Hive::System, name))
-        .or_else(|| std::env::var(name).ok())
-        .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty())
+fn read_persistent_env(name: &str) -> (Option<String>, Option<String>) {
+    let clean = |value: Option<String>| {
+        value
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+    };
+    (
+        clean(winenv::get_raw_in(winenv::Hive::User, name)),
+        clean(winenv::get_raw_in(winenv::Hive::System, name)),
+    )
 }
 
 fn state_for(spec: &BinaryMirrorSpec) -> BinaryMirrorState {
@@ -208,7 +273,14 @@ fn state_for(spec: &BinaryMirrorSpec) -> BinaryMirrorState {
         .envs
         .iter()
         .map(|(name, value)| {
-            let current = read_effective_env(name);
+            let (user_current, system_current) = read_persistent_env(name);
+            let (current, scope) = if let Some(value) = user_current {
+                (Some(value), Some("当前用户".to_string()))
+            } else if let Some(value) = system_current {
+                (Some(value), Some("系统级".to_string()))
+            } else {
+                (None, None)
+            };
             let matched = current
                 .as_deref()
                 .map(|cur| normalize(cur) == normalize(value))
@@ -217,10 +289,19 @@ fn state_for(spec: &BinaryMirrorSpec) -> BinaryMirrorState {
                 name: (*name).into(),
                 value: (*value).into(),
                 current,
+                scope,
                 matched,
             }
         })
         .collect();
+    let user_configured = spec
+        .envs
+        .iter()
+        .any(|(name, _)| winenv::get_raw_in(winenv::Hive::User, name).is_some());
+    let system_configured = spec
+        .envs
+        .iter()
+        .any(|(name, _)| winenv::get_raw_in(winenv::Hive::System, name).is_some());
     let configured = vars.iter().any(|v| v.current.is_some());
     let enabled = !vars.is_empty() && vars.iter().all(|v| v.matched);
     let status_label = if enabled {
@@ -233,10 +314,13 @@ fn state_for(spec: &BinaryMirrorSpec) -> BinaryMirrorState {
     BinaryMirrorState {
         id: spec.id.into(),
         name: spec.name.into(),
+        source_name: spec.source_name.into(),
         icon: spec.icon.into(),
         description: spec.description.into(),
         enabled,
         configured,
+        user_configured,
+        system_configured,
         status_label: status_label.into(),
         vars,
     }
@@ -248,23 +332,31 @@ pub fn binary_mirror_status() -> Vec<BinaryMirrorState> {
 }
 
 #[tauri::command]
-pub fn binary_mirror_apply(id: String) -> Result<(), String> {
+pub fn binary_mirror_apply(id: String) -> Result<BinaryMirrorState, String> {
     let spec = find_spec(&id)?;
     let vars: Vec<&str> = spec.envs.iter().map(|(name, _)| *name).collect();
     backup::backup_env(winenv::Hive::User, "binary-mirror", &vars);
     for (name, value) in spec.envs {
         winenv::set_user(name, value)?;
     }
-    Ok(())
+    let state = state_for(spec);
+    if !state.user_configured || !state.enabled {
+        return Err("写入完成，但重新读取用户环境变量时未检测到预期配置".into());
+    }
+    Ok(state)
 }
 
 #[tauri::command]
-pub fn binary_mirror_clear(id: String) -> Result<(), String> {
+pub fn binary_mirror_clear(id: String) -> Result<BinaryMirrorState, String> {
     let spec = find_spec(&id)?;
     let vars: Vec<&str> = spec.envs.iter().map(|(name, _)| *name).collect();
     backup::backup_env(winenv::Hive::User, "binary-mirror", &vars);
     for (name, _) in spec.envs {
         winenv::remove_user(name)?;
     }
-    Ok(())
+    let state = state_for(spec);
+    if state.user_configured {
+        return Err("清除完成，但重新读取时仍检测到用户级环境变量".into());
+    }
+    Ok(state)
 }

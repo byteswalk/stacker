@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Stacker",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "identifier": "com.stacker.app",
   "build": {
     "frontendDist": "../dist",
@@ -15,7 +15,7 @@
         "title": "Stacker",
         "width": 1040,
         "height": 700,
-        "minWidth": 880,
+        "minWidth": 960,
         "minHeight": 600,
         "center": true,
         "resizable": true,
@@ -23,7 +23,7 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self' customprotocol: asset:; connect-src 'self' ipc: http://ipc.localhost http://localhost:5173 ws://localhost:5173 https:; img-src 'self' asset: http://asset.localhost data: https:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'"
     }
   },
   "bundle": {

@@ -119,7 +119,7 @@ fn dragonwell_version_from_filename(filename: &str) -> Option<String> {
     filename
         .trim_end_matches(".zip")
         .split('_')
-        .find(|s| s.chars().next().map_or(false, |c| c.is_ascii_digit()) && s.contains('.'))
+        .find(|s| s.chars().next().is_some_and(|c| c.is_ascii_digit()) && s.contains('.'))
         .map(|s| s.to_string())
 }
 
@@ -148,12 +148,12 @@ fn dragonwell_impl(major: &str) -> Result<JdkAsset, String> {
         .filter(|a| {
             a["name"]
                 .as_str()
-                .map_or(false, |n| n.ends_with("_x64_windows.zip"))
+                .is_some_and(|n| n.ends_with("_x64_windows.zip"))
         })
         .collect();
     let asset = wins
         .iter()
-        .find(|a| a["name"].as_str().map_or(false, |n| n.contains("Standard")))
+        .find(|a| a["name"].as_str().is_some_and(|n| n.contains("Standard")))
         .or_else(|| wins.first())
         .ok_or("该版本无 Windows x64 构建")?;
     let filename = asset["name"].as_str().unwrap_or("").to_string();
@@ -188,7 +188,7 @@ fn zulu_impl(major: &str, bitness: &str) -> Result<JdkAsset, String> {
         .find(|p| {
             p["name"]
                 .as_str()
-                .map_or(false, |n| !n.contains("crac") && !n.contains("-fx"))
+                .is_some_and(|n| !n.contains("crac") && !n.contains("-fx"))
         })
         .or_else(|| arr.first())
         .ok_or("该版本/位数无 Windows 构建")?;

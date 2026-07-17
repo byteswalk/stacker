@@ -8,6 +8,8 @@ mod custom;
 mod dpapi;
 mod env;
 mod fnm;
+mod git;
+mod gradle;
 mod installer;
 mod jdk;
 mod profile;
@@ -18,6 +20,7 @@ mod settings;
 mod sources;
 mod update;
 mod versions;
+mod vibe;
 mod winadmin;
 mod winenv;
 
@@ -35,14 +38,31 @@ pub fn run() {
             None,
         ))
         .setup(|app| {
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
-            }
+            let app_settings = settings::load();
+            let log_name = format!("stacker-{}", chrono::Local::now().format("%Y-%m-%d"));
+            app.handle().plugin(
+                tauri_plugin_log::Builder::default()
+                    .clear_targets()
+                    .filter(|metadata| {
+                        let target = metadata.target();
+                        target.starts_with("stacker")
+                            || target.starts_with(tauri_plugin_log::WEBVIEW_TARGET)
+                            || metadata.level() <= log::Level::Warn
+                    })
+                    .target(tauri_plugin_log::Target::new(
+                        tauri_plugin_log::TargetKind::Folder {
+                            path: settings::logs_dir(),
+                            file_name: Some(log_name),
+                        },
+                    ))
+                    .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepAll)
+                    .level(log::LevelFilter::Debug)
+                    .build(),
+            )?;
+            log::set_max_level(settings::log_level_filter(&app_settings.log_level));
             settings::init();
+            settings::start_log_retention_worker();
+            binary::migrate_legacy_envs();
             build_tray(app.handle())?;
             Ok(())
         })
@@ -75,7 +95,6 @@ pub fn run() {
             proxy::proxy_status,
             proxy::proxy_enable,
             proxy::proxy_disable,
-            proxy::proxy_gen_scripts,
             binary::binary_mirror_status,
             binary::binary_mirror_apply,
             binary::binary_mirror_clear,
@@ -83,6 +102,8 @@ pub fn run() {
             catalog::source_catalog_export,
             catalog::source_catalog_import,
             env::env_state,
+            env::env_register_install,
+            env::env_remove_managed,
             env::env_scan,
             env::env_set_default,
             env::env_set_default_system,
@@ -90,6 +111,22 @@ pub fn run() {
             env::env_java_effective,
             env::env_cancel,
             env::list_drives,
+            git::git_status,
+            git::git_check_update,
+            git::git_install,
+            git::git_github_accounts,
+            git::git_account_save_token,
+            git::git_account_save_custom_token,
+            git::git_account_remove_token,
+            git::git_account_profiles,
+            git::git_account_save_identity,
+            git::git_account_set_global,
+            git::git_account_ai_context,
+            git::git_account_open_shell,
+            git::git_init_repository,
+            git::git_auto_migrate_repository,
+            git::git_apply_proxy,
+            git::git_clear_proxy,
             cleanup::cleanup_scan,
             cleanup::cleanup_delete,
             cleanup::cleanup_delete_safe,
@@ -105,10 +142,13 @@ pub fn run() {
             fnm::fnm_install_self,
             fnm::fnm_check_update,
             fnm::fnm_self_update,
-            fnm::fnm_migrate_from_nvm,
             fnm::fnm_speedtest_sources,
+            gradle::gradle_wrapper_state,
+            gradle::gradle_wrapper_scan,
+            gradle::gradle_wrapper_apply,
             checkup::checkup_extra,
-            checkup::agent_readiness,
+            checkup::checkup_page,
+            checkup::coding_ecosystem_check,
             pyenv::pyenv_status,
             pyenv::pyenv_root_dir,
             pyenv::pyenv_set_global,
@@ -122,14 +162,22 @@ pub fn run() {
             pyenv::pyenv_write_integration,
             pyenv::pyenv_speedtest_sources,
             rustup::rustup_status,
+            rustup::rust_versions,
             rustup::rustup_set_default,
             rustup::rustup_install,
             rustup::rustup_uninstall,
+            rustup::rustup_update,
             rustup::rustup_install_self,
             rustup::rustup_self_update,
+            rustup::rustup_components,
+            rustup::rustup_targets,
+            rustup::rustup_component_set,
+            rustup::rustup_target_set,
             installer::installer_download,
             installer::app_dir,
             installer::open_shell,
+            installer::open_ecosystem_verify_shell,
+            installer::ecosystem_activation_commands,
             installer::shells_available,
             installer::op_cancel,
             jdk::jdk_resolve,
@@ -137,6 +185,7 @@ pub fn run() {
             jdk::zulu_resolve,
             versions::maven_versions,
             versions::gradle_versions,
+            versions::go_versions,
             profile::profile_save,
             profile::profile_list,
             profile::profile_apply,
@@ -146,17 +195,29 @@ pub fn run() {
             custom::custom_delete,
             bundle::bundle_export,
             bundle::bundle_import,
-            update::mirrors_status,
             update::mirrors_check_update,
             update::mirrors_update,
-            update::mirrors_seed,
             update::app_check_update,
+            update::app_download_update,
             update::app_open_url,
             settings::settings_get,
             settings::settings_set_tray,
             settings::settings_set_theme,
+            settings::settings_set_locale,
+            settings::settings_set_log_level,
+            settings::settings_set_log_retention_days,
+            settings::settings_open_logs_dir,
+            settings::settings_open_log_window,
+            settings::settings_read_log,
+            settings::settings_clear_old_logs,
             settings::settings_set_proxy_addr,
+            settings::settings_set_proxy_manual,
             settings::os_info,
+            vibe::vibe_tools,
+            vibe::vibe_tool,
+            vibe::vibe_environment_prompt,
+            vibe::vibe_tool_action,
+            vibe::vibe_open_desktop,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -164,15 +225,10 @@ pub fn run() {
 
 // 系统托盘：左键单击显示窗口；右键菜单＝显示 / 开关终端代理 / 退出。
 fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
-    use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
     use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
     use tauri::Manager;
 
-    let show = MenuItem::with_id(app, "show", "显示 Stacker", true, None::<&str>)?;
-    let proxy = MenuItem::with_id(app, "proxy_toggle", "开关终端代理", true, None::<&str>)?;
-    let sep = PredefinedMenuItem::separator(app)?;
-    let quit = MenuItem::with_id(app, "quit", "退出 Stacker", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show, &proxy, &sep, &quit])?;
+    let menu = create_tray_menu(app)?;
 
     let show_main = |app: &tauri::AppHandle| {
         if let Some(w) = app.get_webview_window("main") {
@@ -193,7 +249,7 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
                 let _ = if st.enabled {
                     crate::proxy::disable(false)
                 } else {
-                    crate::proxy::enable(&st.host, st.port, false, vec![])
+                    crate::proxy::enable(&st.host, st.port, false, st.no_proxy_manual)
                 };
             }
             "quit" => app.exit(0),
@@ -213,5 +269,41 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
         builder = builder.icon(icon.clone());
     }
     builder.build(app)?;
+    Ok(())
+}
+
+fn create_tray_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+    use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+    let english = crate::settings::load().locale == "en-US";
+    let show = MenuItem::with_id(
+        app,
+        "show",
+        if english { "Show Stacker" } else { "显示 Stacker" },
+        true,
+        None::<&str>,
+    )?;
+    let proxy = MenuItem::with_id(
+        app,
+        "proxy_toggle",
+        if english { "Toggle Terminal Proxy" } else { "开关终端代理" },
+        true,
+        None::<&str>,
+    )?;
+    let sep = PredefinedMenuItem::separator(app)?;
+    let quit = MenuItem::with_id(
+        app,
+        "quit",
+        if english { "Quit Stacker" } else { "退出 Stacker" },
+        true,
+        None::<&str>,
+    )?;
+    Menu::with_items(app, &[&show, &proxy, &sep, &quit])
+}
+
+pub(crate) fn refresh_tray_menu(app: &tauri::AppHandle) -> Result<(), String> {
+    let menu = create_tray_menu(app).map_err(|error| error.to_string())?;
+    if let Some(tray) = app.tray_by_id("main") {
+        tray.set_menu(Some(menu)).map_err(|error| error.to_string())?;
+    }
     Ok(())
 }

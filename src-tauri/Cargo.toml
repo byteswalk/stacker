@@ -1,6 +1,6 @@
 [package]
 name = "stacker"
-version = "0.1.1"
+version = "0.2.0"
 description = "Stacker — 开发生态管理器 / Dev Ecosystem Manager"
 authors = ["Stacker"]
 license = "MIT"
@@ -27,6 +27,7 @@ tauri-plugin-dialog = "2"
 tauri-plugin-autostart = "2"
 dirs = "5"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+encoding_rs = "0.8"
 rust-ini = "0.21"
 jwalk = "0.8"
 ureq = "2"

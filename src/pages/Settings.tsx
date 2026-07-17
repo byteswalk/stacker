@@ -1,12 +1,14 @@
-import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { useCallback, useEffect, useState } from "react";
+import { invoke } from "../invoke";
 import { enable as autostartEnable, disable as autostartDisable, isEnabled as autostartIsEnabled } from "@tauri-apps/plugin-autostart";
-import { ConfirmModal, Modal, useToast } from "../ui";
+import { ConfirmModal, Modal, useBusy, useToast } from "../ui";
 import { Select } from "../Select";
 import { SourceManagerModal } from "../SourceManagerModal";
 import { getTheme, setTheme, type Theme } from "../theme";
+import { formatBytes, useNotifications } from "../notifications";
+import { useI18n, type Locale } from "../i18n";
 
-type AppSettings = { minimize_to_tray: boolean; theme: Theme; proxy_host: string; proxy_port: number };
+type AppSettings = { minimize_to_tray: boolean; theme: Theme; proxy_host: string; proxy_port: number; log_level: "error" | "warn" | "info" | "debug"; log_retention_days: number };
 type SourceSummary = {
   server_version: string | null;
   builtin_count: number;
@@ -30,15 +32,25 @@ type MirrorsUpdateCheck = {
   has_update: boolean;
   tools: number;
 };
+type LogCleanupResult = { deletedFiles: number; releasedBytes: number; failedFiles: number };
 
 export default function Settings() {
+  const { locale, setLocale } = useI18n();
   const toast = useToast();
+  const busy = useBusy();
+  const notices = useNotifications();
+  const checkNotifications = notices.checkNow;
   const [noBackend, setNoBackend] = useState(false);
   const [sourceOpen, setSourceOpen] = useState(false);
   const [sourceSummary, setSourceSummary] = useState<SourceSummary | null>(null);
   const [tray, setTray] = useState(false);
   const [autostart, setAutostart] = useState(false);
   const [theme, setThemeState] = useState<Theme>(getTheme());
+  const [logLevel, setLogLevel] = useState<AppSettings["log_level"]>("error");
+  const [logRetentionDays, setLogRetentionDays] = useState("7");
+  const [logRetentionSaving, setLogRetentionSaving] = useState(false);
+  const [clearLogConfirm, setClearLogConfirm] = useState(false);
+  const [clearLogBusy, setClearLogBusy] = useState(false);
   const [proxyHost, setProxyHost] = useState("127.0.0.1");
   const [proxyPort, setProxyPort] = useState("7890");
   const [proxySaving, setProxySaving] = useState(false);
@@ -46,25 +58,27 @@ export default function Settings() {
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [sourceUpdate, setSourceUpdate] = useState<MirrorsUpdateCheck | null>(null);
   const [sourceUpdBusy, setSourceUpdBusy] = useState(false);
+  const activeSourceUpdate = sourceUpdate ?? notices.sourceUpdate;
+  const activeAppUpdate = updateInfo ?? notices.appUpdate;
 
-  function refreshSourceSummary() {
+  const refreshSourceSummary = useCallback(() => {
     invoke<SourceSummary>("source_catalog_status")
       .then(setSourceSummary)
       .catch(() => setNoBackend(true));
-  }
+  }, []);
 
   useEffect(() => {
     refreshSourceSummary();
-    invoke<MirrorsUpdateCheck>("mirrors_check_update", { url: null })
-      .then((r) => { if (r.has_update) setSourceUpdate(r); })
-      .catch(() => {});
     invoke<AppSettings>("settings_get").then((s) => {
       setTray(s.minimize_to_tray);
       setProxyHost(s.proxy_host || "127.0.0.1");
       setProxyPort(String(s.proxy_port || 7890));
+      setLogLevel(s.log_level || "error");
+      setLogRetentionDays(String(s.log_retention_days || 7));
     }).catch(() => setNoBackend(true));
     autostartIsEnabled().then(setAutostart).catch(() => {});
-  }, []);
+    checkNotifications("settings").catch(() => {});
+  }, [checkNotifications, refreshSourceSummary]);
 
   async function toggleTray(v: boolean) {
     try {
@@ -94,6 +108,66 @@ export default function Settings() {
     toast("外观已切换", "ok");
   }
 
+  function changeLanguage(value: string) {
+    const next = value as Locale;
+    setLocale(next);
+    toast(next === "zh-CN" ? "界面语言已切换为简体中文" : "Display language changed to English", "ok");
+  }
+
+  async function changeLogLevel(level: string) {
+    try {
+      const saved = await invoke<AppSettings["log_level"]>("settings_set_log_level", { level });
+      setLogLevel(saved);
+      toast(`日志级别已实时切换为 ${saved.toUpperCase()}`, "ok");
+    } catch (e) {
+      toast("日志级别设置失败：" + e, "err");
+    }
+  }
+
+  async function openLogsDir() {
+    try {
+      await invoke("settings_open_logs_dir");
+    } catch (e) {
+      toast("打开日志目录失败：" + e, "err");
+    }
+  }
+
+  async function openLogWindow() {
+    try {
+      await invoke("settings_open_log_window");
+    } catch (e) {
+      toast("打开实时日志失败：" + e, "err");
+    }
+  }
+
+  async function saveLogRetention() {
+    const days = Math.min(365, Math.max(1, Number(logRetentionDays) || 7));
+    setLogRetentionSaving(true);
+    try {
+      const saved = await invoke<number>("settings_set_log_retention_days", { days });
+      setLogRetentionDays(String(saved));
+      toast(`日志保留时间已设置为 ${saved} 天`, "ok");
+    } catch (e) {
+      toast("保存日志保留时间失败：" + e, "err");
+    } finally {
+      setLogRetentionSaving(false);
+    }
+  }
+
+  async function clearOldLogs() {
+    setClearLogBusy(true);
+    try {
+      const result = await invoke<LogCleanupResult>("settings_clear_old_logs");
+      setClearLogConfirm(false);
+      const suffix = result.failedFiles > 0 ? `，${result.failedFiles} 个文件未能删除` : "";
+      toast(`已清理 ${result.deletedFiles} 个历史日志，释放 ${formatBytes(result.releasedBytes)}${suffix}`, result.failedFiles > 0 ? "info" : "ok");
+    } catch (e) {
+      toast("清理日志失败：" + e, "err");
+    } finally {
+      setClearLogBusy(false);
+    }
+  }
+
   async function saveProxyAddr() {
     const host = proxyHost.trim();
     const port = Number(proxyPort);
@@ -119,7 +193,7 @@ export default function Settings() {
       if (u.has_update) setUpdateInfo(u);
       else toast(`已是最新（v${u.current}）`, "ok");
     } catch (e) {
-      toast(String(e), "info");
+      toast("检查 Stacker 更新失败。请确认网络连接后重试。原因：" + e, "err");
     } finally {
       setAppUpdBusy(false);
     }
@@ -134,13 +208,37 @@ export default function Settings() {
     }
   }
 
+  async function installAppUpdate() {
+    if (!updateInfo?.installer_url) {
+      toast("当前版本未提供 Windows 安装包", "info");
+      return;
+    }
+    setAppUpdBusy(true);
+    try {
+      await busy({
+        title: `更新 Stacker 至 v${updateInfo.latest}`,
+        message: "正在下载并校验安装包。完成后 Stacker 将退出，由安装程序继续升级。",
+        progressEvent: "app-update-progress",
+      }, () => invoke("app_download_update", {
+        url: updateInfo.installer_url,
+        version: updateInfo.latest,
+      }));
+    } catch (e) {
+      toast("更新失败：" + e, "err");
+    } finally {
+      setAppUpdBusy(false);
+    }
+  }
+
   async function applySourceUpdate() {
-    if (!sourceUpdate) return;
+    const target = activeSourceUpdate;
+    if (!target) return;
     setSourceUpdBusy(true);
     try {
-      const s = await invoke<{ local_version: string | null; tools: number }>("mirrors_update", { url: sourceUpdate.url });
+      const s = await invoke<{ local_version: string | null; tools: number }>("mirrors_update", { url: target.url });
       setSourceUpdate(null);
       refreshSourceSummary();
+      notices.checkNow("source-updated").catch(() => {});
       toast(`公共源清单已更新到 v${s.local_version}（${s.tools} 个分组）`, "ok");
     } catch (e) {
       toast("更新公共源清单失败：" + e, "err");
@@ -149,12 +247,20 @@ export default function Settings() {
     }
   }
 
+  function updatePrefs(patch: Partial<typeof notices.prefs>) {
+    notices.setPrefs({ ...notices.prefs, ...patch });
+  }
+
   return (
     <>
       <div className="grouphd">
-        <span className="gt"><i className="ti ti-database-cog" /> 源管理 <span className="cnt">分类维护 · 测速 · 导入导出</span></span>
+        <span className="gt">
+          <i className="ti ti-database-cog" /> 源管理
+          {activeSourceUpdate && <span className="bd r">有新版清单</span>}
+          <span className="cnt">分类维护 · 测速 · 导入导出</span>
+        </span>
       </div>
-      {noBackend && <div className="banner gray"><i className="ti ti-plug-x lead" /><div className="bt">读取设置需要在 Stacker 桌面应用内运行。</div></div>}
+      {noBackend && <div className="banner gray"><i className="ti ti-plug-x lead" /><div className="bt">部分设置暂时无法读取。请重启 Stacker 后重试。</div></div>}
       <div className="srcrow">
         <span className="av st"><i className="ti ti-database-cog" /></span>
         <div className="mt">
@@ -167,8 +273,17 @@ export default function Settings() {
             {sourceSummary?.server_version ? ` / 清单 v${sourceSummary.server_version}` : ""} · 自定义 {sourceSummary?.local_count ?? 0} · 大文件 {sourceSummary?.binary_count ?? 0}
           </div>
         </div>
+        {activeSourceUpdate && <button className="pr sm" disabled={sourceUpdBusy} onClick={applySourceUpdate}>
+          <i className={"ti " + (sourceUpdBusy ? "ti-loader spin" : "ti-cloud-download")} /> 更新清单
+        </button>}
         <button className="pr sm" disabled={noBackend} onClick={() => setSourceOpen(true)}><i className="ti ti-layout-sidebar-right-expand" /> 打开源管理</button>
       </div>
+      {activeSourceUpdate && (
+        <div className="callout">
+          <i className="ti ti-cloud-download" />
+          <div>发现新版公共源清单 v{activeSourceUpdate.remote_version}{activeSourceUpdate.local_version ? `（当前 v${activeSourceUpdate.local_version}）` : "（本机尚未同步）"}。更新后会全量替换内置源，本地自定义源不会被覆盖。</div>
+        </div>
+      )}
       <div className="callout"><i className="ti ti-info-circle" /><div>服务器清单用于更新内置源，拉取后会以服务器清单为准全量替换；本地自定义源由当前电脑维护，不会被服务器清单覆盖。</div></div>
 
       <div className="grouphd" style={{ marginTop: 18 }}><span className="gt"><i className="ti ti-adjustments" /> 通用与外观</span></div>
@@ -202,33 +317,122 @@ export default function Settings() {
         <Select value={theme} width={130} onChange={(v) => changeTheme(v as Theme)}
           options={[{ value: "dark", label: "深色" }, { value: "light", label: "浅色" }, { value: "system", label: "跟随系统" }]} />
       </div>
+      <div className="srcrow">
+        <span className="av st"><i className="ti ti-language" /></span>
+        <div className="mt">
+          <div className="t">界面语言</div>
+          <div className="s dim" title="切换后立即应用到菜单、页面、弹窗和操作提示。">中文 / English</div>
+        </div>
+        <Select value={locale} width={150} onChange={changeLanguage}
+          options={[{ value: "zh-CN", label: "简体中文" }, { value: "en-US", label: "English" }]} />
+      </div>
+      <div className="srcrow">
+        <span className="av st"><i className="ti ti-file-description" /></span>
+        <div className="mt">
+          <div className="t">日志级别</div>
+          <div className="s dim" title="日志按日期写入本机 Stacker 日志目录。切换后立即对当前进程生效；DEBUG 会记录更多诊断信息，问题排查结束后建议切回 ERROR。">
+            级别切换立即生效；DEBUG 用于问题排查，日志按天归档。
+          </div>
+        </div>
+        <Select value={logLevel} width={130} onChange={changeLogLevel}
+          options={[
+            { value: "error", label: "ERROR" },
+            { value: "warn", label: "WARN" },
+            { value: "info", label: "INFO" },
+            { value: "debug", label: "DEBUG" },
+          ]} />
+        <button className="gh sm" onClick={openLogsDir} title="打开 Stacker 日志所在目录">
+          <i className="ti ti-folder-open" /> 打开日志目录
+        </button>
+        <button className="gh sm" onClick={openLogWindow} title="在独立窗口查看当天日志；重复点击会聚焦已有窗口">
+          <i className="ti ti-terminal-2" /> 实时日志
+        </button>
+      </div>
+      <div className="srcrow">
+        <span className="av st"><i className="ti ti-history-toggle" /></span>
+        <div className="mt">
+          <div className="t">日志保留</div>
+          <div className="s dim" title="Stacker 启动时以及修改保留天数后，会自动删除超过保留期限的日志文件。">
+            自动清理超过保留期限的日志；清理日志会保留今天的记录。
+          </div>
+        </div>
+        <input className="ip sm" value={logRetentionDays} disabled={logRetentionSaving}
+          onChange={(e) => setLogRetentionDays(e.target.value.replace(/[^\d]/g, ""))}
+          onBlur={() => { if (!logRetentionDays) setLogRetentionDays("7"); }} />
+        <span className="s dim">天</span>
+        <button className="pr sm" disabled={logRetentionSaving} onClick={saveLogRetention}>
+          <i className={"ti " + (logRetentionSaving ? "ti-loader spin" : "ti-device-floppy")} /> 保存
+        </button>
+        <button className="gh sm" onClick={() => setClearLogConfirm(true)}>
+          <i className="ti ti-eraser" /> 清理日志
+        </button>
+      </div>
 
+      <div className="grouphd" style={{ marginTop: 18 }}><span className="gt"><i className="ti ti-bell-cog" /> 提示管理</span></div>
+      <div className="srcrow">
+        <span className="av st"><i className="ti ti-bell" /></span>
+        <div className="mt">
+          <div className="t">后台检查提示</div>
+          <div className="s dim">启动后和固定周期检查程序更新、源清单、生态版本、失效环境和清理阈值；仅显示红点，不自动弹窗。</div>
+        </div>
+        <span className="s dim">{notices.checking ? "检查中…" : notices.lastChecked ? `上次检查 ${new Date(notices.lastChecked).toLocaleTimeString()}` : "尚未检查"}</span>
+        <button className="gh sm" disabled={notices.checking} onClick={() => notices.checkNow("manual")}>
+          <i className={"ti " + (notices.checking ? "ti-loader spin" : "ti-refresh")} /> 立即检查
+        </button>
+        <label className="sw sm2"><input type="checkbox" checked={notices.prefs.enabled} onChange={(e) => updatePrefs({ enabled: e.target.checked })} /><span className="tk" /></label>
+      </div>
+      <div className="srcrow">
+        <span className="av st"><i className="ti ti-clock" /></span>
+        <div className="mt"><div className="t">检查周期</div><div className="s dim">默认 30 分钟；周期越短，网络请求越频繁。</div></div>
+        <Select value={String(notices.prefs.intervalMinutes)} width={130} onChange={(v) => updatePrefs({ intervalMinutes: Number(v) })}
+          options={[15, 30, 60, 120].map((m) => ({ value: String(m), label: `${m} 分钟` }))} />
+      </div>
+      <div className="srcrow">
+        <span className="av st"><i className="ti ti-list-check" /></span>
+        <div className="mt"><div className="t">检查项目</div><div className="s dim">可按使用习惯关闭程序更新、源清单、生态版本和失效环境提示。</div></div>
+        <label className="ck"><input type="checkbox" checked={notices.prefs.appUpdate} onChange={(e) => updatePrefs({ appUpdate: e.target.checked })} /> 程序更新</label>
+        <label className="ck"><input type="checkbox" checked={notices.prefs.sourceUpdate} onChange={(e) => updatePrefs({ sourceUpdate: e.target.checked })} /> 源清单</label>
+        <label className="ck"><input type="checkbox" checked={notices.prefs.ecosystemUpdate} onChange={(e) => updatePrefs({ ecosystemUpdate: e.target.checked })} /> 生态版本</label>
+        <label className="ck"><input type="checkbox" checked={notices.prefs.environmentIssue} onChange={(e) => updatePrefs({ environmentIssue: e.target.checked })} /> 失效环境</label>
+      </div>
+      <div className="srcrow">
+        <span className="av st"><i className="ti ti-eraser" /></span>
+        <div className="mt">
+          <div className="t">磁盘清理提醒</div>
+          <div className="s dim">可安全清理项超过阈值时，在「磁盘清理」菜单显示红点。</div>
+          {notices.cleanupBytes > 0 && <div className="s mono">当前后台估算：{formatBytes(notices.cleanupBytes)}</div>}
+        </div>
+        <input className="ip sm" value={String(notices.prefs.cleanupThresholdGb)}
+          onChange={(e) => updatePrefs({ cleanupThresholdGb: Number(e.target.value.replace(/[^\d]/g, "")) || 1 })} />
+        <span className="s dim">GB</span>
+        <label className="sw sm2"><input type="checkbox" checked={notices.prefs.cleanup} onChange={(e) => updatePrefs({ cleanup: e.target.checked })} /><span className="tk" /></label>
+      </div>
       <div className="grouphd" style={{ marginTop: 18 }}><span className="gt"><i className="ti ti-info-circle" /> 关于</span></div>
       <div className="srcrow">
         <span className="av st"><i className="ti ti-hexagon-letter-s" /></span>
-        <div className="mt"><div className="t">Stacker 0.1.1 <span className="bd n">开源 · 无遥测</span></div>
-          <div className="s dim" title="AI Coding Runtime Manager for Windows · github.com">AI Coding Runtime Manager for Windows · github.com</div></div>
+        <div className="mt"><div className="t">Stacker 0.2.0 <span className="bd n">开源 · 无遥测</span>{activeAppUpdate && <span className="bd r">发现 v{activeAppUpdate.latest}</span>}</div>
+          <div className="s dim" title="Windows 开发环境与工作智能体工具管理器 · https://github.com/byteswalk/stacker">Windows 开发环境与工作智能体工具管理器 · github.com/byteswalk/stacker</div></div>
+        <button className="gh sm" onClick={() => openUrl("https://github.com/byteswalk/stacker")}>
+          <i className="ti ti-brand-github" /> GitHub</button>
         <button className="gh sm" disabled={appUpdBusy} onClick={checkAppUpdate}>
           <i className={"ti " + (appUpdBusy ? "ti-loader spin" : "ti-refresh")} /> {appUpdBusy ? "检查中…" : "检查更新"}</button>
       </div>
 
-      {sourceOpen && <SourceManagerModal onClose={() => setSourceOpen(false)} onChanged={refreshSourceSummary} />}
-      {sourceUpdate && !sourceOpen && (
-        <ConfirmModal title="更新公共源清单" icon="ti-cloud-download" busy={sourceUpdBusy}
-          message={<>发现新版公共源清单：<b style={{ color: "var(--tx)" }}>v{sourceUpdate.remote_version}</b>{sourceUpdate.local_version ? <>（当前 v{sourceUpdate.local_version}）</> : <>（本机尚未同步）</>}。<br />更新后会全量替换内置源，本地自定义源不会被覆盖。</>}
-          confirmLabel="更新" onConfirm={applySourceUpdate} onClose={() => setSourceUpdate(null)} />
-      )}
+      {clearLogConfirm && <ConfirmModal title="清理历史日志" icon="ti-eraser" danger busy={clearLogBusy}
+        message="将删除日志目录内除今天之外的全部日志文件。今天正在使用的日志不会受到影响。"
+        confirmLabel="清理日志" onConfirm={clearOldLogs} onClose={() => setClearLogConfirm(false)} />}
+      {sourceOpen && <SourceManagerModal onClose={() => setSourceOpen(false)} onChanged={() => { refreshSourceSummary(); notices.checkNow("source-changed").catch(() => {}); }} />}
       {updateInfo && (
         <Modal title="发现新版本" icon="ti-cloud-download" onClose={() => setUpdateInfo(null)}
           footer={<>
-            {updateInfo.installer_url && <button className="pr sm" onClick={() => openUrl(updateInfo.installer_url)}><i className="ti ti-download" /> 下载安装版</button>}
+            {updateInfo.installer_url && <button className="pr sm" disabled={appUpdBusy} onClick={installAppUpdate}><i className="ti ti-download" /> 立即更新</button>}
             {updateInfo.portable_url && <button className="gh sm" onClick={() => openUrl(updateInfo.portable_url)}><i className="ti ti-file-zip" /> 下载免安装版</button>}
             <button className="gh sm" onClick={() => openUrl(updateInfo.release_url)}><i className="ti ti-external-link" /> 查看发布页</button>
             <button className="gh sm" onClick={() => setUpdateInfo(null)}>关闭</button>
           </>}>
           <div className="banner blue" style={{ margin: 0 }}>
             <i className="ti ti-info-circle lead" />
-            <div className="bt">当前版本 v{updateInfo.current}，最新版本 v{updateInfo.latest}。下载安装包后按提示完成升级。</div>
+            <div className="bt">当前版本 v{updateInfo.current}，最新版本 v{updateInfo.latest}。Stacker 将在应用内下载安装包并启动升级。</div>
           </div>
           {updateInfo.notes.length > 0 && (
             <div className="field">

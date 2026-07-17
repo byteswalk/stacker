@@ -71,7 +71,7 @@ fn host_of(url: &str) -> String {
         .next()
         .unwrap_or("")
         .split('@')
-        .last()
+        .next_back()
         .unwrap_or("")
         .to_string()
 }
@@ -223,14 +223,14 @@ pub fn source_catalog_status() -> SourceCatalogStatus {
         binary_count += 1;
         rows.push(SourceCatalogRow {
             row_id: format!("binary:{}", item.id),
-            tool_id: format!("binary-{}", item.id),
+            tool_id: format!("binary-{}", item.tool_id),
             tool_name: item.name,
             category: "binary".into(),
             category_label: "大文件下载".into(),
             source: "builtin".into(),
             source_label: "内置".into(),
             mirror_id: item.id,
-            name: "推荐镜像".into(),
+            name: item.source_name,
             url: item.url,
             host: item.host,
             description: item.description,

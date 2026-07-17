@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { useToast, ConfirmModal, Loading, Modal } from "../ui";
+import { invoke } from "../invoke";
+import { useToast, ConfirmModal, Loading, Modal, ErrorState } from "../ui";
 
 type BackupEntry = { file: string; path: string; origin: string; time: string };
 type BackupDetailItem = { label: string; value: string };
@@ -93,23 +93,25 @@ export default function History() {
     }
   }
 
-  if (loadErr) return <div className="stub"><div className="si"><i className="ti ti-plug-x" /></div><h2>读取备份失败</h2><p>请在 Tauri 应用内运行（浏览器预览没有后端）。</p></div>;
-  if (!items) return <Loading text="正在读取备份记录…" />;
+  if (loadErr) return <ErrorState title="暂时无法读取备份记录" description="请确认 Stacker 配置目录可访问，然后重试。" onRetry={async () => { await load(); setLoadErr(false); }} />;
+  const historyLoading = !items;
+  const rows = items ?? [];
 
   return (
     <>
       <div className="grouphd">
-        <span className="gt">备份记录 <span className="cnt">{items.length} 条</span></span>
+        <span className="gt">备份记录 <span className="cnt">{historyLoading ? "读取中" : `${rows.length} 条`}</span></span>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span className="hint2">配置镜像 / 改环境变量 / 写终端集成前自动备份，可一键还原</span>
-          {items.length > 0 && <button className="gh sm" onClick={() => setClearOpen(true)}><i className="ti ti-trash-x" /> 全部清除</button>}
+          <span className="hint2">修改镜像、环境变量或终端集成前会自动备份，可随时还原</span>
+          {rows.length > 0 && <button className="gh sm" onClick={() => setClearOpen(true)}><i className="ti ti-trash-x" /> 全部清除</button>}
         </div>
       </div>
-      {items.length === 0 && (
+      {historyLoading && <Loading text="正在读取备份记录…" />}
+      {!historyLoading && rows.length === 0 && (
         <div className="stub"><div className="si"><i className="ti ti-history" /></div><h2>暂无备份</h2>
           <p>配置过镜像或修改过环境后，这里会自动出现可还原的备份。</p></div>
       )}
-      {items.map((h) => (
+      {rows.map((h) => (
         <div className="srcrow" key={h.path}>
           <span className="av file"><i className="ti ti-file" /></span>
           <div className="mt"><div className="t">{h.file}</div><div className="s mono">{h.time} · {prettyOrigin(h.origin)}</div></div>
@@ -166,7 +168,7 @@ export default function History() {
 
       {clearOpen && (
         <ConfirmModal title="清除全部备份" icon="ti-trash-x" danger busy={busy === "clear"}
-          message={<>确定清除全部 <b style={{ color: "var(--tx)" }}>{items.length}</b> 条备份记录？清除后不能通过历史页还原这些状态。</>}
+          message={<>确定清除全部 <b style={{ color: "var(--tx)" }}>{rows.length}</b> 条备份记录？清除后不能通过历史页还原这些状态。</>}
           confirmLabel={busy === "clear" ? "清除中…" : "全部清除"}
           onConfirm={doClear} onClose={() => setClearOpen(false)} />
       )}

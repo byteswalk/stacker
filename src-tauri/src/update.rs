@@ -2,10 +2,12 @@
 //! raw.githubusercontent.com 在部分网络环境下不可达，自动追加 jsDelivr 兜底。
 //! 本地缓存 %APPDATA%\stacker\mirrors.json；地址存 config.json（运行时可配，不写死仓库）。
 
+use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::time::Duration;
 
 use serde::{de, Deserialize, Deserializer, Serialize};
+use tauri::{Emitter, Manager};
 
 use crate::sources::{self, Mirror};
 
@@ -119,6 +121,7 @@ pub fn save_remote_snapshot(list: &RemoteList) -> Result<(), String> {
 /// 远程清单是服务器维护的内置源真相：未出现在清单里的内置工具会变成空镜像列表。
 pub fn overlay(tools: &mut [sources::Tool]) {
     let Some(list) = load_list() else { return };
+    let list_version = list.version.clone();
     let mut by_tool = std::collections::HashMap::new();
     for rt in list.tools {
         by_tool.insert(rt.id, rt.mirrors);
@@ -126,10 +129,66 @@ pub fn overlay(tools: &mut [sources::Tool]) {
     for t in tools {
         if let Some(mirrors) = by_tool.remove(&t.id) {
             t.mirrors = mirrors;
+            patch_legacy_catalog_mirrors(&mut t.mirrors, &t.id, &list_version);
+        } else if t.id == sources::GIT_RUNTIME_TOOL_ID && list_version.as_str() < "202607111317" {
+            // 兼容新增 Git 下载源之前保存的旧清单；新版本清单仍保持全量替换语义。
+            continue;
+        } else if matches!(
+            t.id.as_str(),
+            sources::MAVEN_RUNTIME_TOOL_ID
+                | sources::GRADLE_RUNTIME_TOOL_ID
+                | sources::GO_RUNTIME_TOOL_ID
+                | sources::RUST_RUNTIME_TOOL_ID
+        ) && list_version.as_str() < "202607131700"
+        {
+            // 兼容新增三类运行时下载源之前保存的旧清单。
+            continue;
         } else {
             t.mirrors.clear();
         }
     }
+}
+
+fn patch_legacy_catalog_mirrors(mirrors: &mut Vec<Mirror>, tool_id: &str, list_version: &str) {
+    if list_version >= "202607141100" {
+        return;
+    }
+    match tool_id {
+        sources::MAVEN_RUNTIME_TOOL_ID => push_missing_mirror(
+            mirrors,
+            "apache-cdn",
+            "Apache CDN",
+            "https://dlcdn.apache.org/maven",
+            "dlcdn.apache.org",
+        ),
+        "go" => push_missing_mirror(
+            mirrors,
+            "goproxyio",
+            "goproxy.io",
+            "https://goproxy.io,direct",
+            "goproxy.io",
+        ),
+        "maven" | "gradle" => push_missing_mirror(
+            mirrors,
+            "maven-central-repo1",
+            "Maven Central (repo1)",
+            "https://repo1.maven.org/maven2/",
+            "repo1.maven.org",
+        ),
+        _ => {}
+    }
+}
+
+fn push_missing_mirror(mirrors: &mut Vec<Mirror>, id: &str, name: &str, url: &str, host: &str) {
+    if mirrors.iter().any(|mirror| mirror.id == id) {
+        return;
+    }
+    mirrors.push(Mirror {
+        id: id.into(),
+        name: name.into(),
+        url: url.into(),
+        host: host.into(),
+    });
 }
 
 // ── 拉取（带 CDN 兜底）──
@@ -205,6 +264,108 @@ pub async fn app_check_update() -> Result<UpdateInfo, String> {
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// 在应用内下载安装版更新。下载完成后启动 NSIS 安装程序，并退出当前进程。
+#[tauri::command]
+pub async fn app_download_update(
+    window: tauri::Window,
+    url: String,
+    version: String,
+) -> Result<String, String> {
+    if !url.trim().starts_with("https://") {
+        return Err("更新包必须使用 HTTPS 地址".into());
+    }
+    let target = std::env::temp_dir().join(format!(
+        "stacker-update-{}.exe",
+        version
+            .chars()
+            .filter(|ch| ch.is_ascii_alphanumeric() || *ch == '.' || *ch == '-')
+            .collect::<String>()
+    ));
+    let download_window = window.clone();
+    let download_url = url.clone();
+    let download_target = target.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let agent = ureq::AgentBuilder::new()
+            .timeout_connect(Duration::from_secs(30))
+            .build();
+        let response = agent
+            .get(download_url.trim())
+            .set("User-Agent", "Stacker")
+            .call()
+            .map_err(|error| format!("更新包下载失败：{error}"))?;
+        let total = response
+            .header("Content-Length")
+            .and_then(|value| value.parse::<u64>().ok());
+        let mut reader = response.into_reader();
+        let mut file = std::fs::File::create(&download_target)
+            .map_err(|error| format!("无法创建更新文件：{error}"))?;
+        let mut downloaded = 0u64;
+        let mut buffer = [0u8; 64 * 1024];
+        loop {
+            let count = reader
+                .read(&mut buffer)
+                .map_err(|error| format!("读取更新包失败：{error}"))?;
+            if count == 0 {
+                break;
+            }
+            file.write_all(&buffer[..count])
+                .map_err(|error| format!("写入更新包失败：{error}"))?;
+            downloaded += count as u64;
+            let progress = match total.filter(|value| *value > 0) {
+                Some(total) => format!(
+                    "正在下载更新 · {:.1}% · {:.1}/{:.1} MB",
+                    downloaded as f64 * 100.0 / total as f64,
+                    downloaded as f64 / 1_048_576.0,
+                    total as f64 / 1_048_576.0
+                ),
+                None => format!("正在下载更新 · {:.1} MB", downloaded as f64 / 1_048_576.0),
+            };
+            let _ = download_window.emit("app-update-progress", progress);
+        }
+        file.flush()
+            .map_err(|error| format!("保存更新包失败：{error}"))?;
+        if downloaded < 512 * 1024 {
+            let _ = std::fs::remove_file(&download_target);
+            return Err("下载的更新包大小异常，已取消安装".into());
+        }
+        let mut signature = [0u8; 2];
+        std::fs::File::open(&download_target)
+            .and_then(|mut input| input.read_exact(&mut signature))
+            .map_err(|error| format!("无法校验更新包：{error}"))?;
+        if signature != *b"MZ" {
+            let _ = std::fs::remove_file(&download_target);
+            return Err("下载内容不是有效的 Windows 安装程序".into());
+        }
+        let _ = download_window.emit("app-update-progress", "更新包已下载，正在启动安装程序…");
+        Ok::<(), String>(())
+    })
+    .await
+    .map_err(|error| error.to_string())??;
+
+    let current_pid = std::process::id();
+    let launch_script = format!(
+        "$p=Get-Process -Id {current_pid} -ErrorAction SilentlyContinue; if($p){{Wait-Process -Id {current_pid} -Timeout 30 -ErrorAction SilentlyContinue}}; Start-Process -FilePath '{}' -ArgumentList '/S'",
+        target.to_string_lossy().replace('\'', "''")
+    );
+    std::process::Command::new("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-WindowStyle",
+            "Hidden",
+            "-Command",
+            &launch_script,
+        ])
+        .spawn()
+        .map_err(|error| format!("启动安装程序失败：{error}"))?;
+    let app = window.app_handle().clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(800));
+        app.exit(0);
+    });
+    Ok("更新包已下载，安装程序即将接管升级".into())
 }
 
 /// 取 GitHub 仓库最新 release 的 tag（去掉前导 v）。仅走官方 GitHub API。
@@ -496,30 +657,4 @@ pub async fn mirrors_update(url: Option<String>) -> Result<MirrorsStatus, String
     })
     .await
     .map_err(|e| e.to_string())?
-}
-
-/// 导出当前兜底清单为可上传 GitHub 的 mirrors.json 种子，返回文件路径。
-#[tauri::command]
-pub fn mirrors_seed() -> Result<String, String> {
-    let list = RemoteList {
-        version: chrono::Local::now().format("%Y%m%d%H%M").to_string(),
-        updated_at: chrono::Local::now().to_rfc3339(),
-        tools: sources::hardcoded()
-            .iter()
-            .map(|t| RemoteTool {
-                id: t.id.clone(),
-                mirrors: t.mirrors.clone(),
-            })
-            .collect(),
-    };
-    let p = dir().join("mirrors.seed.json");
-    if let Some(par) = p.parent() {
-        std::fs::create_dir_all(par).map_err(|e| e.to_string())?;
-    }
-    std::fs::write(
-        &p,
-        serde_json::to_string_pretty(&list).map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(p.to_string_lossy().to_string())
 }

@@ -3,10 +3,12 @@
   "identifier": "default",
   "description": "enables the default permissions",
   "windows": [
-    "main"
+    "main",
+    "live-log"
   ],
   "permissions": [
     "core:default",
+    "core:window:allow-close",
     "dialog:allow-save",
     "dialog:allow-open",
     "autostart:allow-enable",

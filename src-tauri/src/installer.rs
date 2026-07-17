@@ -242,14 +242,44 @@ fn run_with_heartbeat_impl(
             }
         }
     });
-    // stderr 线程：收集（失败时取末行）
+    // stderr 线程：收集（失败时取末行），同时把 rustup/安装器常见的 stderr 进度实时发给前端。
     let mut err = child.stderr.take().unwrap();
     let buf = Arc::new(Mutex::new(String::new()));
     let b2 = buf.clone();
+    let win_err = window.clone();
+    let err_log = log_path.clone();
     let t_err = std::thread::spawn(move || {
-        let mut s = String::new();
-        let _ = err.read_to_string(&mut s);
-        *b2.lock().unwrap() = s;
+        let mut line: Vec<u8> = Vec::new();
+        let mut all: Vec<u8> = Vec::new();
+        let mut chunk = [0u8; 512];
+        while let Ok(n) = err.read(&mut chunk) {
+            if n == 0 {
+                break;
+            }
+            all.extend_from_slice(&chunk[..n]);
+            for &b in &chunk[..n] {
+                if b == b'\r' || b == b'\n' {
+                    if !line.is_empty() {
+                        let l = String::from_utf8_lossy(&line).trim().to_string();
+                        if !l.is_empty() {
+                            let _ = win_err.emit("install-progress", l.clone());
+                            process_log_line(err_log.as_deref(), format!("stderr {l}"));
+                        }
+                        line.clear();
+                    }
+                } else {
+                    line.push(b);
+                }
+            }
+        }
+        if !line.is_empty() {
+            let l = String::from_utf8_lossy(&line).trim().to_string();
+            if !l.is_empty() {
+                let _ = win_err.emit("install-progress", l.clone());
+                process_log_line(err_log.as_deref(), format!("stderr {l}"));
+            }
+        }
+        *b2.lock().unwrap() = String::from_utf8_lossy(&all).into_owned();
     });
 
     let start = Instant::now();
@@ -319,15 +349,38 @@ fn run_with_heartbeat_impl(
             status.code()
         ),
     );
-    if status.success() {
-        Ok(())
-    } else if ready_since.is_some() && success_probe.map(|probe| probe()).unwrap_or(false) {
+    if status.success()
+        || (ready_since.is_some() && success_probe.map(|probe| probe()).unwrap_or(false))
+    {
         Ok(())
     } else {
-        let tail = stderr_text
+        let lines = stderr_text
             .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>();
+        let tail = lines
+            .iter()
             .rev()
-            .find(|l| !l.trim().is_empty())
+            .find(|line| {
+                let lower = line.to_ascii_lowercase();
+                lower.contains("error:")
+                    || lower.contains("failed")
+                    || lower.contains("denied")
+                    || lower.contains("拒绝访问")
+                    || lower.contains("timed out")
+                    || lower.contains("timeout")
+            })
+            .or_else(|| {
+                lines.iter().rev().find(|line| {
+                    let lower = line.to_ascii_lowercase();
+                    !lower.starts_with("info:")
+                        && !lower.starts_with("warning:")
+                        && !lower.contains("cleaning up")
+                })
+            })
+            .or_else(|| lines.last())
+            .copied()
             .unwrap_or("")
             .to_string();
         Err(if tail.is_empty() {
@@ -385,6 +438,8 @@ fn fresh_env_overrides() -> Vec<(String, String)> {
         "PYENV_HOME",
         "PYENV_ROOT",
         "FNM_DIR",
+        "CARGO_HOME",
+        "RUSTUP_HOME",
         "RUSTUP_DIST_SERVER",
         "RUSTUP_UPDATE_ROOT",
     ] {
@@ -395,38 +450,247 @@ fn fresh_env_overrides() -> Vec<(String, String)> {
     v
 }
 
+#[derive(serde::Serialize)]
+pub struct EcosystemActivationCommands {
+    pub powershell: String,
+    pub gitbash: String,
+    pub cmd: String,
+}
+
+#[tauri::command]
+pub fn ecosystem_activation_commands(
+    ecosystem: String,
+) -> Result<EcosystemActivationCommands, String> {
+    let names: &[&str] = match ecosystem.as_str() {
+        "git" => &[],
+        "python" => &["PYENV", "PYENV_HOME", "PYENV_ROOT"],
+        "node" => &["FNM_DIR"],
+        "java" => &["JAVA_HOME"],
+        "maven" => &["MAVEN_HOME", "M2_HOME", "JAVA_HOME"],
+        "gradle" => &["GRADLE_HOME", "JAVA_HOME"],
+        "go" => &["GOROOT", "GOPATH"],
+        "rust" => &[
+            "CARGO_HOME",
+            "RUSTUP_HOME",
+            "RUSTUP_DIST_SERVER",
+            "RUSTUP_UPDATE_ROOT",
+        ],
+        _ => return Err("未知生态类型".into()),
+    };
+    let all = fresh_env_overrides();
+    let selected = all
+        .into_iter()
+        .filter(|(key, _)| key == "PATH" || names.contains(&key.as_str()))
+        .collect::<Vec<_>>();
+    if !selected.iter().any(|(key, _)| key == "PATH") {
+        return Err("无法读取当前用户与系统 PATH。".into());
+    }
+
+    let powershell = selected
+        .iter()
+        .map(|(key, value)| format!("$env:{key}='{}'", value.replace('\'', "''")))
+        .collect::<Vec<_>>()
+        .join("; ");
+    let cmd = selected
+        .iter()
+        .map(|(key, value)| format!("set \"{key}={value}\""))
+        .collect::<Vec<_>>()
+        .join(" & ");
+    let gitbash = selected
+        .iter()
+        .map(|(key, value)| {
+            let escaped = value.replace('\'', "'\\''");
+            if key == "PATH" {
+                format!("export PATH=\"$(cygpath -p -u '{escaped}')\"")
+            } else {
+                format!("export {key}='{escaped}'")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+
+    Ok(EcosystemActivationCommands {
+        powershell,
+        gitbash,
+        cmd,
+    })
+}
+
+#[cfg(windows)]
+fn windows_terminal() -> Option<String> {
+    crate::env::resolve_fresh("wt.exe")
+        .or_else(|| {
+            std::env::var_os("LOCALAPPDATA").map(|p| {
+                PathBuf::from(p)
+                    .join("Microsoft")
+                    .join("WindowsApps")
+                    .join("wt.exe")
+            })
+        })
+        .filter(|p| p.is_file())
+        .map(|p| p.to_string_lossy().into_owned())
+}
+
+#[cfg(windows)]
+fn apply_fresh_env_to_command(c: &mut std::process::Command) {
+    for (k, val) in fresh_env_overrides() {
+        c.env(k, val);
+    }
+}
+
+fn base64_encode(bytes: &[u8]) -> String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let b0 = chunk[0];
+        let b1 = *chunk.get(1).unwrap_or(&0);
+        let b2 = *chunk.get(2).unwrap_or(&0);
+        out.push(TABLE[(b0 >> 2) as usize] as char);
+        out.push(TABLE[(((b0 & 0b0000_0011) << 4) | (b1 >> 4)) as usize] as char);
+        if chunk.len() > 1 {
+            out.push(TABLE[(((b1 & 0b0000_1111) << 2) | (b2 >> 6)) as usize] as char);
+        } else {
+            out.push('=');
+        }
+        if chunk.len() > 2 {
+            out.push(TABLE[(b2 & 0b0011_1111) as usize] as char);
+        } else {
+            out.push('=');
+        }
+    }
+    out
+}
+
+pub(crate) fn powershell_encoded_command(script: &str) -> String {
+    let bytes: Vec<u8> = script
+        .encode_utf16()
+        .flat_map(|c| c.to_le_bytes())
+        .collect();
+    base64_encode(&bytes)
+}
+
+fn powershell_launch_script(cwd: &str, command: Option<&str>) -> String {
+    let prefix = format!(
+        "[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false)\n$OutputEncoding=[Console]::OutputEncoding\nchcp 65001 > $null\n$machinePath=[Environment]::ExpandEnvironmentVariables([Environment]::GetEnvironmentVariable('Path','Machine'))\n$userPath=[Environment]::ExpandEnvironmentVariables([Environment]::GetEnvironmentVariable('Path','User'))\n$env:Path=(@($machinePath,$userPath) | Where-Object {{ $_ }}) -join ';'\nSet-Location -LiteralPath '{}'",
+        cwd.replace('\'', "''")
+    );
+    match command {
+        Some(command) => format!("{prefix}\n{command}"),
+        None => prefix,
+    }
+}
+
 /// 打开一个终端窗口（powershell / gitbash / cmd），工作目录默认 Stacker 所在目录。
 #[tauri::command]
-pub fn open_shell(kind: String, cwd: Option<String>) -> Result<(), String> {
+pub fn open_shell(
+    kind: String,
+    cwd: Option<String>,
+    command: Option<String>,
+) -> Result<(), String> {
     let cwd = cwd.filter(|s| !s.trim().is_empty()).unwrap_or_else(app_dir);
+    let command = command
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(validate_shell_launch_command)
+        .transpose()?;
+    launch_shell(&kind, &cwd, command.as_deref())
+}
+
+#[tauri::command]
+pub fn open_ecosystem_verify_shell(kind: String, ecosystem: String) -> Result<(), String> {
+    let command = verification_command(&kind, &ecosystem)?;
+    launch_shell(&kind, &app_dir(), Some(&command))
+}
+
+fn launch_shell(kind: &str, cwd: &str, command: Option<&str>) -> Result<(), String> {
     let mut c = std::process::Command::new("cmd");
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         c.creation_flags(0x08000000);
-        for (k, val) in fresh_env_overrides() {
-            c.env(k, val);
-        } // 注入注册表最新 env
+        apply_fresh_env_to_command(&mut c); // 注入注册表最新 env
     }
-    match kind.as_str() {
+    match kind {
         "powershell" => {
+            let ps = powershell_launch_script(cwd, command);
+            let encoded = powershell_encoded_command(&ps);
+            let title = if command.is_some() {
+                "Stacker Verify"
+            } else {
+                "Stacker PowerShell"
+            };
+            #[cfg(windows)]
+            if let Some(wt) = windows_terminal() {
+                let mut wt_cmd = std::process::Command::new(wt);
+                apply_fresh_env_to_command(&mut wt_cmd);
+                wt_cmd.args([
+                    "new-tab",
+                    "--title",
+                    title,
+                    "powershell.exe",
+                    "-NoExit",
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-EncodedCommand",
+                    &encoded,
+                ]);
+                wt_cmd.spawn().map_err(|e| e.to_string())?;
+                return Ok(());
+            }
             c.args([
                 "/c",
                 "start",
-                "powershell",
+                "",
+                "powershell.exe",
                 "-NoExit",
-                "-Command",
-                &format!("Set-Location -LiteralPath '{}'", cwd.replace('\'', "''")),
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-EncodedCommand",
+                &encoded,
             ]);
         }
         "cmd" => {
-            c.args(["/c", "start", "cmd", "/k", &format!("cd /d \"{cwd}\"")]);
+            if let Some(command) = command {
+                let script = std::env::temp_dir().join(format!(
+                    "stacker-verify-{}.cmd",
+                    chrono::Local::now().format("%Y%m%d%H%M%S%3f")
+                ));
+                let body = format!(
+                    "@echo off\r\n\
+                     title Stacker Verify\r\n\
+                     cd /d \"{cwd}\"\r\n\
+                     {command}\r\n\
+                     echo.\r\n\
+                     echo Verification finished. You can continue using this shell.\r\n\
+                     cmd /k\r\n"
+                );
+                fs::write(&script, body).map_err(|e| e.to_string())?;
+                let script_arg = script.to_string_lossy().into_owned();
+                c.args(["/c", "start", "", &script_arg]);
+            } else {
+                c.args([
+                    "/c",
+                    "start",
+                    "",
+                    "cmd.exe",
+                    "/k",
+                    &format!("cd /d \"{cwd}\""),
+                ]);
+            }
         }
         "gitbash" => {
             #[cfg(windows)]
             {
                 let gb = git_bash().ok_or("未找到 Git Bash（git-bash.exe）")?;
-                c.args(["/c", "start", "", &gb, &format!("--cd={cwd}")]);
+                if let Some(command) = command {
+                    let bash_command = format!("cd '{}'; {}", cwd.replace('\'', "'\\''"), command);
+                    c.args(["/c", "start", "", &gb, "-lc", &bash_command]);
+                } else {
+                    c.args(["/c", "start", "", &gb, &format!("--cd={cwd}")]);
+                }
             }
             #[cfg(not(windows))]
             {
@@ -437,6 +701,356 @@ pub fn open_shell(kind: String, cwd: Option<String>) -> Result<(), String> {
     }
     c.spawn().map_err(|e| e.to_string())?;
     Ok(())
+}
+
+fn verification_command(kind: &str, ecosystem: &str) -> Result<String, String> {
+    let (label, commands): (&str, &[&str]) = match ecosystem {
+        "python" => (
+            "Python",
+            &[
+                "python --version",
+                "pip --version",
+                "where python",
+                "where pip",
+            ],
+        ),
+        "node" => ("Node.js", &["node -v", "npm -v", "where node", "where npm"]),
+        "java" => (
+            "Java",
+            &[
+                "java -version",
+                "javac -version",
+                "echo %JAVA_HOME%",
+                "where java",
+                "where javac",
+            ],
+        ),
+        "maven" => ("Maven", &["mvn -v", "echo %MAVEN_HOME%", "where mvn"]),
+        "gradle" => (
+            "Gradle",
+            &["gradle -v", "echo %GRADLE_HOME%", "where gradle"],
+        ),
+        "go" => (
+            "Go",
+            &[
+                "go version",
+                "go env GOROOT",
+                "go env GOPATH",
+                "go env GOPROXY",
+                "where go",
+            ],
+        ),
+        "rust" => (
+            "Rust",
+            &[
+                "rustc --version",
+                "cargo --version",
+                "rustup show",
+                "where rustc",
+                "where cargo",
+                "where rustup",
+            ],
+        ),
+        "git" => (
+            "Git",
+            &[
+                "git --version",
+                "git config --global --get user.name",
+                "git config --global --get user.email",
+                "git config --global --get credential.helper",
+                "where git",
+            ],
+        ),
+        _ => return Err("未知生态类型".into()),
+    };
+
+    match kind {
+        "powershell" => {
+            let mut parts = vec![format!(
+                "Write-Host 'Stacker environment verification: {label}'"
+            )];
+            if ecosystem == "node" {
+                parts.push("$env:COREPACK_ENABLE_DOWNLOAD_PROMPT='0'".into());
+            }
+            for command in commands {
+                parts.push(format!(
+                    "Write-Host '{}:'",
+                    verification_step_label(command)
+                ));
+                parts.push(command.replace("where ", "where.exe "));
+            }
+            if ecosystem == "node" {
+                parts.push("Write-Host 'pnpm:'; if (Get-Command pnpm -ErrorAction SilentlyContinue) { pnpm -v; if ($LASTEXITCODE -ne 0) { Write-Host 'not installed or not prepared by Corepack' } } else { Write-Host 'not installed' }".into());
+                parts.push("Write-Host 'Yarn:'; if (Get-Command yarn -ErrorAction SilentlyContinue) { yarn -v; if ($LASTEXITCODE -ne 0) { Write-Host 'not installed or not prepared by Corepack' } } else { Write-Host 'not installed' }".into());
+            }
+            parts.push("Write-Host ''".into());
+            parts.push("Write-Host 'Verification finished. Review the output above.'".into());
+            Ok(parts.join("; "))
+        }
+        "cmd" => {
+            let mut parts = vec![format!("echo Stacker environment verification: {label}")];
+            if ecosystem == "node" {
+                parts.push("set COREPACK_ENABLE_DOWNLOAD_PROMPT=0".into());
+            }
+            for command in commands {
+                parts.push(format!("echo {}:", verification_step_label(command)));
+                parts.push(command.to_string());
+            }
+            if ecosystem == "node" {
+                parts.push("echo pnpm:".into());
+                parts.push("(where pnpm >nul 2>nul && (pnpm -v || echo not installed or not prepared by Corepack)) || echo not installed".into());
+                parts.push("echo Yarn:".into());
+                parts.push("(where yarn >nul 2>nul && (yarn -v || echo not installed or not prepared by Corepack)) || echo not installed".into());
+            }
+            Ok(parts.join(" & "))
+        }
+        "gitbash" => {
+            let mut parts = vec![format!("echo 'Stacker environment verification: {label}'")];
+            if ecosystem == "node" {
+                parts.push("export COREPACK_ENABLE_DOWNLOAD_PROMPT=0".into());
+            }
+            for command in commands {
+                parts.push(format!("echo '{}:'", verification_step_label(command)));
+                let mapped = if let Some(rest) = command.strip_prefix("where ") {
+                    format!("command -v {rest}")
+                } else if *command == "echo %JAVA_HOME%" {
+                    "echo \"$JAVA_HOME\"".into()
+                } else if *command == "echo %MAVEN_HOME%" {
+                    "echo \"$MAVEN_HOME\"".into()
+                } else if *command == "echo %GRADLE_HOME%" {
+                    "echo \"$GRADLE_HOME\"".into()
+                } else {
+                    command.to_string()
+                };
+                parts.push(mapped);
+            }
+            if ecosystem == "node" {
+                parts.push("echo 'pnpm:'".into());
+                parts.push("if command -v pnpm >/dev/null 2>&1; then pnpm -v || echo 'not installed or not prepared by Corepack'; else echo 'not installed'; fi".into());
+                parts.push("echo 'Yarn:'".into());
+                parts.push("if command -v yarn >/dev/null 2>&1; then yarn -v || echo 'not installed or not prepared by Corepack'; else echo 'not installed'; fi".into());
+            }
+            parts.push("echo".into());
+            parts.push("echo 'Verification finished. You can continue using this shell.'".into());
+            parts.push("exec bash -i".into());
+            Ok(parts.join("; "))
+        }
+        _ => Err("未知 shell".into()),
+    }
+}
+
+fn verification_step_label(command: &str) -> &'static str {
+    match command {
+        "python --version" => "Python",
+        "pip --version" => "pip",
+        "where python" => "Python path",
+        "where pip" => "pip path",
+        "node -v" => "Node.js",
+        "npm -v" => "npm",
+        "where node" => "Node.js path",
+        "where npm" => "npm path",
+        "java -version" => "Java",
+        "javac -version" => "javac",
+        "echo %JAVA_HOME%" => "JAVA_HOME",
+        "where java" => "Java path",
+        "where javac" => "javac path",
+        "mvn -v" => "Maven",
+        "echo %MAVEN_HOME%" => "MAVEN_HOME",
+        "where mvn" => "Maven path",
+        "gradle -v" => "Gradle",
+        "echo %GRADLE_HOME%" => "GRADLE_HOME",
+        "where gradle" => "Gradle path",
+        "go version" => "Go",
+        "go env GOROOT" => "GOROOT",
+        "go env GOPATH" => "GOPATH",
+        "go env GOPROXY" => "GOPROXY",
+        "where go" => "Go path",
+        "rustc --version" => "rustc",
+        "cargo --version" => "Cargo",
+        "rustup show" => "rustup show",
+        "where rustc" => "rustc path",
+        "where cargo" => "Cargo path",
+        "where rustup" => "rustup path",
+        "git --version" => "Git",
+        "git config --global --get user.name" => "Global user.name",
+        "git config --global --get user.email" => "Global user.email",
+        "git config --global --get credential.helper" => "Credential helper",
+        "where git" => "Git path",
+        _ => "Command",
+    }
+}
+
+#[allow(dead_code)]
+pub(crate) fn open_scoped_shell(
+    kind: &str,
+    cwd: Option<&str>,
+    title: &str,
+    environment: &[(String, String)],
+) -> Result<(), String> {
+    open_scoped_shell_with_intro(kind, cwd, title, environment, &[])
+}
+
+pub(crate) fn open_scoped_shell_with_intro(
+    kind: &str,
+    cwd: Option<&str>,
+    title: &str,
+    environment: &[(String, String)],
+    intro_lines: &[String],
+) -> Result<(), String> {
+    let cwd = cwd
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            dirs::home_dir()
+                .map(|path| path.to_string_lossy().into_owned())
+                .unwrap_or_else(app_dir)
+        });
+    if !std::path::Path::new(&cwd).is_dir() {
+        return Err("所选终端工作目录不存在。".into());
+    }
+    validate_scoped_shell_values(title, environment)?;
+
+    match kind {
+        "powershell" => {
+            let mut script = powershell_launch_script(&cwd, None);
+            script.push_str(&format!(
+                "\n$Host.UI.RawUI.WindowTitle='{}'",
+                title.replace('\'', "''")
+            ));
+            for (key, value) in environment {
+                script.push_str(&format!("\n$env:{}='{}'", key, value.replace('\'', "''")));
+            }
+            if !intro_lines.is_empty() {
+                script.push_str("\nWrite-Host ''");
+                for line in intro_lines {
+                    script.push_str(&format!("\nWrite-Host '{}'", line.replace('\'', "''")));
+                }
+                script.push_str("\nWrite-Host ''");
+            }
+            let encoded = powershell_encoded_command(&script);
+            #[cfg(windows)]
+            if let Some(wt) = windows_terminal() {
+                let mut command = std::process::Command::new(wt);
+                apply_fresh_env_to_command(&mut command);
+                command.args([
+                    "-w",
+                    "new",
+                    "new-tab",
+                    "--title",
+                    title,
+                    "powershell.exe",
+                    "-NoExit",
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-EncodedCommand",
+                    &encoded,
+                ]);
+                command.spawn().map_err(|e| e.to_string())?;
+                return Ok(());
+            }
+            let mut command = std::process::Command::new("cmd.exe");
+            command.args([
+                "/c",
+                "start",
+                "",
+                "powershell.exe",
+                "-NoExit",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-EncodedCommand",
+                &encoded,
+            ]);
+            apply_fresh_env_to_command(&mut command);
+            command.spawn().map_err(|e| e.to_string())?;
+        }
+        "cmd" => {
+            let mut setup = environment
+                .iter()
+                .map(|(key, value)| format!("set \"{key}={value}\""))
+                .collect::<Vec<_>>();
+            setup.push(format!("title {title}"));
+            setup.push(format!("cd /d \"{cwd}\""));
+            for line in intro_lines {
+                setup.push(format!("echo {}", cmd_echo_escape(line)));
+            }
+            if !intro_lines.is_empty() {
+                setup.push("echo.".into());
+            }
+            let mut command = std::process::Command::new("cmd.exe");
+            command.args(["/c", "start", title, "cmd.exe", "/k", &setup.join(" && ")]);
+            apply_fresh_env_to_command(&mut command);
+            command.spawn().map_err(|e| e.to_string())?;
+        }
+        "gitbash" => {
+            let git_bash = git_bash().ok_or("未找到 Git Bash（git-bash.exe）。")?;
+            let mut setup = environment
+                .iter()
+                .map(|(key, value)| format!("export {key}='{}'", value.replace('\'', "'\\''")))
+                .collect::<Vec<_>>();
+            setup.push(format!("cd '{}'", cwd.replace('\'', "'\\''")));
+            setup.push(format!("printf '\\033]0;{}\\007'", title.replace('\'', "")));
+            for line in intro_lines {
+                setup.push(format!("echo '{}'", line.replace('\'', "'\\''")));
+            }
+            if !intro_lines.is_empty() {
+                setup.push("echo".into());
+            }
+            setup.push("exec bash -i".into());
+            let mut command = std::process::Command::new("cmd.exe");
+            command.args(["/c", "start", title, &git_bash, "-lc", &setup.join("; ")]);
+            apply_fresh_env_to_command(&mut command);
+            command.spawn().map_err(|e| e.to_string())?;
+        }
+        _ => return Err("不支持的终端类型。".into()),
+    }
+    Ok(())
+}
+
+fn cmd_echo_escape(value: &str) -> String {
+    value
+        .replace('^', "^^")
+        .replace('&', "^&")
+        .replace('|', "^|")
+        .replace('<', "^<")
+        .replace('>', "^>")
+}
+
+fn validate_scoped_shell_values(
+    title: &str,
+    environment: &[(String, String)],
+) -> Result<(), String> {
+    if title.is_empty() || title.len() > 100 || title.chars().any(char::is_control) {
+        return Err("终端标题格式不正确。".into());
+    }
+    for (key, value) in environment {
+        if key.is_empty()
+            || !key
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+            || value.len() > 512
+            || value.chars().any(char::is_control)
+        {
+            return Err("终端账号上下文包含无效内容。".into());
+        }
+    }
+    Ok(())
+}
+
+fn validate_shell_launch_command(command: &str) -> Result<String, String> {
+    if command.len() > 80 {
+        return Err("启动命令过长".into());
+    }
+    if command
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    {
+        Ok(command.to_string())
+    } else {
+        Err("启动命令包含不支持的字符".into())
+    }
 }
 
 #[derive(serde::Serialize)]

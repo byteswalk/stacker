@@ -147,10 +147,7 @@ pub fn backup_user_reg_value(kind: &str, subkey: &str, value_name: &str) -> Opti
         value,
         created: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
     };
-    let safe_name = value_name
-        .replace('\\', "_")
-        .replace('/', "_")
-        .replace(':', "_");
+    let safe_name = value_name.replace(['\\', '/', ':'], "_");
     let dst = dir.join(format!("reg-{kind}-{safe_name}.{}.json.bak", stamp()));
     let data = serde_json::to_string_pretty(&snap).ok()?;
     std::fs::write(&dst, data).ok()?;

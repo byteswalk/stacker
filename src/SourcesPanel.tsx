@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "./invoke";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useBusy, useToast } from "./ui";
 import { Select } from "./Select";
@@ -103,17 +103,25 @@ function customRowProxyKey(toolId: string, path: string) {
 }
 
 function customConfigName(toolId: string) {
-  return toolId === "maven" ? "自选 settings.xml" : "自选 init.gradle";
+  return toolId === "maven" ? "自选 settings.xml" : "自选初始化脚本";
 }
 
 function customConfigHint(toolId: string) {
   return toolId === "maven"
     ? "选择 settings.xml 后可单独配置 Maven 仓库镜像。"
-    : "选择 init.gradle 后可单独配置 Gradle 仓库镜像。";
+    : "适用于被项目、IDE 或命令行 --init-script 显式引用的 Gradle 初始化脚本。";
 }
 
 function sourceActionName(id: string) {
-  return id === "maven" || id === "gradle" ? "仓库镜像" : "源";
+  if (id === "go") return "模块代理";
+  if (["pip", "npm", "yarn", "maven", "gradle", "cargo"].includes(id)) return "仓库镜像";
+  return "下载源";
+}
+
+function primaryConfigName(t: ToolState) {
+  if (t.id === "gradle") return "当前用户 init.gradle";
+  if (t.id === "maven") return "当前用户 settings.xml";
+  return t.name;
 }
 
 function pipBadge(scope: PipScope) {
@@ -129,7 +137,7 @@ function pipBadge(scope: PipScope) {
 function missingText(t: ToolState) {
   if (t.id === "npm") return "未检测到 npm。安装并设置默认 Node 版本后可配置镜像。";
   if (t.id === "yarn") return "未检测到 Yarn。Yarn 需单独安装或启用 Corepack 后配置镜像。";
-  return "未检测到，无法配置镜像";
+  return `未检测到 ${t.name}，当前无法配置${sourceActionName(t.id)}。`;
 }
 
 export function SourcesPanel({ toolIds, refresh }: { toolIds: string[]; refresh?: number }) {
@@ -253,13 +261,16 @@ export function SourcesPanel({ toolIds, refresh }: { toolIds: string[]; refresh?
         await invoke("apply_source", { toolId: id, mirrorId: sel[id] });
       }
       await load();
+      const tool = tools?.find((item) => item.id === id);
+      const displayName = tool?.name ?? id;
       toast(id === "go"
         ? `已应用 Go 模块代理（${(sourceScopes.go ?? "user") === "system" ? "系统级" : "用户级"}）`
         : id === "maven" || id === "gradle"
-          ? `已应用 ${id} 仓库镜像${sourceProxy[rowProxyKey(id)] ? "并启用代理" : "并关闭代理"}`
-          : "已应用 " + id + " 源", "ok");
+          ? `已应用 ${displayName} 仓库镜像，代理${sourceProxy[rowProxyKey(id)] ? "已启用" : "未启用"}`
+          : `已应用 ${displayName} ${sourceActionName(id)}`, "ok");
     } catch (e) {
-      toast(`应用 ${id} 源失败。请确认配置文件或环境变量可写后重试。原因：` + e, "err");
+      const displayName = tools?.find((item) => item.id === id)?.name ?? id;
+      toast(`应用 ${displayName} ${sourceActionName(id)}失败。请确认配置文件或环境变量可写后重试。原因：` + e, "err");
     } finally {
       setBusy("");
     }
@@ -271,17 +282,19 @@ export function SourcesPanel({ toolIds, refresh }: { toolIds: string[]; refresh?
     try {
       await runBusy({
         title: `清除 ${t.name} ${sourceActionName(t.id)}`,
-        message: `正在清除当前用户配置中由 Stacker 写入的 ${sourceActionName(t.id)}和代理配置`,
-      }, () => invoke("apply_source", {
-        toolId: t.id,
-        mirrorId: "official",
-        proxyEnabled: false,
-        proxyHost: proxyAddr.host,
-        proxyPort: proxyAddr.port,
-      }));
+        message: `正在移除当前用户配置中由 Stacker 写入的${sourceActionName(t.id)}与代理设置。`,
+      }, async () => {
+        await invoke("apply_source", {
+          toolId: t.id,
+          mirrorId: "official",
+          proxyEnabled: false,
+          proxyHost: proxyAddr.host,
+          proxyPort: proxyAddr.port,
+        });
+        await load();
+      });
       setSourceProxy((s) => ({ ...s, [rowProxyKey(t.id)]: false }));
       setSel((s) => ({ ...s, [t.id]: "official" }));
-      await load();
       toast(`已清除 ${t.name} ${sourceActionName(t.id)}配置`, "ok");
     } catch (e) {
       toast(`清除 ${t.name} ${sourceActionName(t.id)}失败。请确认配置文件可写后重试。原因：` + e, "err");
@@ -299,11 +312,13 @@ export function SourcesPanel({ toolIds, refresh }: { toolIds: string[]; refresh?
     setBusy("pip:" + k);
     try {
       await runBusy({
-        title: "应用 pip 源",
+        title: "应用 pip 仓库镜像",
         message: `正在写入 ${scope.path}`,
-      }, () => invoke("pip_apply_source", { scope: scope.kind, path: scope.path || null, mirrorId: pipSel[k] }));
-      await load();
-      toast("已应用 pip 源配置", "ok");
+      }, async () => {
+        await invoke("pip_apply_source", { scope: scope.kind, path: scope.path || null, mirrorId: pipSel[k] });
+        await load();
+      });
+      toast("已应用 pip 仓库镜像", "ok");
     } catch (e) {
       toast("应用 pip 源失败。请确认配置文件可写后重试。原因：" + e, "err");
     } finally {
@@ -320,11 +335,13 @@ export function SourcesPanel({ toolIds, refresh }: { toolIds: string[]; refresh?
     setBusy("pip-clear:" + k);
     try {
       await runBusy({
-        title: "清除 pip 源",
+        title: "清除 pip 仓库镜像",
         message: `正在清除 ${scope.path} 中的 index-url / trusted-host`,
-      }, () => invoke("pip_clear_source", { scope: scope.kind, path: scope.path || null }));
-      await load();
-      toast("已清除 pip 源配置", "ok");
+      }, async () => {
+        await invoke("pip_clear_source", { scope: scope.kind, path: scope.path || null });
+        await load();
+      });
+      toast("已清除 pip 仓库镜像配置", "ok");
     } catch (e) {
       toast("清除 pip 源失败。请确认配置文件可写后重试。原因：" + e, "err");
     } finally {
@@ -378,7 +395,7 @@ export function SourcesPanel({ toolIds, refresh }: { toolIds: string[]; refresh?
           });
         }
       }
-      toast("测速完成，已预选更快镜像，点击「应用」后生效", "ok");
+      toast("测速完成，已预选响应更快的镜像；点击「应用」后生效", "ok");
     } catch (e) {
       toast("包源测速失败。请检查网络连接后重试。原因：" + e, "err");
     } finally {
@@ -415,13 +432,16 @@ export function SourcesPanel({ toolIds, refresh }: { toolIds: string[]; refresh?
       multiple: false,
       filters: toolId === "maven"
         ? [{ name: "settings.xml", extensions: ["xml"] }]
-        : [{ name: "init.gradle", extensions: ["gradle"] }],
+        : [{ name: "Gradle 初始化脚本", extensions: ["gradle"] }],
     });
     if (!file || typeof file !== "string") return;
     const name = file.split(/[\\/]/).pop()?.toLowerCase();
-    const expected = toolId === "maven" ? "settings.xml" : "init.gradle";
-    if (name !== expected) {
-      toast(`请选择名为 ${expected} 的配置文件`, "err");
+    if (toolId === "maven" && name !== "settings.xml") {
+      toast("请选择名为 settings.xml 的配置文件", "err");
+      return;
+    }
+    if (toolId === "gradle" && !name?.endsWith(".gradle")) {
+      toast("请选择 .gradle 初始化脚本文件", "err");
       return;
     }
     const storageKey = CUSTOM_CONFIG_PATH_KEYS[toolId];
@@ -444,7 +464,7 @@ export function SourcesPanel({ toolIds, refresh }: { toolIds: string[]; refresh?
   async function applyCustomConfig(t: ToolState) {
     const path = customConfigPaths[t.id] ?? "";
     if (!path.trim()) {
-      toast(`请先选择 ${t.id === "maven" ? "settings.xml" : "init.gradle"} 文件`, "info");
+      toast(`请先选择 ${t.id === "maven" ? "settings.xml" : "Gradle 初始化脚本"} 文件`, "info");
       return;
     }
     const key = customConfigKey(t.id, path);
@@ -479,7 +499,7 @@ export function SourcesPanel({ toolIds, refresh }: { toolIds: string[]; refresh?
   async function clearCustomConfig(t: ToolState) {
     const path = customConfigPaths[t.id] ?? "";
     if (!path.trim()) {
-      toast(`请先选择 ${t.id === "maven" ? "settings.xml" : "init.gradle"} 文件`, "info");
+      toast(`请先选择 ${t.id === "maven" ? "settings.xml" : "Gradle 初始化脚本"} 文件`, "info");
       return;
     }
     const key = "clear:" + customConfigKey(t.id, path);
@@ -524,7 +544,7 @@ export function SourcesPanel({ toolIds, refresh }: { toolIds: string[]; refresh?
     }));
   }
 
-  if (err) return <div className="banner gray"><i className="ti ti-plug-x lead" /><div className="bt">读取源状态失败（请在 Tauri 应用内运行，浏览器预览没有后端）。</div></div>;
+  if (err) return <div className="banner gray"><i className="ti ti-plug-x lead" /><div className="bt">暂时无法读取源配置。请重新进入此页面；如问题持续，请重启 Stacker。</div></div>;
   if (!tools) return <div className="srcrow" style={{ justifyContent: "center", color: "var(--mut)" }}>读取源…</div>;
 
   const anyInstalled = tools.some((t) => t.installed);
@@ -672,7 +692,7 @@ export function SourcesPanel({ toolIds, refresh }: { toolIds: string[]; refresh?
             <div className="srcrow">
               <span className={"av " + (AV[t.id] ?? "st")}><i className={"ti " + (ICON[t.id] ?? "ti-package")} /></span>
               <div className="mt">
-                <div className="t">{t.name} {badge(t)}</div>
+                <div className="t">{primaryConfigName(t)} {badge(t)}</div>
                 <div className={"s" + (t.installed ? " mono" : " dim")} title={t.installed ? t.config : missingText(t)}>{t.installed ? t.config : missingText(t)}</div>
               </div>
               {t.installed && (

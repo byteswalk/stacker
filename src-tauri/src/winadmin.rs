@@ -66,6 +66,30 @@ pub fn set_default_system(kind: &str, path: &str, siblings: Vec<String>) -> Resu
 }
 
 #[cfg(windows)]
+pub fn clear_default_system(kind: &str, siblings: Vec<String>) -> Result<(), String> {
+    let token = request_id();
+    let req = SysReq {
+        kind: format!("__clear_sdk:{kind}"),
+        path: String::new(),
+        siblings,
+        vars: HashMap::new(),
+        token: token.clone(),
+    };
+    let file = req_file(&token);
+    if let Some(parent) = file.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&file, serde_json::to_vec(&req).map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())?;
+    if run_elevated_self(&file.to_string_lossy(), &token)? {
+        Ok(())
+    } else {
+        let _ = std::fs::remove_file(&file);
+        Err("系统级默认配置未清除（UAC 取消或写入失败）".into())
+    }
+}
+
+#[cfg(windows)]
 pub fn set_env_system(label: &str, vars: Vec<(String, String)>) -> Result<(), String> {
     let token = request_id();
     let req = SysReq {
@@ -101,7 +125,9 @@ pub fn apply_from_file(file: &str, token: &str) -> i32 {
     if req.token != token {
         return 3;
     }
-    let r = if req.kind.starts_with("__setenv:") {
+    let r = if let Some(kind) = req.kind.strip_prefix("__clear_sdk:") {
+        crate::env::clear_default(crate::winenv::Hive::System, kind, &req.siblings)
+    } else if req.kind.starts_with("__setenv:") {
         let names: Vec<&str> = req.vars.keys().map(String::as_str).collect();
         crate::backup::backup_env(crate::winenv::Hive::System, &req.kind, &names);
         req.vars
@@ -164,6 +190,10 @@ fn run_elevated_self(file: &str, token: &str) -> Result<bool, String> {
 
 #[cfg(not(windows))]
 pub fn set_default_system(_: &str, _: &str, _: Vec<String>) -> Result<(), String> {
+    Err("仅支持 Windows".into())
+}
+#[cfg(not(windows))]
+pub fn clear_default_system(_: &str, _: Vec<String>) -> Result<(), String> {
     Err("仅支持 Windows".into())
 }
 #[cfg(not(windows))]

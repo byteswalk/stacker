@@ -58,7 +58,7 @@ fn save_all(list: &[CustomSource]) -> Result<(), String> {
 fn host_of(url: &str) -> String {
     let after = url.split("://").nth(1).unwrap_or(url);
     let host = after.split('/').next().unwrap_or("");
-    host.split('@').last().unwrap_or(host).to_string()
+    host.split('@').next_back().unwrap_or(host).to_string()
 }
 
 /// 把自定义源作为镜像合并进对应工具（供 sources::tools() 调用）。
@@ -384,10 +384,58 @@ pub fn apply_auth(handler: &str, mirror: &sources::Mirror) -> Result<(), String>
             write_file(&sources::maven_path(), &xml)
         }
         "gradle_init" => {
-            // 覆盖 init.gradle：repo 带 credentials{}
+            // 覆盖 init.gradle：优先写入 settings 级仓库，兼容 Android/Gradle 的集中仓库管理。
             let g = format!(
-"allprojects {{\n    repositories {{\n        maven {{\n            url '{url}'\n            credentials {{\n                username '{u}'\n                password '{p}'\n            }}\n        }}\n        mavenCentral()\n    }}\n}}\n",
-                url = groovy_esc(&c.url), u = groovy_esc(&c.username), p = groovy_esc(&pass));
+                "def stackerRepoUrls = ['{url}']\n\
+def stackerRepoUser = '{u}'\n\
+def stackerRepoPassword = '{p}'\n\
+def stackerApplyRepos = {{ settings, repositories, includePluginPortal ->\n\
+    repositories.clear()\n\
+    stackerRepoUrls.each {{ repoUrl ->\n\
+        repositories.maven {{\n\
+            url = settings.uri(repoUrl)\n\
+            credentials {{\n\
+                username = stackerRepoUser\n\
+                password = stackerRepoPassword\n\
+            }}\n\
+        }}\n\
+    }}\n\
+    repositories.google()\n\
+    repositories.mavenCentral()\n\
+    if (includePluginPortal) {{ repositories.gradlePluginPortal() }}\n\
+}}\n\
+def stackerSettingsReposApplied = false\n\
+settingsEvaluated {{ settings ->\n\
+    try {{\n\
+        settings.pluginManagement {{ repositories {{ stackerApplyRepos(settings, delegate, true) }} }}\n\
+    }} catch (Throwable ignored) {{}}\n\
+    try {{\n\
+        settings.dependencyResolutionManagement {{ repositories {{ stackerApplyRepos(settings, delegate, false) }} }}\n\
+        stackerSettingsReposApplied = true\n\
+    }} catch (Throwable ignored) {{}}\n\
+}}\n\
+gradle.projectsLoaded {{ gradle ->\n\
+    if (!stackerSettingsReposApplied) {{\n\
+        gradle.rootProject.allprojects {{ project ->\n\
+            project.repositories.clear()\n\
+            stackerRepoUrls.each {{ repoUrl ->\n\
+                project.repositories.maven {{\n\
+                    url = project.uri(repoUrl)\n\
+                    credentials {{\n\
+                        username = stackerRepoUser\n\
+                        password = stackerRepoPassword\n\
+                    }}\n\
+                }}\n\
+            }}\n\
+            project.repositories.google()\n\
+            project.repositories.mavenCentral()\n\
+        }}\n\
+    }}\n\
+}}\n",
+                url = groovy_esc(&c.url),
+                u = groovy_esc(&c.username),
+                p = groovy_esc(&pass)
+            );
             write_file(&sources::gradle_path(), &g)
         }
         "cargo_config" => {

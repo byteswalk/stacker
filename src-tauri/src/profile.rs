@@ -2,6 +2,7 @@
 //! 存储 %APPDATA%\stacker\profiles.json（明文，仅记录内置镜像 id，无密码）。
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use crate::{proxy, sources};
@@ -18,6 +19,15 @@ pub struct Profile {
     pub sources: Vec<SourceSel>,
     pub proxy: bool, // 期望代理是否开启
     pub created: String,
+    /// 前端持久化偏好，例如各生态下载源、版本筛选条件和主题。
+    #[serde(default)]
+    pub frontend_settings: BTreeMap<String, String>,
+}
+
+#[derive(Serialize)]
+pub struct ApplyResult {
+    pub changed: usize,
+    pub frontend_settings: BTreeMap<String, String>,
 }
 
 fn store_path() -> PathBuf {
@@ -45,7 +55,10 @@ fn save_all(list: &[Profile]) -> Result<(), String> {
 
 /// 抓取当前各工具的源选择 + 代理开关，存成命名方案（同名覆盖）。
 #[tauri::command]
-pub fn profile_save(name: String) -> Result<Profile, String> {
+pub fn profile_save(
+    name: String,
+    frontend_settings: BTreeMap<String, String>,
+) -> Result<Profile, String> {
     let name = name.trim().to_string();
     if name.is_empty() {
         return Err("方案名不能为空".into());
@@ -64,6 +77,7 @@ pub fn profile_save(name: String) -> Result<Profile, String> {
         sources,
         proxy: proxy::status().enabled,
         created: chrono::Local::now().format("%Y-%m-%d %H:%M").to_string(),
+        frontend_settings,
     };
     let mut list = load();
     list.retain(|p| p.name != name);
@@ -109,7 +123,7 @@ pub fn profile_delete(name: String) -> Result<(), String> {
 /// 套用命名方案：逐工具切源（仅已安装、与当前不同的才动），再按记录开/关代理。
 /// 返回实际改动的工具数。
 #[tauri::command]
-pub fn profile_apply(name: String) -> Result<usize, String> {
+pub fn profile_apply(name: String) -> Result<ApplyResult, String> {
     let prof = load()
         .into_iter()
         .find(|p| p.name == name)
@@ -145,5 +159,22 @@ pub fn profile_apply(name: String) -> Result<usize, String> {
     } else if !prof.proxy && ps.enabled {
         proxy::disable(false)?;
     }
-    Ok(changed)
+    Ok(ApplyResult {
+        changed,
+        frontend_settings: prof.frontend_settings,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Profile;
+
+    #[test]
+    fn old_profile_defaults_frontend_settings() {
+        let profile: Profile = serde_json::from_str(
+            r#"{"name":"旧方案","sources":[],"proxy":false,"created":"2026-01-01 00:00"}"#,
+        )
+        .expect("旧版方案应继续可读");
+        assert!(profile.frontend_settings.is_empty());
+    }
 }

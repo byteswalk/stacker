@@ -11,22 +11,24 @@ export default function Go() {
           title: "下载 Go",
           subdir: "go",
           folderName: (v) => `go${v}`,
+          sourceToolId: "go-runtime",
           sources: [
-            { id: "official", name: "官方 go.dev", host: "go.dev", urlFor: (v) => `https://go.dev/dl/go${v}.windows-amd64.zip` },
-            { id: "aliyun", name: "阿里云镜像", host: "mirrors.aliyun.com", urlFor: (v) => `https://mirrors.aliyun.com/golang/go${v}.windows-amd64.zip` },
+            { id: "official", name: "官方 go.dev", host: "go.dev", url: "https://go.dev/dl" },
+            { id: "aliyun", name: "阿里云镜像", host: "mirrors.aliyun.com", url: "https://mirrors.aliyun.com/golang" },
           ],
-          defaultSource: "aliyun",
-          note: "下载后解压安装；如连接较慢，可测速后切换下载源。",
-          staticVersions: ["1.23.4", "1.22.10", "1.21.13"],
+          urlFor: (source, v) => `${source.url.replace(/\/$/, "")}/go${v}.windows-amd64.zip`,
+          defaultSource: "official",
+          note: "版本列表按当前下载源实际提供的 Windows 64 位发行包生成。",
+          versionsCmd: "go_versions",
         }} />
 
       <div className="grouphd" style={{ marginTop: 18 }}>
-        <span className="gt"><i className="ti ti-world-download" /> 包源 / 镜像 <span className="cnt">go env</span></span>
+        <span className="gt"><i className="ti ti-world-download" /> 模块代理 <span className="cnt">GOPROXY</span></span>
         <span className="hint2">配置 GOPROXY；系统级写入需要 UAC 提权</span>
       </div>
       <SourcesPanel toolIds={["go"]} refresh={srcKey} />
 
-      <div className="callout"><i className="ti ti-info-circle" /><div>GOSUMDB / GOPRIVATE、GOPATH 模块缓存迁移随后端一并接入；私有模块鉴权可在「设置 → 源管理」新建自定义源。</div></div>
+      <div className="callout"><i className="ti ti-info-circle" /><div>本页管理 Go 版本与 <span className="code">GOPROXY</span>。私有模块使用的 <span className="code">GOPRIVATE</span>、<span className="code">GONOSUMDB</span> 等变量仍由项目或组织策略维护。</div></div>
     </>
   );
 }

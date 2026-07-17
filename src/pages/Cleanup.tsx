@@ -1,8 +1,52 @@
 import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { useToast, ConfirmModal, Modal } from "../ui";
+import { invoke } from "../invoke";
+import { useToast, ConfirmModal, Modal, ErrorState } from "../ui";
+import { useNotifications } from "../notifications";
 
 type CacheItem = { id: string; name: string; path: string; size: number; category: string; icon: string; av: string };
+
+type CleanupCache = {
+  items: CacheItem[] | null;
+  selected: string[];
+  scanning: boolean;
+  err: boolean;
+};
+const CLEANUP_INITIAL: CleanupCache = { items: null, selected: [], scanning: false, err: false };
+let cleanupCache: CleanupCache = CLEANUP_INITIAL;
+let cleanupRun: Promise<void> | null = null;
+const cleanupListeners = new Set<(s: CleanupCache) => void>();
+
+function publishCleanup(next: Partial<CleanupCache>) {
+  cleanupCache = { ...cleanupCache, ...next };
+  cleanupListeners.forEach((fn) => fn(cleanupCache));
+}
+
+function subscribeCleanup(fn: (s: CleanupCache) => void) {
+  cleanupListeners.add(fn);
+  return () => { cleanupListeners.delete(fn); };
+}
+
+function runCleanupScan() {
+  if (cleanupRun) return cleanupRun;
+  publishCleanup({ scanning: true });
+  cleanupRun = (async () => {
+    try {
+      const it = await invoke<CacheItem[]>("cleanup_scan");
+      publishCleanup({
+        items: it,
+        selected: it.filter((x) => x.category === "safe").map((x) => x.path),
+        err: false,
+      });
+    } catch (e) {
+      publishCleanup({ err: true });
+      throw e;
+    } finally {
+      publishCleanup({ scanning: false });
+      cleanupRun = null;
+    }
+  })();
+  return cleanupRun;
+}
 
 function fmt(b: number) {
   if (b >= 1024 ** 3) return (b / 1024 ** 3).toFixed(1) + " GB";
@@ -13,22 +57,35 @@ function fmt(b: number) {
 
 export default function Cleanup() {
   const toast = useToast();
-  const [items, setItems] = useState<CacheItem[] | null>(null);
-  const [err, setErr] = useState(false);
-  const [sel, setSel] = useState<Set<string>>(new Set());
+  const notices = useNotifications();
+  const [items, setItems] = useState<CacheItem[] | null>(cleanupCache.items);
+  const [err, setErr] = useState(cleanupCache.err);
+  const [sel, setSel] = useState<Set<string>>(new Set(cleanupCache.selected));
   const [confirm, setConfirm] = useState<string[] | null>(null);
   const [busy, setBusy] = useState(false);
+  const [scanning, setScanning] = useState(cleanupCache.scanning);
   const [aged, setAged] = useState<string | null>(null);
   const [agedDays, setAgedDays] = useState(90);
   const [agedStats, setAgedStats] = useState<{ count: number; size: number } | null>(null);
   const [agedBusy, setAgedBusy] = useState(false);
 
-  async function load() {
-    const it = await invoke<CacheItem[]>("cleanup_scan");
-    setItems(it);
-    setSel(new Set(it.filter((x) => x.category === "safe").map((x) => x.path)));
+  useEffect(() => subscribeCleanup((s) => {
+    setItems(s.items);
+    setErr(s.err);
+    setScanning(s.scanning);
+    setSel(new Set(s.selected));
+  }), []);
+
+  async function load() { return runCleanupScan(); }
+  async function rescan() {
+    const wasScanned = items !== null;
+    try {
+      await load();
+      toast(wasScanned ? "扫描结果已刷新" : "扫描完成", "ok");
+    } catch (e) {
+      toast("磁盘扫描失败：" + e, "err");
+    }
   }
-  useEffect(() => { load().catch(() => setErr(true)); }, []);
 
   async function del(paths: string[]) {
     setBusy(true);
@@ -48,8 +105,20 @@ export default function Cleanup() {
     catch (e) { toast("清理失败：" + e, "err"); } finally { setAgedBusy(false); }
   }
 
-  if (err) return <div className="stub"><div className="si"><i className="ti ti-plug-x" /></div><h2>扫描失败</h2><p>请在 Tauri 应用内运行（浏览器预览没有后端）。</p></div>;
-  if (!items) return <div className="stub"><p>扫描各生态缓存占用…</p></div>;
+  if (err) return <ErrorState title="磁盘扫描未完成" description="部分目录可能无法访问。请关闭占用相关目录的程序后重试。" onRetry={rescan} />;
+  if (!items) return (
+    <div className={"clhero" + (scanning ? " scanning trace-card" : "")}>
+      {scanning && <span className="border-runner" aria-hidden="true" />}
+      <span className="clic"><i className={"ti " + (scanning ? "ti-database-search" : "ti-database")} /></span>
+      <div className="clt">
+        <div className="t1">{scanning ? "正在扫描可清理项" : "磁盘清理"}</div>
+        <div className="t2">{scanning ? "正在统计开发工具缓存、历史版本和 Windows 临时目录占用…" : notices.cleanupBytes > 0 ? `后台估算可安全清理约 ${fmt(notices.cleanupBytes)}。点击「开始扫描」查看完整清理项。` : "点击「开始扫描」后，Stacker 将统计开发工具缓存、历史版本和 Windows 临时目录占用。"}</div>
+      </div>
+      <button className="gh" disabled={scanning} onClick={rescan}>
+        <i className={"ti " + (scanning ? "ti-loader spin" : "ti-player-play")} /> {scanning ? "扫描中…" : "开始扫描"}
+      </button>
+    </div>
+  );
 
   const safe = items.filter((x) => x.category === "safe");
   const history = items.filter((x) => x.category === "history");
@@ -65,6 +134,7 @@ export default function Cleanup() {
       const n = new Set(s);
       if (n.has(p)) n.delete(p);
       else n.add(p);
+      publishCleanup({ selected: [...n] });
       return n;
     });
   }
@@ -103,17 +173,22 @@ export default function Cleanup() {
 
   return (
     <>
-      <div className="clhero">
+      <div className={"clhero" + (scanning ? " scanning trace-card" : "")}>
+        {scanning && <span className="border-runner" aria-hidden="true" />}
         <span className="clic"><i className="ti ti-database" /></span>
         <div className="clt">
           <div className="t1">可清理项共占用 {fmt(total)} · 可安全释放 <b>{fmt(safeTotal)}</b></div>
           <div className="t2">默认勾选纯缓存；JetBrains 历史版本、Windows 临时目录和谨慎项需手动选择。临时目录中被占用的文件会自动跳过。</div>
         </div>
-        <button className="pr" disabled={busy || sel.size === 0} onClick={() => setConfirm([...sel])}><i className="ti ti-eraser" /> 清理所选（{fmt(selTotal)}）</button>
+        <div className="ghr">
+          <button className="gh" disabled={busy || scanning} onClick={rescan}>
+            <i className={"ti " + (scanning ? "ti-loader spin" : "ti-player-play")} /> {scanning ? "扫描中…" : "开始扫描"}
+          </button>
+          <button className="pr" disabled={busy || scanning || sel.size === 0} onClick={() => setConfirm([...sel])}><i className="ti ti-eraser" /> 清理所选（{fmt(selTotal)}）</button>
+        </div>
       </div>
-
       {items.length === 0 && (
-        <div className="stub"><div className="si"><i className="ti ti-sparkles" /></div><h2>很干净</h2><p>没扫到可清理项。</p></div>
+        <div className="stub"><div className="si"><i className="ti ti-circle-check" /></div><h2>未发现可清理项</h2><p>当前扫描范围内没有达到显示条件的缓存、历史版本或临时文件。</p></div>
       )}
       {safe.length > 0 && <div className="seclabel"><i className="ti ti-shield-check" style={{ color: "#6bcf86" }} /> 可安全清理（纯缓存，删后会自动重新获取）</div>}
       {safe.map(row)}
@@ -121,7 +196,7 @@ export default function Cleanup() {
       {history.map(row)}
       {temp.length > 0 && <div className="seclabel"><i className="ti ti-trash" style={{ color: "#e4b450" }} /> Windows 临时目录（超过 1 GB 才显示）</div>}
       {temp.map(row)}
-      {cautious.length > 0 && <div className="seclabel"><i className="ti ti-alert-triangle" style={{ color: "#e4b450" }} /> 谨慎（非纯缓存 / 重下很慢）</div>}
+      {cautious.length > 0 && <div className="seclabel"><i className="ti ti-alert-triangle" style={{ color: "#e4b450" }} /> 谨慎清理（重新下载可能耗时较长）</div>}
       {cautious.map(row)}
 
       {confirm && (
@@ -138,7 +213,7 @@ export default function Cleanup() {
               <i className="ti ti-eraser" /> {agedBusy ? "清理中…" : agedStats ? `清理 ${fmt(agedStats.size)}` : "清理"}</button>
           </>}>
           <div style={{ fontSize: 12, color: "var(--mut)", fontFamily: "var(--font-mono)", wordBreak: "break-all" }}>{aged}</div>
-          <div className="field"><label>清理多久没被访问过的文件</label>
+          <div className="field"><label>清理超过以下天数未访问的文件</label>
             <div className="seg" style={{ alignSelf: "flex-start" }}>
               {[30, 90, 180, 365].map((d) => <button key={d} className={agedDays === d ? "on" : ""} disabled={agedBusy} onClick={() => loadStats(aged, d)}>{d >= 365 ? "1 年" : d + " 天"}</button>)}</div></div>
           {!agedStats

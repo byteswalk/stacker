@@ -2,7 +2,7 @@
 
 AI Coding Runtime Manager for Windows.
 
-Stacker 帮助 Windows 开发者和 AI 编程新手把本机整理成适合 Codex、Claude Code、Cursor、VS Code Agent 等工具工作的开发环境。它把 Python、Node.js、Java、Maven、Gradle、Go、Rust 的运行时管理、包仓库镜像、终端代理、Agent 就绪体检和缓存清理集中到一个桌面应用里，让一台新 Windows 机器更快进入可开发状态，也让后续维护有状态、有进度、可回退。
+Stacker 帮助 Windows 开发者和刚开始使用工作智能体的用户，把本机整理成适合 Codex、Claude Code、Cursor、VS Code Agent 等工具工作的开发环境。它把 Python、Node.js、Java、Maven、Gradle、Go、Rust 的运行时管理、包仓库镜像、终端代理、智能体就绪体检和缓存清理集中到一个桌面应用里，让一台新 Windows 机器更快进入可开发状态，也让后续维护有状态、有进度、可回退。
 
 [![Release](https://img.shields.io/github/v/release/byteswalk/stacker?label=release)](https://github.com/byteswalk/stacker/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-blue)](#)
@@ -24,23 +24,23 @@ It is designed for Windows developers, beginners using AI coding tools, and team
 - 安装版：适合日常使用，带开始菜单和卸载入口。
 - 免安装版：解压后运行 `Stacker.exe`，适合临时测试或放在工具盘。
 
-Stacker 面向 Windows 10 和 Windows 11。首次启动后，建议从“概览”页开始 Agent 就绪体检，再进入对应语言页面安装运行时、切换默认版本或配置镜像源。
+Stacker 面向 Windows 10 和 Windows 11。首次启动后，建议从“生态环境体检”页检查本机状态，再进入对应生态页面安装运行时、切换默认版本或配置下载源。
 
 ## 它解决什么问题
 
-在 Windows 上，开发环境的问题往往不是“少装了一个工具”这么简单，而是运行时版本、PATH、包仓库、代理、终端集成和缓存状态交织在一起。AI 编程 Agent 会更频繁地产生跨语言项目，也会直接调用本机 shell 安装依赖、运行测试和构建项目。新手很容易卡在 `python`、`node`、`java`、`mvn`、`gradle` 命令不可用，或者下载依赖一直失败，却不知道该从哪里排查。
+在 Windows 上，开发环境的问题往往不是“少装了一个工具”这么简单，而是运行时版本、PATH、包仓库、代理、终端集成和缓存状态交织在一起。工作智能体会更频繁地产生跨语言项目，也会直接调用本机 shell 安装依赖、运行测试和构建项目。新手很容易卡在 `python`、`node`、`java`、`mvn`、`gradle` 命令不可用，或者下载依赖一直失败，却不知道该从哪里排查。
 
-Stacker 的产品思路是“先确认 Agent 能不能干活，再处理环境问题”：先告诉用户 Git、Agent CLI、Node、Python、JDK、包仓库、终端代理和开发缓存哪里有问题，再在对应生态页面完成运行时安装、默认版本切换、镜像配置和清理。耗时操作展示进度，关键写入前自动备份，出了问题可以从历史记录恢复。
+Stacker 的产品思路是先看清本机生态，再处理具体问题：集中检查 Git、工作智能体、Node、Python、JDK、构建工具、终端代理和开发缓存，并在对应页面完成安装、切换、配置与清理。耗时操作展示进度，关键写入前自动备份，出现问题可从历史记录恢复。
 
-它特别适合 Windows 开发者、刚开始使用 AI 编程工具的新手，以及需要在企业代理、私有仓库或受限网络中维护开发环境的团队。
+它特别适合 Windows 开发者、刚开始使用工作智能体的用户，以及需要在企业代理、私有仓库或受限网络中维护开发环境的团队。
 
 它不会替代 Codex、Claude Code、Cursor、pyenv-win、fnm、rustup、Maven 或 Gradle。它负责把本机运行时、包管理器、代理和终端入口整理好，让本地 Agent 更稳定地安装依赖、运行测试和构建项目。
 
 ## 功能
 
-### Agent 就绪体检
+### 生态环境体检
 
-Stacker 会检查本机是否适合运行本地 AI 编程 Agent，包括 Git、Codex CLI、Claude Code、Node/npm、Python/pip、Java、Maven、Gradle、Go、Rust、终端代理和开发缓存。体检结果会直接给出可处理项，例如基础命令缺失、包源仍在默认源、开发缓存偏高、Windows 临时目录过大等，用户可以从概览页跳转到对应页面处理。
+Stacker 会检查 Git、Node/npm、Python/pip、Java、Maven、Gradle、Go、Rust、终端代理和开发缓存。体检结果会直接给出可处理项，例如基础命令缺失、环境失效、开发缓存偏高或 Windows 临时目录过大，并可直接进入对应页面处理。
 
 ### Python
 
@@ -155,11 +155,15 @@ npm run tauri dev
 npm run build
 ```
 
-打包 Windows 安装版：
+生成 Windows 安装版、免安装版与 SHA-256 校验清单：
 
 ```powershell
-npm run tauri build
+npm run release:windows
 ```
+
+发布产物输出到 `release/v<版本号>/`。脚本会先执行前端与 Rust 的测试和静态检查，再构建并统一命名发布文件。
+
+发布前应确保 `package.json`、`Cargo.toml`、`tauri.conf.json` 与 `resources/latest.json` 的版本保持一致。
 
 ## 技术栈
 

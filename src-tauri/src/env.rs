@@ -17,7 +17,9 @@ pub struct SdkVersion {
     pub vendor: String,
     pub path: String,
     pub current: bool,
-    pub arch: String, // x64 | x86 | ARM64 | ""（仅 Java 现填）
+    pub arch: String,   // x64 | x86 | ARM64 | ""（仅 Java 现填）
+    pub origin: String, // managed | external | tool-bundled | project | unknown
+    pub can_delete: bool,
 }
 
 #[derive(Serialize)]
@@ -92,6 +94,9 @@ fn map_java_vendor(imp: &str, home: &str) -> String {
     }
     if s.contains("temurin") || s.contains("adoptium") || h.contains("adoptium") {
         return "Temurin".into();
+    }
+    if s.contains("dragonwell") || s.contains("alibaba") || h.contains("dragonwell") {
+        return "Dragonwell".into();
     }
     if s.contains("oracle") {
         return "Oracle".into();
@@ -202,6 +207,8 @@ fn make_version(kind: &str, home: &Path, current: Option<&str>) -> SdkVersion {
         path,
         current: is_current,
         arch,
+        origin: origin_for(kind, home),
+        can_delete: is_managed_install(kind, home),
     }
 }
 
@@ -545,11 +552,152 @@ fn scanned() -> &'static Mutex<HashMap<String, Vec<PathBuf>>> {
     static S: OnceLock<Mutex<HashMap<String, Vec<PathBuf>>>> = OnceLock::new();
     S.get_or_init(|| Mutex::new(load_scan_cache()))
 }
+fn managed_installs() -> &'static Mutex<HashMap<String, Vec<PathBuf>>> {
+    static MANAGED: OnceLock<Mutex<HashMap<String, Vec<PathBuf>>>> = OnceLock::new();
+    MANAGED.get_or_init(|| Mutex::new(load_path_map(&managed_installs_path())))
+}
 fn scan_cache_path() -> PathBuf {
     dirs::data_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("stacker")
         .join("scan_cache.json")
+}
+fn managed_installs_path() -> PathBuf {
+    dirs::data_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("stacker")
+        .join("managed_installs.json")
+}
+fn load_path_map(path: &Path) -> HashMap<String, Vec<PathBuf>> {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|text| serde_json::from_str::<HashMap<String, Vec<String>>>(&text).ok())
+        .map(|items| {
+            items
+                .into_iter()
+                .map(|(kind, paths)| (kind, paths.into_iter().map(PathBuf::from).collect()))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+fn save_path_map(path: &Path, values: &HashMap<String, Vec<PathBuf>>) {
+    let serializable: HashMap<String, Vec<String>> = values
+        .iter()
+        .map(|(kind, paths)| {
+            (
+                kind.clone(),
+                paths
+                    .iter()
+                    .map(|path| path.to_string_lossy().into_owned())
+                    .collect(),
+            )
+        })
+        .collect();
+    if let Ok(text) = serde_json::to_string_pretty(&serializable) {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(path, text);
+    }
+}
+fn is_managed_path(path: &Path) -> bool {
+    managed_installs()
+        .lock()
+        .map(|items| {
+            items.values().flatten().any(|managed| {
+                managed
+                    .to_string_lossy()
+                    .trim_end_matches(['\\', '/'])
+                    .eq_ignore_ascii_case(path.to_string_lossy().trim_end_matches(['\\', '/']))
+            })
+        })
+        .unwrap_or(false)
+}
+
+fn legacy_managed_root(kind: &str) -> Option<PathBuf> {
+    let folder = match kind {
+        "java" => "jdk",
+        "maven" => "maven",
+        "gradle" => "gradle",
+        "go" => "go",
+        _ => return None,
+    };
+    let base = PathBuf::from(crate::installer::app_dir());
+    (!base.as_os_str().is_empty()).then(|| base.join(folder))
+}
+
+fn has_runtime_marker(kind: &str, path: &Path) -> bool {
+    match kind {
+        "java" => path.join(r"bin\java.exe").is_file(),
+        "maven" => path.join(r"bin\mvn.cmd").is_file(),
+        "gradle" => path.join(r"bin\gradle.bat").is_file(),
+        "go" => path.join(r"bin\go.exe").is_file(),
+        _ => false,
+    }
+}
+
+/// Compatibility for releases that installed runtimes beside Stacker before the
+/// managed-install manifest was introduced. Only complete runtimes below the
+/// ecosystem's dedicated Stacker directory qualify.
+fn is_legacy_managed_path(kind: &str, path: &Path) -> bool {
+    if !path.is_dir() || !has_runtime_marker(kind, path) {
+        return false;
+    }
+    let Some(root) = legacy_managed_root(kind) else {
+        return false;
+    };
+    let Ok(target) = path.canonicalize() else {
+        return false;
+    };
+    let Ok(root) = root.canonicalize() else {
+        return false;
+    };
+    target != root && target.starts_with(root)
+}
+
+fn is_managed_install(kind: &str, path: &Path) -> bool {
+    is_managed_path(path) || is_legacy_managed_path(kind, path)
+}
+fn is_tool_bundled(path: &Path) -> bool {
+    let value = path
+        .to_string_lossy()
+        .replace('/', "\\")
+        .to_ascii_lowercase();
+    [
+        "\\jetbrains\\",
+        "\\android studio\\",
+        "\\androidstudio",
+        "\\microsoft visual studio\\",
+        "\\.vscode\\extensions\\",
+        "\\eclipse\\plugins\\",
+        "\\myeclipse\\",
+        "\\adobe\\",
+    ]
+    .iter()
+    .any(|part| value.contains(part))
+}
+fn is_project_bundled(path: &Path) -> bool {
+    let value = path
+        .to_string_lossy()
+        .replace('/', "\\")
+        .to_ascii_lowercase();
+    value.contains("\\.m2\\wrapper\\")
+        || value.contains("\\.gradle\\wrapper\\")
+        || value.contains("\\gradle\\wrapper\\dists\\")
+}
+fn origin_for(kind: &str, path: &Path) -> String {
+    if is_managed_install(kind, path) {
+        "managed"
+    } else if is_tool_bundled(path) {
+        "tool-bundled"
+    } else if is_project_bundled(path) {
+        "project"
+    } else if path.is_absolute() {
+        "external"
+    } else {
+        "unknown"
+    }
+    .into()
 }
 fn load_scan_cache() -> HashMap<String, Vec<PathBuf>> {
     std::fs::read_to_string(scan_cache_path())
@@ -580,14 +728,27 @@ fn save_scan_cache(c: &HashMap<String, Vec<PathBuf>>) {
         let _ = std::fs::write(p, s);
     }
 }
-fn cache_scan(homes: &Homes) {
+fn cache_scan(homes: &Homes, kinds: &std::collections::HashSet<String>) {
     let mut c = scanned().lock().unwrap();
-    c.insert("java".into(), homes.java.clone());
-    c.insert("python".into(), homes.python.clone());
-    c.insert("node".into(), homes.node.clone());
-    c.insert("go".into(), homes.go.clone());
-    c.insert("maven".into(), homes.maven.clone());
-    c.insert("gradle".into(), homes.gradle.clone());
+    let all = kinds.is_empty();
+    if all || kinds.contains("java") {
+        c.insert("java".into(), homes.java.clone());
+    }
+    if all || kinds.contains("python") {
+        c.insert("python".into(), homes.python.clone());
+    }
+    if all || kinds.contains("node") {
+        c.insert("node".into(), homes.node.clone());
+    }
+    if all || kinds.contains("go") {
+        c.insert("go".into(), homes.go.clone());
+    }
+    if all || kinds.contains("maven") {
+        c.insert("maven".into(), homes.maven.clone());
+    }
+    if all || kinds.contains("gradle") {
+        c.insert("gradle".into(), homes.gradle.clone());
+    }
     save_scan_cache(&c);
 }
 
@@ -611,19 +772,38 @@ pub async fn env_scan(
     window: tauri::Window,
     roots: Vec<String>,
     exclude_ide_jdk: Option<bool>,
+    exclude_tool_bundled: Option<bool>,
+    kinds: Option<Vec<String>>,
 ) -> ScanResult {
     // 放到后台阻塞线程，避免堵住主线程导致界面卡死
     tauri::async_runtime::spawn_blocking(move || {
-        scan_impl(window, roots, exclude_ide_jdk.unwrap_or(false))
+        scan_impl(
+            window,
+            roots,
+            exclude_ide_jdk.unwrap_or(false),
+            exclude_tool_bundled.unwrap_or(false),
+            kinds.unwrap_or_default(),
+        )
     })
     .await
     .unwrap_or_default()
 }
 
-fn scan_impl(window: tauri::Window, roots: Vec<String>, exclude_ide_jdk: bool) -> ScanResult {
+fn scan_impl(
+    window: tauri::Window,
+    roots: Vec<String>,
+    exclude_ide_jdk: bool,
+    exclude_tool_bundled: bool,
+    kinds: Vec<String>,
+) -> ScanResult {
     use tauri::Emitter;
     CANCEL.store(false, Ordering::SeqCst);
     let mut homes = Homes::default();
+    let kinds = kinds
+        .into_iter()
+        .map(|kind| kind.to_ascii_lowercase())
+        .collect::<std::collections::HashSet<_>>();
+    let wants = |kind: &str| kinds.is_empty() || kinds.contains(kind);
     let count = AtomicUsize::new(0);
 
     'outer: for root in &roots {
@@ -659,34 +839,46 @@ fn scan_impl(window: tauri::Window, roots: Vec<String>, exclude_ide_jdk: bool) -
             }
             let path = e.path();
             match e.file_name.to_string_lossy().to_lowercase().as_str() {
-                "javac.exe" => {
-                    if !(exclude_ide_jdk && is_ide_jdk(&path)) {
+                "javac.exe" if wants("java") => {
+                    if !(exclude_ide_jdk && is_ide_jdk(&path))
+                        && !(exclude_tool_bundled && is_tool_bundled(&path))
+                    {
                         if let Some(h) = java_home_from_javac(&path) {
                             homes.java.push(h);
                         }
                     }
                 }
-                "python.exe" => {
-                    if let Some(h) = python_home(&path) {
-                        homes.python.push(h);
+                "python.exe" if wants("python") => {
+                    if !(exclude_tool_bundled && is_tool_bundled(&path)) {
+                        if let Some(h) = python_home(&path) {
+                            homes.python.push(h);
+                        }
                     }
                 }
-                "node.exe" => {
-                    if let Some(h) = node_home(&path) {
-                        homes.node.push(h);
+                "node.exe" if wants("node") => {
+                    if !(exclude_tool_bundled && is_tool_bundled(&path)) {
+                        if let Some(h) = node_home(&path) {
+                            homes.node.push(h);
+                        }
                     }
                 }
-                "go.exe" => {
-                    if let Some(h) = go_home(&path) {
-                        homes.go.push(h);
+                "go.exe" if wants("go") => {
+                    if !(exclude_tool_bundled && is_tool_bundled(&path)) {
+                        if let Some(h) = go_home(&path) {
+                            homes.go.push(h);
+                        }
                     }
                 }
-                "mvn.cmd" => {
-                    if let Some(h) = bin_parent(&path) {
-                        homes.maven.push(h);
+                "mvn.cmd" if wants("maven") => {
+                    if !(exclude_tool_bundled && is_tool_bundled(&path)) {
+                        if let Some(h) = bin_parent(&path) {
+                            homes.maven.push(h);
+                        }
                     }
                 }
-                "gradle.bat" => {
+                "gradle.bat"
+                    if wants("gradle") && !(exclude_tool_bundled && is_tool_bundled(&path)) =>
+                {
                     if let Some(h) = bin_parent(&path) {
                         homes.gradle.push(h);
                     }
@@ -700,7 +892,7 @@ fn scan_impl(window: tauri::Window, roots: Vec<String>, exclude_ide_jdk: bool) -
 
     // 取消时不落盘：否则把"扫了一半"的不完整结果持久化，下次 env_state 合并后会显示半截列表。
     if !cancelled {
-        cache_scan(&homes);
+        cache_scan(&homes, &kinds);
     }
 
     ScanResult {
@@ -723,6 +915,62 @@ fn trim(p: &str) -> &str {
     p.trim_end_matches(['\\', '/'])
 }
 
+fn is_related_path(kind: &str, entry: &str, siblings: &[String]) -> bool {
+    let raw = entry.trim();
+    let low = raw.replace('/', "\\").to_lowercase();
+    if siblings.iter().any(|s| {
+        let bin = format!("{}\\bin", trim(s))
+            .replace('/', "\\")
+            .to_lowercase();
+        low.eq_ignore_ascii_case(&bin)
+    }) {
+        return true;
+    }
+    match kind {
+        "java" => low == "%java_home%\\bin" || low.contains("\\jdk") && low.ends_with("\\bin"),
+        "go" => {
+            low == "%goroot%\\bin"
+                || low.ends_with("\\go\\bin")
+                || (low.contains("\\go\\go") && low.ends_with("\\bin"))
+                || (low.contains("\\golang\\") && low.ends_with("\\bin"))
+        }
+        "maven" => {
+            low == "%maven_home%\\bin"
+                || low == "%m2_home%\\bin"
+                || (low.contains("apache-maven") && low.ends_with("\\bin"))
+        }
+        "gradle" => {
+            low == "%gradle_home%\\bin" || (low.contains("\\gradle") && low.ends_with("\\bin"))
+        }
+        "python" => siblings.iter().any(|s| {
+            let base = trim(s).replace('/', "\\").to_lowercase();
+            low.eq_ignore_ascii_case(&base) || low.eq_ignore_ascii_case(&format!("{base}\\scripts"))
+        }),
+        "node" => siblings.iter().any(|s| {
+            let base = trim(s).replace('/', "\\").to_lowercase();
+            low.eq_ignore_ascii_case(&base)
+        }),
+        _ => false,
+    }
+}
+
+fn remove_related_path_entries(
+    hive: winenv::Hive,
+    kind: &str,
+    siblings: &[String],
+) -> Result<(), String> {
+    let before = winenv::get_path_in(hive);
+    let after: Vec<String> = before
+        .iter()
+        .filter(|entry| !is_related_path(kind, entry, siblings))
+        .cloned()
+        .collect();
+    if after.len() != before.len() {
+        winenv::set_path_in(hive, &after)?;
+    }
+    Ok(())
+}
+
 pub fn set_default(
     hive: winenv::Hive,
     kind: &str,
@@ -741,6 +989,7 @@ pub fn set_default(
     backup::backup_env(hive, kind, vars);
     match kind {
         "java" => {
+            remove_related_path_entries(hive, kind, &siblings)?;
             for s in &siblings {
                 winenv::remove_path_in(hive, &format!("{}\\bin", trim(s)))?;
             }
@@ -749,6 +998,7 @@ pub fn set_default(
             winenv::prepend_path_in(hive, "%JAVA_HOME%\\bin")?;
         }
         "python" => {
+            remove_related_path_entries(hive, kind, &siblings)?;
             for s in &siblings {
                 let s = trim(s);
                 winenv::remove_path_in(hive, s)?;
@@ -758,12 +1008,14 @@ pub fn set_default(
             winenv::prepend_path_in(hive, home)?;
         }
         "node" => {
+            remove_related_path_entries(hive, kind, &siblings)?;
             for s in &siblings {
                 winenv::remove_path_in(hive, trim(s))?;
             }
             winenv::prepend_path_in(hive, home)?;
         }
         "go" => {
+            remove_related_path_entries(hive, kind, &siblings)?;
             for s in &siblings {
                 winenv::remove_path_in(hive, &format!("{}\\bin", trim(s)))?;
             }
@@ -772,6 +1024,7 @@ pub fn set_default(
             winenv::prepend_path_in(hive, "%GOROOT%\\bin")?;
         }
         "maven" => {
+            remove_related_path_entries(hive, kind, &siblings)?;
             for s in &siblings {
                 winenv::remove_path_in(hive, &format!("{}\\bin", trim(s)))?;
             }
@@ -780,6 +1033,7 @@ pub fn set_default(
             winenv::prepend_path_in(hive, "%MAVEN_HOME%\\bin")?;
         }
         "gradle" => {
+            remove_related_path_entries(hive, kind, &siblings)?;
             for s in &siblings {
                 winenv::remove_path_in(hive, &format!("{}\\bin", trim(s)))?;
             }
@@ -792,10 +1046,64 @@ pub fn set_default(
     Ok(())
 }
 
+pub fn clear_default(hive: winenv::Hive, kind: &str, siblings: &[String]) -> Result<(), String> {
+    let vars = vars_for_kind(kind)?;
+    backup::backup_env(hive, &format!("{kind}-clear"), vars);
+    for var in vars {
+        winenv::remove_in(hive, var)?;
+    }
+    remove_related_path_entries(hive, kind, siblings)?;
+    Ok(())
+}
+
+fn vars_for_kind(kind: &str) -> Result<&'static [&'static str], String> {
+    match kind {
+        "java" => Ok(&["JAVA_HOME"]),
+        "python" | "node" => Ok(&[]),
+        "go" => Ok(&["GOROOT"]),
+        "maven" => Ok(&["MAVEN_HOME", "M2_HOME"]),
+        "gradle" => Ok(&["GRADLE_HOME"]),
+        _ => Err("未知 SDK".into()),
+    }
+}
+
+fn clear_user_shadow_for_system(kind: &str, siblings: &[String]) -> Result<(), String> {
+    let vars = vars_for_kind(kind)?;
+    backup::backup_env(winenv::Hive::User, &format!("{kind}-system-shadow"), vars);
+    for var in vars {
+        winenv::remove_in(winenv::Hive::User, var)?;
+    }
+    match kind {
+        "java" => {
+            remove_related_path_entries(winenv::Hive::User, kind, siblings)?;
+        }
+        "go" => {
+            remove_related_path_entries(winenv::Hive::User, kind, siblings)?;
+        }
+        "maven" => {
+            remove_related_path_entries(winenv::Hive::User, kind, siblings)?;
+        }
+        "gradle" => {
+            remove_related_path_entries(winenv::Hive::User, kind, siblings)?;
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
 // ── Tauri 命令 ──
 #[tauri::command]
 pub fn env_state() -> Vec<SdkGroup> {
-    let cache = scanned().lock().unwrap();
+    let mut cache = scanned().lock().unwrap();
+    let mut cache_changed = false;
+    for homes in cache.values_mut() {
+        let before = homes.len();
+        homes.retain(|path| path.exists());
+        cache_changed |= homes.len() != before;
+    }
+    if cache_changed {
+        save_scan_cache(&cache);
+    }
     ["java", "python", "node", "go", "maven", "gradle"]
         .iter()
         .map(|k| {
@@ -816,6 +1124,112 @@ pub fn env_state() -> Vec<SdkGroup> {
             }
         })
         .collect()
+}
+
+#[tauri::command]
+pub fn env_register_install(kind: String, path: String) -> Result<(), String> {
+    if !matches!(kind.as_str(), "java" | "go" | "maven" | "gradle") {
+        return Err("该生态不使用手动安装目录登记。".into());
+    }
+    let path = PathBuf::from(path.trim());
+    if !path.is_absolute() {
+        return Err("安装目录必须是绝对路径。".into());
+    }
+    if !path.is_dir() {
+        return Err(format!("安装目录不存在：{}", path.display()));
+    }
+    let key = path.to_string_lossy().to_lowercase();
+    {
+        let mut managed = managed_installs()
+            .lock()
+            .map_err(|_| "受管安装目录暂时不可用。")?;
+        let paths = managed.entry(kind.clone()).or_default();
+        if !paths
+            .iter()
+            .any(|item| item.to_string_lossy().to_lowercase() == key)
+        {
+            paths.push(path.clone());
+            save_path_map(&managed_installs_path(), &managed);
+        }
+    }
+    let mut cache = scanned().lock().map_err(|_| "安装目录缓存暂时不可用。")?;
+    let homes = cache.entry(kind).or_default();
+    if !homes
+        .iter()
+        .any(|item| item.to_string_lossy().to_lowercase() == key)
+    {
+        homes.push(path);
+        save_scan_cache(&cache);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn env_remove_managed(kind: String, path: String) -> Result<(), String> {
+    if !matches!(kind.as_str(), "java" | "go" | "maven" | "gradle") {
+        return Err("该生态不支持通过此操作删除。".into());
+    }
+    let target = PathBuf::from(path.trim());
+    if !target.is_absolute() || !target.is_dir() {
+        return Err("目标安装目录不存在。请刷新状态后重试。".into());
+    }
+    if !is_managed_install(&kind, &target) {
+        return Err(
+            "该版本不是由 Stacker 安装，无法确认目录内是否包含其他文件。请使用原安装程序卸载。"
+                .into(),
+        );
+    }
+    if target.components().count() < 3 {
+        return Err("为保护磁盘数据，拒绝删除过短的目录路径。".into());
+    }
+
+    let siblings = scanned()
+        .lock()
+        .map_err(|_| "安装目录缓存暂时不可用。")?
+        .get(&kind)
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|item| item.to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    let current = current_home(&kind).is_some_and(|value| {
+        value
+            .trim_end_matches(['\\', '/'])
+            .eq_ignore_ascii_case(target.to_string_lossy().trim_end_matches(['\\', '/']))
+    });
+    if current {
+        clear_default(winenv::Hive::User, &kind, &siblings)?;
+        if env_system_info().get(&kind).copied().unwrap_or(false) {
+            crate::winadmin::clear_default_system(&kind, siblings.clone())?;
+        }
+    }
+
+    std::fs::remove_dir_all(&target).map_err(|error| format!("无法删除安装目录：{error}"))?;
+    {
+        let mut cache = scanned().lock().map_err(|_| "安装目录缓存暂时不可用。")?;
+        if let Some(paths) = cache.get_mut(&kind) {
+            paths.retain(|item| {
+                !item
+                    .to_string_lossy()
+                    .eq_ignore_ascii_case(&target.to_string_lossy())
+            });
+        }
+        save_scan_cache(&cache);
+    }
+    {
+        let mut managed = managed_installs()
+            .lock()
+            .map_err(|_| "受管安装目录暂时不可用。")?;
+        if let Some(paths) = managed.get_mut(&kind) {
+            paths.retain(|item| {
+                !item
+                    .to_string_lossy()
+                    .eq_ignore_ascii_case(&target.to_string_lossy())
+            });
+        }
+        save_path_map(&managed_installs_path(), &managed);
+    }
+    Ok(())
 }
 
 // 异步：写注册表后 broadcast_change 有最多 5s 的 SendMessageTimeout，放后台线程免得卡界面。
@@ -845,7 +1259,9 @@ pub fn env_set_default_system(
     if !Path::new(&path).exists() {
         return Err("该路径已不存在（可能被删除/移动），请重新扫描后再设默认".into());
     }
-    crate::winadmin::set_default_system(&kind, &path, siblings)
+    crate::winadmin::set_default_system(&kind, &path, siblings.clone())?;
+    clear_user_shadow_for_system(&kind, &siblings)?;
+    Ok(())
 }
 
 /// 每个 SDK 是否存在系统级配置（用来提示需用系统级切换）。
@@ -870,5 +1286,16 @@ pub fn env_system_info() -> std::collections::HashMap<String, bool> {
     );
     m.insert("python".into(), has(&["python"]));
     m.insert("node".into(), has(&["nodejs", "\\node\\"]));
+    m.insert(
+        "maven".into(),
+        winenv::get_raw_in(System, "MAVEN_HOME").is_some()
+            || winenv::get_raw_in(System, "M2_HOME").is_some()
+            || has(&["%maven_home%\\bin", "\\maven\\bin", "\\apache-maven-"]),
+    );
+    m.insert(
+        "gradle".into(),
+        winenv::get_raw_in(System, "GRADLE_HOME").is_some()
+            || has(&["%gradle_home%\\bin", "\\gradle\\bin", "\\gradle-"]),
+    );
     m
 }
