@@ -1,177 +1,214 @@
 # Stacker
 
-AI Coding Runtime Manager for Windows.
+**Windows 开发生态与 AI 工作智能体管理器**
 
-Stacker 帮助 Windows 开发者和刚开始使用工作智能体的用户，把本机整理成适合 Codex、Claude Code、Cursor、VS Code Agent 等工具工作的开发环境。它把 Python、Node.js、Java、Maven、Gradle、Go、Rust 的运行时管理、包仓库镜像、终端代理、智能体就绪体检和缓存清理集中到一个桌面应用里，让一台新 Windows 机器更快进入可开发状态，也让后续维护有状态、有进度、可回退。
+Stacker 将 Git、AI 工作智能体、编程语言运行时、构建工具、下载源、仓库镜像、终端代理、日志和开发缓存集中到一个 Windows 桌面应用中。它帮助开发者看清本机环境、完成版本维护，并为本地 AI 工作智能体提供可直接使用的环境摘要。
 
-[![Release](https://img.shields.io/github/v/release/byteswalk/stacker?label=release)](https://github.com/byteswalk/stacker/releases)
-[![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-blue)](#)
+[简体中文](#简体中文) | [English](#english)
+
+[![Release](https://img.shields.io/github/v/release/byteswalk/stacker?label=release)](https://github.com/byteswalk/stacker/releases/latest)
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-2563eb)](#系统要求)
 [![License](https://img.shields.io/github/license/byteswalk/stacker)](LICENSE)
 [![Tauri](https://img.shields.io/badge/built%20with-Tauri%202-24c8db)](https://tauri.app/)
 
-![Stacker overview](assets/screenshots/overview.png)
+## 简体中文
 
-## Summary
+### 下载
 
-Stacker is a Windows desktop app for preparing local machines for AI coding agents. It helps manage Python, Node.js, Java, Maven, Gradle, Go and Rust toolchains, configure registries and mirrors, keep terminal proxy settings predictable, and clean common development caches with backup and restore support.
+从 [GitHub Releases](https://github.com/byteswalk/stacker/releases/latest) 获取最新版：
 
-It is designed for Windows developers, beginners using AI coding tools, and teams working behind slow networks, enterprise proxies or private registries.
+- **安装版**：带开始菜单、卸载入口和后续版本检测，适合日常使用。
+- **免安装版**：解压后运行 `Stacker.exe`，适合临时测试和便携工具盘。
+- **SHA-256 校验**：使用 Release 中的 `SHA256SUMS.txt` 校验下载文件。
 
-## 下载
+当前版本：[Stacker v0.2.0](https://github.com/byteswalk/stacker/releases/tag/v0.2.0)
 
-从 [GitHub Releases](https://github.com/byteswalk/stacker/releases/latest) 下载最新版。
+### 产品定位
 
-- 安装版：适合日常使用，带开始菜单和卸载入口。
-- 免安装版：解压后运行 `Stacker.exe`，适合临时测试或放在工具盘。
+AI 工作智能体可以修改代码、安装依赖、运行测试和构建项目，但它们仍依赖本机真实存在的 Git、Node.js、Python、Java、Go、Rust 和构建工具。Stacker 不替代这些工具，也不替代 Codex 或 Claude Code；它负责整理智能体运行所需的 Windows 开发生态，并将实际状态清晰地交给用户和智能体。
 
-Stacker 面向 Windows 10 和 Windows 11。首次启动后，建议从“生态环境体检”页检查本机状态，再进入对应生态页面安装运行时、切换默认版本或配置下载源。
+适用场景：
 
-## 它解决什么问题
+- 新 Windows 电脑的开发环境初始化。
+- 多语言、多版本运行时的日常维护。
+- AI 工作智能体运行前的环境检查与上下文准备。
+- 企业代理、私有 Git 服务和受限网络下的开发配置。
+- 下载源、包仓库、终端集成和开发缓存的集中管理。
 
-在 Windows 上，开发环境的问题往往不是“少装了一个工具”这么简单，而是运行时版本、PATH、包仓库、代理、终端集成和缓存状态交织在一起。工作智能体会更频繁地产生跨语言项目，也会直接调用本机 shell 安装依赖、运行测试和构建项目。新手很容易卡在 `python`、`node`、`java`、`mvn`、`gradle` 命令不可用，或者下载依赖一直失败，却不知道该从哪里排查。
+### 核心能力
 
-Stacker 的产品思路是先看清本机生态，再处理具体问题：集中检查 Git、工作智能体、Node、Python、JDK、构建工具、终端代理和开发缓存，并在对应页面完成安装、切换、配置与清理。耗时操作展示进度，关键写入前自动备份，出现问题可从历史记录恢复。
+#### 生态环境体检
 
-它特别适合 Windows 开发者、刚开始使用工作智能体的用户，以及需要在企业代理、私有仓库或受限网络中维护开发环境的团队。
+按需检查 Git、Node.js、Python、Java、Maven、Gradle、Go、Rust、包管理器、终端代理和开发缓存。结果以评分和可处理项呈现，不会在进入页面时强制执行耗时扫描。
 
-它不会替代 Codex、Claude Code、Cursor、pyenv-win、fnm、rustup、Maven 或 Gradle。它负责把本机运行时、包管理器、代理和终端入口整理好，让本地 Agent 更稳定地安装依赖、运行测试和构建项目。
+#### AI 工作智能体
 
-## 功能
+集中检测 Claude Code、Codex、Antigravity、OpenCode、ZCode、Kimi Code、WorkBuddy、Qoder、TRAE Work、OpenClaw 和 Hermes Agent 的 CLI 与桌面端状态。
 
-### 生态环境体检
+- 检测已安装版本和可用更新。
+- 在官方支持的情况下执行安装、更新、卸载和启动。
+- 单独刷新某个智能体，不影响其他卡片。
+- 生成仅包含已安装智能体的本机生态摘要，便于交给 AI 继续工作。
 
-Stacker 会检查 Git、Node/npm、Python/pip、Java、Maven、Gradle、Go、Rust、终端代理和开发缓存。体检结果会直接给出可处理项，例如基础命令缺失、环境失效、开发缓存偏高或 Windows 临时目录过大，并可直接进入对应页面处理。
+#### Git 与多账号执行环境
 
-### Python
+- 检测和安装 Git for Windows，识别 Git Bash 与 Git Credential Manager。
+- 管理 GitHub、Gitee、GitLab、Gitea、Forgejo、GitHub Enterprise、阿里云云效 Codeup 及通用 HTTPS Git 服务账号。
+- 访问令牌只保存到 Windows 凭据管理器，不写入项目文件或终端输出。
+- 为每个账号打开隔离的 PowerShell、Git Bash 或 cmd 执行环境。
+- 支持设置默认提交身份、初始化工程、仓库迁移以及复制账号操作摘要给 AI。
 
-管理 `pyenv-win`、Python 运行时、pip 镜像和终端集成。支持 Python 下载源测速、版本安装、默认版本设置、pip 用户配置和自选 `pip.ini`。
+#### 运行时与构建工具
 
-![Python management](assets/screenshots/python.png)
+| 生态 | 主要能力 |
+| --- | --- |
+| Python | pyenv-win、运行时安装与扫描、默认版本、pip 镜像、终端集成 |
+| Node.js | fnm、运行时安装与扫描、npm/pnpm/yarn 镜像、大文件下载镜像 |
+| Java | JDK 扫描、安装、删除、默认版本、用户级或系统级环境变量 |
+| Maven | 版本安装与扫描、默认版本、仓库镜像、代理、settings.xml |
+| Gradle | 版本安装与扫描、Wrapper 下载源、仓库镜像、init.gradle |
+| Go | SDK 安装与扫描、默认版本、用户级或系统级 GOPROXY |
+| Rust | rustup 工具链、stable/beta/nightly、组件与 target、Cargo 源 |
 
-### Node.js
+所有生态页统一提供状态刷新、磁盘扫描、版本安装、默认版本切换、终端验证和“复制摘要给 AI”。删除运行时前会二次确认；删除当前默认版本时会同步处理相关环境配置。
 
-通过 `fnm` 管理 Node 版本，支持 Node 下载源、默认版本设置、PowerShell / Git Bash / cmd 集成，以及 npm、pnpm、yarn 相关镜像配置。Node 生态的大文件下载镜像也可以单独处理，例如 Electron、Playwright、Cypress、Prisma、sharp 和 HuggingFace。
+#### 源管理
 
-![Node management](assets/screenshots/node.png)
+- 运行时下载源、包仓库镜像、构建工具仓库和大文件下载镜像分类维护。
+- 支持测速、超时控制、手动应用、清除和自定义源。
+- 支持导入、导出以及从服务器拉取新版公共源清单。
+- 公共源清单更新不会覆盖本机自定义源。
+- 后台可定期检查程序、源清单和生态版本更新。
 
-### Java
+#### 终端代理、磁盘与日志
 
-扫描本机 JDK，显示 `java` 命令和 `JAVA_HOME` 的真实生效状态。支持默认 JDK 切换、系统级环境变量写入和磁盘扫描，适合同时安装多个 JDK、IDE 自带 JBR 或项目内嵌 JDK 的场景。
+- 统一配置终端代理和 `NO_PROXY`，并为已打开终端生成临时生效命令。
+- 扫描开发工具缓存、Windows 临时目录及 JetBrains/Android Studio 历史版本。
+- 关键配置修改前自动备份，可在“历史”页面查看详情并恢复。
+- 日志级别可实时切换，支持打开日志目录、实时日志窗口、保留天数和手动清理。
 
-![Java management](assets/screenshots/java.png)
+#### 中英文界面
 
-### Maven
+设置中可在简体中文和 English 之间即时切换。界面针对 Windows 缩放和较小可用工作区进行了响应式处理。
 
-支持 Maven 版本管理、默认版本设置、仓库镜像配置和代理写入。`settings.xml` 可以使用当前用户配置，也可以手动选择指定文件单独处理。
+### 快速开始
 
-![Maven management](assets/screenshots/maven.png)
+1. 下载并启动 Stacker。
+2. 在“生态环境体检”页面点击“开始体检”。
+3. 进入有问题的生态页面，安装或扫描运行时并设置默认版本。
+4. 对下载源或包仓库执行测速，确认后点击“应用”。
+5. 在“AI 工作智能体”页面刷新状态，并按需复制本机生态摘要。
+6. 需要恢复配置时，前往“历史”页面查看最近备份。
 
-### Gradle
+### 安全与隐私
 
-支持 Gradle 版本管理、默认版本设置、仓库镜像配置和代理写入。`init.gradle` 可以使用当前用户配置，也可以手动选择指定文件单独处理。
+- Stacker 不上传本机环境、项目内容或访问令牌。
+- Git 访问令牌保存在 Windows 凭据管理器中。
+- 系统级环境变量修改会触发 Windows UAC，由用户确认后执行。
+- 关键配置写入前会创建本地备份。
+- 安装包来自 GitHub Release，可使用随附 SHA-256 清单校验。
 
-![Gradle management](assets/screenshots/gradle.png)
+### 系统要求
 
-### Go
+- Windows 10 或 Windows 11，64 位。
+- WebView2 Runtime。现代 Windows 10/11 通常已预装。
+- 部分系统级操作需要管理员授权。
+- 具体运行时和智能体可能有各自的系统要求与许可条款。
 
-管理 Go SDK 的下载、扫描和默认版本切换，并支持 `GOPROXY` 按当前用户或系统级写入。下载源与包源镜像分开处理：Go 运行时下载用于获取 SDK，包源区域用于配置模块代理。
+### 从源码构建
 
-![Go management](assets/screenshots/go.png)
-
-### Rust
-
-集成 `rustup` 工具链状态、默认工具链切换和 Cargo 镜像配置。Cargo 源支持测速和应用，组件安装仍交给 rustup 原生命令处理，避免和交叉编译 target、组件缓存产生冲突。
-
-![Rust management](assets/screenshots/rust.png)
-
-### 终端代理
-
-统一维护终端代理地址和 `NO_PROXY` 白名单。开启后写入当前用户环境变量，对新开的终端生效；已经打开的终端可以直接复制页面里的片段命令立即应用。
-
-![Terminal proxy](assets/screenshots/proxy.png)
-
-### 磁盘清理
-
-扫描常见开发缓存和临时目录，区分安全缓存、谨慎项、JetBrains IDE 历史版本和 Windows 临时目录。安全缓存默认勾选，其他项目需要手动确认。临时目录中被占用的文件会自动跳过。
-
-![Disk cleanup](assets/screenshots/cleanup.png)
-
-### 历史
-
-Stacker 会对系统做真实修改，所以所有关键写入都尽量保持可见和可回退：
-
-- 写入当前用户环境变量，例如 `PATH`、`JAVA_HOME`、`GOPROXY`、`HTTP_PROXY`。
-- 系统级环境变量需要用户确认 UAC 提权。
-- 写入工具原生配置，例如 `.npmrc`、`.yarnrc`、`pip.ini`、`settings.xml`、`init.gradle`、Cargo 配置。
-- 写入终端集成，例如 PowerShell profile、Git Bash `.bashrc`、cmd AutoRun。
-- 重要写入前会保存历史记录，可在“历史”页查看详情、恢复或删除。
-
-![历史](assets/screenshots/history.png)
-
-### 设置
-
-Stacker 内置常见公共源和镜像源，并支持从 GitHub 拉取公共源清单。源清单使用 `yyyyMMddHHmm` 版本号，应用会在设置页和源管理页检查新版清单，确认后才会替换内置源。本地自定义源保存在当前电脑，不会被公共清单覆盖。
-
-自定义源适合公司内网 Nexus、Artifactory、私有 PyPI、私有 npm registry 或私有 Maven 仓库。需要凭据的源会使用 Windows DPAPI 在本机加密保存。
-
-![设置](assets/screenshots/settings.png)
-
-## 本地数据
-
-Stacker 的用户数据默认保存在当前 Windows 用户目录下：
-
-- `%APPDATA%\stacker\settings.json`
-- `%APPDATA%\stacker\profiles.json`
-- `%APPDATA%\stacker\custom_sources.json`
-- `%APPDATA%\stacker\backups\`
-- `%APPDATA%\stacker\mirrors.json`
-
-下载的 fnm、pyenv-win、JDK、Maven、Gradle、Go 等运行时默认放在 Stacker 管理目录下，便于集中迁移和清理。
-
-## 从源码构建
-
-需要 Windows 10 或 Windows 11，并安装以下环境：
-
-- Rust toolchain，最低版本 `1.77.2`
-- Node.js 和 npm
-- Visual Studio Build Tools 或 MSVC 工具链
-- WebView2 Runtime
-
-安装依赖：
+准备 Node.js、Rust stable、MSVC Build Tools 和 WebView2 开发环境。
 
 ```powershell
 npm install
-```
-
-启动开发版桌面应用：
-
-```powershell
 npm run tauri dev
 ```
 
-构建前端：
+执行完整检查：
 
 ```powershell
-npm run build
+npm run lint
+npm run test
+cargo test --manifest-path src-tauri/Cargo.toml
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 ```
 
-生成 Windows 安装版、免安装版与 SHA-256 校验清单：
+生成 Windows 安装版、免安装版和校验清单：
 
 ```powershell
 npm run release:windows
 ```
 
-发布产物输出到 `release/v<版本号>/`。脚本会先执行前端与 Rust 的测试和静态检查，再构建并统一命名发布文件。
+产物位于 `release/v<版本号>/`。发布前需保持 `package.json`、`Cargo.toml`、`tauri.conf.json` 和 `resources/latest.json` 的版本一致。
 
-发布前应确保 `package.json`、`Cargo.toml`、`tauri.conf.json` 与 `resources/latest.json` 的版本保持一致。
+### 技术栈
 
-## 技术栈
+- Tauri 2
+- React 19
+- TypeScript
+- Rust
+- Vite
 
-- 桌面框架：Tauri 2
-- 前端：React、TypeScript、Vite
-- 后端：Rust
-- 系统集成：Windows Registry、环境变量、配置文件、DPAPI、UAC 提权
+---
 
-## 许可证
+## English
 
-Stacker 使用 [MIT License](LICENSE)。
+### Overview
+
+Stacker is a Windows desktop application for managing local development ecosystems and AI work agents. It brings runtime versions, build tools, Git accounts, registries, mirrors, terminal proxy settings, logs, backups, and development cache cleanup into one interface.
+
+AI agents can edit code and run commands, but they still depend on a working local toolchain. Stacker prepares that toolchain, reports its actual state, and produces a concise environment summary that can be handed to an agent before it starts working.
+
+### Highlights
+
+- On-demand health checks for Git, Node.js, Python, Java, Maven, Gradle, Go, Rust, proxies, and caches.
+- Detection and lifecycle actions for 11 AI work-agent ecosystems, including Claude Code, Codex, Antigravity, OpenCode, OpenClaw, and Hermes Agent.
+- Isolated Git account terminals for GitHub, Gitee, GitLab, Gitea, Forgejo, GitHub Enterprise, Alibaba Cloud Codeup, and generic HTTPS Git services.
+- Version installation, discovery, default selection, deletion, and terminal verification across supported runtimes.
+- Source catalog management with latency testing, custom sources, import/export, and remote catalog updates.
+- Terminal proxy management, local backup and restore history, development cache cleanup, and configurable application logging.
+- Simplified Chinese and English user interfaces.
+
+### Download
+
+Download the latest release from [GitHub Releases](https://github.com/byteswalk/stacker/releases/latest).
+
+- **Installer**: recommended for daily use.
+- **Portable package**: extract and run `Stacker.exe`.
+- **Checksums**: verify artifacts with `SHA256SUMS.txt`.
+
+Current release: [Stacker v0.2.0](https://github.com/byteswalk/stacker/releases/tag/v0.2.0)
+
+### Quick Start
+
+1. Launch Stacker and open **Environment Check**.
+2. Start a health check and review actionable findings.
+3. Open the relevant ecosystem page to install, discover, or select a runtime.
+4. Test download sources and apply the preferred source explicitly.
+5. Open **AI Work Agents** to refresh agent status and copy the installed environment summary.
+6. Use **History** to inspect or restore backed-up configuration changes.
+
+### Security
+
+- Machine state, project content, and access tokens are not uploaded by Stacker.
+- Git tokens are stored in Windows Credential Manager.
+- System-level changes require explicit Windows UAC approval.
+- Important configuration files are backed up before modification.
+- Release artifacts include SHA-256 checksums.
+
+### Build from Source
+
+```powershell
+npm install
+npm run tauri dev
+```
+
+Run the release pipeline locally:
+
+```powershell
+npm run release:windows
+```
+
+### License
+
+Stacker is released under the [MIT License](LICENSE).
