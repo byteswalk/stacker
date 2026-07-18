@@ -1,3 +1,4 @@
+use super::classifier::is_project_marker_file_name;
 use super::model::{AnalysisSummary, DirectoryNode, LargeFileRow, Paged, ScanErrorSummary};
 use super::windows_fs::{allocated_size, file_identity, FileIdentity};
 use chrono::{DateTime, Utc};
@@ -72,6 +73,12 @@ struct NodeRecord {
     direct_allocated_bytes: u64,
     direct_logical_bytes: u64,
     child_ids: Vec<NodeId>,
+    direct_file_names: HashSet<String>,
+}
+
+pub(crate) struct DirectoryIndexEntry<'a> {
+    pub(crate) node: &'a DirectoryNode,
+    pub(crate) direct_file_names: &'a HashSet<String>,
 }
 
 pub(crate) struct IndexedScanResult {
@@ -87,6 +94,13 @@ impl IndexedScanResult {
 
     pub(crate) fn set_task_id(&mut self, task_id: &str) {
         self.summary.task_id = task_id.to_string();
+    }
+
+    pub(crate) fn directory_entries(&self) -> impl Iterator<Item = DirectoryIndexEntry<'_>> {
+        self.nodes.values().map(|record| DirectoryIndexEntry {
+            node: &record.node,
+            direct_file_names: &record.direct_file_names,
+        })
     }
 
     pub(crate) fn children(
@@ -420,6 +434,7 @@ impl WalkVisitor for IndexBuilder {
             direct_allocated_bytes: 0,
             direct_logical_bytes: 0,
             child_ids: Vec::new(),
+            direct_file_names: HashSet::new(),
         };
 
         self.path_ids.insert(path, node_id.clone());
@@ -445,6 +460,12 @@ impl WalkVisitor for IndexBuilder {
                 .direct_allocated_bytes
                 .saturating_add(allocated_bytes);
             parent.direct_logical_bytes = parent.direct_logical_bytes.saturating_add(logical_bytes);
+            if let Some(file_name) = path.file_name() {
+                let file_name = file_name.to_string_lossy();
+                if is_project_marker_file_name(&file_name) {
+                    parent.direct_file_names.insert(file_name.to_lowercase());
+                }
+            }
         }
 
         let modified_at = metadata
@@ -713,6 +734,7 @@ mod tests {
                     direct_allocated_bytes: 1,
                     direct_logical_bytes: 2,
                     child_ids,
+                    direct_file_names: HashSet::new(),
                 },
             );
         }

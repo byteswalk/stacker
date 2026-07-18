@@ -1,5 +1,25 @@
 use serde::{Deserialize, Serialize};
 
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "camelCase")]
+pub enum ProjectKind {
+    Node,
+    Rust,
+    Maven,
+    Gradle,
+    Go,
+    DotNet,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectRoot {
+    pub project_id: String,
+    pub node_id: String,
+    pub path: String,
+    pub kind: ProjectKind,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum ScanMode {
