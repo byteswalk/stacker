@@ -276,28 +276,32 @@ button{ font-family:inherit; }
 .a .histkv b{ color:var(--tx); font-weight:500; font-size:12px; line-height:1.55; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
 /* 源管理弹窗 */
-.a .source-manager-modal > .modalmask > .modal{ height:min(760px, 90vh); }
-.a .source-manager-modal > .modalmask > .modal > .modalbody{ flex:1; min-height:0; overflow:hidden; }
+.a .source-manager-modal > .modalmask{ padding-block:12px; }
+.a .source-manager-modal > .modalmask > .modal{ height:min(760px, calc(100vh - 24px)); max-height:calc(100vh - 24px); }
+.a .source-manager-modal > .modalmask > .modal > .modalhd{ padding-block:10px; }
+.a .source-manager-modal > .modalmask > .modal > .modalsub{ padding-block:7px; }
+.a .source-manager-modal > .modalmask > .modal > .modalbody{ flex:1; min-height:0; overflow:hidden; padding-block:10px; }
+.a .source-manager-modal > .modalmask > .modal > .modalft{ padding-block:8px; }
 .a .sm-summary{ display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
 .a .sm-summary span{ color:var(--mut); }
-.a .sourcemgr{ display:grid; grid-template-columns:150px minmax(0,1fr); gap:14px; height:100%; min-height:0; min-width:0; overflow:hidden; }
+.a .sourcemgr{ display:grid; grid-template-columns:150px minmax(0,1fr); gap:10px; height:100%; min-height:0; min-width:0; overflow:hidden; }
 .a .smnav{ background:#12171e; border:.5px solid var(--bd); border-radius:12px; padding:8px; display:flex; flex-direction:column; gap:4px; }
 .a .smnav button{ background:transparent; color:var(--mut); border:none; border-radius:8px; padding:9px 10px;
   display:flex; align-items:center; justify-content:space-between; gap:8px; cursor:pointer; font-size:12px; text-align:left; }
 .a .smnav button:hover{ background:rgba(255,255,255,.05); color:var(--tx); }
 .a .smnav button.on{ background:rgba(245,130,31,.14); color:#f5a45a; }
 .a .smnav button b{ font-size:10.5px; color:inherit; font-weight:500; opacity:.8; }
-.a .smpanel{ min-width:0; min-height:0; overflow:hidden; display:flex; flex-direction:column; gap:10px; }
+.a .smpanel{ min-width:0; min-height:0; overflow:visible; display:flex; flex-direction:column; gap:8px; }
 .a .smserver{ display:grid; grid-template-columns:minmax(150px,.8fr) minmax(220px,1.5fr) auto; align-items:center; gap:10px;
-  background:var(--card); border:.5px solid var(--bd); border-radius:11px; padding:10px 12px; }
+  flex:0 0 auto; background:var(--card); border:.5px solid var(--bd); border-radius:11px; padding:8px 12px; }
 .a .smserver .mt{ min-width:0; }
 .a .smserver .mt .s{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .a .smserver > .ip{ min-width:0; text-overflow:ellipsis; }
 .a .smserver-actions{ display:flex; align-items:center; justify-content:flex-end; gap:8px; flex-wrap:wrap; }
 .a .smserver-actions button{ white-space:nowrap; }
-.a .smtools{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; min-width:0; }
+.a .smtools{ display:flex; flex:0 0 auto; align-items:center; gap:8px; flex-wrap:wrap; min-width:0; }
 .a .smtools > .ip{ flex:1 1 240px; width:auto; min-width:0; }
-.a .smlist{ display:flex; flex:1 1 auto; flex-direction:column; gap:7px; min-height:210px; min-width:0;
+.a .smlist{ display:flex; flex:1 1 0; flex-direction:column; gap:7px; min-height:0; min-width:0;
   overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:stable; padding-right:2px; }
 .a .smrow{ display:grid; grid-template-columns:82px minmax(0,1fr) 145px auto auto; align-items:center; gap:10px;
   background:var(--card); border:.5px solid var(--bd); border-radius:11px; padding:10px 12px; }
@@ -306,8 +310,8 @@ button{ font-family:inherit; }
 .a .smhost{ font-family:var(--font-mono); color:#9fb0c4; font-size:11.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 @media (max-width: 1180px){
   .a .sourcemgr{ grid-template-columns:1fr; grid-template-rows:auto minmax(0,1fr); min-height:0; }
-  .a .smnav{ flex-direction:row; min-height:52px; flex-shrink:0; overflow-x:auto; overflow-y:hidden; }
-  .a .smnav button{ flex:0 0 auto; min-width:112px; }
+  .a .smnav{ flex-direction:row; min-height:44px; flex-shrink:0; overflow-x:auto; overflow-y:hidden; padding:5px; }
+  .a .smnav button{ flex:0 0 auto; min-width:112px; padding-block:7px; }
   .a .smrow{ grid-template-columns:76px minmax(0,1fr); }
   .a .smhost{ display:none; }
 }
