@@ -5,11 +5,12 @@ pub mod tasks;
 pub mod walker;
 pub mod windows_fs;
 
-use self::model::{QuickScanResult, ScanMode, ScanProgress, ScanRequest, VolumeInfo};
-use self::targets::list_fixed_volumes;
+use self::model::{
+    AnalysisSummary, DirectoryNode, LargeFileRow, Paged, QuickScanResult, ScanMode, ScanProgress,
+    ScanRequest, VolumeInfo,
+};
+use self::targets::{list_fixed_volumes, validate_targets};
 pub use self::tasks::SpaceTaskManager;
-
-const UNSUPPORTED_SCAN_SCOPE: &str = "当前版本尚未启用该扫描范围";
 
 #[tauri::command]
 pub fn space_fixed_volumes() -> Vec<VolumeInfo> {
@@ -22,10 +23,17 @@ pub fn space_scan_start(
     manager: tauri::State<'_, SpaceTaskManager>,
     window: tauri::Window,
 ) -> Result<String, String> {
-    if let Some(error) = unsupported_scan_mode_error(&request.mode) {
-        return Err(error.into());
+    let targets = validate_targets(&request).map_err(|error| error.to_string())?;
+    match request.mode {
+        ScanMode::Quick => manager.start_quick(window),
+        ScanMode::Directories | ScanMode::Drives => manager.start_deep(
+            targets
+                .into_iter()
+                .map(|target| target.path().to_path_buf())
+                .collect(),
+            window,
+        ),
     }
-    manager.start_quick(window)
 }
 
 #[tauri::command]
@@ -52,26 +60,32 @@ pub fn space_scan_quick_result(
     manager.quick_result(&task_id)
 }
 
-fn unsupported_scan_mode_error(mode: &ScanMode) -> Option<&'static str> {
-    match mode {
-        ScanMode::Quick => None,
-        ScanMode::Directories | ScanMode::Drives => Some(UNSUPPORTED_SCAN_SCOPE),
-    }
+#[tauri::command]
+pub fn space_scan_summary(
+    task_id: String,
+    manager: tauri::State<'_, SpaceTaskManager>,
+) -> Result<AnalysisSummary, String> {
+    manager.summary(&task_id)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::model::ScanMode;
-    use super::*;
+#[tauri::command]
+pub fn space_scan_children(
+    task_id: String,
+    parent_id: String,
+    offset: u64,
+    limit: u64,
+    manager: tauri::State<'_, SpaceTaskManager>,
+) -> Result<Paged<DirectoryNode>, String> {
+    manager.children(&task_id, &parent_id, offset, limit)
+}
 
-    #[test]
-    fn unsupported_scan_scopes_return_clear_chinese_error() {
-        for mode in [ScanMode::Directories, ScanMode::Drives] {
-            assert_eq!(
-                unsupported_scan_mode_error(&mode),
-                Some("当前版本尚未启用该扫描范围")
-            );
-        }
-        assert_eq!(unsupported_scan_mode_error(&ScanMode::Quick), None);
-    }
+#[tauri::command]
+pub fn space_scan_large_files(
+    task_id: String,
+    min_bytes: u64,
+    offset: u64,
+    limit: u64,
+    manager: tauri::State<'_, SpaceTaskManager>,
+) -> Result<Paged<LargeFileRow>, String> {
+    manager.large_files(&task_id, min_bytes, offset, limit)
 }

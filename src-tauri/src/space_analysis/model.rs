@@ -83,6 +83,52 @@ pub struct QuickScanResult {
     pub errors: ScanErrorSummary,
 }
 
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnalysisSummary {
+    pub task_id: String,
+    pub targets: Vec<String>,
+    pub allocated_bytes: u64,
+    pub logical_bytes: u64,
+    pub file_count: u64,
+    pub directory_count: u64,
+    pub skipped_paths: u64,
+    pub root_nodes: Vec<DirectoryNode>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirectoryNode {
+    pub node_id: String,
+    pub parent_id: Option<String>,
+    pub name: String,
+    pub path: String,
+    pub allocated_bytes: u64,
+    pub logical_bytes: u64,
+    pub child_count: u32,
+    pub safety: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LargeFileRow {
+    pub node_id: String,
+    pub name: String,
+    pub path: String,
+    pub allocated_bytes: u64,
+    pub logical_bytes: u64,
+    pub modified_at: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Paged<T> {
+    pub items: Vec<T>,
+    pub offset: u64,
+    pub limit: u64,
+    pub total: u64,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

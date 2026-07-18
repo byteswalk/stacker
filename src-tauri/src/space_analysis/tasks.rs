@@ -1,8 +1,14 @@
 use super::known::scan_known_candidates;
-use super::model::{QuickScanResult, ScanProgress, ScanTaskState};
-use super::walker::{CancellationToken, ScanWalkError, WalkStats};
+use super::model::{
+    AnalysisSummary, DirectoryNode, LargeFileRow, Paged, QuickScanResult, ScanProgress,
+    ScanTaskState,
+};
+use super::walker::{
+    build_indexed_result, CancellationToken, IndexedScanResult, ScanWalkError, WalkStats,
+};
 use std::collections::HashMap;
 use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc, Mutex, MutexGuard,
@@ -13,14 +19,31 @@ use std::time::{Duration, Instant};
 const TASK_NOT_FOUND: &str = "未找到扫描任务";
 const TASK_START_FAILED: &str = "无法启动扫描任务";
 const TASK_PANICKED: &str = "扫描任务异常终止";
-const TASK_NOT_COMPLETE: &str = "扫描任务尚未完成";
+const TASK_QUEUED: &str = "扫描任务正在排队";
+const TASK_RUNNING: &str = "扫描任务正在运行";
+const TASK_CANCELLING: &str = "扫描任务正在取消";
 const TASK_CANCELLED: &str = "扫描任务已取消";
 const TASK_RESULT_UNAVAILABLE: &str = "扫描结果不可用";
+const DEEP_TASK_LIMIT_REACHED: &str = "at most two deep scan tasks may run concurrently";
+const DUPLICATE_DEEP_TASK: &str = "an active deep scan already has the same targets";
+const OVERLAPPING_TARGETS: &str = "deep scan targets must not overlap";
+const DIRECTORY_NODE_NOT_FOUND: &str = "directory node was not found";
+
+enum TaskKind {
+    Quick,
+    Deep { normalized_targets: Vec<String> },
+}
+
+enum TaskResult {
+    Quick(QuickScanResult),
+    Deep(IndexedScanResult),
+}
 
 struct TaskRecord {
+    kind: TaskKind,
     token: CancellationToken,
     progress: ScanProgress,
-    result: Option<QuickScanResult>,
+    result: Option<TaskResult>,
     failure: Option<String>,
     handle: Option<JoinHandle<()>>,
 }
@@ -46,8 +69,9 @@ impl SpaceTaskManager {
         use tauri::Emitter;
 
         self.start_worker(
+            TaskKind::Quick,
             move |token, report_progress| {
-                scan_known_candidates(token, |stats| report_progress(stats))
+                scan_known_candidates(token, |stats| report_progress(stats)).map(TaskResult::Quick)
             },
             move |progress| {
                 if let Err(error) = window.emit("space-scan-progress", progress) {
@@ -57,6 +81,30 @@ impl SpaceTaskManager {
                         error
                     );
                 }
+            },
+        )
+    }
+
+    pub fn start_deep(
+        &self,
+        targets: Vec<PathBuf>,
+        window: tauri::Window,
+    ) -> Result<String, String> {
+        use tauri::Emitter;
+
+        self.start_deep_worker(
+            targets,
+            move |progress| {
+                if let Err(error) = window.emit("space-scan-progress", progress) {
+                    log::warn!(
+                        "failed to emit progress for space scan task {}: {}",
+                        progress.task_id,
+                        error
+                    );
+                }
+            },
+            |targets, token, report_progress| {
+                build_indexed_result(targets, token, report_progress).map(TaskResult::Deep)
             },
         )
     }
@@ -82,22 +130,43 @@ impl SpaceTaskManager {
 
     pub fn quick_result(&self, task_id: &str) -> Result<QuickScanResult, String> {
         let tasks = lock_records(&self.tasks);
-        let record = tasks
-            .get(task_id)
-            .ok_or_else(|| TASK_NOT_FOUND.to_string())?;
-        match record.progress.state {
-            ScanTaskState::Completed => record
-                .result
-                .as_ref()
-                .map(clone_quick_result)
-                .ok_or_else(|| TASK_RESULT_UNAVAILABLE.into()),
-            ScanTaskState::Failed => Err(record
-                .failure
-                .clone()
-                .unwrap_or_else(|| TASK_RESULT_UNAVAILABLE.into())),
-            ScanTaskState::Cancelled | ScanTaskState::Cancelling => Err(TASK_CANCELLED.into()),
-            ScanTaskState::Queued | ScanTaskState::Running => Err(TASK_NOT_COMPLETE.into()),
+        let record = completed_record(&tasks, task_id)?;
+        match record.result.as_ref() {
+            Some(TaskResult::Quick(result)) => Ok(result.clone()),
+            _ => Err(TASK_RESULT_UNAVAILABLE.into()),
         }
+    }
+
+    pub fn summary(&self, task_id: &str) -> Result<AnalysisSummary, String> {
+        let tasks = lock_records(&self.tasks);
+        let result = completed_deep_result(&tasks, task_id)?;
+        Ok(result.summary())
+    }
+
+    pub fn children(
+        &self,
+        task_id: &str,
+        parent_id: &str,
+        offset: u64,
+        limit: u64,
+    ) -> Result<Paged<DirectoryNode>, String> {
+        let tasks = lock_records(&self.tasks);
+        let result = completed_deep_result(&tasks, task_id)?;
+        result
+            .children(parent_id, offset, limit)
+            .ok_or_else(|| DIRECTORY_NODE_NOT_FOUND.into())
+    }
+
+    pub fn large_files(
+        &self,
+        task_id: &str,
+        min_bytes: u64,
+        offset: u64,
+        limit: u64,
+    ) -> Result<Paged<LargeFileRow>, String> {
+        let tasks = lock_records(&self.tasks);
+        let result = completed_deep_result(&tasks, task_id)?;
+        Ok(result.large_files(min_bytes, offset, limit))
     }
 
     pub fn cancel_all_and_wait(&self, timeout: Duration) {
@@ -143,22 +212,72 @@ impl SpaceTaskManager {
         }
     }
 
-    fn start_worker<F, E>(&self, worker: F, emit: E) -> Result<String, String>
+    fn start_deep_worker<F, E>(
+        &self,
+        targets: Vec<PathBuf>,
+        emit: E,
+        worker: F,
+    ) -> Result<String, String>
+    where
+        F: FnOnce(
+                &[PathBuf],
+                &CancellationToken,
+                &mut dyn FnMut(&WalkStats),
+            ) -> Result<TaskResult, ScanWalkError>
+            + Send
+            + 'static,
+        E: Fn(&ScanProgress) + Send + Sync + 'static,
+    {
+        let normalized_targets = normalize_target_set(&targets)?;
+        let worker_targets = targets;
+        self.start_worker(
+            TaskKind::Deep { normalized_targets },
+            move |token, report_progress| worker(&worker_targets, token, report_progress),
+            emit,
+        )
+    }
+
+    fn start_worker<F, E>(&self, kind: TaskKind, worker: F, emit: E) -> Result<String, String>
     where
         F: FnOnce(
                 &CancellationToken,
                 &mut dyn FnMut(&WalkStats),
-            ) -> Result<QuickScanResult, ScanWalkError>
+            ) -> Result<TaskResult, ScanWalkError>
             + Send
             + 'static,
         E: Fn(&ScanProgress) + Send + Sync + 'static,
     {
         let mut tasks = lock_records(&self.tasks);
-        if let Some((task_id, _)) = tasks
-            .iter()
-            .find(|(_, record)| !is_terminal(record.progress.state))
-        {
-            return Ok(task_id.clone());
+        match &kind {
+            TaskKind::Quick => {
+                if let Some((task_id, _)) = tasks.iter().find(|(_, record)| {
+                    matches!(&record.kind, TaskKind::Quick) && !is_terminal(record.progress.state)
+                }) {
+                    return Ok(task_id.clone());
+                }
+            }
+            TaskKind::Deep { normalized_targets } => {
+                let active_deep = tasks
+                    .values()
+                    .filter(|record| {
+                        matches!(&record.kind, TaskKind::Deep { .. })
+                            && !is_terminal(record.progress.state)
+                    })
+                    .collect::<Vec<_>>();
+                if active_deep.iter().any(|record| {
+                    matches!(
+                        &record.kind,
+                        TaskKind::Deep {
+                            normalized_targets: active
+                        } if active == normalized_targets
+                    )
+                }) {
+                    return Err(DUPLICATE_DEEP_TASK.into());
+                }
+                if active_deep.len() >= 2 {
+                    return Err(DEEP_TASK_LIMIT_REACHED.into());
+                }
+            }
         }
 
         let task_id = format!("scan-{}", self.next_id.fetch_add(1, Ordering::Relaxed));
@@ -166,6 +285,7 @@ impl SpaceTaskManager {
         tasks.insert(
             task_id.clone(),
             TaskRecord {
+                kind,
                 token: token.clone(),
                 progress: initial_progress(&task_id),
                 result: None,
@@ -216,8 +336,13 @@ impl SpaceTaskManager {
                         if !token.is_cancelled()
                             && record.progress.state != ScanTaskState::Cancelling =>
                     {
-                        result.task_id = worker_task_id.clone();
-                        result.completed = true;
+                        match &mut result {
+                            TaskResult::Quick(result) => {
+                                result.task_id = worker_task_id.clone();
+                                result.completed = true;
+                            }
+                            TaskResult::Deep(result) => result.set_task_id(&worker_task_id),
+                        }
                         record.result = Some(result);
                         record.progress.state = ScanTaskState::Completed;
                     }
@@ -256,8 +381,30 @@ impl SpaceTaskManager {
     where
         F: FnOnce(CancellationToken) -> Result<QuickScanResult, ScanWalkError> + Send + 'static,
     {
-        self.start_worker(move |token, _| worker(token.clone()), |_| {})
-            .unwrap()
+        self.start_worker(
+            TaskKind::Quick,
+            move |token, _| worker(token.clone()).map(TaskResult::Quick),
+            |_| {},
+        )
+        .unwrap()
+    }
+
+    #[cfg(test)]
+    fn start_deep_for_test<F>(&self, targets: Vec<PathBuf>, worker: F) -> Result<String, String>
+    where
+        F: FnOnce(
+                &[PathBuf],
+                &CancellationToken,
+                &mut dyn FnMut(&WalkStats),
+            ) -> Result<IndexedScanResult, ScanWalkError>
+            + Send
+            + 'static,
+    {
+        self.start_deep_worker(
+            targets,
+            |_| {},
+            move |targets, token, progress| worker(targets, token, progress).map(TaskResult::Deep),
+        )
     }
 
     #[cfg(test)]
@@ -268,6 +415,79 @@ impl SpaceTaskManager {
         if let Some(handle) = handle {
             handle.join().unwrap();
         }
+    }
+}
+
+fn completed_record<'a>(
+    tasks: &'a HashMap<String, TaskRecord>,
+    task_id: &str,
+) -> Result<&'a TaskRecord, String> {
+    let record = tasks
+        .get(task_id)
+        .ok_or_else(|| TASK_NOT_FOUND.to_string())?;
+    match record.progress.state {
+        ScanTaskState::Completed => Ok(record),
+        ScanTaskState::Queued => Err(TASK_QUEUED.into()),
+        ScanTaskState::Running => Err(TASK_RUNNING.into()),
+        ScanTaskState::Cancelling => Err(TASK_CANCELLING.into()),
+        ScanTaskState::Cancelled => Err(TASK_CANCELLED.into()),
+        ScanTaskState::Failed => Err(record
+            .failure
+            .clone()
+            .unwrap_or_else(|| "scan task failed".into())),
+    }
+}
+
+fn completed_deep_result<'a>(
+    tasks: &'a HashMap<String, TaskRecord>,
+    task_id: &str,
+) -> Result<&'a IndexedScanResult, String> {
+    match completed_record(tasks, task_id)?.result.as_ref() {
+        Some(TaskResult::Deep(result)) => Ok(result),
+        _ => Err(TASK_RESULT_UNAVAILABLE.into()),
+    }
+}
+
+fn normalize_target_set(targets: &[PathBuf]) -> Result<Vec<String>, String> {
+    let mut normalized = targets
+        .iter()
+        .map(|target| normalize_target(target))
+        .collect::<Vec<_>>();
+    for (index, left) in normalized.iter().enumerate() {
+        if normalized
+            .iter()
+            .skip(index + 1)
+            .any(|right| paths_overlap(left, right))
+        {
+            return Err(OVERLAPPING_TARGETS.into());
+        }
+    }
+    normalized.sort();
+    Ok(normalized)
+}
+
+fn normalize_target(target: &Path) -> String {
+    let mut normalized = target.to_string_lossy().replace('/', "\\").to_lowercase();
+    while normalized.len() > 1 && normalized.ends_with('\\') && !normalized.ends_with(":\\") {
+        normalized.pop();
+    }
+    normalized
+}
+
+fn paths_overlap(left: &str, right: &str) -> bool {
+    is_same_or_ancestor(left, right) || is_same_or_ancestor(right, left)
+}
+
+fn is_same_or_ancestor(ancestor: &str, descendant: &str) -> bool {
+    if ancestor == descendant {
+        return true;
+    }
+    if ancestor.ends_with('\\') {
+        descendant.starts_with(ancestor)
+    } else {
+        descendant
+            .strip_prefix(ancestor)
+            .is_some_and(|suffix| suffix.starts_with('\\'))
     }
 }
 
@@ -309,17 +529,6 @@ fn is_terminal(state: ScanTaskState) -> bool {
         state,
         ScanTaskState::Completed | ScanTaskState::Cancelled | ScanTaskState::Failed
     )
-}
-
-fn clone_quick_result(result: &QuickScanResult) -> QuickScanResult {
-    QuickScanResult {
-        task_id: result.task_id.clone(),
-        completed: result.completed,
-        total_bytes: result.total_bytes,
-        safely_releasable_bytes: result.safely_releasable_bytes,
-        items: result.items.clone(),
-        errors: result.errors.clone(),
-    }
 }
 
 #[cfg(test)]
@@ -411,6 +620,7 @@ mod tests {
         let emitted_events = Arc::clone(&events);
         let id = manager
             .start_worker(
+                TaskKind::Quick,
                 |_, report_progress| {
                     report_progress(&WalkStats {
                         files: 2,
@@ -418,7 +628,7 @@ mod tests {
                         allocated_bytes: 96,
                         ..WalkStats::default()
                     });
-                    Ok(QuickScanResult::default())
+                    Ok(TaskResult::Quick(QuickScanResult::default()))
                 },
                 move |progress| emitted_events.lock().unwrap().push(progress.clone()),
             )
@@ -431,5 +641,131 @@ mod tests {
             .iter()
             .any(|progress| progress.scanned_files == 2 && progress.accounted_bytes == 96));
         assert_eq!(events.last().unwrap().state, ScanTaskState::Completed);
+    }
+
+    #[test]
+    fn deep_queries_require_a_completed_task() {
+        let manager = SpaceTaskManager::default();
+        let target = tempfile::tempdir().unwrap();
+        let id = manager
+            .start_deep_for_test(vec![target.path().to_path_buf()], |_, token, _| {
+                while !token.is_cancelled() {
+                    std::thread::yield_now();
+                }
+                Err(ScanWalkError::Cancelled)
+            })
+            .unwrap();
+
+        while manager.status(&id).unwrap().state == ScanTaskState::Queued {
+            std::thread::yield_now();
+        }
+        assert_eq!(manager.summary(&id).unwrap_err(), TASK_RUNNING);
+        manager.cancel(&id).unwrap();
+        manager.wait_for_test(&id);
+        assert_eq!(manager.summary(&id).unwrap_err(), TASK_CANCELLED);
+
+        let failed_target = tempfile::tempdir().unwrap();
+        let failed = manager
+            .start_deep_for_test(vec![failed_target.path().to_path_buf()], |_, _, _| {
+                panic!("deep worker panic")
+            })
+            .unwrap();
+        manager.wait_for_test(&failed);
+        assert_eq!(manager.summary(&failed).unwrap_err(), TASK_PANICKED);
+    }
+
+    #[test]
+    fn completed_deep_results_are_paged_through_the_manager() {
+        let manager = SpaceTaskManager::default();
+        let target = tempfile::tempdir().unwrap();
+        for index in 0..205 {
+            std::fs::create_dir(target.path().join(format!("child-{index:03}"))).unwrap();
+        }
+        let id = manager
+            .start_deep_for_test(
+                vec![target.path().to_path_buf()],
+                |targets, token, progress| build_indexed_result(targets, token, progress),
+            )
+            .unwrap();
+        manager.wait_for_test(&id);
+
+        let summary = manager.summary(&id).unwrap();
+        assert_eq!(summary.task_id, id);
+        let root_id = &summary.root_nodes[0].node_id;
+        let page = manager.children(&id, root_id, 0, u64::MAX).unwrap();
+        assert_eq!(page.limit, 200);
+        assert_eq!(page.items.len(), 200);
+        assert_eq!(page.total, 205);
+        assert_eq!(
+            manager.children(&id, "not-a-node", 0, 10).unwrap_err(),
+            DIRECTORY_NODE_NOT_FOUND
+        );
+    }
+
+    #[test]
+    fn duplicate_and_overlapping_deep_targets_are_rejected() {
+        let manager = SpaceTaskManager::default();
+        let target = tempfile::tempdir().unwrap();
+        let nested = target.path().join("nested");
+        std::fs::create_dir(&nested).unwrap();
+        let first = manager
+            .start_deep_for_test(vec![target.path().to_path_buf()], |_, token, _| {
+                while !token.is_cancelled() {
+                    std::thread::yield_now();
+                }
+                Err(ScanWalkError::Cancelled)
+            })
+            .unwrap();
+
+        assert_eq!(
+            manager
+                .start_deep_for_test(
+                    vec![target.path().to_path_buf()],
+                    |targets, token, progress| { build_indexed_result(targets, token, progress) }
+                )
+                .unwrap_err(),
+            DUPLICATE_DEEP_TASK
+        );
+        assert_eq!(
+            manager
+                .start_deep_for_test(
+                    vec![target.path().to_path_buf(), nested],
+                    |targets, token, progress| build_indexed_result(targets, token, progress),
+                )
+                .unwrap_err(),
+            OVERLAPPING_TARGETS
+        );
+
+        manager.cancel(&first).unwrap();
+        manager.wait_for_test(&first);
+    }
+
+    #[test]
+    fn only_two_deep_tasks_may_be_active() {
+        let manager = SpaceTaskManager::default();
+        let targets = [
+            tempfile::tempdir().unwrap(),
+            tempfile::tempdir().unwrap(),
+            tempfile::tempdir().unwrap(),
+        ];
+        let start_blocking = |path: PathBuf| {
+            manager.start_deep_for_test(vec![path], |_, token, _| {
+                while !token.is_cancelled() {
+                    std::thread::yield_now();
+                }
+                Err(ScanWalkError::Cancelled)
+            })
+        };
+        let first = start_blocking(targets[0].path().to_path_buf()).unwrap();
+        let second = start_blocking(targets[1].path().to_path_buf()).unwrap();
+        assert_eq!(
+            start_blocking(targets[2].path().to_path_buf()).unwrap_err(),
+            DEEP_TASK_LIMIT_REACHED
+        );
+
+        manager.cancel(&first).unwrap();
+        manager.cancel(&second).unwrap();
+        manager.wait_for_test(&first);
+        manager.wait_for_test(&second);
     }
 }

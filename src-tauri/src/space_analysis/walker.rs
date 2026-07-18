@@ -1,11 +1,12 @@
-use super::model::ScanErrorSummary;
+use super::model::{AnalysisSummary, DirectoryNode, LargeFileRow, Paged, ScanErrorSummary};
 use super::windows_fs::{allocated_size, file_identity, FileIdentity};
+use chrono::{DateTime, Utc};
 use jwalk::{Parallelism, WalkDir};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fs::{self, Metadata};
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -13,7 +14,8 @@ use std::sync::{
 use std::time::{Duration, Instant};
 
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(120);
-const CANCELLATION_FILE_INTERVAL: u64 = 256;
+const MAX_PAGE_SIZE: u64 = 200;
+const VIEW_ONLY: &str = "ViewOnly";
 
 #[derive(Clone, Default)]
 pub struct CancellationToken(Arc<AtomicBool>);
@@ -38,6 +40,16 @@ pub struct WalkStats {
     pub errors: ScanErrorSummary,
 }
 
+impl WalkStats {
+    fn skipped_paths(&self) -> u64 {
+        self.skipped
+            .saturating_add(self.errors.access_denied)
+            .saturating_add(self.errors.vanished)
+            .saturating_add(self.errors.invalid_target)
+            .saturating_add(self.errors.other)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ScanWalkError {
     Cancelled,
@@ -53,6 +65,102 @@ impl fmt::Display for ScanWalkError {
 
 impl std::error::Error for ScanWalkError {}
 
+type NodeId = String;
+
+struct NodeRecord {
+    node: DirectoryNode,
+    direct_allocated_bytes: u64,
+    direct_logical_bytes: u64,
+    child_ids: Vec<NodeId>,
+}
+
+pub(crate) struct IndexedScanResult {
+    summary: AnalysisSummary,
+    nodes: HashMap<NodeId, NodeRecord>,
+    large_files: Vec<LargeFileRow>,
+}
+
+impl IndexedScanResult {
+    pub(crate) fn summary(&self) -> AnalysisSummary {
+        self.summary.clone()
+    }
+
+    pub(crate) fn set_task_id(&mut self, task_id: &str) {
+        self.summary.task_id = task_id.to_string();
+    }
+
+    pub(crate) fn children(
+        &self,
+        parent_id: &str,
+        offset: u64,
+        limit: u64,
+    ) -> Option<Paged<DirectoryNode>> {
+        let record = self.nodes.get(parent_id)?;
+        let total = record.child_ids.len() as u64;
+        let limit = limit.min(MAX_PAGE_SIZE);
+        let items = page_slice(&record.child_ids, offset, limit)
+            .iter()
+            .filter_map(|node_id| self.nodes.get(node_id))
+            .map(|child| child.node.clone())
+            .collect();
+
+        Some(Paged {
+            items,
+            offset,
+            limit,
+            total,
+        })
+    }
+
+    pub(crate) fn large_files(
+        &self,
+        min_bytes: u64,
+        offset: u64,
+        limit: u64,
+    ) -> Paged<LargeFileRow> {
+        let limit = limit.min(MAX_PAGE_SIZE);
+        let matches = self
+            .large_files
+            .iter()
+            .filter(|row| row.allocated_bytes >= min_bytes)
+            .collect::<Vec<_>>();
+        let total = matches.len() as u64;
+        let items = page_slice(&matches, offset, limit)
+            .iter()
+            .map(|row| (*row).clone())
+            .collect();
+
+        Paged {
+            items,
+            offset,
+            limit,
+            total,
+        }
+    }
+}
+
+fn page_slice<T>(items: &[T], offset: u64, limit: u64) -> &[T] {
+    let start = usize::try_from(offset)
+        .unwrap_or(usize::MAX)
+        .min(items.len());
+    let count = usize::try_from(limit).unwrap_or(usize::MAX);
+    let end = start.saturating_add(count).min(items.len());
+    &items[start..end]
+}
+
+#[derive(Default)]
+struct AccountingContext {
+    file_ids: HashSet<FileIdentity>,
+}
+
+trait WalkVisitor {
+    fn directory(&mut self, _path: &Path) {}
+    fn file(&mut self, _path: &Path, _metadata: &Metadata, _allocated_bytes: u64) {}
+}
+
+struct NoopVisitor;
+impl WalkVisitor for NoopVisitor {}
+
 pub fn measure_path<F>(
     path: &Path,
     token: &CancellationToken,
@@ -61,20 +169,72 @@ pub fn measure_path<F>(
 where
     F: FnMut(&WalkStats),
 {
+    let mut stats = WalkStats::default();
+    let mut accounting = AccountingContext::default();
+    let mut visitor = NoopVisitor;
+    walk_path(
+        path,
+        token,
+        &mut accounting,
+        &mut stats,
+        &mut visitor,
+        &mut on_progress,
+    )?;
+    Ok(stats)
+}
+
+pub(crate) fn build_indexed_result<F>(
+    targets: &[PathBuf],
+    token: &CancellationToken,
+    mut on_progress: F,
+) -> Result<IndexedScanResult, ScanWalkError>
+where
+    F: FnMut(&WalkStats),
+{
+    let mut stats = WalkStats::default();
+    let mut accounting = AccountingContext::default();
+    let mut builder = IndexBuilder::new(targets);
+
+    for target in targets {
+        walk_path(
+            target,
+            token,
+            &mut accounting,
+            &mut stats,
+            &mut builder,
+            &mut on_progress,
+        )?;
+        on_progress(&stats);
+    }
+
+    Ok(builder.finish(stats))
+}
+
+fn walk_path<V, F>(
+    path: &Path,
+    token: &CancellationToken,
+    accounting: &mut AccountingContext,
+    stats: &mut WalkStats,
+    visitor: &mut V,
+    on_progress: &mut F,
+) -> Result<(), ScanWalkError>
+where
+    V: WalkVisitor,
+    F: FnMut(&WalkStats),
+{
     if token.is_cancelled() {
         return Err(ScanWalkError::Cancelled);
     }
 
-    let mut stats = WalkStats::default();
     match fs::symlink_metadata(path) {
         Ok(metadata) if is_link_or_reparse_point(&metadata) => {
-            stats.skipped = 1;
-            return Ok(stats);
+            stats.skipped = stats.skipped.saturating_add(1);
+            return Ok(());
         }
         Ok(_) => {}
         Err(error) => {
             record_io_error(&mut stats.errors, error.kind());
-            return Ok(stats);
+            return Ok(());
         }
     }
 
@@ -101,7 +261,6 @@ where
         });
 
     let mut entries = walker.into_iter();
-    let mut file_ids = HashSet::<FileIdentity>::new();
     let now = Instant::now();
     let mut last_progress = now.checked_sub(PROGRESS_INTERVAL).unwrap_or(now);
 
@@ -113,10 +272,6 @@ where
         let Some(entry_result) = entries.next() else {
             break;
         };
-
-        if token.is_cancelled() {
-            return Err(ScanWalkError::Cancelled);
-        }
 
         match entry_result {
             Ok(entry) => {
@@ -130,19 +285,22 @@ where
                     }
                     Ok(metadata) if metadata.is_dir() => {
                         stats.directories = stats.directories.saturating_add(1);
+                        visitor.directory(entry.path().as_path());
                     }
                     Ok(metadata) if metadata.is_file() => {
                         match file_identity(entry.path().as_path()) {
-                            Ok(identity) if !file_ids.insert(identity) => {
+                            Ok(identity) if !accounting.file_ids.insert(identity) => {
                                 stats.skipped = stats.skipped.saturating_add(1);
                             }
                             Ok(_) => {
+                                let allocated_bytes =
+                                    allocated_size(entry.path().as_path(), &metadata);
                                 stats.files = stats.files.saturating_add(1);
                                 stats.logical_bytes =
                                     stats.logical_bytes.saturating_add(metadata.len());
-                                stats.allocated_bytes = stats.allocated_bytes.saturating_add(
-                                    allocated_size(entry.path().as_path(), &metadata),
-                                );
+                                stats.allocated_bytes =
+                                    stats.allocated_bytes.saturating_add(allocated_bytes);
+                                visitor.file(entry.path().as_path(), &metadata, allocated_bytes);
                             }
                             Err(error) => {
                                 stats.skipped = stats.skipped.saturating_add(1);
@@ -160,16 +318,216 @@ where
         }
 
         if last_progress.elapsed() >= PROGRESS_INTERVAL {
-            on_progress(&stats);
+            on_progress(stats);
             last_progress = Instant::now();
-        }
-
-        if stats.files % CANCELLATION_FILE_INTERVAL == 0 && token.is_cancelled() {
-            return Err(ScanWalkError::Cancelled);
         }
     }
 
-    Ok(stats)
+    Ok(())
+}
+
+struct IndexBuilder {
+    targets: Vec<PathBuf>,
+    path_ids: HashMap<PathBuf, NodeId>,
+    nodes: HashMap<NodeId, NodeRecord>,
+    large_files: Vec<LargeFileRow>,
+    next_node_id: u64,
+}
+
+impl IndexBuilder {
+    fn new(targets: &[PathBuf]) -> Self {
+        Self {
+            targets: targets.to_vec(),
+            path_ids: HashMap::new(),
+            nodes: HashMap::new(),
+            large_files: Vec::new(),
+            next_node_id: 1,
+        }
+    }
+
+    fn allocate_node_id(&mut self) -> NodeId {
+        let node_id = format!("node-{}", self.next_node_id);
+        self.next_node_id = self.next_node_id.saturating_add(1);
+        node_id
+    }
+
+    fn finish(mut self, stats: WalkStats) -> IndexedScanResult {
+        let root_ids = self
+            .targets
+            .iter()
+            .filter_map(|target| self.path_ids.get(target).cloned())
+            .collect::<Vec<_>>();
+
+        for root_id in &root_ids {
+            aggregate_directory(root_id, &mut self.nodes);
+        }
+        sort_children(&mut self.nodes);
+        self.large_files.sort_by(compare_large_files);
+
+        let root_nodes = root_ids
+            .iter()
+            .filter_map(|node_id| self.nodes.get(node_id))
+            .map(|record| record.node.clone())
+            .collect();
+        let summary = AnalysisSummary {
+            task_id: String::new(),
+            targets: self
+                .targets
+                .iter()
+                .map(|path| path.to_string_lossy().into_owned())
+                .collect(),
+            allocated_bytes: stats.allocated_bytes,
+            logical_bytes: stats.logical_bytes,
+            file_count: stats.files,
+            directory_count: self.nodes.len() as u64,
+            skipped_paths: stats.skipped_paths(),
+            root_nodes,
+        };
+
+        IndexedScanResult {
+            summary,
+            nodes: self.nodes,
+            large_files: self.large_files,
+        }
+    }
+}
+
+impl WalkVisitor for IndexBuilder {
+    fn directory(&mut self, path: &Path) {
+        let path = path.to_path_buf();
+        if self.path_ids.contains_key(&path) {
+            return;
+        }
+
+        let parent_id = path
+            .parent()
+            .and_then(|parent| self.path_ids.get(parent))
+            .cloned();
+        let node_id = self.allocate_node_id();
+        let name = path
+            .file_name()
+            .filter(|name| !name.is_empty())
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.to_string_lossy().into_owned());
+        let record = NodeRecord {
+            node: DirectoryNode {
+                node_id: node_id.clone(),
+                parent_id: parent_id.clone(),
+                name,
+                path: path.to_string_lossy().into_owned(),
+                allocated_bytes: 0,
+                logical_bytes: 0,
+                child_count: 0,
+                safety: VIEW_ONLY.into(),
+            },
+            direct_allocated_bytes: 0,
+            direct_logical_bytes: 0,
+            child_ids: Vec::new(),
+        };
+
+        self.path_ids.insert(path, node_id.clone());
+        self.nodes.insert(node_id.clone(), record);
+        if let Some(parent_id) = parent_id {
+            if let Some(parent) = self.nodes.get_mut(&parent_id) {
+                parent.child_ids.push(node_id);
+            }
+        }
+    }
+
+    fn file(&mut self, path: &Path, metadata: &Metadata, allocated_bytes: u64) {
+        let Some(parent_id) = path
+            .parent()
+            .and_then(|parent| self.path_ids.get(parent))
+            .cloned()
+        else {
+            return;
+        };
+        let logical_bytes = metadata.len();
+        if let Some(parent) = self.nodes.get_mut(&parent_id) {
+            parent.direct_allocated_bytes = parent
+                .direct_allocated_bytes
+                .saturating_add(allocated_bytes);
+            parent.direct_logical_bytes = parent.direct_logical_bytes.saturating_add(logical_bytes);
+        }
+
+        let modified_at = metadata
+            .modified()
+            .ok()
+            .map(DateTime::<Utc>::from)
+            .map(|timestamp| timestamp.to_rfc3339());
+        let node_id = self.allocate_node_id();
+        self.large_files.push(LargeFileRow {
+            node_id,
+            name: path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_else(|| path.to_string_lossy().into_owned()),
+            path: path.to_string_lossy().into_owned(),
+            allocated_bytes,
+            logical_bytes,
+            modified_at,
+        });
+    }
+}
+
+fn aggregate_directory(node_id: &str, nodes: &mut HashMap<NodeId, NodeRecord>) -> (u64, u64) {
+    let Some(record) = nodes.get(node_id) else {
+        return (0, 0);
+    };
+    let child_ids = record.child_ids.clone();
+    let mut allocated_bytes = record.direct_allocated_bytes;
+    let mut logical_bytes = record.direct_logical_bytes;
+
+    for child_id in child_ids {
+        let (child_allocated, child_logical) = aggregate_directory(&child_id, nodes);
+        allocated_bytes = allocated_bytes.saturating_add(child_allocated);
+        logical_bytes = logical_bytes.saturating_add(child_logical);
+    }
+
+    if let Some(record) = nodes.get_mut(node_id) {
+        record.node.allocated_bytes = allocated_bytes;
+        record.node.logical_bytes = logical_bytes;
+        record.node.child_count = record.child_ids.len().min(u32::MAX as usize) as u32;
+    }
+    (allocated_bytes, logical_bytes)
+}
+
+fn sort_children(nodes: &mut HashMap<NodeId, NodeRecord>) {
+    let sort_keys = nodes
+        .iter()
+        .map(|(node_id, record)| {
+            (
+                node_id.clone(),
+                (
+                    record.node.allocated_bytes,
+                    record.node.logical_bytes,
+                    record.node.name.to_lowercase(),
+                ),
+            )
+        })
+        .collect::<HashMap<_, _>>();
+
+    for record in nodes.values_mut() {
+        record.child_ids.sort_by(|left, right| {
+            let left_key = &sort_keys[left];
+            let right_key = &sort_keys[right];
+            right_key
+                .0
+                .cmp(&left_key.0)
+                .then_with(|| right_key.1.cmp(&left_key.1))
+                .then_with(|| left_key.2.cmp(&right_key.2))
+                .then_with(|| left.cmp(right))
+        });
+    }
+}
+
+fn compare_large_files(left: &LargeFileRow, right: &LargeFileRow) -> std::cmp::Ordering {
+    right
+        .allocated_bytes
+        .cmp(&left.allocated_bytes)
+        .then_with(|| right.logical_bytes.cmp(&left.logical_bytes))
+        .then_with(|| left.path.to_lowercase().cmp(&right.path.to_lowercase()))
+        .then_with(|| left.node_id.cmp(&right.node_id))
 }
 
 fn record_walk_error(errors: &mut ScanErrorSummary, error: &jwalk::Error) {
@@ -210,6 +568,95 @@ fn is_link_or_reparse_point(metadata: &Metadata) -> bool {
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    #[test]
+    fn builds_indexed_result() {
+        let fixture = tempfile::tempdir().unwrap();
+        let largest = fixture.path().join("largest");
+        let smaller = fixture.path().join("smaller");
+        let nested = smaller.join("nested");
+        std::fs::create_dir(&largest).unwrap();
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(largest.join("large.bin"), vec![0u8; 32]).unwrap();
+        std::fs::write(smaller.join("small.bin"), vec![0u8; 8]).unwrap();
+        std::fs::write(nested.join("medium.bin"), vec![0u8; 16]).unwrap();
+
+        let result = build_indexed_result(
+            &[fixture.path().to_path_buf()],
+            &CancellationToken::default(),
+            |_| {},
+        )
+        .unwrap();
+        let summary = result.summary();
+        let root = &summary.root_nodes[0];
+        let children = result.children(&root.node_id, 0, 10).unwrap();
+
+        assert_eq!(summary.file_count, 3);
+        assert_eq!(summary.directory_count, 4);
+        assert_eq!(root.allocated_bytes, summary.allocated_bytes);
+        assert_eq!(root.logical_bytes, 56);
+        assert_eq!(children.items[0].name, "largest");
+        assert_eq!(
+            root.allocated_bytes,
+            children
+                .items
+                .iter()
+                .map(|child| child.allocated_bytes)
+                .sum::<u64>()
+        );
+        let large_files = result.large_files(20, 0, 10);
+        assert_eq!(large_files.items.len(), 1);
+        assert_eq!(large_files.items[0].name, "large.bin");
+    }
+
+    #[test]
+    fn paging_is_bounded_and_large_files_are_sorted() {
+        let fixture = tempfile::tempdir().unwrap();
+        for index in 0..205 {
+            let child = fixture.path().join(format!("child-{index:03}"));
+            std::fs::create_dir(&child).unwrap();
+            std::fs::write(child.join("file.bin"), vec![0u8; index + 1]).unwrap();
+        }
+
+        let result = build_indexed_result(
+            &[fixture.path().to_path_buf()],
+            &CancellationToken::default(),
+            |_| {},
+        )
+        .unwrap();
+        let root_id = &result.summary().root_nodes[0].node_id;
+        let children = result.children(root_id, 0, u64::MAX).unwrap();
+        let files = result.large_files(0, 0, u64::MAX);
+
+        assert_eq!(children.limit, 200);
+        assert_eq!(children.items.len(), 200);
+        assert_eq!(children.total, 205);
+        assert_eq!(files.limit, 200);
+        assert_eq!(files.items.len(), 200);
+        assert!(files
+            .items
+            .windows(2)
+            .all(|rows| rows[0].allocated_bytes >= rows[1].allocated_bytes));
+    }
+
+    #[test]
+    fn hard_links_across_targets_are_counted_once() {
+        let fixture = tempfile::tempdir().unwrap();
+        let first = fixture.path().join("first");
+        let second = fixture.path().join("second");
+        std::fs::create_dir(&first).unwrap();
+        std::fs::create_dir(&second).unwrap();
+        let original = first.join("original.bin");
+        std::fs::write(&original, vec![0u8; 32]).unwrap();
+        std::fs::hard_link(&original, second.join("alias.bin")).unwrap();
+
+        let result =
+            build_indexed_result(&[first, second], &CancellationToken::default(), |_| {}).unwrap();
+
+        assert_eq!(result.summary().file_count, 1);
+        assert_eq!(result.summary().logical_bytes, 32);
+        assert_eq!(result.large_files(0, 0, 10).total, 1);
+    }
 
     #[test]
     fn measures_files_and_stops_after_cancellation() {
