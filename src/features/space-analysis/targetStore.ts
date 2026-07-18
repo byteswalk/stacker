@@ -10,6 +10,25 @@ export interface RememberedTarget {
   valid: boolean;
 }
 
+export type TargetStorageResult =
+  | { ok: true }
+  | { ok: false; error: unknown };
+
+export type DisableRememberScanTargetsResult =
+  | { ok: true }
+  | { ok: false; stage: "settings" | "storage"; error: unknown };
+
+const STORAGE_UNAVAILABLE = "Browser storage is unavailable";
+
+function resolveStorage(storage?: Storage | null): Storage | null {
+  if (storage !== undefined) return storage;
+  try {
+    return globalThis.localStorage ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function storageKey(kind: RememberedTargetKind): string {
   return kind === "directories" ? LAST_DIRECTORIES_KEY : LAST_DRIVES_KEY;
 }
@@ -34,11 +53,13 @@ function cleanTargets(values: unknown[]): string[] {
 
 export function loadRememberedTargets(
   kind: RememberedTargetKind,
-  storage: Storage = localStorage,
+  storage?: Storage | null,
 ): string[] {
-  const raw = storage.getItem(storageKey(kind));
-  if (raw === null) return [];
   try {
+    const targetStorage = resolveStorage(storage);
+    if (!targetStorage) return [];
+    const raw = targetStorage.getItem(storageKey(kind));
+    if (raw === null) return [];
     const parsed: unknown = JSON.parse(raw);
     return Array.isArray(parsed) ? cleanTargets(parsed) : [];
   } catch {
@@ -57,16 +78,35 @@ export function markTargetAvailability(
   }));
 }
 
-export function clearRememberedTargets(storage: Storage = localStorage): void {
-  storage.removeItem(LAST_DIRECTORIES_KEY);
-  storage.removeItem(LAST_DRIVES_KEY);
+export function clearRememberedTargets(storage?: Storage | null): TargetStorageResult {
+  const targetStorage = resolveStorage(storage);
+  if (!targetStorage) return { ok: false, error: new Error(STORAGE_UNAVAILABLE) };
+
+  let firstError: unknown;
+  for (const key of [LAST_DIRECTORIES_KEY, LAST_DRIVES_KEY]) {
+    try {
+      targetStorage.removeItem(key);
+    } catch (error) {
+      firstError ??= error;
+    }
+  }
+  return firstError === undefined ? { ok: true } : { ok: false, error: firstError };
 }
 
-export function applyRememberScanTargetsPreference(
-  enabled: boolean,
-  storage: Storage = localStorage,
-): void {
-  if (!enabled) clearRememberedTargets(storage);
+export async function disableRememberScanTargets(
+  saveSettings: () => Promise<unknown>,
+  storage?: Storage | null,
+): Promise<DisableRememberScanTargetsResult> {
+  try {
+    await saveSettings();
+  } catch (error) {
+    return { ok: false, stage: "settings", error };
+  }
+
+  const cleared = clearRememberedTargets(storage);
+  return cleared.ok
+    ? cleared
+    : { ok: false, stage: "storage", error: cleared.error };
 }
 
 /** Call only after the backend has accepted and started the scan. */
@@ -74,12 +114,15 @@ export function rememberStartedScan(
   mode: ScanMode,
   targets: readonly string[],
   rememberScanTargets: boolean,
-  storage: Storage = localStorage,
-): void {
-  if (!rememberScanTargets) {
-    clearRememberedTargets(storage);
-    return;
+  storage?: Storage | null,
+): TargetStorageResult {
+  if (!rememberScanTargets || mode === "quick") return { ok: true };
+  const targetStorage = resolveStorage(storage);
+  if (!targetStorage) return { ok: false, error: new Error(STORAGE_UNAVAILABLE) };
+  try {
+    targetStorage.setItem(storageKey(mode), JSON.stringify(cleanTargets([...targets])));
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error };
   }
-  if (mode === "quick") return;
-  storage.setItem(storageKey(mode), JSON.stringify(cleanTargets([...targets])));
 }

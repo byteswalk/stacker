@@ -7,7 +7,7 @@ import { SourceManagerModal } from "../SourceManagerModal";
 import { getTheme, setTheme, type Theme } from "../theme";
 import { formatBytes, useNotifications } from "../notifications";
 import { useI18n, type Locale } from "../i18n";
-import { applyRememberScanTargetsPreference } from "../features/space-analysis/targetStore";
+import { disableRememberScanTargets } from "../features/space-analysis/targetStore";
 
 type AppSettings = {
   minimize_to_tray: boolean;
@@ -43,6 +43,7 @@ type MirrorsUpdateCheck = {
   tools: number;
 };
 type LogCleanupResult = { deletedFiles: number; releasedBytes: number; failedFiles: number };
+type SpaceAnalysisSaveResult = "ok" | "settings-error" | "storage-error";
 
 const GIB_BYTES = 1024 ** 3;
 const MAX_LARGE_FILE_THRESHOLD_GB = 1024;
@@ -190,22 +191,41 @@ export default function Settings() {
     }
   }
 
-  async function saveSpaceAnalysis(nextRememberScanTargets = rememberScanTargets) {
+  async function saveSpaceAnalysis(
+    nextRememberScanTargets = rememberScanTargets,
+  ): Promise<SpaceAnalysisSaveResult> {
     const thresholdGb = normalizeLargeFileThresholdGb(largeFileThresholdGb);
     setLargeFileThresholdGb(String(thresholdGb));
     setSpaceAnalysisSaving(true);
-    try {
+    const persistSettings = async () => {
       const saved = await invoke<AppSettings>("settings_set_space_analysis", {
         largeFileThresholdBytes: thresholdGb * GIB_BYTES,
         rememberScanTargets: nextRememberScanTargets,
       });
       setLargeFileThresholdGb(String(Math.round(saved.large_file_threshold_bytes / GIB_BYTES)));
       setRememberScanTargets(saved.remember_scan_targets);
-      toast(nextRememberScanTargets ? "空间分析设置已保存" : "已关闭并清除记住的扫描目标", "ok");
-      return true;
+    };
+    try {
+      if (!nextRememberScanTargets) {
+        const result = await disableRememberScanTargets(persistSettings);
+        if (!result.ok) {
+          if (result.stage === "settings") {
+            toast("保存空间分析设置失败：" + result.error, "err");
+            return "settings-error";
+          }
+          toast("设置已保存，但无法清除记住的扫描目标。请检查系统存储权限后重试。", "err");
+          return "storage-error";
+        }
+        toast("已关闭并清除记住的扫描目标", "ok");
+        return "ok";
+      }
+
+      await persistSettings();
+      toast("空间分析设置已保存", "ok");
+      return "ok";
     } catch (e) {
       toast("保存空间分析设置失败：" + e, "err");
-      return false;
+      return "settings-error";
     } finally {
       setSpaceAnalysisSaving(false);
     }
@@ -213,9 +233,9 @@ export default function Settings() {
 
   async function toggleRememberScanTargets(enabled: boolean) {
     const previous = rememberScanTargets;
-    applyRememberScanTargetsPreference(enabled);
     setRememberScanTargets(enabled);
-    if (!await saveSpaceAnalysis(enabled)) setRememberScanTargets(previous);
+    const result = await saveSpaceAnalysis(enabled);
+    if (result === "settings-error") setRememberScanTargets(previous);
   }
 
   async function saveProxyAddr() {

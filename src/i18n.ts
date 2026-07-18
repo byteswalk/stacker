@@ -64,6 +64,7 @@ const CURATED_EN: Record<string, string> = {
   "空间分析设置已保存": "Space Analysis settings saved",
   "已关闭并清除记住的扫描目标": "Target memory disabled and remembered scan targets cleared",
   "保存空间分析设置失败：": "Failed to save Space Analysis settings: ",
+  "设置已保存，但无法清除记住的扫描目标。请检查系统存储权限后重试。": "The setting was saved, but remembered scan targets could not be cleared. Check system storage permissions and try again.",
   "快速扫描": "Quick Scan",
   "取消扫描": "Cancel Scan",
   "正在取消…": "Cancelling...",
