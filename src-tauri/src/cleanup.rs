@@ -6,7 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use crate::space_analysis::known::{known_candidates, scan_known_candidates, CleanupKind};
+use crate::space_analysis::known::{scan_known_candidates, CleanupKind};
 use crate::space_analysis::model::KnownSpaceItem;
 use crate::space_analysis::walker::CancellationToken;
 use serde::Serialize;
@@ -146,25 +146,29 @@ struct FreshKnownPath {
     canonical_path: PathBuf,
 }
 
-fn fresh_known_paths() -> HashMap<String, FreshKnownPath> {
-    known_candidates()
+fn fresh_known_paths() -> Result<HashMap<String, FreshKnownPath>, String> {
+    let items = scan_known_candidates(&CancellationToken::default(), |_| {})
+        .map_err(|error| error.to_string())?
+        .items;
+    Ok(items
         .into_iter()
-        .filter_map(|candidate| {
-            let canonical_path = fs::canonicalize(&candidate.path).ok()?;
+        .filter_map(|item| {
+            let cleanup_kind = CleanupKind::from_stable_str(&item.cleanup_kind)?;
+            let canonical_path = fs::canonicalize(&item.path).ok()?;
             Some((
-                candidate.path.to_string_lossy().into_owned(),
+                item.path,
                 FreshKnownPath {
-                    cleanup_kind: candidate.cleanup_kind,
+                    cleanup_kind,
                     canonical_path,
                 },
             ))
         })
-        .collect()
+        .collect())
 }
 
 // Delete only paths found by a fresh rule lookup; caller-provided item metadata is irrelevant.
 fn delete_known_paths(paths: Vec<String>) -> Result<u64, String> {
-    let known = fresh_known_paths();
+    let known = fresh_known_paths()?;
     let mut freed = 0u64;
     for path_string in paths {
         let Some(known_path) = known.get(&path_string) else {
@@ -225,10 +229,8 @@ pub async fn cleanup_delete_safe() -> Result<u64, String> {
     .map_err(|error| error.to_string())?
 }
 
-fn is_known(path: &str) -> bool {
-    known_candidates()
-        .into_iter()
-        .any(|candidate| candidate.path.to_string_lossy() == path)
+fn is_known(path: &str) -> Result<bool, String> {
+    Ok(fresh_known_paths()?.contains_key(path))
 }
 
 #[derive(Serialize)]
@@ -240,7 +242,7 @@ pub struct AgedStats {
 /// 统计 path 下"超过 days 天没被访问过"的文件数与总大小（用于谨慎项智能清理）。
 #[tauri::command]
 pub fn cleanup_aged_stats(path: String, days: u64) -> Result<AgedStats, String> {
-    if !is_known(&path) {
+    if !is_known(&path)? {
         return Err(format!("未知路径：{path}"));
     }
     if is_link_or_reparse_point(Path::new(&path)) {
@@ -278,7 +280,7 @@ pub fn cleanup_aged_stats(path: String, days: u64) -> Result<AgedStats, String> 
 /// 删除 path 下超过 days 天未访问的文件，返回释放字节。
 #[tauri::command]
 pub fn cleanup_delete_aged(path: String, days: u64) -> Result<u64, String> {
-    if !is_known(&path) {
+    if !is_known(&path)? {
         return Err(format!("未知路径：{path}"));
     }
     if is_link_or_reparse_point(Path::new(&path)) {

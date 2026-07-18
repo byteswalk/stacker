@@ -40,6 +40,15 @@ impl CleanupKind {
             Self::None => "none",
         }
     }
+
+    pub(crate) fn from_stable_str(value: &str) -> Option<Self> {
+        match value {
+            "contents" => Some(Self::Contents),
+            "wholeDirectory" => Some(Self::WholeDirectory),
+            "none" => Some(Self::None),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -102,7 +111,7 @@ where
         add_stats(&mut completed_stats, &stats);
         progress(&completed_stats);
 
-        if stats.logical_bytes == 0 || is_small_compatibility_temp(&candidate, &stats) {
+        if !legacy_candidate_is_visible(&candidate, stats.logical_bytes) {
             continue;
         }
 
@@ -394,9 +403,10 @@ fn is_windows_temp(path: &Path) -> bool {
         .contains("\\windows\\temp")
 }
 
-fn is_small_compatibility_temp(candidate: &KnownCandidate, stats: &WalkStats) -> bool {
-    matches!(candidate.id.as_str(), "user-temp" | "windows-temp")
-        && stats.logical_bytes <= TEMP_VISIBILITY_THRESHOLD
+fn legacy_candidate_is_visible(candidate: &KnownCandidate, bytes: u64) -> bool {
+    bytes > 0
+        && (!matches!(candidate.id.as_str(), "user-temp" | "windows-temp")
+            || bytes > TEMP_VISIBILITY_THRESHOLD)
 }
 
 fn combined_stats(completed: &WalkStats, current: &WalkStats) -> WalkStats {
@@ -454,5 +464,33 @@ mod tests {
     #[test]
     fn jetbrains_history_keeps_the_highest_version_per_product() {
         assert!(version_key("2026.1") > version_key("2025.3.4"));
+    }
+
+    #[test]
+    fn legacy_visibility_excludes_small_temp_directories() {
+        let candidate = |id: &str| KnownCandidate {
+            id: id.into(),
+            name_key: "test.known".into(),
+            path: PathBuf::from(r"C:\test-only"),
+            ecosystem: Some("test".into()),
+            safety: SafetyClass::NeedsConfirmation,
+            cleanup_kind: CleanupKind::Contents,
+        };
+
+        for id in ["user-temp", "windows-temp"] {
+            let temp = candidate(id);
+            assert!(!legacy_candidate_is_visible(
+                &temp,
+                TEMP_VISIBILITY_THRESHOLD
+            ));
+            assert!(legacy_candidate_is_visible(
+                &temp,
+                TEMP_VISIBILITY_THRESHOLD + 1
+            ));
+        }
+
+        let cache = candidate("playwright");
+        assert!(!legacy_candidate_is_visible(&cache, 0));
+        assert!(legacy_candidate_is_visible(&cache, 1));
     }
 }
