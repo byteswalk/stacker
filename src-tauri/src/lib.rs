@@ -150,6 +150,7 @@ pub fn run() {
             space_analysis::space_scan_children,
             space_analysis::space_scan_large_files,
             space_analysis::space_scan_supplement_elevated,
+            space_analysis::space_cleanup_candidates,
             space_analysis::space_cleanup_plan,
             space_analysis::space_cleanup_start,
             space_analysis::space_cleanup_status,

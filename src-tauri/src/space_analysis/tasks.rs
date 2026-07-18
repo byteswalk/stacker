@@ -181,6 +181,12 @@ impl SpaceTaskManager {
         Ok(result.large_files(min_bytes, offset, limit))
     }
 
+    pub fn cleanup_candidates(&self, task_id: &str) -> Result<Vec<DirectoryNode>, String> {
+        let tasks = lock_records(&self.tasks);
+        let result = completed_deep_result(&tasks, task_id)?;
+        Ok(result.cleanup_candidates())
+    }
+
     pub fn create_cleanup_plan(
         &self,
         scan_task_id: &str,

@@ -99,3 +99,56 @@ export interface Paged<T> {
   limit: number;
   total: number;
 }
+
+export type SafetyClass = "safe" | "rebuildable" | "needsConfirmation" | "viewOnly";
+export type ElevationRequirement = "none" | "required";
+
+export interface CleanupPlanItem {
+  nodeId: string;
+  path: string;
+  estimatedBytes: number;
+  safety: SafetyClass;
+  impactKey: string;
+  cleanupKind: string;
+  requiresElevation: boolean;
+  defaultSelected: boolean;
+}
+
+export interface CleanupPlan {
+  planId: string;
+  scanTaskId: string;
+  createdAt: string;
+  estimatedBytes: number;
+  elevationRequirement: ElevationRequirement;
+  items: CleanupPlanItem[];
+}
+
+export type CleanupTaskState = "queued" | "running" | "cancelling" | "completed" | "cancelled" | "failed";
+export type CleanupItemState = "pending" | "running" | "completed" | "skipped" | "failed" | "cancelled";
+
+export interface CleanupProgress {
+  taskId: string;
+  planId: string;
+  state: CleanupTaskState;
+  completedItems: number;
+  totalItems: number;
+  actualReleasedBytes: number;
+  currentNodeId: string | null;
+}
+
+export interface CleanupItemResult {
+  nodeId: string;
+  path: string;
+  state: CleanupItemState;
+  validatedBytes: number;
+  actualReleasedBytes: number;
+  reasonKey: string | null;
+}
+
+export interface CleanupResult {
+  taskId: string;
+  planId: string;
+  state: CleanupTaskState;
+  actualReleasedBytes: number;
+  items: CleanupItemResult[];
+}

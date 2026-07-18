@@ -155,6 +155,22 @@ impl IndexedScanResult {
         })
     }
 
+    pub(crate) fn cleanup_candidates(&self) -> Vec<DirectoryNode> {
+        let mut nodes = self
+            .nodes
+            .values()
+            .filter(|record| record.node.cleanup_kind.is_some())
+            .map(|record| record.node.clone())
+            .collect::<Vec<_>>();
+        nodes.sort_by(|left, right| {
+            right
+                .allocated_bytes
+                .cmp(&left.allocated_bytes)
+                .then_with(|| left.path.cmp(&right.path))
+        });
+        nodes
+    }
+
     fn annotate_classifications(&mut self) {
         let projects = detect_projects(self);
         let evidence = self.project_root_evidence(&projects);

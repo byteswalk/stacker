@@ -96,6 +96,14 @@ pub fn space_scan_large_files(
 }
 
 #[tauri::command]
+pub fn space_cleanup_candidates(
+    task_id: String,
+    manager: tauri::State<'_, SpaceTaskManager>,
+) -> Result<Vec<DirectoryNode>, String> {
+    manager.cleanup_candidates(&task_id)
+}
+
+#[tauri::command]
 pub fn space_cleanup_plan(
     scan_task_id: String,
     node_ids: Vec<String>,
