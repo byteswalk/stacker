@@ -24,6 +24,7 @@ import {
 
 type SpaceAnalysisSettings = {
   remember_scan_targets?: boolean;
+  common_scan_directories?: string[];
 };
 
 function formatBytes(bytes: number) {
@@ -38,6 +39,7 @@ export function ScanLauncher({ disabled = false }: { disabled?: boolean }) {
   const toast = useToast();
   const scan = useSpaceScan();
   const [rememberTargets, setRememberTargets] = useState<boolean | null>(null);
+  const [commonDirectories, setCommonDirectories] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [selector, setSelector] = useState<DiskSelectorKind | null>(null);
   const [rows, setRows] = useState<DiskSelectorRow[]>([]);
@@ -62,6 +64,7 @@ export function ScanLauncher({ disabled = false }: { disabled?: boolean }) {
           throw new Error("invalid space-analysis settings");
         }
         setRememberTargets(resolved);
+        setCommonDirectories((settings.common_scan_directories ?? []).filter((path) => path.trim().length > 0));
       })
       .catch(() => {
         if (current) toast(tr("无法读取空间分析设置。扫描入口已保持禁用，请重试。"), "err");
@@ -181,6 +184,17 @@ export function ScanLauncher({ disabled = false }: { disabled?: boolean }) {
             {tr("全盘分析")}
           </button>
         </div>
+        {commonDirectories.length > 0 && (
+          <div className="scan-common-directories" aria-label={tr("常用扫描目录")}>
+            <span>{tr("常用目录")}</span>
+            {commonDirectories.map((path) => (
+              <button className="gh sm" disabled={controlsDisabled} key={path} title={path} onClick={() => launch({ mode: "directories", targets: [path] })}>
+                <i className="ti ti-folder" aria-hidden="true" />
+                <span>{path}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </section>
 
       {selector && (

@@ -186,23 +186,37 @@ pub fn space_cleanup_result(
 }
 
 #[tauri::command]
-pub fn space_snapshot_save(task_id: String, manager: tauri::State<'_, SpaceTaskManager>) -> Result<Option<SnapshotMetadata>, String> {
+pub fn space_snapshot_save(
+    task_id: String,
+    manager: tauri::State<'_, SpaceTaskManager>,
+) -> Result<Option<SnapshotMetadata>, String> {
     snapshots::save_completed(&manager, &task_id)
 }
 
 #[tauri::command]
-pub fn space_snapshot_list() -> Result<Vec<SnapshotMetadata>, String> { snapshots::list() }
+pub fn space_snapshot_list() -> Result<Vec<SnapshotMetadata>, String> {
+    snapshots::list()
+}
 
 #[tauri::command]
-pub fn space_snapshot_compare(base_id: String, current_id: String, offset: u64, limit: u64) -> Result<SnapshotComparison, String> {
+pub fn space_snapshot_compare(
+    base_id: String,
+    current_id: String,
+    offset: u64,
+    limit: u64,
+) -> Result<SnapshotComparison, String> {
     snapshots::compare(&base_id, &current_id, offset, limit)
 }
 
 #[tauri::command]
-pub fn space_snapshot_delete(id: String) -> Result<(), String> { snapshots::delete(&id) }
+pub fn space_snapshot_delete(id: String) -> Result<(), String> {
+    snapshots::delete(&id)
+}
 
 #[tauri::command]
-pub fn space_snapshot_clear() -> Result<(), String> { snapshots::clear() }
+pub fn space_snapshot_clear() -> Result<(), String> {
+    snapshots::clear()
+}
 
 fn directory_to_open(path: &std::path::Path) -> Result<std::path::PathBuf, String> {
     let metadata = std::fs::metadata(path)

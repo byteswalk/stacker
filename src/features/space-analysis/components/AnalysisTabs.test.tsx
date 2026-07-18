@@ -4,16 +4,16 @@ import type { ScanRequest, VolumeInfo } from "../types";
 import { ANALYSIS_TABS, matchedFreeBytes } from "./AnalysisTabs";
 
 describe("AnalysisTabs", () => {
-  it("exposes only views backed by Phase 2 commands", () => {
+  it("exposes every implemented analysis view", () => {
     const html = renderToStaticMarkup(
       <div>{ANALYSIS_TABS.map((tab) => <span key={tab}>{tab}</span>)}</div>,
     );
     expect(html).toContain("overview");
     expect(html).toContain("directories");
     expect(html).toContain("large-files");
-    expect(html).not.toContain("artifacts");
-    expect(html).not.toContain("cache-downloads");
-    expect(html).not.toContain("changes");
+    expect(html).toContain("development-artifacts");
+    expect(html).toContain("cache-downloads");
+    expect(html).toContain("changes");
   });
 });
 

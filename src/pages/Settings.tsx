@@ -57,7 +57,7 @@ function normalizeLargeFileThresholdGb(value: string): number {
 }
 
 export default function Settings() {
-  const { locale, setLocale } = useI18n();
+  const { locale, setLocale, tr } = useI18n();
   const toast = useToast();
   const busy = useBusy();
   const notices = useNotifications();
@@ -343,16 +343,6 @@ export default function Settings() {
 
   return (
     <>
-      <div className="grouphd"><span className="gt"><i className="ti ti-history" /> 空间快照</span></div>
-      <div className="srcrow space-snapshot-settings">
-        <span className="av st"><i className="ti ti-chart-histogram" /></span>
-        <div className="mt"><div className="t">扫描快照与变化记录</div><div className="s dim" title="仅保存扫描目标指纹和相对目录占用，不保存文件名或文件内容。">用于比较同一组扫描目标在不同时间的空间变化。</div></div>
-        <label className="ck"><input type="checkbox" checked={snapshotsEnabled} disabled={spaceAnalysisSaving || noBackend} onChange={(event) => setSnapshotsEnabled(event.target.checked)} /> 启用</label>
-        <span className="s dim">保留</span><input className="ip sm" type="number" min="1" max="365" value={snapshotRetentionDays} disabled={spaceAnalysisSaving || noBackend} aria-label="快照保留天数" onChange={(event) => setSnapshotRetentionDays(event.target.value)} /><span className="s dim">天</span>
-        <span className="s dim">每组最多</span><input className="ip sm" type="number" min="2" max="100" value={snapshotMaxPerTarget} disabled={spaceAnalysisSaving || noBackend} aria-label="每组目标最多快照数" onChange={(event) => setSnapshotMaxPerTarget(event.target.value)} /><span className="s dim">份</span>
-        <input className="ip space-common-dirs" value={commonScanDirectories} disabled={spaceAnalysisSaving || noBackend} aria-label="常用扫描目录" title={commonScanDirectories} placeholder="常用目录，以分号分隔" onChange={(event) => setCommonScanDirectories(event.target.value)} />
-        <button className="pr sm" disabled={spaceAnalysisSaving || noBackend} onClick={() => saveSpaceAnalysis()}><i className={spaceAnalysisSaving ? "ti ti-loader spin" : "ti ti-device-floppy"} /> 保存</button>
-      </div>
       <div className="grouphd">
         <span className="gt">
           <i className="ti ti-database-cog" /> 源管理
@@ -490,6 +480,25 @@ export default function Settings() {
             aria-label="记住上次扫描目标" onChange={(e) => toggleRememberScanTargets(e.target.checked)} />
           <span className="tk" />
         </label>
+      </div>
+      <div className="srcrow space-snapshot-settings">
+        <span className="av st"><i className="ti ti-chart-histogram" /></span>
+        <div className="mt">
+          <div className="t">{tr("空间快照")}</div>
+          <div className="s dim" title={tr("仅保存扫描目标指纹和相对目录占用，不保存文件名或文件内容。")}>{tr("用于比较同一组扫描目标在不同时间的空间变化。")}</div>
+        </div>
+        <label className="ck"><input type="checkbox" checked={snapshotsEnabled} disabled={spaceAnalysisSaving || noBackend} onChange={(event) => setSnapshotsEnabled(event.target.checked)} /> {tr("启用")}</label>
+        <span className="s dim">{tr("保留")}</span><input className="ip sm" type="number" min="1" max="365" value={snapshotRetentionDays} disabled={spaceAnalysisSaving || noBackend} aria-label={tr("快照保留天数")} onChange={(event) => setSnapshotRetentionDays(event.target.value)} /><span className="s dim">{tr("天")}</span>
+        <span className="s dim">{tr("每组最多")}</span><input className="ip sm" type="number" min="2" max="100" value={snapshotMaxPerTarget} disabled={spaceAnalysisSaving || noBackend} aria-label={tr("每组目标最多快照数")} onChange={(event) => setSnapshotMaxPerTarget(event.target.value)} /><span className="s dim">{tr("份")}</span>
+      </div>
+      <div className="srcrow space-common-directory-settings">
+        <span className="av st"><i className="ti ti-folders" /></span>
+        <div className="mt">
+          <div className="t">{tr("常用扫描目录")}</div>
+          <div className="s dim">{tr("保存常用目录后，可从磁盘清理页手动快速开始扫描。")}</div>
+        </div>
+        <input className="ip space-common-dirs" value={commonScanDirectories} disabled={spaceAnalysisSaving || noBackend} aria-label={tr("常用扫描目录")} title={commonScanDirectories} placeholder={tr("多个目录以分号分隔")} onChange={(event) => setCommonScanDirectories(event.target.value)} />
+        <button className="pr sm" disabled={spaceAnalysisSaving || noBackend} onClick={() => saveSpaceAnalysis()}><i className={spaceAnalysisSaving ? "ti ti-loader spin" : "ti ti-device-floppy"} /> {tr("保存")}</button>
       </div>
 
       <div className="grouphd" style={{ marginTop: 18 }}><span className="gt"><i className="ti ti-bell-cog" /> 提示管理</span></div>

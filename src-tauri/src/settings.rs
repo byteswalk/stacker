@@ -69,9 +69,15 @@ fn default_large_file_threshold_bytes() -> u64 {
 fn default_remember_scan_targets() -> bool {
     true
 }
-fn default_snapshots_enabled() -> bool { true }
-fn default_snapshot_retention_days() -> u16 { 30 }
-fn default_snapshot_max_per_target() -> u16 { 20 }
+fn default_snapshots_enabled() -> bool {
+    true
+}
+fn default_snapshot_retention_days() -> u16 {
+    30
+}
+fn default_snapshot_max_per_target() -> u16 {
+    20
+}
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
@@ -187,7 +193,8 @@ fn normalize(mut s: AppSettings) -> AppSettings {
     s.large_file_threshold_bytes = s.large_file_threshold_bytes.clamp(ONE_GIB, ONE_TIB);
     s.snapshot_retention_days = s.snapshot_retention_days.clamp(1, 365);
     s.snapshot_max_per_target = s.snapshot_max_per_target.clamp(2, 100);
-    s.common_scan_directories.retain(|path| !path.trim().is_empty());
+    s.common_scan_directories
+        .retain(|path| !path.trim().is_empty());
     s.common_scan_directories.sort();
     s.common_scan_directories.dedup();
     s
@@ -353,10 +360,18 @@ pub fn settings_set_space_analysis(
     let mut settings = load();
     settings.large_file_threshold_bytes = large_file_threshold_bytes;
     settings.remember_scan_targets = remember_scan_targets;
-    if let Some(value) = snapshots_enabled { settings.snapshots_enabled = value; }
-    if let Some(value) = snapshot_retention_days { settings.snapshot_retention_days = value; }
-    if let Some(value) = snapshot_max_per_target { settings.snapshot_max_per_target = value; }
-    if let Some(value) = common_scan_directories { settings.common_scan_directories = value; }
+    if let Some(value) = snapshots_enabled {
+        settings.snapshots_enabled = value;
+    }
+    if let Some(value) = snapshot_retention_days {
+        settings.snapshot_retention_days = value;
+    }
+    if let Some(value) = snapshot_max_per_target {
+        settings.snapshot_max_per_target = value;
+    }
+    if let Some(value) = common_scan_directories {
+        settings.common_scan_directories = value;
+    }
     let settings = normalize(settings);
     save(&settings)?;
     Ok(settings)

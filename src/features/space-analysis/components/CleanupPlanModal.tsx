@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { Modal } from "../../../ui";
+import { Modal, useToast } from "../../../ui";
 import { useI18n } from "../../../i18n";
 import { dismissCleanupPlan, startCleanup, useCleanupStore } from "../cleanupStore";
 import { candidateImpact, formatSpaceBytes } from "./DevelopmentArtifacts";
 
 export function CleanupPlanModal() {
   const { tr } = useI18n();
+  const toast = useToast();
   const cleanup = useCleanupStore();
   const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -16,7 +17,16 @@ export function CleanupPlanModal() {
     footer={<>
       <button className="gh sm" disabled={busy} onClick={dismissCleanupPlan}>{tr("取消")}</button>
       <button className={`pr sm${destructive ? " danger-solid" : ""}`} disabled={busy || !confirmed}
-        onClick={async () => { setBusy(true); try { await startCleanup(); } finally { setBusy(false); } }}>
+        onClick={async () => {
+          setBusy(true);
+          try {
+            await startCleanup();
+          } catch (error) {
+            toast(`${tr("清理失败：")}${String(error)}`, "err");
+          } finally {
+            setBusy(false);
+          }
+        }}>
         <i className={busy ? "ti ti-loader spin" : "ti ti-eraser"} /> {busy ? tr("清理中…") : tr("开始清理")}
       </button>
     </>}>

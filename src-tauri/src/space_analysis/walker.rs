@@ -172,9 +172,11 @@ impl IndexedScanResult {
     }
 
     pub(crate) fn snapshot_directories(&self) -> Vec<(String, u64)> {
-        let mut rows = self.nodes.values().map(|record| {
-            (record.node.path.clone(), record.node.allocated_bytes)
-        }).collect::<Vec<_>>();
+        let mut rows = self
+            .nodes
+            .values()
+            .map(|record| (record.node.path.clone(), record.node.allocated_bytes))
+            .collect::<Vec<_>>();
         rows.sort_by(|left, right| left.0.cmp(&right.0));
         rows
     }
