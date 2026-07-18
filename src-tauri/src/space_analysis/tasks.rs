@@ -121,6 +121,42 @@ impl SpaceTaskManager {
         )
     }
 
+    pub fn start_elevated_deep(
+        &self,
+        targets: Vec<PathBuf>,
+        window: tauri::Window,
+    ) -> Result<String, String> {
+        use tauri::Emitter;
+
+        self.start_deep_worker(
+            targets,
+            move |progress| {
+                if let Err(error) = window.emit("space-scan-progress", progress) {
+                    log::warn!(
+                        "failed to emit progress for elevated space scan task {}: {}",
+                        progress.task_id,
+                        error
+                    );
+                }
+            },
+            |targets, token, report_progress| {
+                let roots = targets
+                    .iter()
+                    .map(|path| path.to_string_lossy().into_owned())
+                    .collect::<Vec<_>>();
+                super::elevated::run_deep_scan(&roots, token, report_progress)
+                    .map(TaskResult::Deep)
+                    .map_err(|error| {
+                        if token.is_cancelled() {
+                            ScanWalkError::Cancelled
+                        } else {
+                            ScanWalkError::Failed(error)
+                        }
+                    })
+            },
+        )
+    }
+
     pub fn status(&self, task_id: &str) -> Result<ScanProgress, String> {
         lock_records(&self.tasks)
             .get(task_id)
@@ -430,6 +466,10 @@ impl SpaceTaskManager {
                         }
                         Ok(Ok(_)) | Ok(Err(ScanWalkError::Cancelled)) => {
                             record.progress.state = ScanTaskState::Cancelled;
+                        }
+                        Ok(Err(error)) => {
+                            record.failure = Some(error.to_string());
+                            record.progress.state = ScanTaskState::Failed;
                         }
                         Err(_) => {
                             log::error!("space scan task {} panicked", worker_task_id);
@@ -763,6 +803,16 @@ mod tests {
 
         assert_eq!(manager.quick_result(&id).unwrap().task_id, id);
         assert!(manager.quick_result(&id).unwrap().completed);
+    }
+
+    #[test]
+    fn worker_failure_becomes_a_terminal_failed_task() {
+        let manager = SpaceTaskManager::default();
+        let task_id = manager.start_for_test(|_| Err(ScanWalkError::Failed("boom".into())));
+        manager.wait_for_test(&task_id);
+        let progress = manager.status(&task_id).unwrap();
+
+        assert_eq!(progress.state, ScanTaskState::Failed);
     }
 
     #[test]

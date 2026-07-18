@@ -117,6 +117,31 @@ describe("space scan store", () => {
     expect(store.getSnapshot().progress?.scannedFiles).toBe(9);
   });
 
+  it("polls the backend so a missed terminal event cannot leave controls locked", async () => {
+    vi.useFakeTimers();
+    try {
+      let backendProgress = progress("scan-deep", "running", { scannedFiles: 4 });
+      const harness = fakeAdapter({ startId: "scan-deep" });
+      vi.mocked(harness.adapter.status).mockImplementation(async () => backendProgress);
+      const store = createSpaceScanStore(harness.adapter);
+      const unsubscribe = store.subscribe(() => undefined);
+
+      await store.startScan({ mode: "directories", targets: ["C:\\work"] });
+      backendProgress = progress("scan-deep", "completed", { scannedFiles: 12 });
+      await vi.advanceTimersByTimeAsync(500);
+
+      expect(store.getSnapshot().progress).toMatchObject({
+        state: "completed",
+        scannedFiles: 12,
+      });
+      expect(scanSnapshotIsActive(store.getSnapshot())).toBe(false);
+      unsubscribe();
+      store.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("starts and retains an explicit manual scan request", async () => {
     const harness = fakeAdapter({ startId: "scan-deep" });
     const store = createSpaceScanStore(harness.adapter);
@@ -124,12 +149,23 @@ describe("space scan store", () => {
 
     await store.startScan(request);
 
-    expect(harness.adapter.start).toHaveBeenCalledWith(request);
+    expect(harness.adapter.start).toHaveBeenCalledWith(request, false);
     expect(store.getSnapshot()).toMatchObject({
       taskId: "scan-deep",
       request,
       pendingRequest: null,
     });
+  });
+
+  it("dispatches an elevated deep scan without changing the stored request", async () => {
+    const harness = fakeAdapter({ startId: "scan-elevated" });
+    const store = createSpaceScanStore(harness.adapter);
+    const request = { mode: "directories" as const, targets: ["C:\\protected"] };
+
+    await store.startScan(request, { elevated: true });
+
+    expect(harness.adapter.start).toHaveBeenCalledWith(request, true);
+    expect(store.getSnapshot()).toMatchObject({ taskId: "scan-elevated", request });
   });
 
   it("owns a pending request across remounts and assigns one persistence owner", async () => {

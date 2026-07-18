@@ -9,6 +9,7 @@ use super::model::{
 use super::windows_fs::{allocated_size, display_path, file_identity, FileIdentity};
 use chrono::{DateTime, Utc};
 use jwalk::{Parallelism, WalkDir};
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fs::{self, Metadata};
@@ -57,15 +58,17 @@ impl WalkStats {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ScanWalkError {
     Cancelled,
+    Failed(String),
 }
 
 impl fmt::Display for ScanWalkError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Cancelled => formatter.write_str("scan cancelled"),
+            Self::Failed(message) => formatter.write_str(message),
         }
     }
 }
@@ -74,6 +77,7 @@ impl std::error::Error for ScanWalkError {}
 
 type NodeId = String;
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
 struct NodeRecord {
     node: DirectoryNode,
     identity: Option<FileIdentity>,
@@ -81,7 +85,12 @@ struct NodeRecord {
     direct_logical_bytes: u64,
     child_ids: Vec<NodeId>,
     direct_file_names: HashSet<String>,
+    #[serde(skip, default = "default_classification")]
     classification: Classification,
+}
+
+fn default_classification() -> Classification {
+    Classification::view_only(None)
 }
 
 pub(crate) struct DirectoryIndexEntry<'a> {
@@ -98,6 +107,7 @@ pub(crate) struct IndexedCleanupNode<'a> {
     pub(crate) project_evidence: Option<&'a HashSet<String>>,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub(crate) struct IndexedScanResult {
     summary: AnalysisSummary,
     nodes: HashMap<NodeId, NodeRecord>,
@@ -111,6 +121,21 @@ impl IndexedScanResult {
 
     pub(crate) fn set_task_id(&mut self, task_id: &str) {
         self.summary.task_id = task_id.to_string();
+    }
+
+    pub(crate) fn restore_after_transfer(&mut self) {
+        let root_ids = self
+            .summary
+            .root_nodes
+            .iter()
+            .map(|node| node.node_id.clone())
+            .collect::<Vec<_>>();
+        self.annotate_classifications();
+        self.summary.root_nodes = root_ids
+            .iter()
+            .filter_map(|node_id| self.nodes.get(node_id))
+            .map(|record| record.node.clone())
+            .collect();
     }
 
     pub(crate) fn directory_entries(&self) -> impl Iterator<Item = DirectoryIndexEntry<'_>> {
@@ -230,10 +255,7 @@ impl IndexedScanResult {
             .partition_point(|row| row.allocated_bytes >= min_bytes);
         let matching_files = &self.large_files[..threshold_end];
         let total = matching_files.len() as u64;
-        let items = page_slice(matching_files, offset, limit)
-            .iter()
-            .cloned()
-            .collect();
+        let items = page_slice(matching_files, offset, limit).to_vec();
 
         Paged {
             items,
@@ -849,9 +871,11 @@ mod tests {
         let mut nodes = HashMap::with_capacity(DEPTH);
         for index in 0..DEPTH {
             let node_id = format!("node-{index}");
-            let child_ids = (index + 1 < DEPTH)
-                .then(|| vec![format!("node-{}", index + 1)])
-                .unwrap_or_default();
+            let child_ids = if index + 1 < DEPTH {
+                vec![format!("node-{}", index + 1)]
+            } else {
+                Vec::new()
+            };
             nodes.insert(
                 node_id.clone(),
                 NodeRecord {

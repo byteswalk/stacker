@@ -44,6 +44,23 @@ pub fn space_scan_start(
 }
 
 #[tauri::command]
+pub fn space_scan_start_elevated(
+    request: ScanRequest,
+    manager: tauri::State<'_, SpaceTaskManager>,
+    window: tauri::Window,
+) -> Result<String, String> {
+    if request.mode == ScanMode::Quick {
+        return Err("Quick Scan does not require administrator access.".into());
+    }
+    let targets = validate_targets(&request).map_err(|error| error.to_string())?;
+    let paths = targets
+        .into_iter()
+        .map(|target| target.path().to_path_buf())
+        .collect::<Vec<_>>();
+    manager.start_elevated_deep(paths, window)
+}
+
+#[tauri::command]
 pub fn space_scan_status(
     task_id: String,
     manager: tauri::State<'_, SpaceTaskManager>,
@@ -150,15 +167,6 @@ pub fn space_cleanup_start(
             );
         }
     })
-}
-
-#[tauri::command]
-pub fn space_scan_supplement_elevated(
-    scan_task_id: String,
-    manager: tauri::State<'_, SpaceTaskManager>,
-) -> Result<AnalysisSummary, String> {
-    let summary = manager.summary(&scan_task_id)?;
-    elevated::run_supplement_scan(&scan_task_id, &summary.targets)
 }
 
 #[tauri::command]

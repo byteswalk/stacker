@@ -2410,7 +2410,16 @@ fn install_git_impl(window: tauri::Window, source_id: &str) -> Result<String, St
                 "正在为当前用户静默安装 Git，无需管理员授权…"
             },
         );
-        run_git_installer(&window, &installer, system_install)?;
+        let installer_log = git_installer_log_path(&release.latest)?;
+        run_git_installer(&window, &installer, system_install, &installer_log).map_err(
+            |error| {
+                if installer_log.is_file() {
+                    format!("{error}。诊断日志：{}", installer_log.display())
+                } else {
+                    error
+                }
+            },
+        )?;
         let _ = window.emit("install-progress", "正在验证 Git、Git Bash 与 GCM…");
 
         let mut after = GitStatus::default();
@@ -2446,6 +2455,29 @@ fn install_git_impl(window: tauri::Window, source_id: &str) -> Result<String, St
     })();
     let _ = std::fs::remove_file(&installer);
     result
+}
+
+fn git_installer_log_path(version: &str) -> Result<PathBuf, String> {
+    let safe_version = version
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    let local = std::env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .ok_or("无法读取当前用户的应用数据目录")?;
+    let directory = local.join("Stacker").join("logs");
+    std::fs::create_dir_all(&directory)
+        .map_err(|error| format!("无法创建 Git 安装日志目录：{error}"))?;
+    Ok(directory.join(format!(
+        "git-install-{safe_version}-{}.log",
+        chrono::Local::now().format("%Y%m%d-%H%M%S")
+    )))
 }
 
 fn git_install_requires_elevation(status: &GitStatus) -> bool {
@@ -2579,6 +2611,7 @@ fn run_git_installer(
     window: &tauri::Window,
     installer: &Path,
     system_install: bool,
+    log_path: &Path,
 ) -> Result<(), String> {
     use std::os::windows::ffi::OsStrExt;
     use winapi::um::handleapi::CloseHandle;
@@ -2595,9 +2628,14 @@ fn run_git_installer(
     let verb: Vec<u16> = if system_install { "runas\0" } else { "open\0" }
         .encode_utf16()
         .collect();
-    let common_arguments = "/VERYSILENT /NORESTART /NOCANCEL /SUPPRESSMSGBOXES /SP- /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS /o:PathOption=Cmd /o:UseCredentialManager=Enabled";
+    // Never let the Git installer close or restart Stacker, terminals, or IDEs.
+    // In-use files are reported as an installation failure with a diagnostic log.
+    let escaped_log = log_path.to_string_lossy().replace('"', "\"\"");
+    let common_arguments = format!(
+        "/VERYSILENT /NORESTART /NOCANCEL /SUPPRESSMSGBOXES /SP- /NOCLOSEAPPLICATIONS /NORESTARTAPPLICATIONS /LOG=\"{escaped_log}\" /o:PathOption=Cmd /o:UseCredentialManager=Enabled"
+    );
     let arguments = if system_install {
-        common_arguments.to_string()
+        common_arguments
     } else {
         let local = std::env::var_os("LOCALAPPDATA")
             .map(PathBuf::from)
@@ -2638,6 +2676,12 @@ fn run_git_installer(
                 0 => break,
                 258 => {
                     let elapsed = started.elapsed().as_secs();
+                    if elapsed >= 20 * 60 {
+                        let _ = TerminateProcess(info.hProcess, 1);
+                        let _ = WaitForSingleObject(info.hProcess, 5_000);
+                        CloseHandle(info.hProcess);
+                        return Err("Git 安装程序运行超过 20 分钟，已停止等待".into());
+                    }
                     if elapsed != last_reported {
                         last_reported = elapsed;
                         let _ = window.emit(
@@ -2658,16 +2702,22 @@ fn run_git_installer(
         if read_code == 0 {
             return Err("无法读取 Git 安装程序退出状态".into());
         }
-        if code == 0 {
-            Ok(())
-        } else {
-            Err(format!("Git 安装未完成，安装程序退出代码：{code}"))
-        }
+        git_installer_exit_result(code)
+    }
+}
+
+fn git_installer_exit_result(code: u32) -> Result<(), String> {
+    match code {
+        0 => Ok(()),
+        1 => Err("Git 安装程序初始化失败".into()),
+        2 | 5 => Err("Git 安装已被取消".into()),
+        8 => Err("Git 安装过程中发生错误；常见原因是 Git 文件正在被终端或开发工具占用".into()),
+        _ => Err(format!("Git 安装未完成，安装程序退出代码：{code}")),
     }
 }
 
 #[cfg(not(windows))]
-fn run_git_installer(_: &tauri::Window, _: &Path, _: bool) -> Result<(), String> {
+fn run_git_installer(_: &tauri::Window, _: &Path, _: bool, _: &Path) -> Result<(), String> {
     Err("Git for Windows 仅支持 Windows".into())
 }
 
@@ -3079,5 +3129,20 @@ mod tests {
             join_mirror_url("https://mirror.example/git/", "/files/Git.exe").as_deref(),
             Ok("https://mirror.example/files/Git.exe")
         );
+    }
+
+    #[test]
+    fn git_installer_exit_codes_have_actionable_messages() {
+        assert!(git_installer_exit_result(0).is_ok());
+        assert_eq!(
+            git_installer_exit_result(2).unwrap_err(),
+            "Git 安装已被取消"
+        );
+        assert!(git_installer_exit_result(8)
+            .unwrap_err()
+            .contains("Git 文件正在被终端或开发工具占用"));
+        assert!(git_installer_exit_result(42)
+            .unwrap_err()
+            .contains("退出代码：42"));
     }
 }

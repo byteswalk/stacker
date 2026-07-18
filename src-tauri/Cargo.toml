@@ -1,6 +1,6 @@
 [package]
 name = "stacker"
-version = "0.2.0"
+version = "0.3.0"
 description = "Stacker — 开发生态管理器 / Dev Ecosystem Manager"
 authors = ["Stacker"]
 license = "MIT"

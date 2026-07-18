@@ -483,6 +483,7 @@ fn revalidate(
         .map(|stats| stats.allocated_bytes)
         .map_err(|error| match error {
             ScanWalkError::Cancelled => REASON_CANCELLED,
+            ScanWalkError::Failed(_) => REASON_CLASSIFICATION_CHANGED,
         })
 }
 

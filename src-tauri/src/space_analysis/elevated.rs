@@ -1,7 +1,7 @@
 use super::cleanup_plan::StoredCleanupPlan;
 use super::cleanup_tasks::execute_plan;
-use super::model::{AnalysisSummary, CleanupResult};
-use super::walker::{build_indexed_result, CancellationToken};
+use super::model::CleanupResult;
+use super::walker::{build_indexed_result, CancellationToken, IndexedScanResult, WalkStats};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -17,9 +17,7 @@ enum ElevatedOperation {
         task_id: String,
         plan: StoredCleanupPlan,
     },
-    SupplementScan {
-        task_id: String,
-    },
+    DeepScan,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -35,7 +33,7 @@ struct ElevatedRequest {
 #[serde(tag = "kind", content = "value", rename_all = "camelCase")]
 enum ElevatedPayload {
     Cleanup(CleanupResult),
-    SupplementScan(AnalysisSummary),
+    DeepScan(IndexedScanResult),
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -46,6 +44,38 @@ struct ElevatedResponse {
     error: Option<String>,
 }
 
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+struct ElevatedProgress {
+    files: u64,
+    directories: u64,
+    logical_bytes: u64,
+    allocated_bytes: u64,
+    skipped: u64,
+}
+
+impl ElevatedProgress {
+    fn from_walk_stats(stats: &WalkStats) -> Self {
+        Self {
+            files: stats.files,
+            directories: stats.directories,
+            logical_bytes: stats.logical_bytes,
+            allocated_bytes: stats.allocated_bytes,
+            skipped: stats.skipped,
+        }
+    }
+
+    fn to_walk_stats(&self) -> WalkStats {
+        WalkStats {
+            files: self.files,
+            directories: self.directories,
+            logical_bytes: self.logical_bytes,
+            allocated_bytes: self.allocated_bytes,
+            skipped: self.skipped,
+            ..WalkStats::default()
+        }
+    }
+}
+
 pub(crate) fn helper_arg() -> Option<(String, String)> {
     let args = std::env::args().collect::<Vec<_>>();
     (args.len() >= 4 && args[1] == "__space_helper").then(|| (args[2].clone(), args[3].clone()))
@@ -54,8 +84,9 @@ pub(crate) fn helper_arg() -> Option<(String, String)> {
 pub(crate) fn run_helper_from_file(file: &str, token: &str) -> i32 {
     let request_path = Path::new(file);
     let response_path = response_file(request_path);
+    let progress_path = progress_file(request_path);
     let result = read_and_validate_request(request_path, token, Utc::now().timestamp_millis())
-        .and_then(execute_request);
+        .and_then(|request| execute_request(request, Some(&progress_path)));
     let response = match result {
         Ok(payload) => ElevatedResponse {
             version: RESULT_VERSION,
@@ -95,36 +126,41 @@ pub(crate) fn run_cleanup(
         roots,
         operation: ElevatedOperation::Cleanup { task_id, plan },
     };
-    match run_request(request)? {
+    match run_request(request, None, None)? {
         ElevatedPayload::Cleanup(result) => Ok(result),
-        ElevatedPayload::SupplementScan(_) => {
+        ElevatedPayload::DeepScan(_) => {
             Err("The elevated helper returned an unexpected result.".into())
         }
     }
 }
 
-pub(crate) fn run_supplement_scan(
-    task_id: &str,
+pub(crate) fn run_deep_scan(
     roots: &[String],
-) -> Result<AnalysisSummary, String> {
+    cancellation: &CancellationToken,
+    report_progress: &mut dyn FnMut(&WalkStats),
+) -> Result<IndexedScanResult, String> {
     let request = ElevatedRequest {
         version: REQUEST_VERSION,
         token: request_token(),
         created_at_ms: Utc::now().timestamp_millis(),
         roots: roots.to_vec(),
-        operation: ElevatedOperation::SupplementScan {
-            task_id: task_id.to_string(),
-        },
+        operation: ElevatedOperation::DeepScan,
     };
-    match run_request(request)? {
-        ElevatedPayload::SupplementScan(result) => Ok(result),
+    match run_request(request, Some(cancellation), Some(report_progress))? {
+        ElevatedPayload::DeepScan(mut result) => {
+            result.restore_after_transfer();
+            Ok(result)
+        }
         ElevatedPayload::Cleanup(_) => {
             Err("The elevated helper returned an unexpected result.".into())
         }
     }
 }
 
-fn execute_request(request: ElevatedRequest) -> Result<ElevatedPayload, String> {
+fn execute_request(
+    request: ElevatedRequest,
+    progress_path: Option<&Path>,
+) -> Result<ElevatedPayload, String> {
     match request.operation {
         ElevatedOperation::Cleanup { task_id, plan } => Ok(ElevatedPayload::Cleanup(execute_plan(
             &task_id,
@@ -132,17 +168,19 @@ fn execute_request(request: ElevatedRequest) -> Result<ElevatedPayload, String> 
             &CancellationToken::default(),
             |_, _, _| {},
         ))),
-        ElevatedOperation::SupplementScan { task_id } => {
+        ElevatedOperation::DeepScan => {
             let roots = request
                 .roots
                 .into_iter()
                 .map(PathBuf::from)
                 .collect::<Vec<_>>();
-            let result = build_indexed_result(&roots, &CancellationToken::default(), |_| {})
-                .map_err(|error| error.to_string())?;
-            let mut summary = result.summary();
-            summary.task_id = task_id;
-            Ok(ElevatedPayload::SupplementScan(summary))
+            let result = build_indexed_result(&roots, &CancellationToken::default(), |stats| {
+                if let Some(path) = progress_path {
+                    let _ = write_json_atomic(path, &ElevatedProgress::from_walk_stats(stats));
+                }
+            })
+            .map_err(|error| error.to_string())?;
+            Ok(ElevatedPayload::DeepScan(result))
         }
     }
 }
@@ -173,7 +211,7 @@ fn validate_request(
         return Err("The elevated request token is invalid.".into());
     }
     let age = now_ms.saturating_sub(request.created_at_ms);
-    if age < 0 || age > MAX_REQUEST_AGE_MS {
+    if !(0..=MAX_REQUEST_AGE_MS).contains(&age) {
         return Err("The elevated request has expired.".into());
     }
     if request.roots.is_empty() {
@@ -210,7 +248,7 @@ fn validate_request(
                 }
             }
         }
-        ElevatedOperation::SupplementScan { .. } => {}
+        ElevatedOperation::DeepScan => {}
     }
     Ok(())
 }
@@ -225,22 +263,39 @@ fn validate_request_path(path: &Path, token: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn run_request(request: ElevatedRequest) -> Result<ElevatedPayload, String> {
+fn run_request(
+    request: ElevatedRequest,
+    cancellation: Option<&CancellationToken>,
+    report_progress: Option<&mut dyn FnMut(&WalkStats)>,
+) -> Result<ElevatedPayload, String> {
     let path = request_file(&request.token);
     let response_path = response_file(&path);
+    let progress_path = progress_file(&path);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
+    let _ = std::fs::remove_file(&response_path);
+    let _ = std::fs::remove_file(&progress_path);
     write_json_atomic(&path, &request)?;
-    let run_result = run_elevated_self(&path, &request.token);
+    let run_result = run_elevated_self(
+        &path,
+        &request.token,
+        cancellation,
+        &progress_path,
+        report_progress,
+    );
     if let Err(error) = run_result {
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(&response_path);
+        let _ = std::fs::remove_file(&progress_path);
         return Err(error);
     }
-    let bytes = std::fs::read(&response_path)
-        .map_err(|_| "The elevated helper did not return a result.".to_string())?;
+    let response_bytes = std::fs::read(&response_path);
+    let _ = std::fs::remove_file(&path);
     let _ = std::fs::remove_file(&response_path);
+    let _ = std::fs::remove_file(&progress_path);
+    let bytes =
+        response_bytes.map_err(|_| "The elevated helper did not return a result.".to_string())?;
     let response = serde_json::from_slice::<ElevatedResponse>(&bytes)
         .map_err(|_| "The elevated helper returned an invalid result.".to_string())?;
     if response.version != RESULT_VERSION || response.token != request.token {
@@ -284,6 +339,30 @@ fn response_file(request: &Path) -> PathBuf {
     request.with_extension("result.json")
 }
 
+fn progress_file(request: &Path) -> PathBuf {
+    request.with_extension("progress.json")
+}
+
+fn forward_progress(
+    progress_path: &Path,
+    last_progress: &mut Option<ElevatedProgress>,
+    report_progress: &mut Option<&mut dyn FnMut(&WalkStats)>,
+) {
+    let Ok(bytes) = std::fs::read(progress_path) else {
+        return;
+    };
+    let Ok(progress) = serde_json::from_slice::<ElevatedProgress>(&bytes) else {
+        return;
+    };
+    if last_progress.as_ref() == Some(&progress) {
+        return;
+    }
+    if let Some(report) = report_progress.as_deref_mut() {
+        report(&progress.to_walk_stats());
+    }
+    *last_progress = Some(progress);
+}
+
 fn normalize_path(path: &Path) -> String {
     path.to_string_lossy()
         .replace('/', "\\")
@@ -299,13 +378,20 @@ fn is_same_or_descendant(path: &str, root: &str) -> bool {
 }
 
 #[cfg(windows)]
-fn run_elevated_self(file: &Path, token: &str) -> Result<(), String> {
+fn run_elevated_self(
+    file: &Path,
+    token: &str,
+    cancellation: Option<&CancellationToken>,
+    progress_path: &Path,
+    mut report_progress: Option<&mut dyn FnMut(&WalkStats)>,
+) -> Result<(), String> {
     use std::os::windows::ffi::OsStrExt;
+    use winapi::shared::winerror::WAIT_TIMEOUT;
     use winapi::um::handleapi::CloseHandle;
-    use winapi::um::processthreadsapi::GetExitCodeProcess;
+    use winapi::um::processthreadsapi::{GetExitCodeProcess, TerminateProcess};
     use winapi::um::shellapi::{ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW};
     use winapi::um::synchapi::WaitForSingleObject;
-    use winapi::um::winbase::INFINITE;
+    use winapi::um::winbase::WAIT_OBJECT_0;
     use winapi::um::winuser::SW_HIDE;
 
     let executable = std::env::current_exe().map_err(|error| error.to_string())?;
@@ -331,7 +417,25 @@ fn run_elevated_self(file: &Path, token: &str) -> Result<(), String> {
         if ShellExecuteExW(&mut info) == 0 || info.hProcess.is_null() {
             return Err("Administrator approval was cancelled or could not be started.".into());
         }
-        WaitForSingleObject(info.hProcess, INFINITE);
+        let mut last_progress = None;
+        loop {
+            let wait_result = WaitForSingleObject(info.hProcess, 200);
+            if wait_result == WAIT_OBJECT_0 {
+                forward_progress(progress_path, &mut last_progress, &mut report_progress);
+                break;
+            }
+            if wait_result != WAIT_TIMEOUT {
+                CloseHandle(info.hProcess);
+                return Err("The elevated helper could not be monitored.".into());
+            }
+            if cancellation.is_some_and(CancellationToken::is_cancelled) {
+                TerminateProcess(info.hProcess, 3);
+                WaitForSingleObject(info.hProcess, 5_000);
+                CloseHandle(info.hProcess);
+                return Err("The elevated scan was cancelled.".into());
+            }
+            forward_progress(progress_path, &mut last_progress, &mut report_progress);
+        }
         let mut exit_code = 1;
         GetExitCodeProcess(info.hProcess, &mut exit_code);
         CloseHandle(info.hProcess);
@@ -344,7 +448,13 @@ fn run_elevated_self(file: &Path, token: &str) -> Result<(), String> {
 }
 
 #[cfg(not(windows))]
-fn run_elevated_self(_: &Path, _: &str) -> Result<(), String> {
+fn run_elevated_self(
+    _: &Path,
+    _: &str,
+    _: Option<&CancellationToken>,
+    _: &Path,
+    _: Option<&mut dyn FnMut(&WalkStats)>,
+) -> Result<(), String> {
     Err("Elevated space analysis is available only on Windows.".into())
 }
 
@@ -409,19 +519,82 @@ mod tests {
 
     #[test]
     fn response_round_trip_preserves_token_and_payload() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join("child")).unwrap();
+        let index = build_indexed_result(
+            &[root.path().to_path_buf()],
+            &CancellationToken::default(),
+            |_| {},
+        )
+        .unwrap();
         let response = ElevatedResponse {
             version: RESULT_VERSION,
             token: "token".into(),
-            payload: Some(ElevatedPayload::SupplementScan(AnalysisSummary::default())),
+            payload: Some(ElevatedPayload::DeepScan(index)),
             error: None,
         };
         let json = serde_json::to_vec(&response).unwrap();
-        let decoded = serde_json::from_slice::<ElevatedResponse>(&json).unwrap();
+        let mut decoded = serde_json::from_slice::<ElevatedResponse>(&json).unwrap();
         assert_eq!(decoded.version, RESULT_VERSION);
         assert_eq!(decoded.token, "token");
-        assert!(matches!(
-            decoded.payload,
-            Some(ElevatedPayload::SupplementScan(_))
-        ));
+        let Some(ElevatedPayload::DeepScan(index)) = decoded.payload.as_mut() else {
+            panic!("expected a transferred deep scan");
+        };
+        index.restore_after_transfer();
+        let root_id = index.summary().root_nodes[0].node_id.clone();
+        assert_eq!(index.children(&root_id, 0, 10).unwrap().total, 1);
+    }
+
+    #[test]
+    fn deep_scan_helper_publishes_progress_snapshot() {
+        let root = tempfile::tempdir().unwrap();
+        let nested = root.path().join("nested");
+        std::fs::create_dir(&nested).unwrap();
+        std::fs::write(nested.join("data.bin"), vec![7_u8; 512]).unwrap();
+        let progress_dir = tempfile::tempdir().unwrap();
+        let progress_path = progress_dir.path().join("scan.progress.json");
+        let request = ElevatedRequest {
+            version: REQUEST_VERSION,
+            token: "progress-token".into(),
+            created_at_ms: 1_000,
+            roots: vec![root.path().to_string_lossy().into_owned()],
+            operation: ElevatedOperation::DeepScan,
+        };
+
+        let payload = execute_request(request, Some(&progress_path)).unwrap();
+        assert!(matches!(payload, ElevatedPayload::DeepScan(_)));
+        let progress =
+            serde_json::from_slice::<ElevatedProgress>(&std::fs::read(&progress_path).unwrap())
+                .unwrap();
+        assert_eq!(progress.files, 1);
+        assert!(progress.directories >= 2);
+        assert!(progress.allocated_bytes > 0);
+    }
+
+    #[test]
+    fn parent_forwards_each_progress_snapshot_once() {
+        let progress_dir = tempfile::tempdir().unwrap();
+        let progress_path = progress_dir.path().join("scan.progress.json");
+        let progress = ElevatedProgress {
+            files: 12,
+            directories: 4,
+            logical_bytes: 1_024,
+            allocated_bytes: 4_096,
+            skipped: 2,
+        };
+        write_json_atomic(&progress_path, &progress).unwrap();
+
+        let mut received = Vec::new();
+        let mut reporter = |stats: &WalkStats| received.push(stats.clone());
+        let mut callback: Option<&mut dyn FnMut(&WalkStats)> = Some(&mut reporter);
+        let mut last = None;
+        forward_progress(&progress_path, &mut last, &mut callback);
+        forward_progress(&progress_path, &mut last, &mut callback);
+
+        assert_eq!(received.len(), 1);
+        assert_eq!(received[0].files, 12);
+        assert_eq!(received[0].directories, 4);
+        assert_eq!(received[0].allocated_bytes, 4_096);
+        assert_eq!(received[0].skipped, 2);
     }
 }

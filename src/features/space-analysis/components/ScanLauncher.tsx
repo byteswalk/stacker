@@ -42,6 +42,9 @@ export function ScanLauncher({ disabled = false }: { disabled?: boolean }) {
   const [rememberTargets, setRememberTargets] = useState<boolean | null>(null);
   const [commonDirectories, setCommonDirectories] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const [directorySelectorOpen, setDirectorySelectorOpen] = useState(false);
+  const [directoryTargets, setDirectoryTargets] = useState<string[]>([]);
+  const [elevated, setElevated] = useState(false);
   const [selector, setSelector] = useState<DiskSelectorKind | null>(null);
   const [rows, setRows] = useState<DiskSelectorRow[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -82,18 +85,21 @@ export function ScanLauncher({ disabled = false }: { disabled?: boolean }) {
   function closeSelector() {
     selectorRequest.current = closeDiskSelectorRequest(selectorRequest.current.generation);
     setSelector(null);
+    setDirectorySelectorOpen(false);
+    setDirectoryTargets([]);
+    setElevated(false);
     setRows([]);
     setSelected(new Set());
     setVolumeLoading(false);
     setVolumeError(false);
   }
 
-  async function launch(request: ScanRequest) {
+  async function launch(request: ScanRequest, useElevation = false) {
     setBusy(true);
     try {
       if (rememberTargets === null) return;
       const outcome = await startAndRememberScan(request, rememberTargets, {
-        start: startScan,
+        start: (acceptedRequest) => startScan(acceptedRequest, { elevated: useElevation }),
         remember: (acceptedRequest, remember) => rememberStartedScan(
           acceptedRequest.mode,
           acceptedRequest.targets,
@@ -104,26 +110,35 @@ export function ScanLauncher({ disabled = false }: { disabled?: boolean }) {
         toast(tr("扫描已开始，但无法保存扫描目标。"), "info");
       }
       closeSelector();
-    } catch {
-      toast(tr("无法启动扫描，请重试。"), "err");
+    } catch (error) {
+      const message = String(error);
+      if (useElevation && message.toLowerCase().includes("cancel")) {
+        toast(tr("已取消管理员授权，扫描未开始。"), "info");
+      } else {
+        toast(tr("无法启动扫描，请重试。"), "err");
+      }
     } finally {
       setBusy(false);
     }
   }
 
-  async function chooseFolder() {
+  function openDirectorySelector() {
+    setSelector(null);
+    setDirectoryTargets(nonOverlappingDirectoryTargets(loadRememberedTargets("directories")));
+    setElevated(false);
+    setDirectorySelectorOpen(true);
+  }
+
+  async function addDirectory() {
     try {
-      const remembered = loadRememberedTargets("directories");
       const chosen = await open({
         directory: true,
-        multiple: true,
-        defaultPath: remembered[0],
+        multiple: false,
+        defaultPath: directoryTargets[0],
         title: tr("选择要分析的目录"),
       });
-      const directories = (Array.isArray(chosen) ? chosen : [chosen])
-        .filter((directory): directory is string => typeof directory === "string" && directory.length > 0);
-      if (directories.length > 0) {
-        await launch({ mode: "directories", targets: nonOverlappingDirectoryTargets(directories) });
+      if (typeof chosen === "string" && chosen.length > 0) {
+        setDirectoryTargets((current) => nonOverlappingDirectoryTargets([...current, chosen]));
       }
     } catch (error) {
       if (!operationWasCancelled(error)) toast(tr("无法打开目录选择器，请重试。"), "err");
@@ -133,6 +148,8 @@ export function ScanLauncher({ disabled = false }: { disabled?: boolean }) {
   async function openDiskSelector(kind: DiskSelectorKind) {
     const request = beginDiskSelectorRequest(selectorRequest.current.generation, kind);
     selectorRequest.current = request;
+    setDirectorySelectorOpen(false);
+    setElevated(false);
     setSelector(kind);
     setRows([]);
     setSelected(new Set());
@@ -161,6 +178,14 @@ export function ScanLauncher({ disabled = false }: { disabled?: boolean }) {
     });
   }
 
+  function selectAllAvailableVolumes() {
+    setSelected(new Set(rows.filter((row) => row.available).map((row) => row.root)));
+  }
+
+  function clearSelectedVolumes() {
+    setSelected(new Set());
+  }
+
   return (
     <>
       <section className="scan-launcher" aria-label={tr("选择扫描范围")}>
@@ -173,7 +198,7 @@ export function ScanLauncher({ disabled = false }: { disabled?: boolean }) {
             <i className={`ti ${busy ? "ti-loader spin" : "ti-bolt"}`} aria-hidden="true" />
             {tr("快速扫描")}
           </button>
-          <button className="gh" disabled={controlsDisabled} title={tr("选择一个或多个目录进行深入分析，可直接选择磁盘根目录。")} onClick={chooseFolder}>
+          <button className="gh" disabled={controlsDisabled} title={tr("选择一个或多个目录进行深入分析，可直接选择磁盘根目录。")} onClick={openDirectorySelector}>
             <i className={`ti ${busy ? "ti-loader spin" : "ti-folder-open"}`} aria-hidden="true" />
             {tr("选择目录")}
           </button>
@@ -195,6 +220,64 @@ export function ScanLauncher({ disabled = false }: { disabled?: boolean }) {
         )}
       </section>
 
+      {directorySelectorOpen && (
+        <Modal
+          title={tr("选择分析目录")}
+          icon="ti-folders"
+          sub={tr("可连续添加多个目录；存在包含关系时仅保留上层目录，避免重复统计。")}
+          onClose={() => !busy && closeSelector()}
+          footer={<>
+            <button className="gh sm" disabled={busy} onClick={closeSelector}>{tr("取消")}</button>
+            <button
+              className="pr sm"
+              disabled={busy || directoryTargets.length === 0}
+              onClick={() => launch({ mode: "directories", targets: directoryTargets }, elevated)}
+            >
+              <i className={`ti ${busy ? "ti-loader spin" : "ti-player-play"}`} />
+              {busy ? tr("正在启动…") : tr("开始分析")}
+            </button>
+          </>}
+        >
+          <div className="scan-directory-toolbar">
+            <button className="gh sm" disabled={busy} onClick={addDirectory}>
+              <i className="ti ti-folder-plus" /> {tr("添加目录")}
+            </button>
+            {directoryTargets.length > 0 && (
+              <span>{tr("已选择 {count} 个目录").replace("{count}", String(directoryTargets.length))}</span>
+            )}
+          </div>
+          <div className="scan-directory-list">
+            {directoryTargets.length === 0 && (
+              <div className="scan-volume-state">
+                <i className="ti ti-folders" /> {tr("尚未选择目录，请点击“添加目录”。")}
+              </div>
+            )}
+            {directoryTargets.map((path) => (
+              <div className="scan-directory-row" key={path} title={path}>
+                <span className="scan-volume-icon"><i className="ti ti-folder" /></span>
+                <span>{path}</span>
+                <button
+                  className="ic danger"
+                  disabled={busy}
+                  title={tr("移除目录")}
+                  aria-label={tr("移除目录")}
+                  onClick={() => setDirectoryTargets((current) => current.filter((target) => target !== path))}
+                >
+                  <i className="ti ti-trash" />
+                </button>
+              </div>
+            ))}
+          </div>
+          <label className="scan-elevation-option">
+            <input className="ck2" type="checkbox" checked={elevated} disabled={busy} onChange={(event) => setElevated(event.target.checked)} />
+            <span>
+              <strong>{tr("使用管理员权限扫描")}</strong>
+              <small>{tr("适用于包含受保护目录的范围；开始时将显示 Windows 用户账户控制提示。")}</small>
+            </span>
+          </label>
+        </Modal>
+      )}
+
       {selector && (
         <Modal
           title={tr("全盘分析")}
@@ -206,13 +289,26 @@ export function ScanLauncher({ disabled = false }: { disabled?: boolean }) {
             <button
               className="pr sm"
               disabled={busy || volumeLoading || selected.size === 0}
-              onClick={() => launch({ mode: "drives", targets: [...selected] })}
+              onClick={() => launch({ mode: "drives", targets: [...selected] }, elevated)}
             >
               <i className={`ti ${busy ? "ti-loader spin" : "ti-player-play"}`} />
               {busy ? tr("正在启动…") : tr("开始分析")}
             </button>
           </>}
         >
+          {!volumeLoading && !volumeError && rows.length > 0 && (
+            <div className="scan-volume-toolbar">
+              <span>{tr("已选择 {count} 个磁盘").replace("{count}", String(selected.size))}</span>
+              <div>
+                <button className="gh sm" disabled={busy || selected.size === rows.filter((row) => row.available).length} onClick={selectAllAvailableVolumes}>
+                  <i className="ti ti-checkbox" /> {tr("全选")}
+                </button>
+                <button className="gh sm" disabled={busy || selected.size === 0} onClick={clearSelectedVolumes}>
+                  <i className="ti ti-square" /> {tr("取消全选")}
+                </button>
+              </div>
+            </div>
+          )}
           <div className="scan-volume-list">
             {volumeLoading && (
               <div className="scan-volume-state"><i className="ti ti-loader spin" /> {tr("正在读取本地磁盘…")}</div>
@@ -257,6 +353,13 @@ export function ScanLauncher({ disabled = false }: { disabled?: boolean }) {
             <i className="ti ti-shield-check" />
             <span>{tr("可移动磁盘、光驱和网络磁盘不会出现在此列表中。")}</span>
           </div>
+          <label className="scan-elevation-option">
+            <input className="ck2" type="checkbox" checked={elevated} disabled={busy} onChange={(event) => setElevated(event.target.checked)} />
+            <span>
+              <strong>{tr("使用管理员权限扫描")}</strong>
+              <small>{tr("适用于需要统计系统受保护目录的磁盘；开始时将显示 Windows 用户账户控制提示。")}</small>
+            </span>
+          </label>
         </Modal>
       )}
     </>

@@ -248,7 +248,7 @@ pub struct DirectoryNode {
     pub cleanup_kind: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LargeFileRow {
     pub node_id: String,

@@ -9,7 +9,7 @@ import type {
 } from "./types";
 
 export interface SpaceScanAdapter {
-  start(request: ScanRequest): Promise<string>;
+  start(request: ScanRequest, elevated: boolean): Promise<string>;
   status(taskId: string): Promise<ScanProgress>;
   cancel(taskId: string): Promise<void>;
   quickResult(taskId: string): Promise<QuickScanResult>;
@@ -34,7 +34,7 @@ export interface ScanStartResult {
 export interface SpaceScanStore {
   getSnapshot(): SpaceScanSnapshot;
   subscribe(listener: () => void): () => void;
-  startScan(request: ScanRequest): Promise<ScanStartResult>;
+  startScan(request: ScanRequest, options?: ScanStartOptions): Promise<ScanStartResult>;
   startQuickScan(): Promise<ScanStartResult>;
   cancelScan(): Promise<void>;
   refreshTask(): Promise<void>;
@@ -43,8 +43,13 @@ export interface SpaceScanStore {
 
 type PendingStart = {
   request: ScanRequest;
+  elevated: boolean;
   promise: Promise<{ taskId: string; request: ScanRequest }>;
 };
+
+export interface ScanStartOptions {
+  elevated?: boolean;
+}
 
 const INITIAL_SNAPSHOT: SpaceScanSnapshot = {
   taskId: null,
@@ -107,12 +112,36 @@ export function createSpaceScanStore(adapter: SpaceScanAdapter): SpaceScanStore 
   let resultPromise: Promise<void> | null = null;
   let progressGeneration = 0;
   let statusRequestGeneration = 0;
+  let pollTimer: ReturnType<typeof setTimeout> | null = null;
   const listeners = new Set<() => void>();
+
+  function stopPolling() {
+    if (pollTimer === null) return;
+    clearTimeout(pollTimer);
+    pollTimer = null;
+  }
+
+  function schedulePolling() {
+    if (disposed || listeners.size === 0 || !scanSnapshotIsActive(snapshot)) {
+      stopPolling();
+      return;
+    }
+    if (pollTimer !== null) return;
+    pollTimer = setTimeout(() => {
+      pollTimer = null;
+      const taskId = snapshot.taskId;
+      if (!taskId || !scanSnapshotIsActive(snapshot)) return;
+      void refreshTaskById(taskId)
+        .catch(() => undefined)
+        .finally(schedulePolling);
+    }, 500);
+  }
 
   function publish(next: SpaceScanSnapshot) {
     if (disposed) return;
     snapshot = next;
     listeners.forEach((listener) => listener());
+    schedulePolling();
   }
 
   function setError(cause: unknown, taskId?: string) {
@@ -216,15 +245,22 @@ export function createSpaceScanStore(adapter: SpaceScanAdapter): SpaceScanStore 
 
     subscribe(listener) {
       listeners.add(listener);
+      const taskId = snapshot.taskId;
+      if (taskId && scanSnapshotIsActive(snapshot)) {
+        void refreshTaskById(taskId).catch(() => undefined);
+      }
+      schedulePolling();
       return () => {
         listeners.delete(listener);
+        if (listeners.size === 0) stopPolling();
       };
     },
 
-    startScan(request) {
+    startScan(request, options = {}) {
       const requested = cloneRequest(request);
+      const elevated = options.elevated === true;
       if (pendingStart) {
-        if (!sameRequest(pendingStart.request, requested)) {
+        if (!sameRequest(pendingStart.request, requested) || pendingStart.elevated !== elevated) {
           return Promise.reject(new Error("A different scan request is already starting."));
         }
         return pendingStart.promise.then((accepted) => ({
@@ -242,7 +278,7 @@ export function createSpaceScanStore(adapter: SpaceScanAdapter): SpaceScanStore 
       const pending = (async (): Promise<{ taskId: string; request: ScanRequest }> => {
         let taskId: string;
         try {
-          taskId = await adapter.start(requested);
+          taskId = await adapter.start(requested, elevated);
         } catch (cause) {
           if (!ownedStart || pendingStart === ownedStart) {
             publish({ ...snapshot, pendingRequest: null, error: errorMessage(cause) });
@@ -270,7 +306,7 @@ export function createSpaceScanStore(adapter: SpaceScanAdapter): SpaceScanStore 
       })().finally(() => {
         if (ownedStart && pendingStart === ownedStart) pendingStart = null;
       });
-      ownedStart = { request: requested, promise: pending };
+      ownedStart = { request: requested, elevated, promise: pending };
       pendingStart = ownedStart;
       return pending.then((accepted) => ({
         taskId: accepted.taskId,
@@ -306,6 +342,7 @@ export function createSpaceScanStore(adapter: SpaceScanAdapter): SpaceScanStore 
     dispose() {
       if (disposed) return;
       disposed = true;
+      stopPolling();
       listeners.clear();
       unlisten?.();
       unlisten = undefined;
@@ -316,7 +353,10 @@ export function createSpaceScanStore(adapter: SpaceScanAdapter): SpaceScanStore 
 }
 
 const tauriAdapter: SpaceScanAdapter = {
-  start: (request) => invoke<string>("space_scan_start", { request }),
+  start: (request, elevated) => invoke<string>(
+    elevated ? "space_scan_start_elevated" : "space_scan_start",
+    { request },
+  ),
   status: (taskId) => invoke<ScanProgress>("space_scan_status", { taskId }),
   cancel: (taskId) => invoke<void>("space_scan_cancel", { taskId }),
   quickResult: (taskId) => invoke<QuickScanResult>("space_scan_quick_result", { taskId }),
@@ -340,8 +380,8 @@ export function startQuickScan(): Promise<ScanStartResult> {
   return spaceScanStore.startQuickScan();
 }
 
-export function startScan(request: ScanRequest): Promise<ScanStartResult> {
-  return spaceScanStore.startScan(request);
+export function startScan(request: ScanRequest, options?: ScanStartOptions): Promise<ScanStartResult> {
+  return spaceScanStore.startScan(request, options);
 }
 
 export function cancelScan(): Promise<void> {
