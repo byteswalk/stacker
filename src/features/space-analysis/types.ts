@@ -79,6 +79,9 @@ export interface DirectoryNode {
   logicalBytes: number;
   childCount: number;
   safety: string;
+  projectId: string | null;
+  impactKey: string | null;
+  cleanupKind: string | null;
 }
 
 export interface LargeFileRow {

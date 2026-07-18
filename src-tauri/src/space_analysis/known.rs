@@ -15,7 +15,7 @@ pub enum SafetyClass {
 }
 
 impl SafetyClass {
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Safe => "safe",
             Self::Rebuildable => "rebuildable",
@@ -33,7 +33,7 @@ pub enum CleanupKind {
 }
 
 impl CleanupKind {
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Contents => "contents",
             Self::WholeDirectory => "wholeDirectory",

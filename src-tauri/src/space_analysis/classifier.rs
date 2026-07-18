@@ -11,6 +11,7 @@ pub(crate) struct ArtifactRule {
     pub(crate) cleanup_kind: CleanupKind,
     pub(crate) impact_key: &'static str,
     pub(crate) safety: SafetyClass,
+    pub(crate) required_root_evidence: &'static [&'static str],
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -37,7 +38,64 @@ impl DetectedProjects {
             .get(node_id)
             .map(String::as_str)
     }
+
+    pub(crate) fn project(&self, project_id: &str) -> Option<&ProjectRoot> {
+        self.roots
+            .iter()
+            .find(|project| project.project_id == project_id)
+    }
 }
+
+const ARTIFACT_RULES: &[ArtifactRule] = &[
+    ArtifactRule {
+        project_kind: ProjectKind::Node,
+        relative_path: "node_modules",
+        cleanup_kind: CleanupKind::WholeDirectory,
+        impact_key: "spaceAnalysis.impact.nodeDependencies",
+        safety: SafetyClass::Rebuildable,
+        required_root_evidence: &[],
+    },
+    ArtifactRule {
+        project_kind: ProjectKind::Rust,
+        relative_path: "target",
+        cleanup_kind: CleanupKind::WholeDirectory,
+        impact_key: "spaceAnalysis.impact.rustBuildOutput",
+        safety: SafetyClass::Rebuildable,
+        required_root_evidence: &[],
+    },
+    ArtifactRule {
+        project_kind: ProjectKind::Maven,
+        relative_path: "target",
+        cleanup_kind: CleanupKind::WholeDirectory,
+        impact_key: "spaceAnalysis.impact.mavenBuildOutput",
+        safety: SafetyClass::Rebuildable,
+        required_root_evidence: &[],
+    },
+    ArtifactRule {
+        project_kind: ProjectKind::Gradle,
+        relative_path: ".gradle",
+        cleanup_kind: CleanupKind::WholeDirectory,
+        impact_key: "spaceAnalysis.impact.gradleProjectCache",
+        safety: SafetyClass::Rebuildable,
+        required_root_evidence: &[],
+    },
+    ArtifactRule {
+        project_kind: ProjectKind::Gradle,
+        relative_path: "build",
+        cleanup_kind: CleanupKind::WholeDirectory,
+        impact_key: "spaceAnalysis.impact.gradleBuildOutput",
+        safety: SafetyClass::Rebuildable,
+        required_root_evidence: &[],
+    },
+    ArtifactRule {
+        project_kind: ProjectKind::Go,
+        relative_path: "dist",
+        cleanup_kind: CleanupKind::WholeDirectory,
+        impact_key: "spaceAnalysis.impact.goReleaseOutput",
+        safety: SafetyClass::Rebuildable,
+        required_root_evidence: &[".goreleaser.yml", ".goreleaser.yaml"],
+    },
+];
 
 pub(crate) fn detect_projects(index: &IndexedScanResult) -> DetectedProjects {
     let mut entries = index.directory_entries().collect::<Vec<_>>();
@@ -79,15 +137,63 @@ pub(crate) fn detect_projects(index: &IndexedScanResult) -> DetectedProjects {
     detected
 }
 
-pub(crate) fn classify_node(node: &DirectoryNode, projects: &DetectedProjects) -> Classification {
-    Classification {
-        safety: SafetyClass::ViewOnly,
-        project_id: projects
-            .nearest_project_id(&node.node_id)
-            .map(str::to_string),
-        cleanup_kind: CleanupKind::None,
-        impact_key: None,
+pub(crate) fn classify_node(
+    node: &DirectoryNode,
+    projects: &DetectedProjects,
+    root_evidence: &HashMap<String, HashSet<String>>,
+) -> Classification {
+    let project_id = projects
+        .nearest_project_id(&node.node_id)
+        .map(str::to_string);
+    let Some(project) = project_id
+        .as_deref()
+        .and_then(|project_id| projects.project(project_id))
+    else {
+        return Classification::view_only(None);
+    };
+    let Ok(relative_path) = Path::new(&node.path).strip_prefix(&project.path) else {
+        return Classification::view_only(project_id);
+    };
+    let relative_path = normalized_relative_path(relative_path);
+    let evidence = root_evidence.get(&project.node_id);
+
+    if let Some(rule) = ARTIFACT_RULES.iter().find(|rule| {
+        rule.project_kind == project.kind
+            && rule.relative_path == relative_path
+            && (rule.required_root_evidence.is_empty()
+                || rule
+                    .required_root_evidence
+                    .iter()
+                    .any(|required| evidence.is_some_and(|files| files.contains(*required))))
+    }) {
+        return Classification {
+            safety: rule.safety,
+            project_id,
+            cleanup_kind: rule.cleanup_kind,
+            impact_key: Some(rule.impact_key),
+        };
     }
+
+    Classification::view_only(project_id)
+}
+
+impl Classification {
+    pub(crate) fn view_only(project_id: Option<String>) -> Self {
+        Self {
+            safety: SafetyClass::ViewOnly,
+            project_id,
+            cleanup_kind: CleanupKind::None,
+            impact_key: None,
+        }
+    }
+}
+
+fn normalized_relative_path(path: &Path) -> String {
+    path.components()
+        .map(|component| component.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
+        .to_lowercase()
 }
 
 fn detect_project_kind(file_names: &HashSet<String>) -> Option<ProjectKind> {
@@ -128,6 +234,8 @@ pub(crate) fn is_project_marker_file_name(file_name: &str) -> bool {
             | "settings.gradle"
             | "settings.gradle.kts"
             | "go.mod"
+            | ".goreleaser.yml"
+            | ".goreleaser.yaml"
     ) || file_name.ends_with(".sln")
         || file_name.ends_with(".csproj")
 }
@@ -242,7 +350,7 @@ mod tests {
         let projects = detect_projects(&index);
         let node = index.directory_entries().next().unwrap().node;
 
-        let classification = classify_node(node, &projects);
+        let classification = classify_node(node, &projects, &HashMap::new());
 
         assert_eq!(classification.safety, SafetyClass::ViewOnly);
         assert_eq!(classification.cleanup_kind, CleanupKind::None);
@@ -254,5 +362,85 @@ mod tests {
         assert!(is_project_marker_file_name("Sample.CSPROJ"));
         assert!(!is_project_marker_file_name("README.md"));
         assert!(!is_project_marker_file_name("package-lock.json"));
+    }
+
+    fn classify_fixture(root: &Path, target: &Path) -> Classification {
+        let index = build_fixture_index(root);
+        let projects = detect_projects(&index);
+        let evidence = index.project_root_evidence(&projects);
+        let node = index
+            .directory_entries()
+            .find(|entry| Path::new(&entry.node.path) == target)
+            .unwrap()
+            .node;
+        classify_node(node, &projects, &evidence)
+    }
+
+    #[test]
+    fn verified_project_artifacts_are_rebuildable() {
+        let fixtures = [
+            ("node", "package.json", "node_modules"),
+            ("rust", "Cargo.toml", "target"),
+            ("maven", "pom.xml", "target"),
+            ("gradle-cache", "settings.gradle", ".gradle"),
+            ("gradle-build", "build.gradle.kts", "build"),
+        ];
+
+        for (name, marker, artifact) in fixtures {
+            let temp = tempfile::tempdir().unwrap();
+            let project = create_project(temp.path(), name, marker);
+            let artifact_path = project.join(artifact);
+            fs::create_dir_all(&artifact_path).unwrap();
+            fs::write(artifact_path.join("generated.bin"), b"generated").unwrap();
+
+            let classification = classify_fixture(&project, &artifact_path);
+            assert_eq!(classification.safety, SafetyClass::Rebuildable);
+            assert_eq!(classification.cleanup_kind, CleanupKind::WholeDirectory);
+            assert!(classification.project_id.is_some());
+            assert!(classification.impact_key.is_some());
+        }
+    }
+
+    #[test]
+    fn same_name_directories_without_matching_project_markers_are_view_only() {
+        let temp = tempfile::tempdir().unwrap();
+        for name in ["node_modules", "target", "build", ".gradle"] {
+            fs::create_dir_all(temp.path().join(name)).unwrap();
+            assert_eq!(
+                classify_fixture(temp.path(), &temp.path().join(name)).safety,
+                SafetyClass::ViewOnly
+            );
+        }
+    }
+
+    #[test]
+    fn source_metadata_and_user_directories_remain_view_only() {
+        let temp = tempfile::tempdir().unwrap();
+        let project = create_project(temp.path(), "project", "package.json");
+        for name in [".git", "src", "uploads", ".idea"] {
+            fs::create_dir_all(project.join(name)).unwrap();
+            assert_eq!(
+                classify_fixture(&project, &project.join(name)).safety,
+                SafetyClass::ViewOnly
+            );
+        }
+    }
+
+    #[test]
+    fn go_release_output_requires_goreleaser_evidence() {
+        let temp = tempfile::tempdir().unwrap();
+        let project = create_project(temp.path(), "go-project", "go.mod");
+        let dist = project.join("dist");
+        fs::create_dir_all(&dist).unwrap();
+        assert_eq!(
+            classify_fixture(&project, &dist).safety,
+            SafetyClass::ViewOnly
+        );
+
+        fs::write(project.join(".goreleaser.yaml"), b"version: 2").unwrap();
+        assert_eq!(
+            classify_fixture(&project, &dist).safety,
+            SafetyClass::Rebuildable
+        );
     }
 }

@@ -127,6 +127,9 @@ pub struct DirectoryNode {
     pub logical_bytes: u64,
     pub child_count: u32,
     pub safety: String,
+    pub project_id: Option<String>,
+    pub impact_key: Option<String>,
+    pub cleanup_kind: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]

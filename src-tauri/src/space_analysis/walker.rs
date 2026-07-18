@@ -1,4 +1,7 @@
-use super::classifier::is_project_marker_file_name;
+use super::classifier::{
+    classify_node, detect_projects, is_project_marker_file_name, Classification, DetectedProjects,
+};
+use super::known::CleanupKind;
 use super::model::{AnalysisSummary, DirectoryNode, LargeFileRow, Paged, ScanErrorSummary};
 use super::windows_fs::{allocated_size, file_identity, FileIdentity};
 use chrono::{DateTime, Utc};
@@ -74,6 +77,7 @@ struct NodeRecord {
     direct_logical_bytes: u64,
     child_ids: Vec<NodeId>,
     direct_file_names: HashSet<String>,
+    classification: Classification,
 }
 
 pub(crate) struct DirectoryIndexEntry<'a> {
@@ -101,6 +105,35 @@ impl IndexedScanResult {
             node: &record.node,
             direct_file_names: &record.direct_file_names,
         })
+    }
+
+    pub(crate) fn project_root_evidence(
+        &self,
+        projects: &DetectedProjects,
+    ) -> HashMap<String, HashSet<String>> {
+        projects
+            .roots()
+            .iter()
+            .filter_map(|project| {
+                self.nodes
+                    .get(&project.node_id)
+                    .map(|record| (project.node_id.clone(), record.direct_file_names.clone()))
+            })
+            .collect()
+    }
+
+    fn annotate_classifications(&mut self) {
+        let projects = detect_projects(self);
+        let evidence = self.project_root_evidence(&projects);
+        for record in self.nodes.values_mut() {
+            let classification = classify_node(&record.node, &projects, &evidence);
+            record.node.safety = classification.safety.as_str().into();
+            record.node.project_id = classification.project_id.clone();
+            record.node.impact_key = classification.impact_key.map(str::to_string);
+            record.node.cleanup_kind = (classification.cleanup_kind != CleanupKind::None)
+                .then(|| classification.cleanup_kind.as_str().to_string());
+            record.classification = classification;
+        }
     }
 
     pub(crate) fn children(
@@ -395,11 +428,18 @@ impl IndexBuilder {
             root_nodes,
         };
 
-        IndexedScanResult {
+        let mut result = IndexedScanResult {
             summary,
             nodes: self.nodes,
             large_files: self.large_files,
-        }
+        };
+        result.annotate_classifications();
+        result.summary.root_nodes = root_ids
+            .iter()
+            .filter_map(|node_id| result.nodes.get(node_id))
+            .map(|record| record.node.clone())
+            .collect();
+        result
     }
 }
 
@@ -430,11 +470,15 @@ impl WalkVisitor for IndexBuilder {
                 logical_bytes: 0,
                 child_count: 0,
                 safety: VIEW_ONLY.into(),
+                project_id: None,
+                impact_key: None,
+                cleanup_kind: None,
             },
             direct_allocated_bytes: 0,
             direct_logical_bytes: 0,
             child_ids: Vec::new(),
             direct_file_names: HashSet::new(),
+            classification: Classification::view_only(None),
         };
 
         self.path_ids.insert(path, node_id.clone());
@@ -649,6 +693,40 @@ mod tests {
     }
 
     #[test]
+    fn indexed_results_expose_cleanup_only_for_verified_artifacts() {
+        let fixture = tempfile::tempdir().unwrap();
+        std::fs::write(fixture.path().join("Cargo.toml"), b"[package]").unwrap();
+        std::fs::create_dir(fixture.path().join("target")).unwrap();
+        std::fs::create_dir(fixture.path().join("uploads")).unwrap();
+
+        let result = build_indexed_result(
+            &[fixture.path().to_path_buf()],
+            &CancellationToken::default(),
+            |_| {},
+        )
+        .unwrap();
+        let root = &result.summary().root_nodes[0];
+        let children = result.children(&root.node_id, 0, 10).unwrap();
+        let target = children
+            .items
+            .iter()
+            .find(|node| node.name == "target")
+            .unwrap();
+        let uploads = children
+            .items
+            .iter()
+            .find(|node| node.name == "uploads")
+            .unwrap();
+
+        assert_eq!(target.safety, "rebuildable");
+        assert_eq!(target.cleanup_kind.as_deref(), Some("wholeDirectory"));
+        assert!(target.project_id.is_some());
+        assert!(target.impact_key.is_some());
+        assert_eq!(uploads.safety, "viewOnly");
+        assert_eq!(uploads.cleanup_kind, None);
+    }
+
+    #[test]
     fn paging_is_bounded_and_large_files_are_sorted() {
         let fixture = tempfile::tempdir().unwrap();
         for index in 0..205 {
@@ -730,11 +808,15 @@ mod tests {
                         logical_bytes: 0,
                         child_count: 0,
                         safety: VIEW_ONLY.into(),
+                        project_id: None,
+                        impact_key: None,
+                        cleanup_kind: None,
                     },
                     direct_allocated_bytes: 1,
                     direct_logical_bytes: 2,
                     child_ids,
                     direct_file_names: HashSet::new(),
+                    classification: Classification::view_only(None),
                 },
             );
         }

@@ -12,6 +12,9 @@ function node(nodeId: string): DirectoryNode {
     logicalBytes: 10,
     childCount: 0,
     safety: "view_only",
+    projectId: null,
+    impactKey: null,
+    cleanupKind: null,
   };
 }
 
