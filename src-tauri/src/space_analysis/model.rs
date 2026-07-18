@@ -81,6 +81,61 @@ pub struct CleanupPlan {
     pub items: Vec<CleanupPlanItem>,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum CleanupTaskState {
+    Queued,
+    Running,
+    Cancelling,
+    Completed,
+    Cancelled,
+    Failed,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum CleanupItemState {
+    Pending,
+    Running,
+    Completed,
+    Skipped,
+    Failed,
+    Cancelled,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanupItemResult {
+    pub node_id: String,
+    pub path: String,
+    pub state: CleanupItemState,
+    pub validated_bytes: u64,
+    pub actual_released_bytes: u64,
+    pub reason_key: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanupProgress {
+    pub task_id: String,
+    pub plan_id: String,
+    pub state: CleanupTaskState,
+    pub completed_items: u64,
+    pub total_items: u64,
+    pub actual_released_bytes: u64,
+    pub current_node_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanupResult {
+    pub task_id: String,
+    pub plan_id: String,
+    pub state: CleanupTaskState,
+    pub actual_released_bytes: u64,
+    pub items: Vec<CleanupItemResult>,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum ScanMode {

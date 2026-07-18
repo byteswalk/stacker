@@ -177,6 +177,33 @@ pub(crate) fn classify_node(
     Classification::view_only(project_id)
 }
 
+pub(crate) fn matches_artifact_rule(
+    project_kind: ProjectKind,
+    project_root: &Path,
+    artifact_path: &Path,
+    root_evidence: &HashSet<String>,
+    cleanup_kind: CleanupKind,
+    impact_key: &str,
+    safety: SafetyClass,
+) -> bool {
+    let Ok(relative_path) = artifact_path.strip_prefix(project_root) else {
+        return false;
+    };
+    let relative_path = normalized_relative_path(relative_path);
+    ARTIFACT_RULES.iter().any(|rule| {
+        rule.project_kind == project_kind
+            && rule.relative_path == relative_path
+            && rule.cleanup_kind == cleanup_kind
+            && rule.impact_key == impact_key
+            && rule.safety == safety
+            && (rule.required_root_evidence.is_empty()
+                || rule
+                    .required_root_evidence
+                    .iter()
+                    .any(|required| root_evidence.contains(*required)))
+    })
+}
+
 impl Classification {
     pub(crate) fn view_only(project_id: Option<String>) -> Self {
         Self {
@@ -196,7 +223,7 @@ fn normalized_relative_path(path: &Path) -> String {
         .to_lowercase()
 }
 
-fn detect_project_kind(file_names: &HashSet<String>) -> Option<ProjectKind> {
+pub(crate) fn detect_project_kind(file_names: &HashSet<String>) -> Option<ProjectKind> {
     if file_names.contains("package.json") {
         Some(ProjectKind::Node)
     } else if file_names.contains("cargo.toml") {

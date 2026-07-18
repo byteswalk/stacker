@@ -1,4 +1,4 @@
-use super::cleanup_plan::{build_deep_plan, build_quick_plan};
+use super::cleanup_plan::{build_deep_plan_record, build_quick_plan_record, StoredCleanupPlan};
 use super::known::scan_known_candidates;
 use super::model::{
     AnalysisSummary, CleanupPlan, DirectoryNode, LargeFileRow, Paged, QuickScanResult,
@@ -61,7 +61,7 @@ pub struct SpaceTaskManager {
     next_plan_id: AtomicU64,
     next_terminal_order: Arc<AtomicU64>,
     tasks: TaskRecords,
-    cleanup_plans: Arc<Mutex<HashMap<String, CleanupPlan>>>,
+    cleanup_plans: Arc<Mutex<HashMap<String, StoredCleanupPlan>>>,
 }
 
 impl Default for SpaceTaskManager {
@@ -195,10 +195,10 @@ impl SpaceTaskManager {
             let record = completed_record(&tasks, scan_task_id)?;
             match record.result.as_ref() {
                 Some(TaskResult::Quick(result)) => {
-                    build_quick_plan(result, scan_task_id, plan_id, node_ids)
+                    build_quick_plan_record(result, scan_task_id, plan_id, node_ids)
                 }
                 Some(TaskResult::Deep(result)) => {
-                    build_deep_plan(result, scan_task_id, plan_id, node_ids)
+                    build_deep_plan_record(result, scan_task_id, plan_id, node_ids)
                 }
                 None => return Err(TASK_RESULT_UNAVAILABLE.into()),
             }
@@ -209,12 +209,22 @@ impl SpaceTaskManager {
             .cleanup_plans
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        plans.insert(plan.plan_id.clone(), plan.clone());
+        plans.insert(plan.plan.plan_id.clone(), plan.clone());
         prune_cleanup_plans(&mut plans);
-        Ok(plan)
+        Ok(plan.plan)
     }
 
+    #[cfg(test)]
     pub(crate) fn cleanup_plan(&self, plan_id: &str) -> Result<CleanupPlan, String> {
+        self.cleanup_plans
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(plan_id)
+            .map(|stored| stored.plan.clone())
+            .ok_or_else(|| "Cleanup plan was not found or has expired.".to_string())
+    }
+
+    pub(crate) fn cleanup_plan_record(&self, plan_id: &str) -> Result<StoredCleanupPlan, String> {
         self.cleanup_plans
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -519,13 +529,13 @@ impl SpaceTaskManager {
     }
 }
 
-fn prune_cleanup_plans(plans: &mut HashMap<String, CleanupPlan>) {
+fn prune_cleanup_plans(plans: &mut HashMap<String, StoredCleanupPlan>) {
     if plans.len() <= MAX_RETAINED_CLEANUP_PLANS {
         return;
     }
     let mut oldest = plans
         .values()
-        .map(|plan| (plan.plan_id.clone(), plan.created_at.clone()))
+        .map(|stored| (stored.plan.plan_id.clone(), stored.plan.created_at.clone()))
         .collect::<Vec<_>>();
     oldest.sort_by(|left, right| left.1.cmp(&right.1).then_with(|| left.0.cmp(&right.0)));
     let remove_count = oldest.len().saturating_sub(MAX_RETAINED_CLEANUP_PLANS);
@@ -743,12 +753,16 @@ mod tests {
     #[test]
     fn cleanup_plans_are_server_generated_and_retained() {
         let manager = SpaceTaskManager::default();
-        let id = manager.start_for_test(|_| {
+        let temp = tempfile::tempdir().unwrap();
+        let cache_path = temp.path().join("cache-1");
+        std::fs::create_dir(&cache_path).unwrap();
+        let worker_path = cache_path.clone();
+        let id = manager.start_for_test(move |_| {
             Ok(QuickScanResult {
                 items: vec![KnownSpaceItem {
                     id: "cache-1".into(),
                     name_key: "spaceAnalysis.known.cache1".into(),
-                    path: r"C:\Users\demo\cache-1".into(),
+                    path: worker_path.to_string_lossy().into_owned(),
                     bytes: 42,
                     safety: "safe".into(),
                     cleanup_kind: "contents".into(),

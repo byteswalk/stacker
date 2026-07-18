@@ -1,5 +1,6 @@
 pub mod classifier;
 pub mod cleanup_plan;
+pub mod cleanup_tasks;
 pub mod known;
 pub mod model;
 pub mod targets;
@@ -7,9 +8,10 @@ pub mod tasks;
 pub mod walker;
 pub mod windows_fs;
 
+pub use self::cleanup_tasks::CleanupTaskManager;
 use self::model::{
-    AnalysisSummary, CleanupPlan, DirectoryNode, LargeFileRow, Paged, QuickScanResult, ScanMode,
-    ScanProgress, ScanRequest, VolumeInfo,
+    AnalysisSummary, CleanupPlan, CleanupProgress, CleanupResult, DirectoryNode, LargeFileRow,
+    Paged, QuickScanResult, ScanMode, ScanProgress, ScanRequest, VolumeInfo,
 };
 use self::targets::{list_fixed_volumes, validate_targets};
 pub use self::tasks::SpaceTaskManager;
@@ -99,6 +101,52 @@ pub fn space_cleanup_plan(
     manager: tauri::State<'_, SpaceTaskManager>,
 ) -> Result<CleanupPlan, String> {
     manager.create_cleanup_plan(&scan_task_id, &node_ids)
+}
+
+#[tauri::command]
+pub fn space_cleanup_start(
+    plan_id: String,
+    node_ids: Vec<String>,
+    scan_manager: tauri::State<'_, SpaceTaskManager>,
+    cleanup_manager: tauri::State<'_, CleanupTaskManager>,
+    window: tauri::Window,
+) -> Result<String, String> {
+    use tauri::Emitter;
+
+    let plan = scan_manager.cleanup_plan_record(&plan_id)?;
+    cleanup_manager.start(plan, &node_ids, move |progress| {
+        if let Err(error) = window.emit("space-cleanup-progress", progress) {
+            log::warn!(
+                "failed to emit progress for space cleanup task {}: {}",
+                progress.task_id,
+                error
+            );
+        }
+    })
+}
+
+#[tauri::command]
+pub fn space_cleanup_status(
+    task_id: String,
+    manager: tauri::State<'_, CleanupTaskManager>,
+) -> Result<CleanupProgress, String> {
+    manager.status(&task_id)
+}
+
+#[tauri::command]
+pub fn space_cleanup_cancel(
+    task_id: String,
+    manager: tauri::State<'_, CleanupTaskManager>,
+) -> Result<(), String> {
+    manager.cancel(&task_id)
+}
+
+#[tauri::command]
+pub fn space_cleanup_result(
+    task_id: String,
+    manager: tauri::State<'_, CleanupTaskManager>,
+) -> Result<CleanupResult, String> {
+    manager.result(&task_id)
 }
 
 fn directory_to_open(path: &std::path::Path) -> Result<std::path::PathBuf, String> {

@@ -39,12 +39,48 @@ pub(crate) fn file_identity(path: &Path) -> io::Result<FileIdentity> {
     ))
 }
 
+#[cfg(windows)]
+pub(crate) fn file_link_count(path: &Path) -> io::Result<u64> {
+    use std::fs::OpenOptions;
+    use std::mem::MaybeUninit;
+    use std::os::windows::fs::OpenOptionsExt;
+    use std::os::windows::io::AsRawHandle;
+    use winapi::um::fileapi::{GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION};
+    use winapi::um::winbase::FILE_FLAG_BACKUP_SEMANTICS;
+    use winapi::um::winnt::{
+        FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+    };
+
+    let file = OpenOptions::new()
+        .access_mode(FILE_READ_ATTRIBUTES)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+        .open(path)?;
+    let mut information = MaybeUninit::<BY_HANDLE_FILE_INFORMATION>::uninit();
+    let succeeded = unsafe {
+        GetFileInformationByHandle(file.as_raw_handle().cast(), information.as_mut_ptr())
+    };
+    if succeeded == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(u64::from(
+        unsafe { information.assume_init() }.nNumberOfLinks,
+    ))
+}
+
 #[cfg(unix)]
 pub(crate) fn file_identity(path: &Path) -> io::Result<FileIdentity> {
     use std::os::unix::fs::MetadataExt;
 
     let metadata = path.metadata()?;
     Ok(FileIdentity(metadata.dev(), metadata.ino()))
+}
+
+#[cfg(unix)]
+pub(crate) fn file_link_count(path: &Path) -> io::Result<u64> {
+    use std::os::unix::fs::MetadataExt;
+
+    Ok(path.metadata()?.nlink())
 }
 
 #[cfg(not(any(windows, unix)))]
@@ -55,6 +91,11 @@ pub(crate) fn file_identity(path: &Path) -> io::Result<FileIdentity> {
     let mut hasher = DefaultHasher::new();
     path.canonicalize()?.hash(&mut hasher);
     Ok(FileIdentity(0, hasher.finish()))
+}
+
+#[cfg(not(any(windows, unix)))]
+pub(crate) fn file_link_count(_path: &Path) -> io::Result<u64> {
+    Ok(1)
 }
 
 #[cfg(windows)]

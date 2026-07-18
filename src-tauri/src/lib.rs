@@ -39,6 +39,7 @@ pub fn run() {
             None,
         ))
         .manage(space_analysis::SpaceTaskManager::default())
+        .manage(space_analysis::CleanupTaskManager::default())
         .setup(|app| {
             let app_settings = settings::load();
             let log_name = format!("stacker-{}", chrono::Local::now().format("%Y-%m-%d"));
@@ -143,6 +144,10 @@ pub fn run() {
             space_analysis::space_scan_children,
             space_analysis::space_scan_large_files,
             space_analysis::space_cleanup_plan,
+            space_analysis::space_cleanup_start,
+            space_analysis::space_cleanup_status,
+            space_analysis::space_cleanup_cancel,
+            space_analysis::space_cleanup_result,
             space_analysis::space_open_directory,
             fnm::fnm_status,
             fnm::fnm_root_dir,
@@ -240,6 +245,9 @@ pub fn run() {
 
             app_handle
                 .state::<space_analysis::SpaceTaskManager>()
+                .cancel_all_and_wait(std::time::Duration::from_secs(3));
+            app_handle
+                .state::<space_analysis::CleanupTaskManager>()
                 .cancel_all_and_wait(std::time::Duration::from_secs(3));
         }
     });

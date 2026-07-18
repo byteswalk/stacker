@@ -1,10 +1,11 @@
 use super::known::CleanupKind;
 use super::model::{
-    CleanupPlan, CleanupPlanItem, ElevationRequirement, QuickScanResult, SafetyClass,
+    CleanupPlan, CleanupPlanItem, ElevationRequirement, ProjectKind, QuickScanResult, SafetyClass,
 };
 use super::walker::IndexedScanResult;
+use super::windows_fs::{file_identity, FileIdentity};
 use chrono::Utc;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
 
@@ -50,14 +51,56 @@ impl fmt::Display for PlanError {
 
 impl std::error::Error for PlanError {}
 
+#[derive(Clone, Debug)]
+pub(crate) enum ValidationSource {
+    Known {
+        candidate_id: String,
+    },
+    ProjectArtifact {
+        project_root: PathBuf,
+        project_kind: ProjectKind,
+        project_evidence: HashSet<String>,
+    },
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct PlanValidation {
+    pub(crate) expected_identity: FileIdentity,
+    pub(crate) allowed_roots: Vec<PathBuf>,
+    pub(crate) source: ValidationSource,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct StoredCleanupPlan {
+    pub(crate) plan: CleanupPlan,
+    pub(crate) validation: HashMap<String, PlanValidation>,
+}
+
+#[cfg(test)]
 pub(crate) fn build_deep_plan(
     result: &IndexedScanResult,
     scan_task_id: &str,
     plan_id: String,
     node_ids: &[String],
 ) -> Result<CleanupPlan, PlanError> {
+    Ok(build_deep_plan_record(result, scan_task_id, plan_id, node_ids)?.plan)
+}
+
+pub(crate) fn build_deep_plan_record(
+    result: &IndexedScanResult,
+    scan_task_id: &str,
+    plan_id: String,
+    node_ids: &[String],
+) -> Result<StoredCleanupPlan, PlanError> {
     validate_selection(node_ids)?;
     let mut items = Vec::with_capacity(node_ids.len());
+    let mut validation = HashMap::with_capacity(node_ids.len());
+    let allowed_roots = result
+        .summary()
+        .targets
+        .into_iter()
+        .map(PathBuf::from)
+        .collect::<Vec<_>>();
     for node_id in node_ids {
         let indexed = result
             .cleanup_node(node_id)
@@ -71,6 +114,20 @@ pub(crate) fn build_deep_plan(
             .classification
             .impact_key
             .ok_or_else(|| PlanError::MissingMetadata(node_id.clone()))?;
+        let expected_identity = indexed
+            .identity
+            .ok_or_else(|| PlanError::MissingMetadata(node_id.clone()))?;
+        let project_root = indexed
+            .project_root_path
+            .map(PathBuf::from)
+            .ok_or_else(|| PlanError::MissingMetadata(node_id.clone()))?;
+        let project_kind = indexed
+            .project_kind
+            .ok_or_else(|| PlanError::MissingMetadata(node_id.clone()))?;
+        let project_evidence = indexed
+            .project_evidence
+            .cloned()
+            .ok_or_else(|| PlanError::MissingMetadata(node_id.clone()))?;
         items.push(CleanupPlanItem {
             node_id: node_id.clone(),
             path: indexed.node.path.clone(),
@@ -81,19 +138,45 @@ pub(crate) fn build_deep_plan(
             requires_elevation: path_requires_elevation(Path::new(&indexed.node.path)),
             default_selected: indexed.classification.safety == SafetyClass::Safe,
         });
+        validation.insert(
+            node_id.clone(),
+            PlanValidation {
+                expected_identity,
+                allowed_roots: allowed_roots.clone(),
+                source: ValidationSource::ProjectArtifact {
+                    project_root,
+                    project_kind,
+                    project_evidence,
+                },
+            },
+        );
     }
     reject_overlapping_items(&items)?;
-    Ok(finalize_plan(scan_task_id, plan_id, items))
+    Ok(StoredCleanupPlan {
+        plan: finalize_plan(scan_task_id, plan_id, items),
+        validation,
+    })
 }
 
+#[cfg(test)]
 pub(crate) fn build_quick_plan(
     result: &QuickScanResult,
     scan_task_id: &str,
     plan_id: String,
     node_ids: &[String],
 ) -> Result<CleanupPlan, PlanError> {
+    Ok(build_quick_plan_record(result, scan_task_id, plan_id, node_ids)?.plan)
+}
+
+pub(crate) fn build_quick_plan_record(
+    result: &QuickScanResult,
+    scan_task_id: &str,
+    plan_id: String,
+    node_ids: &[String],
+) -> Result<StoredCleanupPlan, PlanError> {
     validate_selection(node_ids)?;
     let mut items = Vec::with_capacity(node_ids.len());
+    let mut validation = HashMap::with_capacity(node_ids.len());
     for node_id in node_ids {
         let candidate = result
             .items
@@ -107,6 +190,8 @@ pub(crate) fn build_quick_plan(
         if safety == SafetyClass::ViewOnly || cleanup_kind == CleanupKind::None {
             return Err(PlanError::NotCleanable(node_id.clone()));
         }
+        let expected_identity = file_identity(Path::new(&candidate.path))
+            .map_err(|_| PlanError::MissingMetadata(node_id.clone()))?;
         items.push(CleanupPlanItem {
             node_id: node_id.clone(),
             path: candidate.path.clone(),
@@ -117,9 +202,22 @@ pub(crate) fn build_quick_plan(
             requires_elevation: path_requires_elevation(Path::new(&candidate.path)),
             default_selected: safety == SafetyClass::Safe,
         });
+        validation.insert(
+            node_id.clone(),
+            PlanValidation {
+                expected_identity,
+                allowed_roots: vec![PathBuf::from(&candidate.path)],
+                source: ValidationSource::Known {
+                    candidate_id: node_id.clone(),
+                },
+            },
+        );
     }
     reject_overlapping_items(&items)?;
-    Ok(finalize_plan(scan_task_id, plan_id, items))
+    Ok(StoredCleanupPlan {
+        plan: finalize_plan(scan_task_id, plan_id, items),
+        validation,
+    })
 }
 
 fn finalize_plan(scan_task_id: &str, plan_id: String, items: Vec<CleanupPlanItem>) -> CleanupPlan {
@@ -267,14 +365,19 @@ mod tests {
             build_deep_plan(&result, "scan-1", "plan-1".into(), &[target.node_id]).unwrap();
         assert!(!deep_plan.items[0].default_selected);
 
+        let quick_root = tempfile::tempdir().unwrap();
+        let safe = quick_root.path().join("safe");
+        let confirm = quick_root.path().join("confirm");
+        fs::create_dir(&safe).unwrap();
+        fs::create_dir(&confirm).unwrap();
         let quick = QuickScanResult {
             task_id: "scan-2".into(),
             completed: true,
             total_bytes: 30,
             safely_releasable_bytes: 10,
             items: vec![
-                known_item("safe", SafetyClass::Safe, 10),
-                known_item("confirm", SafetyClass::NeedsConfirmation, 20),
+                known_item("safe", &safe, SafetyClass::Safe, 10),
+                known_item("confirm", &confirm, SafetyClass::NeedsConfirmation, 20),
             ],
             errors: Default::default(),
         };
@@ -291,13 +394,14 @@ mod tests {
 
     fn known_item(
         id: &str,
+        path: &Path,
         safety: SafetyClass,
         bytes: u64,
     ) -> super::super::model::KnownSpaceItem {
         super::super::model::KnownSpaceItem {
             id: id.into(),
             name_key: format!("spaceAnalysis.known.{id}"),
-            path: format!(r"C:\Users\demo\{id}"),
+            path: path.to_string_lossy().into_owned(),
             bytes,
             safety: safety.as_str().into(),
             cleanup_kind: CleanupKind::Contents.as_str().into(),

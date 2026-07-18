@@ -1,8 +1,11 @@
 use super::classifier::{
-    classify_node, detect_projects, is_project_marker_file_name, Classification, DetectedProjects,
+    classify_node, detect_project_kind, detect_projects, is_project_marker_file_name,
+    Classification, DetectedProjects,
 };
 use super::known::CleanupKind;
-use super::model::{AnalysisSummary, DirectoryNode, LargeFileRow, Paged, ScanErrorSummary};
+use super::model::{
+    AnalysisSummary, DirectoryNode, LargeFileRow, Paged, ProjectKind, ScanErrorSummary,
+};
 use super::windows_fs::{allocated_size, file_identity, FileIdentity};
 use chrono::{DateTime, Utc};
 use jwalk::{Parallelism, WalkDir};
@@ -73,6 +76,7 @@ type NodeId = String;
 
 struct NodeRecord {
     node: DirectoryNode,
+    identity: Option<FileIdentity>,
     direct_allocated_bytes: u64,
     direct_logical_bytes: u64,
     child_ids: Vec<NodeId>,
@@ -88,6 +92,10 @@ pub(crate) struct DirectoryIndexEntry<'a> {
 pub(crate) struct IndexedCleanupNode<'a> {
     pub(crate) node: &'a DirectoryNode,
     pub(crate) classification: &'a Classification,
+    pub(crate) identity: Option<FileIdentity>,
+    pub(crate) project_root_path: Option<&'a str>,
+    pub(crate) project_kind: Option<ProjectKind>,
+    pub(crate) project_evidence: Option<&'a HashSet<String>>,
 }
 
 pub(crate) struct IndexedScanResult {
@@ -128,9 +136,22 @@ impl IndexedScanResult {
     }
 
     pub(crate) fn cleanup_node(&self, node_id: &str) -> Option<IndexedCleanupNode<'_>> {
-        self.nodes.get(node_id).map(|record| IndexedCleanupNode {
-            node: &record.node,
-            classification: &record.classification,
+        self.nodes.get(node_id).map(|record| {
+            let project_record = record
+                .classification
+                .project_id
+                .as_deref()
+                .and_then(|project_id| project_id.strip_prefix("project-"))
+                .and_then(|project_node_id| self.nodes.get(project_node_id));
+            IndexedCleanupNode {
+                node: &record.node,
+                classification: &record.classification,
+                identity: record.identity,
+                project_root_path: project_record.map(|project| project.node.path.as_str()),
+                project_kind: project_record
+                    .and_then(|project| detect_project_kind(&project.direct_file_names)),
+                project_evidence: project_record.map(|project| &project.direct_file_names),
+            }
         })
     }
 
@@ -486,6 +507,7 @@ impl WalkVisitor for IndexBuilder {
                 impact_key: None,
                 cleanup_kind: None,
             },
+            identity: file_identity(&path).ok(),
             direct_allocated_bytes: 0,
             direct_logical_bytes: 0,
             child_ids: Vec::new(),
@@ -646,7 +668,7 @@ fn record_io_error(errors: &mut ScanErrorSummary, kind: io::ErrorKind) {
 }
 
 #[cfg(windows)]
-fn is_link_or_reparse_point(metadata: &Metadata) -> bool {
+pub(crate) fn is_link_or_reparse_point(metadata: &Metadata) -> bool {
     use std::os::windows::fs::MetadataExt;
 
     const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
@@ -655,7 +677,7 @@ fn is_link_or_reparse_point(metadata: &Metadata) -> bool {
 }
 
 #[cfg(not(windows))]
-fn is_link_or_reparse_point(metadata: &Metadata) -> bool {
+pub(crate) fn is_link_or_reparse_point(metadata: &Metadata) -> bool {
     metadata.file_type().is_symlink()
 }
 
@@ -824,6 +846,7 @@ mod tests {
                         impact_key: None,
                         cleanup_kind: None,
                     },
+                    identity: None,
                     direct_allocated_bytes: 1,
                     direct_logical_bytes: 2,
                     child_ids,
