@@ -13,6 +13,21 @@ export interface LargeFilePageState {
   nextOffset: number;
 }
 
+export interface LargeFileRequestIdentity {
+  taskId: string;
+  thresholdBytes: number;
+  generation: number;
+}
+
+export function sameLargeFileRequest(
+  current: LargeFileRequestIdentity,
+  requested: LargeFileRequestIdentity,
+): boolean {
+  return current.taskId === requested.taskId
+    && current.thresholdBytes === requested.thresholdBytes
+    && current.generation === requested.generation;
+}
+
 export function mergeLargeFilePage(
   current: LargeFilePageState,
   page: Paged<LargeFileRow>,
@@ -45,37 +60,51 @@ function formatModified(value: string | null, locale: string, unavailable: strin
 export function LargeFiles({ taskId, thresholdBytes }: { taskId: string; thresholdBytes: number }) {
   const { locale, tr } = useI18n();
   const toast = useToast();
-  const activeTask = useRef(taskId);
+  const activeRequest = useRef<LargeFileRequestIdentity>({
+    taskId,
+    thresholdBytes,
+    generation: 0,
+  });
   const requestPending = useRef(false);
   const [page, setPage] = useState<LargeFilePageState>({ items: [], total: 0, nextOffset: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    activeTask.current = taskId;
+    const requested = {
+      taskId,
+      thresholdBytes,
+      generation: activeRequest.current.generation + 1,
+    };
+    activeRequest.current = requested;
     requestPending.current = false;
     setPage({ items: [], total: 0, nextOffset: 0 });
     setLoading(true);
     setError(null);
 
-    const requestedTask = taskId;
     requestPending.current = true;
     void invoke<Paged<LargeFileRow>>("space_scan_large_files", {
-      taskId: requestedTask,
+      taskId: requested.taskId,
       minBytes: thresholdBytes,
       offset: 0,
       limit: PAGE_SIZE,
     }).then((result) => {
-      if (activeTask.current !== requestedTask) return;
+      if (!sameLargeFileRequest(activeRequest.current, requested)) return;
       setPage(mergeLargeFilePage({ items: [], total: 0, nextOffset: 0 }, result));
     }).catch(() => {
-      if (activeTask.current === requestedTask) setError(tr("无法读取大文件列表，请重试。"));
+      if (sameLargeFileRequest(activeRequest.current, requested)) setError(tr("无法读取大文件列表，请重试。"));
     }).finally(() => {
-      if (activeTask.current === requestedTask) {
+      if (sameLargeFileRequest(activeRequest.current, requested)) {
         requestPending.current = false;
         setLoading(false);
       }
     });
+    return () => {
+      if (sameLargeFileRequest(activeRequest.current, requested)) {
+        activeRequest.current = { ...requested, generation: requested.generation + 1 };
+        requestPending.current = false;
+      }
+    };
   }, [taskId, thresholdBytes, tr]);
 
   async function loadMore() {
@@ -83,21 +112,21 @@ export function LargeFiles({ taskId, thresholdBytes }: { taskId: string; thresho
     requestPending.current = true;
     setLoading(true);
     setError(null);
-    const requestedTask = taskId;
+    const requested = activeRequest.current;
     const offset = page.items.length === 0 ? 0 : page.nextOffset;
     try {
       const result = await invoke<Paged<LargeFileRow>>("space_scan_large_files", {
-        taskId: requestedTask,
-        minBytes: thresholdBytes,
+        taskId: requested.taskId,
+        minBytes: requested.thresholdBytes,
         offset,
         limit: PAGE_SIZE,
       });
-      if (activeTask.current !== requestedTask) return;
+      if (!sameLargeFileRequest(activeRequest.current, requested)) return;
       setPage((current) => mergeLargeFilePage(current, result));
     } catch {
-      if (activeTask.current === requestedTask) setError(tr("无法读取更多大文件，请重试。"));
+      if (sameLargeFileRequest(activeRequest.current, requested)) setError(tr("无法读取更多大文件，请重试。"));
     } finally {
-      if (activeTask.current === requestedTask) {
+      if (sameLargeFileRequest(activeRequest.current, requested)) {
         requestPending.current = false;
         setLoading(false);
       }

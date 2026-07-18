@@ -46,6 +46,7 @@ export function DirectoryRanking({ taskId, roots }: { taskId: string; roots: Dir
   const { tr } = useI18n();
   const toast = useToast();
   const activeTask = useRef(taskId);
+  const requestGeneration = useRef(0);
   const loadingNodes = useRef(new Set<string>());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [pages, setPages] = useState<Record<string, DirectoryPageState>>({});
@@ -53,14 +54,22 @@ export function DirectoryRanking({ taskId, roots }: { taskId: string; roots: Dir
 
   useEffect(() => {
     activeTask.current = taskId;
-    loadingNodes.current.clear();
+    requestGeneration.current += 1;
+    const pendingNodes = new Set<string>();
+    loadingNodes.current = pendingNodes;
     setExpanded(new Set());
     setPages({});
+    return () => {
+      requestGeneration.current += 1;
+      pendingNodes.clear();
+    };
   }, [taskId]);
 
   async function loadChildren(node: DirectoryNode, offset: number) {
-    if (loadingNodes.current.has(node.nodeId)) return;
-    loadingNodes.current.add(node.nodeId);
+    const generation = requestGeneration.current;
+    const requestKey = `${generation}:${node.nodeId}`;
+    if (loadingNodes.current.has(requestKey)) return;
+    loadingNodes.current.add(requestKey);
     const requestedTask = taskId;
     setPages((current) => ({
       ...current,
@@ -79,13 +88,13 @@ export function DirectoryRanking({ taskId, roots }: { taskId: string; roots: Dir
         offset,
         limit: PAGE_SIZE,
       });
-      if (activeTask.current !== requestedTask) return;
+      if (activeTask.current !== requestedTask || requestGeneration.current !== generation) return;
       setPages((current) => ({
         ...current,
         [node.nodeId]: mergeDirectoryPage(current[node.nodeId], page),
       }));
     } catch {
-      if (activeTask.current !== requestedTask) return;
+      if (activeTask.current !== requestedTask || requestGeneration.current !== generation) return;
       setPages((current) => ({
         ...current,
         [node.nodeId]: {
@@ -97,7 +106,7 @@ export function DirectoryRanking({ taskId, roots }: { taskId: string; roots: Dir
         },
       }));
     } finally {
-      loadingNodes.current.delete(node.nodeId);
+      loadingNodes.current.delete(requestKey);
     }
   }
 
