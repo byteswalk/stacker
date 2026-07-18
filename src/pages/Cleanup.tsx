@@ -1,224 +1,412 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { cancelScan, startQuickScan, useSpaceScan } from "../features/space-analysis/store";
+import type { KnownSpaceItem, ScanProgress } from "../features/space-analysis/types";
+import { quickScanView } from "../features/space-analysis/viewModel";
+import { useI18n } from "../i18n";
 import { invoke } from "../invoke";
-import { useToast, ConfirmModal, Modal, ErrorState } from "../ui";
 import { useNotifications } from "../notifications";
+import { ConfirmModal, Modal, useToast } from "../ui";
 
-type CacheItem = { id: string; name: string; path: string; size: number; category: string; icon: string; av: string };
+type CleanupCategory = "safe" | "history" | "temp" | "cautious";
 
-type CleanupCache = {
-  items: CacheItem[] | null;
-  selected: string[];
-  scanning: boolean;
-  err: boolean;
+type CacheItem = {
+  name: string;
+  path: string;
+  size: number;
+  category: CleanupCategory;
+  safety: string;
+  safetyLabel: string;
+  icon: string;
+  av: string;
+  canSelect: boolean;
 };
-const CLEANUP_INITIAL: CleanupCache = { items: null, selected: [], scanning: false, err: false };
-let cleanupCache: CleanupCache = CLEANUP_INITIAL;
-let cleanupRun: Promise<void> | null = null;
-const cleanupListeners = new Set<(s: CleanupCache) => void>();
 
-function publishCleanup(next: Partial<CleanupCache>) {
-  cleanupCache = { ...cleanupCache, ...next };
-  cleanupListeners.forEach((fn) => fn(cleanupCache));
+type Translate = (value: string) => string;
+
+const KNOWN_ITEM_NAMES: Record<string, string> = {
+  "spaceAnalysis.known.gradle": "Gradle 缓存",
+  "spaceAnalysis.known.goModules": "Go 模块缓存",
+  "spaceAnalysis.known.pnpm": "pnpm 存储",
+  "spaceAnalysis.known.npm": "npm 缓存",
+  "spaceAnalysis.known.cargoRegistry": "Cargo registry 缓存",
+  "spaceAnalysis.known.pip": "pip 缓存",
+  "spaceAnalysis.known.electron": "Electron 下载缓存",
+  "spaceAnalysis.known.playwright": "Playwright 浏览器",
+  "spaceAnalysis.known.huggingFace": "Hugging Face 模型缓存",
+  "spaceAnalysis.known.mavenRepository": "Maven 本地仓库",
+  "spaceAnalysis.known.jetbrainsHistory": "JetBrains 历史版本",
+  "spaceAnalysis.known.windowsTemp": "Windows 临时目录",
+  "spaceAnalysis.known.userTemp": "用户临时目录",
+};
+
+const SAFETY_LABELS: Record<string, string> = {
+  safe: "可安全清理",
+  rebuildable: "可重新生成",
+  needs_confirmation: "需要确认",
+  view_only: "仅供查看",
+};
+
+function fmt(bytes: number) {
+  if (bytes >= 1024 ** 3) return (bytes / 1024 ** 3).toFixed(1) + " GB";
+  if (bytes >= 1024 ** 2) return (bytes / 1024 ** 2).toFixed(0) + " MB";
+  if (bytes >= 1024) return (bytes / 1024).toFixed(0) + " KB";
+  return bytes + " B";
 }
 
-function subscribeCleanup(fn: (s: CleanupCache) => void) {
-  cleanupListeners.add(fn);
-  return () => { cleanupListeners.delete(fn); };
+function itemCategory(item: KnownSpaceItem): CleanupCategory {
+  if (item.nameKey === "spaceAnalysis.known.jetbrainsHistory") return "history";
+  if (
+    item.nameKey === "spaceAnalysis.known.windowsTemp"
+    || item.nameKey === "spaceAnalysis.known.userTemp"
+  ) return "temp";
+  return item.safety === "safe" ? "safe" : "cautious";
 }
 
-function runCleanupScan() {
-  if (cleanupRun) return cleanupRun;
-  publishCleanup({ scanning: true });
-  cleanupRun = (async () => {
-    try {
-      const it = await invoke<CacheItem[]>("cleanup_scan");
-      publishCleanup({
-        items: it,
-        selected: it.filter((x) => x.category === "safe").map((x) => x.path),
-        err: false,
-      });
-    } catch (e) {
-      publishCleanup({ err: true });
-      throw e;
-    } finally {
-      publishCleanup({ scanning: false });
-      cleanupRun = null;
-    }
-  })();
-  return cleanupRun;
+function itemVisuals(item: KnownSpaceItem): Pick<CacheItem, "icon" | "av"> {
+  if (item.id === "gradle") return { icon: "ti-box", av: "gr" };
+  if (item.id === "gomod") return { icon: "ti-brand-golang", av: "go" };
+  if (item.id === "pnpm" || item.id === "npm") return { icon: "ti-brand-npm", av: "npm" };
+  if (item.id === "cargo") return { icon: "ti-brand-rust", av: "rs" };
+  if (item.id === "pip") return { icon: "ti-brand-python", av: "py" };
+  if (item.id === "electron") return { icon: "ti-bolt", av: "el" };
+  if (item.id === "playwright") return { icon: "ti-theater", av: "el" };
+  if (item.id === "hf") return { icon: "ti-robot", av: "hf" };
+  if (item.id === "m2repo") return { icon: "ti-feather", av: "mv2" };
+  if (item.nameKey === "spaceAnalysis.known.jetbrainsHistory") return { icon: "ti-code", av: "st" };
+  if (item.nameKey.endsWith("Temp")) return { icon: "ti-trash", av: "st" };
+  return { icon: "ti-box", av: "st" };
 }
 
-function fmt(b: number) {
-  if (b >= 1024 ** 3) return (b / 1024 ** 3).toFixed(1) + " GB";
-  if (b >= 1024 ** 2) return (b / 1024 ** 2).toFixed(0) + " MB";
-  if (b >= 1024) return (b / 1024).toFixed(0) + " KB";
-  return b + " B";
+function normalizeSafety(safety: string) {
+  return safety.replaceAll("-", "_").replaceAll(" ", "_").toLowerCase();
+}
+
+function leafName(path: string) {
+  return path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
+}
+
+function toCacheItem(item: KnownSpaceItem, tr: Translate): CacheItem {
+  const safety = normalizeSafety(item.safety);
+  const sourceName = KNOWN_ITEM_NAMES[item.nameKey] ?? "已知空间项目";
+  const name = item.nameKey === "spaceAnalysis.known.jetbrainsHistory"
+    ? `${tr(sourceName)} · ${leafName(item.path)}`
+    : tr(sourceName);
+  return {
+    name,
+    path: item.path,
+    size: item.bytes,
+    category: itemCategory(item),
+    safety,
+    safetyLabel: tr(SAFETY_LABELS[safety] ?? "需要确认"),
+    ...itemVisuals(item),
+    canSelect: safety !== "view_only",
+  };
+}
+
+function ScanMetrics({ progress, locale, tr }: {
+  progress: ScanProgress;
+  locale: string;
+  tr: Translate;
+}) {
+  const metrics = [
+    ["已扫描文件", new Intl.NumberFormat(locale).format(progress.scannedFiles)],
+    ["已扫描目录", new Intl.NumberFormat(locale).format(progress.scannedDirectories)],
+    ["已统计空间", fmt(progress.accountedBytes)],
+    ["无法访问", new Intl.NumberFormat(locale).format(progress.skippedPaths)],
+    ["耗时", `${new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(progress.elapsedMs / 1000)} s`],
+  ];
+  const currentPath = progress.currentPath || tr("等待扫描任务…");
+  return (
+    <div className="scan-progress" aria-live="polite">
+      <div className="scan-metrics">
+        {metrics.map(([label, value]) => (
+          <div className="scan-metric" key={label} title={`${tr(label)}: ${value}`}>
+            <span>{tr(label)}</span>
+            <b>{value}</b>
+          </div>
+        ))}
+      </div>
+      <div className="scan-current-path" title={currentPath}>
+        <i className="ti ti-folder-search" aria-hidden="true" />
+        <span>{currentPath}</span>
+      </div>
+    </div>
+  );
 }
 
 export default function Cleanup() {
   const toast = useToast();
   const notices = useNotifications();
-  const [items, setItems] = useState<CacheItem[] | null>(cleanupCache.items);
-  const [err, setErr] = useState(cleanupCache.err);
-  const [sel, setSel] = useState<Set<string>>(new Set(cleanupCache.selected));
+  const { locale, tr } = useI18n();
+  const scan = useSpaceScan();
+  const view = quickScanView(scan);
+  const items = useMemo(
+    () => scan.result?.items.map((item) => toCacheItem(item, tr)) ?? [],
+    [scan.result, tr],
+  );
+  const [sel, setSel] = useState<Set<string>>(new Set());
   const [confirm, setConfirm] = useState<string[] | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [scanning, setScanning] = useState(cleanupCache.scanning);
+  const [actionBusy, setActionBusy] = useState(false);
+  const [cleanupBusy, setCleanupBusy] = useState(false);
   const [aged, setAged] = useState<string | null>(null);
   const [agedDays, setAgedDays] = useState(90);
   const [agedStats, setAgedStats] = useState<{ count: number; size: number } | null>(null);
   const [agedBusy, setAgedBusy] = useState(false);
 
-  useEffect(() => subscribeCleanup((s) => {
-    setItems(s.items);
-    setErr(s.err);
-    setScanning(s.scanning);
-    setSel(new Set(s.selected));
-  }), []);
+  useEffect(() => {
+    setSel(new Set(
+      scan.result?.items
+        .filter((item) => normalizeSafety(item.safety) === "safe")
+        .map((item) => item.path) ?? [],
+    ));
+  }, [scan.result]);
 
-  async function load() { return runCleanupScan(); }
-  async function rescan() {
-    const wasScanned = items !== null;
+  async function beginScan() {
+    setActionBusy(true);
     try {
-      await load();
-      toast(wasScanned ? "扫描结果已刷新" : "扫描完成", "ok");
-    } catch (e) {
-      toast("磁盘扫描失败：" + e, "err");
+      await startQuickScan();
+    } catch {
+      toast(tr("无法启动扫描，请重试。"), "err");
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
+  async function cancelCurrentScan() {
+    setActionBusy(true);
+    try {
+      await cancelScan();
+    } catch {
+      toast(tr("无法取消扫描，请重试。"), "err");
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
+  async function refreshAfterCleanup() {
+    try {
+      await startQuickScan();
+    } catch {
+      toast(tr("清理已完成，但无法启动重新扫描。"), "err");
     }
   }
 
   async function del(paths: string[]) {
-    setBusy(true);
-    try { const freed = await invoke<number>("cleanup_delete", { paths }); toast("已释放 " + fmt(freed), "ok"); setConfirm(null); await load(); }
-    catch (e) { toast("清理失败：" + e, "err"); } finally { setBusy(false); }
+    setCleanupBusy(true);
+    try {
+      const freed = await invoke<number>("cleanup_delete", { paths });
+      toast(`${tr("已释放")} ${fmt(freed)}`, "ok");
+      setConfirm(null);
+      await refreshAfterCleanup();
+    } catch {
+      toast(tr("清理失败，请重试。"), "err");
+    } finally {
+      setCleanupBusy(false);
+    }
   }
+
   async function loadStats(path: string, days: number) {
-    setAgedDays(days); setAgedStats(null);
-    try { setAgedStats(await invoke<{ count: number; size: number }>("cleanup_aged_stats", { path, days })); }
-    catch (e) { toast("统计失败：" + e, "err"); }
+    setAgedDays(days);
+    setAgedStats(null);
+    try {
+      setAgedStats(await invoke<{ count: number; size: number }>("cleanup_aged_stats", { path, days }));
+    } catch {
+      toast(tr("统计失败，请重试。"), "err");
+    }
   }
-  function openAged(path: string) { setAged(path); loadStats(path, 90); }
+
+  function openAged(path: string) {
+    setAged(path);
+    void loadStats(path, 90);
+  }
+
   async function delAged() {
     if (!aged) return;
     setAgedBusy(true);
-    try { const freed = await invoke<number>("cleanup_delete_aged", { path: aged, days: agedDays }); toast("已释放 " + fmt(freed), "ok"); setAged(null); await load(); }
-    catch (e) { toast("清理失败：" + e, "err"); } finally { setAgedBusy(false); }
+    try {
+      const freed = await invoke<number>("cleanup_delete_aged", { path: aged, days: agedDays });
+      toast(`${tr("已释放")} ${fmt(freed)}`, "ok");
+      setAged(null);
+      await refreshAfterCleanup();
+    } catch {
+      toast(tr("清理失败，请重试。"), "err");
+    } finally {
+      setAgedBusy(false);
+    }
   }
 
-  if (err) return <ErrorState title="磁盘扫描未完成" description="部分目录可能无法访问。请关闭占用相关目录的程序后重试。" onRetry={rescan} />;
-  if (!items) return (
-    <div className={"clhero" + (scanning ? " scanning trace-card" : "")}>
-      {scanning && <span className="border-runner" aria-hidden="true" />}
-      <span className="clic"><i className={"ti " + (scanning ? "ti-database-search" : "ti-database")} /></span>
-      <div className="clt">
-        <div className="t1">{scanning ? "正在扫描可清理项" : "磁盘清理"}</div>
-        <div className="t2">{scanning ? "正在统计开发工具缓存、历史版本和 Windows 临时目录占用…" : notices.cleanupBytes > 0 ? `后台估算可安全清理约 ${fmt(notices.cleanupBytes)}。点击「开始扫描」查看完整清理项。` : "点击「开始扫描」后，Stacker 将统计开发工具缓存、历史版本和 Windows 临时目录占用。"}</div>
-      </div>
-      <button className="gh" disabled={scanning} onClick={rescan}>
-        <i className={"ti " + (scanning ? "ti-loader spin" : "ti-player-play")} /> {scanning ? "扫描中…" : "开始扫描"}
-      </button>
-    </div>
-  );
+  const safe = items.filter((item) => item.category === "safe");
+  const history = items.filter((item) => item.category === "history");
+  const temp = items.filter((item) => item.category === "temp");
+  const cautious = items.filter((item) => item.category === "cautious");
+  const total = scan.result?.totalBytes ?? items.reduce((sum, item) => sum + item.size, 0);
+  const safeTotal = scan.result?.safelyReleasableBytes ?? safe.reduce((sum, item) => sum + item.size, 0);
+  const selItems = items.filter((item) => sel.has(item.path));
+  const selTotal = selItems.reduce((sum, item) => sum + item.size, 0);
+  const scanning = view.phase === "running" || view.phase === "cancelling";
 
-  const safe = items.filter((x) => x.category === "safe");
-  const history = items.filter((x) => x.category === "history");
-  const temp = items.filter((x) => x.category === "temp");
-  const cautious = items.filter((x) => x.category === "cautious");
-  const total = items.reduce((a, x) => a + x.size, 0);
-  const safeTotal = safe.reduce((a, x) => a + x.size, 0);
-  const selItems = items.filter((x) => sel.has(x.path));
-  const selTotal = selItems.reduce((a, x) => a + x.size, 0);
-
-  function toggle(p: string) {
-    setSel((s) => {
-      const n = new Set(s);
-      if (n.has(p)) n.delete(p);
-      else n.add(p);
-      publishCleanup({ selected: [...n] });
-      return n;
+  function toggle(item: CacheItem) {
+    if (!item.canSelect) return;
+    setSel((current) => {
+      const next = new Set(current);
+      if (next.has(item.path)) next.delete(item.path);
+      else next.add(item.path);
+      return next;
     });
   }
 
-  function categoryBadge(x: CacheItem) {
-    if (x.category === "history") return <span className="bd w">历史版本</span>;
-    if (x.category === "temp") return <span className="bd w">临时文件</span>;
-    if (x.category === "cautious") return <span className="bd w">谨慎</span>;
+  function categoryBadge(item: CacheItem) {
+    if (item.category === "history") return <span className="bd w">{tr("历史版本")}</span>;
+    if (item.category === "temp") return <span className="bd w">{tr("临时文件")}</span>;
+    if (item.category === "cautious") return <span className="bd w">{tr("谨慎")}</span>;
     return null;
   }
 
-  function categoryHint(x: CacheItem) {
-    if (x.category === "history") return "手动清理";
-    if (x.category === "temp") return "可清";
-    if (x.category === "cautious") return "谨慎";
-    return "可清";
-  }
-
-  function rowStyle(x: CacheItem) {
-    if (x.category === "safe") return undefined;
-    return { boxShadow: "inset 3px 0 0 var(--amber)", borderColor: "rgba(228,180,80,.3)" };
-  }
-
-  function row(x: CacheItem) {
-    const agedClean = x.category === "cautious";
+  function row(item: CacheItem) {
+    const agedClean = item.category === "cautious";
+    const cautiousStyle = item.category === "safe"
+      ? undefined
+      : { boxShadow: "inset 3px 0 0 var(--amber)", borderColor: "rgba(228,180,80,.3)" };
     return (
-      <div className="clrow" key={x.path} style={rowStyle(x)}>
-        <input type="checkbox" className="ck2" checked={sel.has(x.path)} onChange={() => toggle(x.path)} />
-        <span className={"av " + x.av}><i className={"ti " + x.icon} /></span>
-        <div className="ct2"><div className="ch">{x.name} {categoryBadge(x)}</div><div className="cs">{x.path}</div></div>
-        <div className="csz"><div className="big">{fmt(x.size)}</div><div className="small">{categoryHint(x)}</div></div>
-        <button className="gh sm" disabled={busy} onClick={() => agedClean ? openAged(x.path) : setConfirm([x.path])}>{agedClean ? "智能清理" : "清理"}</button>
+      <div className="clrow" key={item.path} style={cautiousStyle}>
+        <input
+          type="checkbox"
+          className="ck2"
+          checked={item.canSelect && sel.has(item.path)}
+          disabled={!item.canSelect || cleanupBusy}
+          aria-label={`${tr("选择清理项")}: ${item.name}`}
+          onChange={() => toggle(item)}
+        />
+        <span className={`av ${item.av}`}><i className={`ti ${item.icon}`} /></span>
+        <div className="ct2">
+          <div className="ch" title={item.name}>
+            <span className="ch-name">{item.name}</span>
+            {categoryBadge(item)}
+          </div>
+          <div className="cs" title={item.path}>{item.path}</div>
+        </div>
+        <div className="csz" title={`${fmt(item.size)} · ${item.safetyLabel}`}>
+          <div className="big">{fmt(item.size)}</div>
+          <div className="small">{item.safetyLabel}</div>
+        </div>
+        {item.canSelect && (
+          <button
+            className="gh sm"
+            disabled={cleanupBusy}
+            onClick={() => agedClean ? openAged(item.path) : setConfirm([item.path])}
+          >
+            {agedClean ? tr("智能清理") : tr("清理")}
+          </button>
+        )}
       </div>
     );
   }
 
+  const heroTitle = view.phase === "completed" && scan.result
+    ? `${tr("可清理项共占用")} ${fmt(total)} · ${tr("可安全释放")} ${fmt(safeTotal)}`
+    : tr(view.title);
+  const idleDescription = notices.cleanupBytes > 0
+    ? `${tr("后台估算可安全清理约")} ${fmt(notices.cleanupBytes)}${locale === "zh-CN" ? "。" : ". "}${tr("开始扫描后可查看完整清理项。")}`
+    : tr(view.description);
+
   return (
     <>
-      <div className={"clhero" + (scanning ? " scanning trace-card" : "")}>
+      <section className={`clhero space-scan-hero${scanning ? " scanning trace-card" : ""}`}>
         {scanning && <span className="border-runner" aria-hidden="true" />}
-        <span className="clic"><i className="ti ti-database" /></span>
+        <span className="clic"><i className={`ti ${scanning ? "ti-database-search" : "ti-database"}`} /></span>
         <div className="clt">
-          <div className="t1">可清理项共占用 {fmt(total)} · 可安全释放 <b>{fmt(safeTotal)}</b></div>
-          <div className="t2">默认勾选纯缓存；JetBrains 历史版本、Windows 临时目录和谨慎项需手动选择。临时目录中被占用的文件会自动跳过。</div>
+          <div className="t1" title={heroTitle}>{heroTitle}</div>
+          <div className="t2">{view.phase === "idle" ? idleDescription : tr(view.description)}</div>
+          {view.errorSummary && (
+            <div className="scan-error-summary" title={scan.taskId ? `${tr("任务 ID")}${locale === "zh-CN" ? "：" : ": "}${scan.taskId}` : undefined}>
+              <i className="ti ti-alert-triangle" /> {tr(view.errorSummary)}
+            </div>
+          )}
+          {view.showProgress && scan.progress && <ScanMetrics progress={scan.progress} locale={locale} tr={tr} />}
         </div>
-        <div className="ghr">
-          <button className="gh" disabled={busy || scanning} onClick={rescan}>
-            <i className={"ti " + (scanning ? "ti-loader spin" : "ti-player-play")} /> {scanning ? "扫描中…" : "开始扫描"}
-          </button>
-          <button className="pr" disabled={busy || scanning || sel.size === 0} onClick={() => setConfirm([...sel])}><i className="ti ti-eraser" /> 清理所选（{fmt(selTotal)}）</button>
+        <div className="ghr scan-actions">
+          {scanning ? (
+            <button
+              className="gh"
+              disabled={!view.canCancel || actionBusy}
+              title={tr(view.primaryLabel)}
+              onClick={cancelCurrentScan}
+            >
+              <i className={`ti ${view.phase === "cancelling" || actionBusy ? "ti-loader spin" : "ti-x"}`} />
+              {tr(view.primaryLabel)}
+            </button>
+          ) : (
+            <button className="gh" disabled={!view.canStart || actionBusy || cleanupBusy} onClick={beginScan}>
+              <i className={`ti ${actionBusy ? "ti-loader spin" : "ti-player-play"}`} /> {tr(view.primaryLabel)}
+            </button>
+          )}
+          {view.phase === "completed" && (
+            <button
+              className="pr"
+              disabled={cleanupBusy || sel.size === 0}
+              onClick={() => setConfirm([...sel])}
+            >
+              <i className="ti ti-eraser" /> {tr("清理所选")}{locale === "zh-CN" ? `（${fmt(selTotal)}）` : ` (${fmt(selTotal)})`}
+            </button>
+          )}
         </div>
-      </div>
-      {items.length === 0 && (
-        <div className="stub"><div className="si"><i className="ti ti-circle-check" /></div><h2>未发现可清理项</h2><p>当前扫描范围内没有达到显示条件的缓存、历史版本或临时文件。</p></div>
+      </section>
+
+      {view.phase === "completed" && items.length === 0 && scan.result && (
+        <div className="stub">
+          <div className="si"><i className="ti ti-circle-check" /></div>
+          <h2>{tr("未发现可清理项")}</h2>
+          <p>{tr("当前扫描范围内没有达到显示条件的缓存、历史版本或临时文件。")}</p>
+        </div>
       )}
-      {safe.length > 0 && <div className="seclabel"><i className="ti ti-shield-check" style={{ color: "#6bcf86" }} /> 可安全清理（纯缓存，删后会自动重新获取）</div>}
+      {safe.length > 0 && <div className="seclabel"><i className="ti ti-shield-check" style={{ color: "#6bcf86" }} /> {tr("可安全清理（纯缓存，删除后会自动重新获取）")}</div>}
       {safe.map(row)}
-      {history.length > 0 && <div className="seclabel"><i className="ti ti-code" style={{ color: "#e4b450" }} /> JetBrains IDE 历史版本（保留同产品最新版本）</div>}
+      {history.length > 0 && <div className="seclabel"><i className="ti ti-code" style={{ color: "#e4b450" }} /> {tr("JetBrains IDE 历史版本（保留同产品最新版本）")}</div>}
       {history.map(row)}
-      {temp.length > 0 && <div className="seclabel"><i className="ti ti-trash" style={{ color: "#e4b450" }} /> Windows 临时目录（超过 1 GB 才显示）</div>}
+      {temp.length > 0 && <div className="seclabel"><i className="ti ti-trash" style={{ color: "#e4b450" }} /> {tr("Windows 临时目录（超过 1 GB 才显示）")}</div>}
       {temp.map(row)}
-      {cautious.length > 0 && <div className="seclabel"><i className="ti ti-alert-triangle" style={{ color: "#e4b450" }} /> 谨慎清理（重新下载可能耗时较长）</div>}
+      {cautious.length > 0 && <div className="seclabel"><i className="ti ti-alert-triangle" style={{ color: "#e4b450" }} /> {tr("谨慎清理（重新下载可能耗时较长）")}</div>}
       {cautious.map(row)}
 
       {confirm && (
-        <ConfirmModal title="确认清理" icon="ti-eraser"
-          message={<>将清理 <b style={{ color: "var(--tx)" }}>{confirm.length} 项</b>，预计释放 <b style={{ color: "#6bcf86" }}>{fmt(items.filter((x) => confirm.includes(x.path)).reduce((a, x) => a + x.size, 0))}</b>。<br />缓存和临时目录会清理目录内容；JetBrains 历史版本会删除旧版本目录；被系统占用的临时文件会自动跳过。</>}
-          confirmLabel={busy ? "清理中…" : "清理"} busy={busy} onConfirm={() => del(confirm)} onClose={() => setConfirm(null)} />
+        <ConfirmModal
+          title={tr("确认清理")}
+          icon="ti-eraser"
+          message={<>{tr("将清理")} <b style={{ color: "var(--tx)" }}>{confirm.length} {tr("项")}</b>{locale === "zh-CN" ? "，" : "; "}{tr("预计释放")} <b style={{ color: "#6bcf86" }}>{fmt(items.filter((item) => confirm.includes(item.path)).reduce((sum, item) => sum + item.size, 0))}</b>{locale === "zh-CN" ? "。" : "."}<br />{tr("缓存和临时目录会清理目录内容；JetBrains 历史版本会删除旧版本目录；被系统占用的临时文件会自动跳过。")}</>}
+          confirmLabel={cleanupBusy ? tr("清理中…") : tr("清理")}
+          busy={cleanupBusy}
+          onConfirm={() => del(confirm)}
+          onClose={() => setConfirm(null)}
+        />
       )}
 
       {aged && (
-        <Modal wide title="智能清理（按未访问时长）" icon="ti-clock" onClose={() => !agedBusy && setAged(null)}
+        <Modal
+          wide
+          title={tr("智能清理（按未访问时长）")}
+          icon="ti-clock"
+          onClose={() => !agedBusy && setAged(null)}
           footer={<>
-            <button className="gh sm" disabled={agedBusy} onClick={() => setAged(null)}>取消</button>
+            <button className="gh sm" disabled={agedBusy} onClick={() => setAged(null)}>{tr("取消")}</button>
             <button className="pr sm" disabled={agedBusy || !agedStats || agedStats.count === 0} onClick={delAged}>
-              <i className="ti ti-eraser" /> {agedBusy ? "清理中…" : agedStats ? `清理 ${fmt(agedStats.size)}` : "清理"}</button>
-          </>}>
-          <div style={{ fontSize: 12, color: "var(--mut)", fontFamily: "var(--font-mono)", wordBreak: "break-all" }}>{aged}</div>
-          <div className="field"><label>清理超过以下天数未访问的文件</label>
-            <div className="seg" style={{ alignSelf: "flex-start" }}>
-              {[30, 90, 180, 365].map((d) => <button key={d} className={agedDays === d ? "on" : ""} disabled={agedBusy} onClick={() => loadStats(aged, d)}>{d >= 365 ? "1 年" : d + " 天"}</button>)}</div></div>
+              <i className="ti ti-eraser" /> {agedBusy ? tr("清理中…") : agedStats ? `${tr("清理")} ${fmt(agedStats.size)}` : tr("清理")}
+            </button>
+          </>}
+        >
+          <div className="cleanup-aged-path" title={aged}>{aged}</div>
+          <div className="field">
+            <label>{tr("清理超过以下天数未访问的文件")}</label>
+            <div className="seg cleanup-aged-options">
+              {[30, 90, 180, 365].map((days) => (
+                <button key={days} className={agedDays === days ? "on" : ""} disabled={agedBusy} onClick={() => loadStats(aged, days)}>
+                  {days >= 365 ? tr("1 年") : `${days} ${tr("天")}`}
+                </button>
+              ))}
+            </div>
+          </div>
           {!agedStats
-            ? <div className="banner gray" style={{ margin: 0 }}><i className="ti ti-loader lead" /><div className="bt">统计中…</div></div>
-            : <div className="banner blue" style={{ margin: 0 }}><i className="ti ti-chart-bar lead" /><div className="bt">{agedDays >= 365 ? "1 年" : agedDays + " 天"}未访问的文件共 <b>{agedStats.count} 个 · 约 {fmt(agedStats.size)}</b>。删除后若再用到会自动重新获取。</div></div>}
+            ? <div className="banner gray cleanup-aged-banner"><i className="ti ti-loader lead spin" /><div className="bt">{tr("统计中…")}</div></div>
+            : <div className="banner blue cleanup-aged-banner"><i className="ti ti-chart-bar lead" /><div className="bt">{agedDays >= 365 ? tr("1 年") : `${agedDays} ${tr("天")}`} {tr("未访问的文件共")} <b>{agedStats.count} {tr("个")} · {tr("约")} {fmt(agedStats.size)}</b>{locale === "zh-CN" ? "。" : ". "}{tr("删除后若再次使用会自动重新获取。")}</div></div>}
         </Modal>
       )}
     </>
