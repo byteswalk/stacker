@@ -419,6 +419,7 @@ fn add_stats(total: &mut WalkStats, stats: &WalkStats) {
     total.files = total.files.saturating_add(stats.files);
     total.directories = total.directories.saturating_add(stats.directories);
     total.logical_bytes = total.logical_bytes.saturating_add(stats.logical_bytes);
+    total.allocated_bytes = total.allocated_bytes.saturating_add(stats.allocated_bytes);
     total.skipped = total.skipped.saturating_add(stats.skipped);
     add_errors(&mut total.errors, &stats.errors);
 }
@@ -492,5 +493,48 @@ mod tests {
         let cache = candidate("playwright");
         assert!(!legacy_candidate_is_visible(&cache, 0));
         assert!(legacy_candidate_is_visible(&cache, 1));
+    }
+
+    #[test]
+    fn completed_candidates_accumulate_allocated_bytes() {
+        let mut completed = WalkStats::default();
+        add_stats(
+            &mut completed,
+            &WalkStats {
+                logical_bytes: 100,
+                allocated_bytes: 64,
+                ..WalkStats::default()
+            },
+        );
+        add_stats(
+            &mut completed,
+            &WalkStats {
+                logical_bytes: 200,
+                allocated_bytes: 128,
+                ..WalkStats::default()
+            },
+        );
+
+        assert_eq!(completed.logical_bytes, 300);
+        assert_eq!(completed.allocated_bytes, 192);
+    }
+
+    #[test]
+    fn active_candidate_progress_includes_prior_allocated_bytes() {
+        let completed = WalkStats {
+            logical_bytes: 100,
+            allocated_bytes: 64,
+            ..WalkStats::default()
+        };
+        let current = WalkStats {
+            logical_bytes: 50,
+            allocated_bytes: 32,
+            ..WalkStats::default()
+        };
+
+        let aggregate = combined_stats(&completed, &current);
+
+        assert_eq!(aggregate.logical_bytes, 150);
+        assert_eq!(aggregate.allocated_bytes, 96);
     }
 }

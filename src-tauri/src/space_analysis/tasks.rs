@@ -295,7 +295,7 @@ fn initial_progress(task_id: &str) -> ScanProgress {
 fn apply_walk_stats(progress: &mut ScanProgress, stats: &WalkStats, started_at: Instant) {
     progress.scanned_files = stats.files;
     progress.scanned_directories = stats.directories;
-    progress.accounted_bytes = stats.logical_bytes;
+    progress.accounted_bytes = stats.allocated_bytes;
     progress.skipped_paths = stats.skipped;
     progress.elapsed_ms = elapsed_ms(started_at);
 }
@@ -415,6 +415,7 @@ mod tests {
                     report_progress(&WalkStats {
                         files: 2,
                         logical_bytes: 128,
+                        allocated_bytes: 96,
                         ..WalkStats::default()
                     });
                     Ok(QuickScanResult::default())
@@ -428,7 +429,7 @@ mod tests {
         assert_eq!(events.first().unwrap().state, ScanTaskState::Running);
         assert!(events
             .iter()
-            .any(|progress| progress.scanned_files == 2 && progress.accounted_bytes == 128));
+            .any(|progress| progress.scanned_files == 2 && progress.accounted_bytes == 96));
         assert_eq!(events.last().unwrap().state, ScanTaskState::Completed);
     }
 }
