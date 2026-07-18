@@ -18,6 +18,7 @@ mod pyenv;
 mod rustup;
 mod settings;
 mod sources;
+mod space_analysis;
 mod update;
 mod versions;
 mod vibe;
