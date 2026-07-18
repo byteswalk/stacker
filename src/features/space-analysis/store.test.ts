@@ -86,6 +86,14 @@ async function flushPromises() {
   await Promise.resolve();
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
+}
+
 describe("space scan store", () => {
   it("does not start a scan during construction", () => {
     const harness = fakeAdapter();
@@ -138,6 +146,83 @@ describe("space scan store", () => {
     expect(harness.adapter.quickResult).not.toHaveBeenCalled();
   });
 
+  it("ignores an old status response that arrives after completion", async () => {
+    const harness = fakeAdapter({ startId: "scan-1" });
+    const store = createSpaceScanStore(harness.adapter);
+    await store.startQuickScan();
+    const oldStatus = deferred<ScanProgress>();
+    vi.mocked(harness.adapter.status).mockReturnValueOnce(oldStatus.promise);
+
+    const refresh = store.refreshTask();
+    harness.emit(progress("scan-1", "completed", { scannedFiles: 12 }));
+    await flushPromises();
+    oldStatus.resolve(progress("scan-1", "running", { scannedFiles: 2 }));
+    await refresh;
+
+    expect(store.getSnapshot().progress).toMatchObject({
+      state: "completed",
+      scannedFiles: 12,
+    });
+    expect(store.getSnapshot().result).toEqual(quickResult("scan-1"));
+  });
+
+  it("ignores an old status response after newer running progress", async () => {
+    const harness = fakeAdapter({ startId: "scan-1" });
+    const store = createSpaceScanStore(harness.adapter);
+    await store.startQuickScan();
+    const oldStatus = deferred<ScanProgress>();
+    vi.mocked(harness.adapter.status).mockReturnValueOnce(oldStatus.promise);
+
+    const refresh = store.refreshTask();
+    harness.emit(progress("scan-1", "running", { scannedFiles: 10 }));
+    oldStatus.resolve(progress("scan-1", "running", { scannedFiles: 3 }));
+    await refresh;
+
+    expect(store.getSnapshot().progress).toMatchObject({
+      state: "running",
+      scannedFiles: 10,
+    });
+  });
+
+  it("does not regress a completed task or clear its result", async () => {
+    const result = quickResult("scan-1");
+    const harness = fakeAdapter({ startId: "scan-1", result });
+    const store = createSpaceScanStore(harness.adapter);
+    await store.startQuickScan();
+    harness.emit(progress("scan-1", "completed", { scannedFiles: 15 }));
+    await flushPromises();
+
+    harness.emit(progress("scan-1", "running", { scannedFiles: 4 }));
+    await flushPromises();
+
+    expect(store.getSnapshot().progress).toMatchObject({
+      state: "completed",
+      scannedFiles: 15,
+    });
+    expect(store.getSnapshot().result).toEqual(result);
+  });
+
+  it("drops a completed result that arrives after a new task starts", async () => {
+    const oldResult = deferred<QuickScanResult>();
+    const harness = fakeAdapter({ startId: "scan-1" });
+    vi.mocked(harness.adapter.quickResult).mockReturnValueOnce(oldResult.promise);
+    const store = createSpaceScanStore(harness.adapter);
+    await store.startQuickScan();
+    harness.emit(progress("scan-1", "completed"));
+    await flushPromises();
+
+    vi.mocked(harness.adapter.start).mockResolvedValueOnce("scan-2");
+    await store.startQuickScan();
+    oldResult.resolve(quickResult("scan-1"));
+    await flushPromises();
+
+    expect(store.getSnapshot()).toMatchObject({
+      taskId: "scan-2",
+      progress: { taskId: "scan-2", state: "running" },
+      result: null,
+    });
+  });
+
   it("keeps the last progress when a task is cancelled", async () => {
     const harness = fakeAdapter({ startId: "scan-1" });
     const store = createSpaceScanStore(harness.adapter);
@@ -158,6 +243,27 @@ describe("space scan store", () => {
       accountedBytes: 4096,
     });
     expect(store.getSnapshot().result).toBeNull();
+  });
+
+  it("does not regress a cancelled task when old running progress arrives", async () => {
+    const harness = fakeAdapter({ startId: "scan-1" });
+    const store = createSpaceScanStore(harness.adapter);
+    await store.startQuickScan();
+    harness.emit(progress("scan-1", "cancelled", {
+      scannedFiles: 18,
+      accountedBytes: 8192,
+    }));
+
+    harness.emit(progress("scan-1", "running", {
+      scannedFiles: 5,
+      accountedBytes: 1024,
+    }));
+
+    expect(store.getSnapshot().progress).toMatchObject({
+      state: "cancelled",
+      scannedFiles: 18,
+      accountedBytes: 8192,
+    });
   });
 
   it("starts one progress listener regardless of store subscribers", () => {

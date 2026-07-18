@@ -5,6 +5,7 @@ import type {
   QuickScanResult,
   ScanProgress,
   ScanRequest,
+  ScanTaskState,
 } from "./types";
 
 export interface SpaceScanAdapter {
@@ -38,6 +39,28 @@ const INITIAL_SNAPSHOT: SpaceScanSnapshot = {
   error: null,
 };
 
+// Non-terminal states only move forward; terminal states are sticky.
+const STATE_ORDER: Record<ScanTaskState, number> = {
+  queued: 0,
+  running: 1,
+  cancelling: 2,
+  completed: 3,
+  cancelled: 3,
+  failed: 3,
+};
+
+const TERMINAL_STATES = new Set<ScanTaskState>([
+  "completed",
+  "cancelled",
+  "failed",
+]);
+
+function canAdvanceState(current: ScanTaskState, next: ScanTaskState): boolean {
+  if (current === next) return true;
+  if (TERMINAL_STATES.has(current)) return false;
+  return STATE_ORDER[next] >= STATE_ORDER[current];
+}
+
 function errorMessage(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
 }
@@ -49,6 +72,8 @@ export function createSpaceScanStore(adapter: SpaceScanAdapter): SpaceScanStore 
   let startPromise: Promise<string> | null = null;
   let resultTaskId: string | null = null;
   let resultPromise: Promise<void> | null = null;
+  let progressGeneration = 0;
+  let statusRequestGeneration = 0;
   const listeners = new Set<() => void>();
 
   function publish(next: SpaceScanSnapshot) {
@@ -71,7 +96,10 @@ export function createSpaceScanStore(adapter: SpaceScanAdapter): SpaceScanStore 
 
     const pending = (async () => {
       const result = await adapter.quickResult(taskId);
-      if (snapshot.taskId === taskId) {
+      if (
+        snapshot.taskId === taskId
+        && snapshot.progress?.state === "completed"
+      ) {
         publish({ ...snapshot, result, error: null });
       }
     })();
@@ -90,7 +118,12 @@ export function createSpaceScanStore(adapter: SpaceScanAdapter): SpaceScanStore 
 
   async function acceptProgress(progress: ScanProgress) {
     if (progress.taskId !== snapshot.taskId) return;
+    if (
+      snapshot.progress
+      && !canAdvanceState(snapshot.progress.state, progress.state)
+    ) return;
 
+    progressGeneration += 1;
     publish({
       ...snapshot,
       progress,
@@ -124,10 +157,20 @@ export function createSpaceScanStore(adapter: SpaceScanAdapter): SpaceScanStore 
   }
 
   async function refreshTaskById(taskId: string) {
+    const requestGeneration = ++statusRequestGeneration;
+    const generationAtRequest = progressGeneration;
+    const isCurrentRequest = () => (
+      snapshot.taskId === taskId
+      && statusRequestGeneration === requestGeneration
+      && progressGeneration === generationAtRequest
+    );
+
     try {
       const progress = await adapter.status(taskId);
+      if (!isCurrentRequest()) return;
       await acceptProgress(progress);
     } catch (cause) {
+      if (!isCurrentRequest()) return;
       setError(cause, taskId);
       throw cause;
     }
@@ -149,20 +192,23 @@ export function createSpaceScanStore(adapter: SpaceScanAdapter): SpaceScanStore 
       if (startPromise) return startPromise;
 
       const pending = (async () => {
+        let taskId: string;
         try {
-          const taskId = await adapter.start({ mode: "quick", targets: [] });
-          if (snapshot.taskId !== taskId) {
-            publish({ taskId, progress: null, result: null, error: null });
-          }
-          await refreshTaskById(taskId);
-          return taskId;
+          taskId = await adapter.start({ mode: "quick", targets: [] });
         } catch (cause) {
           setError(cause);
           throw cause;
-        } finally {
-          startPromise = null;
         }
-      })();
+
+        if (snapshot.taskId !== taskId) {
+          progressGeneration += 1;
+          publish({ taskId, progress: null, result: null, error: null });
+        }
+        await refreshTaskById(taskId);
+        return taskId;
+      })().finally(() => {
+        startPromise = null;
+      });
       startPromise = pending;
       return pending;
     },
@@ -173,11 +219,11 @@ export function createSpaceScanStore(adapter: SpaceScanAdapter): SpaceScanStore 
 
       try {
         await adapter.cancel(taskId);
-        await refreshTaskById(taskId);
       } catch (cause) {
         setError(cause, taskId);
         throw cause;
       }
+      await refreshTaskById(taskId);
     },
 
     async refreshTask() {
