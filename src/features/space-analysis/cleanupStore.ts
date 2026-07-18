@@ -71,6 +71,30 @@ export function toggleCleanupNode(node: DirectoryNode) {
   publish({ ...state, selected, plan: null, result: null });
 }
 
+export function selectionWithNodes(
+  current: ReadonlySet<string>,
+  nodes: readonly DirectoryNode[],
+  selected: boolean,
+) {
+  const next = new Set(current);
+  nodes.forEach((node) => {
+    if (!canSelectSafety(node.safety)) return;
+    if (selected) next.add(node.nodeId);
+    else next.delete(node.nodeId);
+  });
+  return next;
+}
+
+export function setCleanupNodesSelected(nodes: readonly DirectoryNode[], selected: boolean) {
+  if (state.progress?.state === "running") return;
+  publish({
+    ...state,
+    selected: selectionWithNodes(state.selected, nodes, selected),
+    plan: null,
+    result: null,
+  });
+}
+
 export async function prepareCleanupPlan() {
   if (!state.scanTaskId || state.selected.size === 0) return null;
   const plan = await invoke<CleanupPlan>("space_cleanup_plan", {

@@ -108,7 +108,9 @@ export function ScanHeader({
       <div className="scan-header-progress" aria-live="polite">
         <div className="scan-metrics">
           {metrics.map(([label, value]) => (
-            <div className="scan-metric" key={label} title={`${label}: ${value}`}>
+            <div className="scan-metric" key={label} title={label === tr("已跳过")
+              ? tr("包括无权访问、扫描期间消失、无效或无法读取的路径；这些路径未计入占用统计。")
+              : `${label}: ${value}`}>
               <span>{label}</span>
               <b>{value}</b>
             </div>

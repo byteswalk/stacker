@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canSelectSafety, defaultSelectedNodeIds } from "./cleanupStore";
+import { canSelectSafety, defaultSelectedNodeIds, selectionWithNodes } from "./cleanupStore";
 import type { DirectoryNode } from "./types";
 
 function node(nodeId: string, safety: string): DirectoryNode {
@@ -18,5 +18,12 @@ describe("cleanup selection", () => {
     expect(canSelectSafety("safe")).toBe(true);
     expect(canSelectSafety("rebuildable")).toBe(true);
     expect(canSelectSafety("needsConfirmation")).toBe(true);
+  });
+
+  it("selects or clears only selectable nodes in the requested category", () => {
+    const category = [node("one", "safe"), node("two", "rebuildable"), node("view", "viewOnly")];
+    const selected = selectionWithNodes(new Set(["outside"]), category, true);
+    expect([...selected]).toEqual(["outside", "one", "two"]);
+    expect([...selectionWithNodes(selected, category, false)]).toEqual(["outside"]);
   });
 });

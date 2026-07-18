@@ -108,7 +108,7 @@ export function AnalysisTabs({ taskId, request }: { taskId: string; request: Sca
       </div>
     </div>
     <div className="space-analysis-tab-panel" role="tabpanel">
-      {activeTab === "overview" && <SpaceOverview summary={summary} freeBytes={freeBytes} />}
+      {activeTab === "overview" && <SpaceOverview taskId={taskId} summary={summary} freeBytes={freeBytes} />}
       {activeTab === "directories" && <DirectoryRanking taskId={taskId} roots={summary.rootNodes} />}
       {activeTab === "large-files" && <LargeFiles taskId={taskId} thresholdBytes={largeFileThreshold} />}
       {activeTab === "development-artifacts" && <DevelopmentArtifacts nodes={artifactNodes} />}

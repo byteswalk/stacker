@@ -34,6 +34,28 @@ function comparableRoot(root: string): string {
   return root.trim().replaceAll("/", "\\").toLocaleLowerCase("en-US");
 }
 
+function comparableDirectory(path: string): string {
+  const normalized = path.trim().replaceAll("/", "\\").toLocaleLowerCase("en-US");
+  return normalized.endsWith(":\\") ? normalized : normalized.replace(/\\+$/, "");
+}
+
+export function nonOverlappingDirectoryTargets(paths: readonly string[]) {
+  const seen = new Map<string, string>();
+  paths.forEach((path) => {
+    if (path.trim().length === 0) return;
+    const comparable = comparableDirectory(path);
+    if (!seen.has(comparable)) seen.set(comparable, path.trim());
+  });
+  const unique = [...seen.entries()].sort(([left], [right]) => left.length - right.length);
+  const kept: Array<[string, string]> = [];
+  unique.forEach(([comparable, original]) => {
+    const nested = kept.some(([parent]) => comparable === parent
+      || comparable.startsWith(parent.endsWith("\\") ? parent : `${parent}\\`));
+    if (!nested) kept.push([comparable, original]);
+  });
+  return kept.map(([, original]) => original);
+}
+
 export function createDiskSelectorState(
   kind: DiskSelectorKind,
   availableVolumes: readonly VolumeInfo[],

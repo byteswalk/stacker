@@ -15,6 +15,7 @@ import {
   createDiskSelectorState,
   diskSelectorResponseIsCurrent,
   launcherControlsDisabled,
+  nonOverlappingDirectoryTargets,
   rememberSettingFrom,
   startAndRememberScan,
   type DiskSelectorKind,
@@ -115,13 +116,14 @@ export function ScanLauncher({ disabled = false }: { disabled?: boolean }) {
       const remembered = loadRememberedTargets("directories");
       const chosen = await open({
         directory: true,
-        multiple: false,
+        multiple: true,
         defaultPath: remembered[0],
         title: tr("选择要分析的目录"),
       });
-      const directory = Array.isArray(chosen) ? chosen[0] : chosen;
-      if (typeof directory === "string" && directory) {
-        await launch({ mode: "directories", targets: [directory] });
+      const directories = (Array.isArray(chosen) ? chosen : [chosen])
+        .filter((directory): directory is string => typeof directory === "string" && directory.length > 0);
+      if (directories.length > 0) {
+        await launch({ mode: "directories", targets: nonOverlappingDirectoryTargets(directories) });
       }
     } catch (error) {
       if (!operationWasCancelled(error)) toast(tr("无法打开目录选择器，请重试。"), "err");
@@ -167,19 +169,15 @@ export function ScanLauncher({ disabled = false }: { disabled?: boolean }) {
           <span>{tr("选择快速检查、目录或本地固定磁盘。扫描仅在手动确认后开始。")}</span>
         </div>
         <div className="scan-launcher-toolbar">
-          <button className="pr" disabled={controlsDisabled} onClick={() => launch({ mode: "quick", targets: [] })}>
+          <button className="pr" disabled={controlsDisabled} title={tr("扫描常见开发缓存、历史版本和 Windows 临时目录，不会遍历整个磁盘。")} onClick={() => launch({ mode: "quick", targets: [] })}>
             <i className={`ti ${busy ? "ti-loader spin" : "ti-bolt"}`} aria-hidden="true" />
             {tr("快速扫描")}
           </button>
-          <button className="gh" disabled={controlsDisabled} onClick={chooseFolder}>
+          <button className="gh" disabled={controlsDisabled} title={tr("选择一个或多个目录进行深入分析，可直接选择磁盘根目录。")} onClick={chooseFolder}>
             <i className={`ti ${busy ? "ti-loader spin" : "ti-folder-open"}`} aria-hidden="true" />
             {tr("选择目录")}
           </button>
-          <button className="gh" disabled={controlsDisabled} onClick={() => openDiskSelector("drives")}>
-            <i className={`ti ${busy ? "ti-loader spin" : "ti-device-hdd"}`} aria-hidden="true" />
-            {tr("选择磁盘")}
-          </button>
-          <button className="gh" disabled={controlsDisabled} onClick={() => openDiskSelector("all")}>
+          <button className="gh" disabled={controlsDisabled} title={tr("从本机固定磁盘列表中选择一个或多个磁盘进行完整分析。")} onClick={() => openDiskSelector("all")}>
             <i className={`ti ${busy ? "ti-loader spin" : "ti-chart-treemap"}`} aria-hidden="true" />
             {tr("全盘分析")}
           </button>
@@ -199,11 +197,9 @@ export function ScanLauncher({ disabled = false }: { disabled?: boolean }) {
 
       {selector && (
         <Modal
-          title={tr(selector === "all" ? "全盘分析" : "选择磁盘")}
+          title={tr("全盘分析")}
           icon="ti-device-hdd"
-          sub={tr(selector === "all"
-            ? "全盘分析不会预选磁盘。请选择一个或多个本地固定磁盘。"
-            : "可恢复上次选择，但扫描不会自动开始。仅显示本地固定磁盘。")}
+          sub={tr("全盘分析不会预选磁盘。请选择一个或多个本地固定磁盘。")}
           onClose={() => !busy && closeSelector()}
           footer={<>
             <button className="gh sm" disabled={busy} onClick={closeSelector}>{tr("取消")}</button>

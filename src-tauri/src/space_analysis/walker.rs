@@ -6,7 +6,7 @@ use super::known::CleanupKind;
 use super::model::{
     AnalysisSummary, DirectoryNode, LargeFileRow, Paged, ProjectKind, ScanErrorSummary,
 };
-use super::windows_fs::{allocated_size, file_identity, FileIdentity};
+use super::windows_fs::{allocated_size, display_path, file_identity, FileIdentity};
 use chrono::{DateTime, Utc};
 use jwalk::{Parallelism, WalkDir};
 use std::collections::{HashMap, HashSet};
@@ -474,11 +474,7 @@ impl IndexBuilder {
             .collect();
         let summary = AnalysisSummary {
             task_id: String::new(),
-            targets: self
-                .targets
-                .iter()
-                .map(|path| path.to_string_lossy().into_owned())
-                .collect(),
+            targets: self.targets.iter().map(|path| display_path(path)).collect(),
             allocated_bytes: stats.allocated_bytes,
             logical_bytes: stats.logical_bytes,
             file_count: stats.files,
@@ -518,13 +514,13 @@ impl WalkVisitor for IndexBuilder {
             .file_name()
             .filter(|name| !name.is_empty())
             .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_else(|| path.to_string_lossy().into_owned());
+            .unwrap_or_else(|| display_path(&path));
         let record = NodeRecord {
             node: DirectoryNode {
                 node_id: node_id.clone(),
                 parent_id: parent_id.clone(),
                 name,
-                path: path.to_string_lossy().into_owned(),
+                path: display_path(&path),
                 allocated_bytes: 0,
                 logical_bytes: 0,
                 child_count: 0,
@@ -583,8 +579,8 @@ impl WalkVisitor for IndexBuilder {
             name: path
                 .file_name()
                 .map(|name| name.to_string_lossy().into_owned())
-                .unwrap_or_else(|| path.to_string_lossy().into_owned()),
-            path: path.to_string_lossy().into_owned(),
+                .unwrap_or_else(|| display_path(path)),
+            path: display_path(path),
             allocated_bytes,
             logical_bytes,
             modified_at,

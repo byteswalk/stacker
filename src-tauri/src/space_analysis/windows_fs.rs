@@ -2,6 +2,16 @@ use std::fs::Metadata;
 use std::io;
 use std::path::Path;
 
+/// Converts Windows verbatim paths into the form users normally see in Explorer.
+/// The verbatim prefix remains useful internally, but must not leak into UI models.
+pub(crate) fn display_path(path: &Path) -> String {
+    let value = path.to_string_lossy();
+    if let Some(rest) = value.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{rest}");
+    }
+    value.strip_prefix(r"\\?\").unwrap_or(&value).to_owned()
+}
+
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub(crate) struct FileIdentity(pub(crate) u64, pub(crate) u64);
 
@@ -130,6 +140,16 @@ pub(crate) fn allocated_size(_path: &Path, metadata: &Metadata) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn display_path_removes_windows_verbatim_prefixes() {
+        assert_eq!(display_path(Path::new(r"\\?\D:\")), r"D:\");
+        assert_eq!(
+            display_path(Path::new(r"\\?\UNC\server\share\folder")),
+            r"\\server\share\folder"
+        );
+        assert_eq!(display_path(Path::new(r"D:\work")), r"D:\work");
+    }
 
     #[cfg(windows)]
     #[test]

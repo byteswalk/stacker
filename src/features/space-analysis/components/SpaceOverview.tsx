@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../../../i18n";
+import { invoke } from "../../../invoke";
+import { useToast } from "../../../ui";
 import { layoutTreemap } from "../treemap";
-import type { AnalysisSummary, DirectoryNode } from "../types";
+import type { AnalysisSummary, DirectoryNode, Paged } from "../types";
 
 const TREEMAP_HEIGHT = 300;
 const TREEMAP_COLORS = [
@@ -28,21 +30,34 @@ function rootMap(nodes: readonly DirectoryNode[]) {
 }
 
 export function SpaceOverview({
+  taskId,
   summary,
   freeBytes,
 }: {
+  taskId: string;
   summary: AnalysisSummary;
   freeBytes: number | null;
 }) {
   const { tr } = useI18n();
+  const toast = useToast();
   const treemapRef = useRef<HTMLDivElement>(null);
+  const requestGeneration = useRef(0);
   const [treemapWidth, setTreemapWidth] = useState(800);
-  const nodesById = useMemo(() => rootMap(summary.rootNodes), [summary.rootNodes]);
+  const [levels, setLevels] = useState<Array<{ node: DirectoryNode; nodes: DirectoryNode[] }>>([]);
+  const [loadingNodeId, setLoadingNodeId] = useState<string | null>(null);
+  const visibleNodes = levels.at(-1)?.nodes ?? summary.rootNodes;
+  const nodesById = useMemo(() => rootMap(visibleNodes), [visibleNodes]);
   const rectangles = useMemo(() => layoutTreemap(
-    summary.rootNodes.map((node) => ({ id: node.nodeId, value: node.allocatedBytes })),
+    visibleNodes.map((node) => ({ id: node.nodeId, value: node.allocatedBytes })),
     treemapWidth,
     TREEMAP_HEIGHT,
-  ), [summary.rootNodes, treemapWidth]);
+  ), [visibleNodes, treemapWidth]);
+
+  useEffect(() => {
+    requestGeneration.current += 1;
+    setLevels([]);
+    setLoadingNodeId(null);
+  }, [taskId, summary]);
 
   useEffect(() => {
     const element = treemapRef.current;
@@ -64,8 +79,51 @@ export function SpaceOverview({
       icon: "ti-chart-donut",
       title: freeBytes === null ? tr("目录扫描或磁盘信息已变化，无法可靠计算可用空间。") : undefined,
     },
-    { label: tr("已跳过路径"), value: new Intl.NumberFormat().format(summary.skippedPaths), icon: "ti-alert-circle" },
+    {
+      label: tr("已跳过路径"),
+      value: new Intl.NumberFormat().format(summary.skippedPaths),
+      icon: "ti-alert-circle",
+      title: tr("包括无权访问、扫描期间消失、无效或无法读取的路径；这些路径未计入占用统计。"),
+    },
   ];
+
+  async function drillInto(node: DirectoryNode) {
+    if (node.childCount === 0 || loadingNodeId) return;
+    const generation = ++requestGeneration.current;
+    setLoadingNodeId(node.nodeId);
+    try {
+      const page = await invoke<Paged<DirectoryNode>>("space_scan_children", {
+        taskId,
+        parentId: node.nodeId,
+        offset: 0,
+        limit: 200,
+      });
+      if (generation !== requestGeneration.current) return;
+      if (page.items.length === 0) {
+        toast(tr("该目录没有可继续查看的子目录。"), "info");
+        return;
+      }
+      setLevels((current) => [...current, { node, nodes: page.items }]);
+    } catch {
+      if (generation === requestGeneration.current) toast(tr("无法读取子目录，请重试。"), "err");
+    } finally {
+      if (generation === requestGeneration.current) setLoadingNodeId(null);
+    }
+  }
+
+  function showLevel(index: number) {
+    requestGeneration.current += 1;
+    setLoadingNodeId(null);
+    setLevels((current) => current.slice(0, index));
+  }
+
+  async function openDirectory(path: string) {
+    try {
+      await invoke("space_open_directory", { path });
+    } catch {
+      toast(tr("无法打开目录，请确认路径仍然存在。"), "err");
+    }
+  }
 
   return (
     <div className="space-overview">
@@ -84,7 +142,7 @@ export function SpaceOverview({
       <div className="space-analysis-section-heading">
         <div>
           <strong>{tr("扫描范围占用")}</strong>
-          <span>{tr("矩形面积按实际磁盘占用计算。")}</span>
+          <span>{tr("矩形面积按实际磁盘占用计算；单击下钻目录，右键直接打开目录。")}</span>
         </div>
         <span>{summary.directoryCount.toLocaleString()} {tr("个目录")} · {summary.fileCount.toLocaleString()} {tr("个文件")}</span>
       </div>
@@ -92,7 +150,15 @@ export function SpaceOverview({
       {rectangles.length === 0 ? (
         <div className="space-analysis-empty">{tr("当前扫描结果没有可显示的占用数据。")}</div>
       ) : (
-        <div ref={treemapRef} className="space-treemap" style={{ height: TREEMAP_HEIGHT }}>
+        <>
+        <div className="space-treemap-breadcrumb" aria-label={tr("当前目录层级")}>
+          <button type="button" title={tr("返回扫描范围")} onClick={() => showLevel(0)}>{tr("扫描范围")}</button>
+          {levels.map((level, index) => <span key={level.node.nodeId}>
+            <i className="ti ti-chevron-right" aria-hidden="true" />
+            <button type="button" title={level.node.path} onClick={() => showLevel(index + 1)}>{level.node.name}</button>
+          </span>)}
+        </div>
+        <div ref={treemapRef} className="space-treemap" style={{ height: TREEMAP_HEIGHT }} aria-busy={loadingNodeId !== null}>
           {rectangles.map((rectangle, index) => {
             const node = nodesById.get(rectangle.id);
             if (!node) return null;
@@ -100,10 +166,17 @@ export function SpaceOverview({
             const hideLabel = treemapWidth < 480 && areaRatio < 0.07;
             const title = `${node.path}\n${tr("实际占用")}: ${formatSpaceBytes(node.allocatedBytes)}\n${tr("逻辑大小")}: ${formatSpaceBytes(node.logicalBytes)}`;
             return (
-              <div
+              <button
+                type="button"
                 key={node.nodeId}
                 className={`space-treemap-node${hideLabel ? " compact" : ""}`}
                 title={title}
+                disabled={loadingNodeId !== null}
+                onClick={() => void drillInto(node)}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  void openDirectory(node.path);
+                }}
                 style={{
                   left: rectangle.x,
                   top: rectangle.y,
@@ -118,10 +191,12 @@ export function SpaceOverview({
                     <span>{formatSpaceBytes(node.allocatedBytes)}</span>
                   </>
                 )}
-              </div>
+              </button>
             );
           })}
+          {loadingNodeId && <div className="space-treemap-loading"><i className="ti ti-loader spin" /> {tr("正在读取子目录…")}</div>}
         </div>
+        </>
       )}
     </div>
   );

@@ -6,6 +6,7 @@ import {
   createDiskSelectorState,
   diskSelectorResponseIsCurrent,
   launcherControlsDisabled,
+  nonOverlappingDirectoryTargets,
   rememberSettingFrom,
   scanHeaderLayoutClass,
   startAndRememberScan,
@@ -55,6 +56,12 @@ const volumes: VolumeInfo[] = [
 ];
 
 describe("space scan launcher view model", () => {
+  it("deduplicates nested multi-folder selections", () => {
+    expect(nonOverlappingDirectoryTargets([
+      "D:\\work\\app", "D:\\", "D:\\work", "E:\\code", "e:/code/",
+    ])).toEqual(["D:\\", "E:\\code"]);
+  });
+
   it("always opens all-disk analysis with an empty selection", () => {
     expect(createDiskSelectorState("all", volumes, ["C:\\", "D:\\"])).toMatchObject({
       selected: [],
