@@ -1,5 +1,5 @@
-use super::known::{CleanupKind, SafetyClass};
-use super::model::{DirectoryNode, ProjectKind, ProjectRoot};
+use super::known::CleanupKind;
+use super::model::{DirectoryNode, ProjectKind, ProjectRoot, SafetyClass};
 use super::walker::IndexedScanResult;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;

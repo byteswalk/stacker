@@ -1,7 +1,8 @@
+use super::cleanup_plan::{build_deep_plan, build_quick_plan};
 use super::known::scan_known_candidates;
 use super::model::{
-    AnalysisSummary, DirectoryNode, LargeFileRow, Paged, QuickScanResult, ScanProgress,
-    ScanTaskState,
+    AnalysisSummary, CleanupPlan, DirectoryNode, LargeFileRow, Paged, QuickScanResult,
+    ScanProgress, ScanTaskState,
 };
 use super::walker::{
     build_indexed_result, CancellationToken, IndexedScanResult, ScanWalkError, WalkStats,
@@ -31,6 +32,7 @@ const DIRECTORY_NODE_NOT_FOUND: &str = "directory node was not found";
 // Three deep indexes cover recent navigation; 32 lightweight records cover route recovery and retries.
 const MAX_RETAINED_DEEP_RESULTS: usize = 3;
 const MAX_RETAINED_LIGHTWEIGHT_TASKS: usize = 32;
+const MAX_RETAINED_CLEANUP_PLANS: usize = 32;
 
 enum TaskKind {
     Quick,
@@ -56,16 +58,20 @@ type TaskRecords = Arc<Mutex<HashMap<String, TaskRecord>>>;
 
 pub struct SpaceTaskManager {
     next_id: AtomicU64,
+    next_plan_id: AtomicU64,
     next_terminal_order: Arc<AtomicU64>,
     tasks: TaskRecords,
+    cleanup_plans: Arc<Mutex<HashMap<String, CleanupPlan>>>,
 }
 
 impl Default for SpaceTaskManager {
     fn default() -> Self {
         Self {
             next_id: AtomicU64::new(1),
+            next_plan_id: AtomicU64::new(1),
             next_terminal_order: Arc::new(AtomicU64::new(1)),
             tasks: Arc::new(Mutex::new(HashMap::new())),
+            cleanup_plans: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -173,6 +179,48 @@ impl SpaceTaskManager {
         let tasks = lock_records(&self.tasks);
         let result = completed_deep_result(&tasks, task_id)?;
         Ok(result.large_files(min_bytes, offset, limit))
+    }
+
+    pub fn create_cleanup_plan(
+        &self,
+        scan_task_id: &str,
+        node_ids: &[String],
+    ) -> Result<CleanupPlan, String> {
+        let plan_id = format!(
+            "cleanup-plan-{}",
+            self.next_plan_id.fetch_add(1, Ordering::Relaxed)
+        );
+        let plan = {
+            let tasks = lock_records(&self.tasks);
+            let record = completed_record(&tasks, scan_task_id)?;
+            match record.result.as_ref() {
+                Some(TaskResult::Quick(result)) => {
+                    build_quick_plan(result, scan_task_id, plan_id, node_ids)
+                }
+                Some(TaskResult::Deep(result)) => {
+                    build_deep_plan(result, scan_task_id, plan_id, node_ids)
+                }
+                None => return Err(TASK_RESULT_UNAVAILABLE.into()),
+            }
+            .map_err(|error| error.to_string())?
+        };
+
+        let mut plans = self
+            .cleanup_plans
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        plans.insert(plan.plan_id.clone(), plan.clone());
+        prune_cleanup_plans(&mut plans);
+        Ok(plan)
+    }
+
+    pub(crate) fn cleanup_plan(&self, plan_id: &str) -> Result<CleanupPlan, String> {
+        self.cleanup_plans
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(plan_id)
+            .cloned()
+            .ok_or_else(|| "Cleanup plan was not found or has expired.".to_string())
     }
 
     pub fn cancel_all_and_wait(&self, timeout: Duration) {
@@ -471,6 +519,21 @@ impl SpaceTaskManager {
     }
 }
 
+fn prune_cleanup_plans(plans: &mut HashMap<String, CleanupPlan>) {
+    if plans.len() <= MAX_RETAINED_CLEANUP_PLANS {
+        return;
+    }
+    let mut oldest = plans
+        .values()
+        .map(|plan| (plan.plan_id.clone(), plan.created_at.clone()))
+        .collect::<Vec<_>>();
+    oldest.sort_by(|left, right| left.1.cmp(&right.1).then_with(|| left.0.cmp(&right.0)));
+    let remove_count = oldest.len().saturating_sub(MAX_RETAINED_CLEANUP_PLANS);
+    for (plan_id, _) in oldest.into_iter().take(remove_count) {
+        plans.remove(&plan_id);
+    }
+}
+
 fn prune_terminal_tasks(tasks: &mut HashMap<String, TaskRecord>) {
     let mut completed_deep = tasks
         .iter()
@@ -623,7 +686,7 @@ fn is_terminal(state: ScanTaskState) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::space_analysis::model::{QuickScanResult, ScanTaskState};
+    use crate::space_analysis::model::{KnownSpaceItem, QuickScanResult, ScanTaskState};
     use crate::space_analysis::walker::ScanWalkError;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
@@ -675,6 +738,58 @@ mod tests {
 
         assert_eq!(manager.quick_result(&id).unwrap().task_id, id);
         assert!(manager.quick_result(&id).unwrap().completed);
+    }
+
+    #[test]
+    fn cleanup_plans_are_server_generated_and_retained() {
+        let manager = SpaceTaskManager::default();
+        let id = manager.start_for_test(|_| {
+            Ok(QuickScanResult {
+                items: vec![KnownSpaceItem {
+                    id: "cache-1".into(),
+                    name_key: "spaceAnalysis.known.cache1".into(),
+                    path: r"C:\Users\demo\cache-1".into(),
+                    bytes: 42,
+                    safety: "safe".into(),
+                    cleanup_kind: "contents".into(),
+                    ecosystem: None,
+                }],
+                ..Default::default()
+            })
+        });
+        manager.wait_for_test(&id);
+
+        let first = manager
+            .create_cleanup_plan(&id, &["cache-1".into()])
+            .unwrap();
+        let second = manager
+            .create_cleanup_plan(&id, &["cache-1".into()])
+            .unwrap();
+
+        assert_ne!(first.plan_id, second.plan_id);
+        assert_eq!(first.scan_task_id, id);
+        assert_eq!(first.estimated_bytes, 42);
+        assert_eq!(
+            manager.cleanup_plan(&first.plan_id).unwrap().plan_id,
+            first.plan_id
+        );
+    }
+
+    #[test]
+    fn cleanup_plan_rejects_an_incomplete_scan() {
+        let manager = SpaceTaskManager::default();
+        let id = manager.start_for_test(|token| {
+            while !token.is_cancelled() {
+                std::thread::yield_now();
+            }
+            Err(ScanWalkError::Cancelled)
+        });
+
+        assert!(manager
+            .create_cleanup_plan(&id, &["cache-1".into()])
+            .is_err());
+        manager.cancel(&id).unwrap();
+        manager.wait_for_test(&id);
     }
 
     #[test]

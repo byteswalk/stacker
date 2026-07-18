@@ -1,5 +1,35 @@
 use serde::{Deserialize, Serialize};
 
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum SafetyClass {
+    Safe,
+    Rebuildable,
+    NeedsConfirmation,
+    ViewOnly,
+}
+
+impl SafetyClass {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Safe => "safe",
+            Self::Rebuildable => "rebuildable",
+            Self::NeedsConfirmation => "needsConfirmation",
+            Self::ViewOnly => "viewOnly",
+        }
+    }
+
+    pub(crate) fn from_stable_str(value: &str) -> Option<Self> {
+        match value {
+            "safe" => Some(Self::Safe),
+            "rebuildable" => Some(Self::Rebuildable),
+            "needsConfirmation" => Some(Self::NeedsConfirmation),
+            "viewOnly" => Some(Self::ViewOnly),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "camelCase")]
 pub enum ProjectKind {
@@ -18,6 +48,37 @@ pub struct ProjectRoot {
     pub node_id: String,
     pub path: String,
     pub kind: ProjectKind,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ElevationRequirement {
+    None,
+    Required,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanupPlanItem {
+    pub node_id: String,
+    pub path: String,
+    pub estimated_bytes: u64,
+    pub safety: SafetyClass,
+    pub impact_key: String,
+    pub cleanup_kind: String,
+    pub requires_elevation: bool,
+    pub default_selected: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanupPlan {
+    pub plan_id: String,
+    pub scan_task_id: String,
+    pub created_at: String,
+    pub estimated_bytes: u64,
+    pub elevation_requirement: ElevationRequirement,
+    pub items: Vec<CleanupPlanItem>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]

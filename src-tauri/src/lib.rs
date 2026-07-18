@@ -142,6 +142,7 @@ pub fn run() {
             space_analysis::space_scan_summary,
             space_analysis::space_scan_children,
             space_analysis::space_scan_large_files,
+            space_analysis::space_cleanup_plan,
             space_analysis::space_open_directory,
             fnm::fnm_status,
             fnm::fnm_root_dir,
@@ -299,14 +300,22 @@ fn create_tray_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<t
     let show = MenuItem::with_id(
         app,
         "show",
-        if english { "Show Stacker" } else { "显示 Stacker" },
+        if english {
+            "Show Stacker"
+        } else {
+            "显示 Stacker"
+        },
         true,
         None::<&str>,
     )?;
     let proxy = MenuItem::with_id(
         app,
         "proxy_toggle",
-        if english { "Toggle Terminal Proxy" } else { "开关终端代理" },
+        if english {
+            "Toggle Terminal Proxy"
+        } else {
+            "开关终端代理"
+        },
         true,
         None::<&str>,
     )?;
@@ -314,7 +323,11 @@ fn create_tray_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<t
     let quit = MenuItem::with_id(
         app,
         "quit",
-        if english { "Quit Stacker" } else { "退出 Stacker" },
+        if english {
+            "Quit Stacker"
+        } else {
+            "退出 Stacker"
+        },
         true,
         None::<&str>,
     )?;
@@ -324,7 +337,8 @@ fn create_tray_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<t
 pub(crate) fn refresh_tray_menu(app: &tauri::AppHandle) -> Result<(), String> {
     let menu = create_tray_menu(app).map_err(|error| error.to_string())?;
     if let Some(tray) = app.tray_by_id("main") {
-        tray.set_menu(Some(menu)).map_err(|error| error.to_string())?;
+        tray.set_menu(Some(menu))
+            .map_err(|error| error.to_string())?;
     }
     Ok(())
 }

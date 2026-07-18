@@ -1,29 +1,10 @@
-use super::model::{KnownSpaceItem, QuickScanResult, ScanErrorSummary};
+use super::model::{KnownSpaceItem, QuickScanResult, SafetyClass, ScanErrorSummary};
 use super::walker::{measure_path, CancellationToken, ScanWalkError, WalkStats};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
 const TEMP_VISIBILITY_THRESHOLD: u64 = 1024 * 1024 * 1024;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SafetyClass {
-    Safe,
-    Rebuildable,
-    NeedsConfirmation,
-    ViewOnly,
-}
-
-impl SafetyClass {
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Self::Safe => "safe",
-            Self::Rebuildable => "rebuildable",
-            Self::NeedsConfirmation => "needsConfirmation",
-            Self::ViewOnly => "viewOnly",
-        }
-    }
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CleanupKind {

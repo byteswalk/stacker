@@ -85,6 +85,11 @@ pub(crate) struct DirectoryIndexEntry<'a> {
     pub(crate) direct_file_names: &'a HashSet<String>,
 }
 
+pub(crate) struct IndexedCleanupNode<'a> {
+    pub(crate) node: &'a DirectoryNode,
+    pub(crate) classification: &'a Classification,
+}
+
 pub(crate) struct IndexedScanResult {
     summary: AnalysisSummary,
     nodes: HashMap<NodeId, NodeRecord>,
@@ -120,6 +125,13 @@ impl IndexedScanResult {
                     .map(|record| (project.node_id.clone(), record.direct_file_names.clone()))
             })
             .collect()
+    }
+
+    pub(crate) fn cleanup_node(&self, node_id: &str) -> Option<IndexedCleanupNode<'_>> {
+        self.nodes.get(node_id).map(|record| IndexedCleanupNode {
+            node: &record.node,
+            classification: &record.classification,
+        })
     }
 
     fn annotate_classifications(&mut self) {

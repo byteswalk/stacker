@@ -1,4 +1,5 @@
 pub mod classifier;
+pub mod cleanup_plan;
 pub mod known;
 pub mod model;
 pub mod targets;
@@ -7,8 +8,8 @@ pub mod walker;
 pub mod windows_fs;
 
 use self::model::{
-    AnalysisSummary, DirectoryNode, LargeFileRow, Paged, QuickScanResult, ScanMode, ScanProgress,
-    ScanRequest, VolumeInfo,
+    AnalysisSummary, CleanupPlan, DirectoryNode, LargeFileRow, Paged, QuickScanResult, ScanMode,
+    ScanProgress, ScanRequest, VolumeInfo,
 };
 use self::targets::{list_fixed_volumes, validate_targets};
 pub use self::tasks::SpaceTaskManager;
@@ -91,8 +92,18 @@ pub fn space_scan_large_files(
     manager.large_files(&task_id, min_bytes, offset, limit)
 }
 
+#[tauri::command]
+pub fn space_cleanup_plan(
+    scan_task_id: String,
+    node_ids: Vec<String>,
+    manager: tauri::State<'_, SpaceTaskManager>,
+) -> Result<CleanupPlan, String> {
+    manager.create_cleanup_plan(&scan_task_id, &node_ids)
+}
+
 fn directory_to_open(path: &std::path::Path) -> Result<std::path::PathBuf, String> {
-    let metadata = std::fs::metadata(path).map_err(|_| "The selected path is no longer available.".to_string())?;
+    let metadata = std::fs::metadata(path)
+        .map_err(|_| "The selected path is no longer available.".to_string())?;
     let directory = if metadata.is_dir() {
         path
     } else {
@@ -121,7 +132,11 @@ pub fn space_open_directory(path: String) -> Result<(), String> {
     }
     #[cfg(not(windows))]
     {
-        let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+        let opener = if cfg!(target_os = "macos") {
+            "open"
+        } else {
+            "xdg-open"
+        };
         std::process::Command::new(opener)
             .arg(directory)
             .spawn()
@@ -140,8 +155,14 @@ mod tests {
         let file = temp.path().join("large.bin");
         std::fs::write(&file, b"data").unwrap();
 
-        assert_eq!(directory_to_open(&file).unwrap(), temp.path().canonicalize().unwrap());
-        assert_eq!(directory_to_open(temp.path()).unwrap(), temp.path().canonicalize().unwrap());
+        assert_eq!(
+            directory_to_open(&file).unwrap(),
+            temp.path().canonicalize().unwrap()
+        );
+        assert_eq!(
+            directory_to_open(temp.path()).unwrap(),
+            temp.path().canonicalize().unwrap()
+        );
     }
 
     #[test]
