@@ -28,6 +28,8 @@ const DEEP_TASK_LIMIT_REACHED: &str = "at most two deep scan tasks may run concu
 const DUPLICATE_DEEP_TASK: &str = "an active deep scan already has the same targets";
 const OVERLAPPING_TARGETS: &str = "deep scan targets must not overlap";
 const DIRECTORY_NODE_NOT_FOUND: &str = "directory node was not found";
+// Retain enough completed indexes for recent navigation without allowing scan maps to accumulate.
+const MAX_RETAINED_DEEP_RESULTS: usize = 3;
 
 enum TaskKind {
     Quick,
@@ -45,6 +47,7 @@ struct TaskRecord {
     progress: ScanProgress,
     result: Option<TaskResult>,
     failure: Option<String>,
+    terminal_order: Option<u64>,
     handle: Option<JoinHandle<()>>,
 }
 
@@ -52,6 +55,7 @@ type TaskRecords = Arc<Mutex<HashMap<String, TaskRecord>>>;
 
 pub struct SpaceTaskManager {
     next_id: AtomicU64,
+    next_terminal_order: Arc<AtomicU64>,
     tasks: TaskRecords,
 }
 
@@ -59,6 +63,7 @@ impl Default for SpaceTaskManager {
     fn default() -> Self {
         Self {
             next_id: AtomicU64::new(1),
+            next_terminal_order: Arc::new(AtomicU64::new(1)),
             tasks: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -290,12 +295,14 @@ impl SpaceTaskManager {
                 progress: initial_progress(&task_id),
                 result: None,
                 failure: None,
+                terminal_order: None,
                 handle: None,
             },
         );
 
         let worker_task_id = task_id.clone();
         let worker_tasks = Arc::clone(&self.tasks);
+        let worker_terminal_order = Arc::clone(&self.next_terminal_order);
         let handle = thread::Builder::new().name(task_id.clone()).spawn(move || {
             let started_at = Instant::now();
             let running = {
@@ -327,35 +334,41 @@ impl SpaceTaskManager {
 
             let final_progress = {
                 let mut tasks = lock_records(&worker_tasks);
-                let Some(record) = tasks.get_mut(&worker_task_id) else {
-                    return;
-                };
-                record.progress.elapsed_ms = elapsed_ms(started_at);
-                match outcome {
-                    Ok(Ok(mut result))
-                        if !token.is_cancelled()
-                            && record.progress.state != ScanTaskState::Cancelling =>
-                    {
-                        match &mut result {
-                            TaskResult::Quick(result) => {
-                                result.task_id = worker_task_id.clone();
-                                result.completed = true;
+                let progress = {
+                    let Some(record) = tasks.get_mut(&worker_task_id) else {
+                        return;
+                    };
+                    record.progress.elapsed_ms = elapsed_ms(started_at);
+                    match outcome {
+                        Ok(Ok(mut result))
+                            if !token.is_cancelled()
+                                && record.progress.state != ScanTaskState::Cancelling =>
+                        {
+                            match &mut result {
+                                TaskResult::Quick(result) => {
+                                    result.task_id = worker_task_id.clone();
+                                    result.completed = true;
+                                }
+                                TaskResult::Deep(result) => result.set_task_id(&worker_task_id),
                             }
-                            TaskResult::Deep(result) => result.set_task_id(&worker_task_id),
+                            record.result = Some(result);
+                            record.progress.state = ScanTaskState::Completed;
                         }
-                        record.result = Some(result);
-                        record.progress.state = ScanTaskState::Completed;
+                        Ok(Ok(_)) | Ok(Err(ScanWalkError::Cancelled)) => {
+                            record.progress.state = ScanTaskState::Cancelled;
+                        }
+                        Err(_) => {
+                            log::error!("space scan task {} panicked", worker_task_id);
+                            record.failure = Some(TASK_PANICKED.into());
+                            record.progress.state = ScanTaskState::Failed;
+                        }
                     }
-                    Ok(Ok(_)) | Ok(Err(ScanWalkError::Cancelled)) => {
-                        record.progress.state = ScanTaskState::Cancelled;
-                    }
-                    Err(_) => {
-                        log::error!("space scan task {} panicked", worker_task_id);
-                        record.failure = Some(TASK_PANICKED.into());
-                        record.progress.state = ScanTaskState::Failed;
-                    }
-                }
-                record.progress.clone()
+                    record.terminal_order =
+                        Some(worker_terminal_order.fetch_add(1, Ordering::Relaxed));
+                    record.progress.clone()
+                };
+                evict_old_deep_results(&mut tasks);
+                progress
             };
             emit(&final_progress);
         });
@@ -415,6 +428,21 @@ impl SpaceTaskManager {
         if let Some(handle) = handle {
             handle.join().unwrap();
         }
+    }
+}
+
+fn evict_old_deep_results(tasks: &mut HashMap<String, TaskRecord>) {
+    let mut completed_deep = tasks
+        .iter()
+        .filter_map(|(task_id, record)| {
+            matches!(&record.result, Some(TaskResult::Deep(_)))
+                .then_some((task_id.clone(), record.terminal_order.unwrap_or_default()))
+        })
+        .collect::<Vec<_>>();
+    completed_deep.sort_by_key(|(_, terminal_order)| std::cmp::Reverse(*terminal_order));
+
+    for (task_id, _) in completed_deep.into_iter().skip(MAX_RETAINED_DEEP_RESULTS) {
+        tasks.remove(&task_id);
     }
 }
 
@@ -700,6 +728,94 @@ mod tests {
             manager.children(&id, "not-a-node", 0, 10).unwrap_err(),
             DIRECTORY_NODE_NOT_FOUND
         );
+    }
+
+    #[test]
+    fn completed_deep_result_retention_is_bounded() {
+        let manager = SpaceTaskManager::default();
+        let targets = (0..MAX_RETAINED_DEEP_RESULTS + 2)
+            .map(|_| tempfile::tempdir().unwrap())
+            .collect::<Vec<_>>();
+        let mut task_ids = Vec::new();
+
+        for target in &targets {
+            let task_id = manager
+                .start_deep_for_test(
+                    vec![target.path().to_path_buf()],
+                    |targets, token, progress| build_indexed_result(targets, token, progress),
+                )
+                .unwrap();
+            manager.wait_for_test(&task_id);
+            task_ids.push(task_id);
+        }
+
+        let tasks = lock_records(&manager.tasks);
+        let retained_results = tasks
+            .values()
+            .filter(|record| matches!(&record.result, Some(TaskResult::Deep(_))))
+            .count();
+        assert_eq!(retained_results, MAX_RETAINED_DEEP_RESULTS);
+        assert_eq!(tasks.len(), MAX_RETAINED_DEEP_RESULTS);
+        drop(tasks);
+
+        for task_id in &task_ids[..2] {
+            assert_eq!(manager.status(task_id).unwrap_err(), TASK_NOT_FOUND);
+        }
+        for task_id in &task_ids[2..] {
+            assert_eq!(
+                manager.status(task_id).unwrap().state,
+                ScanTaskState::Completed
+            );
+        }
+    }
+
+    #[test]
+    fn deep_result_eviction_never_removes_active_tasks() {
+        let manager = SpaceTaskManager::default();
+        let active_target = tempfile::tempdir().unwrap();
+        let active_id = manager
+            .start_deep_for_test(vec![active_target.path().to_path_buf()], |_, token, _| {
+                while !token.is_cancelled() {
+                    std::thread::yield_now();
+                }
+                Err(ScanWalkError::Cancelled)
+            })
+            .unwrap();
+        while manager.status(&active_id).unwrap().state == ScanTaskState::Queued {
+            std::thread::yield_now();
+        }
+
+        let completed_targets = (0..MAX_RETAINED_DEEP_RESULTS + 1)
+            .map(|_| tempfile::tempdir().unwrap())
+            .collect::<Vec<_>>();
+        for target in &completed_targets {
+            let task_id = manager
+                .start_deep_for_test(
+                    vec![target.path().to_path_buf()],
+                    |targets, token, progress| build_indexed_result(targets, token, progress),
+                )
+                .unwrap();
+            manager.wait_for_test(&task_id);
+        }
+
+        assert_eq!(
+            manager.status(&active_id).unwrap().state,
+            ScanTaskState::Running
+        );
+        let tasks = lock_records(&manager.tasks);
+        assert!(tasks.contains_key(&active_id));
+        assert_eq!(tasks.len(), MAX_RETAINED_DEEP_RESULTS + 1);
+        assert_eq!(
+            tasks
+                .values()
+                .filter(|record| matches!(&record.result, Some(TaskResult::Deep(_))))
+                .count(),
+            MAX_RETAINED_DEEP_RESULTS
+        );
+        drop(tasks);
+
+        manager.cancel(&active_id).unwrap();
+        manager.wait_for_test(&active_id);
     }
 
     #[test]

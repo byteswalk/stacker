@@ -119,15 +119,14 @@ impl IndexedScanResult {
         limit: u64,
     ) -> Paged<LargeFileRow> {
         let limit = limit.min(MAX_PAGE_SIZE);
-        let matches = self
+        let threshold_end = self
             .large_files
+            .partition_point(|row| row.allocated_bytes >= min_bytes);
+        let matching_files = &self.large_files[..threshold_end];
+        let total = matching_files.len() as u64;
+        let items = page_slice(matching_files, offset, limit)
             .iter()
-            .filter(|row| row.allocated_bytes >= min_bytes)
-            .collect::<Vec<_>>();
-        let total = matches.len() as u64;
-        let items = page_slice(&matches, offset, limit)
-            .iter()
-            .map(|row| (*row).clone())
+            .cloned()
             .collect();
 
         Paged {
@@ -358,9 +357,7 @@ impl IndexBuilder {
             .filter_map(|target| self.path_ids.get(target).cloned())
             .collect::<Vec<_>>();
 
-        for root_id in &root_ids {
-            aggregate_directory(root_id, &mut self.nodes);
-        }
+        aggregate_directories(&root_ids, &mut self.nodes);
         sort_children(&mut self.nodes);
         self.large_files.sort_by(compare_large_files);
 
@@ -470,26 +467,47 @@ impl WalkVisitor for IndexBuilder {
     }
 }
 
-fn aggregate_directory(node_id: &str, nodes: &mut HashMap<NodeId, NodeRecord>) -> (u64, u64) {
-    let Some(record) = nodes.get(node_id) else {
-        return (0, 0);
-    };
-    let child_ids = record.child_ids.clone();
-    let mut allocated_bytes = record.direct_allocated_bytes;
-    let mut logical_bytes = record.direct_logical_bytes;
+fn aggregate_directories(root_ids: &[NodeId], nodes: &mut HashMap<NodeId, NodeRecord>) {
+    let mut stack = root_ids
+        .iter()
+        .rev()
+        .cloned()
+        .map(|node_id| (node_id, false))
+        .collect::<Vec<_>>();
 
-    for child_id in child_ids {
-        let (child_allocated, child_logical) = aggregate_directory(&child_id, nodes);
-        allocated_bytes = allocated_bytes.saturating_add(child_allocated);
-        logical_bytes = logical_bytes.saturating_add(child_logical);
-    }
+    while let Some((node_id, expanded)) = stack.pop() {
+        let Some(record) = nodes.get(&node_id) else {
+            continue;
+        };
 
-    if let Some(record) = nodes.get_mut(node_id) {
-        record.node.allocated_bytes = allocated_bytes;
-        record.node.logical_bytes = logical_bytes;
-        record.node.child_count = record.child_ids.len().min(u32::MAX as usize) as u32;
+        if !expanded {
+            let child_ids = record.child_ids.clone();
+            stack.push((node_id, true));
+            stack.extend(
+                child_ids
+                    .into_iter()
+                    .rev()
+                    .map(|child_id| (child_id, false)),
+            );
+            continue;
+        }
+
+        let mut allocated_bytes = record.direct_allocated_bytes;
+        let mut logical_bytes = record.direct_logical_bytes;
+        let child_ids = record.child_ids.clone();
+        for child_id in &child_ids {
+            if let Some(child) = nodes.get(child_id) {
+                allocated_bytes = allocated_bytes.saturating_add(child.node.allocated_bytes);
+                logical_bytes = logical_bytes.saturating_add(child.node.logical_bytes);
+            }
+        }
+
+        if let Some(record) = nodes.get_mut(&node_id) {
+            record.node.allocated_bytes = allocated_bytes;
+            record.node.logical_bytes = logical_bytes;
+            record.node.child_count = child_ids.len().min(u32::MAX as usize) as u32;
+        }
     }
-    (allocated_bytes, logical_bytes)
 }
 
 fn sort_children(nodes: &mut HashMap<NodeId, NodeRecord>) {
@@ -637,6 +655,75 @@ mod tests {
             .items
             .windows(2)
             .all(|rows| rows[0].allocated_bytes >= rows[1].allocated_bytes));
+    }
+
+    #[test]
+    fn large_file_threshold_pages_the_sorted_prefix() {
+        let result = IndexedScanResult {
+            summary: AnalysisSummary::default(),
+            nodes: HashMap::new(),
+            large_files: [100, 90, 90, 80, 70]
+                .into_iter()
+                .enumerate()
+                .map(|(index, allocated_bytes)| LargeFileRow {
+                    node_id: format!("file-{index}"),
+                    name: format!("file-{index}.bin"),
+                    path: format!("/file-{index}.bin"),
+                    allocated_bytes,
+                    logical_bytes: allocated_bytes,
+                    modified_at: None,
+                })
+                .collect(),
+        };
+
+        let page = result.large_files(90, 1, 2);
+        assert_eq!(page.total, 3);
+        assert_eq!(page.offset, 1);
+        assert_eq!(page.items.len(), 2);
+        assert_eq!(page.items[0].allocated_bytes, 90);
+        assert_eq!(page.items[1].allocated_bytes, 90);
+        assert_eq!(result.large_files(91, 0, 10).total, 1);
+        assert_eq!(result.large_files(101, 0, 10).total, 0);
+        assert!(result.large_files(70, 10, 10).items.is_empty());
+    }
+
+    #[test]
+    fn deeply_nested_directories_are_aggregated_without_recursion() {
+        const DEPTH: usize = 25_000;
+
+        let mut nodes = HashMap::with_capacity(DEPTH);
+        for index in 0..DEPTH {
+            let node_id = format!("node-{index}");
+            let child_ids = (index + 1 < DEPTH)
+                .then(|| vec![format!("node-{}", index + 1)])
+                .unwrap_or_default();
+            nodes.insert(
+                node_id.clone(),
+                NodeRecord {
+                    node: DirectoryNode {
+                        node_id,
+                        parent_id: (index > 0).then(|| format!("node-{}", index - 1)),
+                        name: index.to_string(),
+                        path: format!("/{index}"),
+                        allocated_bytes: 0,
+                        logical_bytes: 0,
+                        child_count: 0,
+                        safety: VIEW_ONLY.into(),
+                    },
+                    direct_allocated_bytes: 1,
+                    direct_logical_bytes: 2,
+                    child_ids,
+                },
+            );
+        }
+
+        aggregate_directories(&["node-0".into()], &mut nodes);
+
+        let root = &nodes["node-0"].node;
+        assert_eq!(root.allocated_bytes, DEPTH as u64);
+        assert_eq!(root.logical_bytes, (DEPTH * 2) as u64);
+        assert_eq!(root.child_count, 1);
+        assert_eq!(nodes[&format!("node-{}", DEPTH - 1)].node.child_count, 0);
     }
 
     #[test]
