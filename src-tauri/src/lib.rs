@@ -32,12 +32,13 @@ pub fn run() {
         std::process::exit(winadmin::apply_from_file(&file, &token));
     }
 
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
+        .manage(space_analysis::SpaceTaskManager::default())
         .setup(|app| {
             let app_settings = settings::load();
             let log_name = format!("stacker-{}", chrono::Local::now().format("%Y-%m-%d"));
@@ -133,6 +134,10 @@ pub fn run() {
             cleanup::cleanup_delete_safe,
             cleanup::cleanup_aged_stats,
             cleanup::cleanup_delete_aged,
+            space_analysis::space_scan_start,
+            space_analysis::space_scan_status,
+            space_analysis::space_scan_cancel,
+            space_analysis::space_scan_quick_result,
             fnm::fnm_status,
             fnm::fnm_root_dir,
             fnm::fnm_set_default,
@@ -220,8 +225,17 @@ pub fn run() {
             vibe::vibe_tool_action,
             vibe::vibe_open_desktop,
         ])
-        .run(tauri::generate_context!())
+        .build(tauri::generate_context!())
         .expect("error while running tauri application");
+    app.run(|app_handle, event| {
+        if let tauri::RunEvent::Exit = event {
+            use tauri::Manager;
+
+            app_handle
+                .state::<space_analysis::SpaceTaskManager>()
+                .cancel_all_and_wait(std::time::Duration::from_secs(3));
+        }
+    });
 }
 
 // 系统托盘：左键单击显示窗口；右键菜单＝显示 / 开关终端代理 / 退出。
