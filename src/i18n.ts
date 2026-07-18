@@ -56,6 +56,14 @@ const messages = {
  */
 const CURATED_EN: Record<string, string> = {
   "空间分析": "Space Analysis",
+  "大文件阈值": "Large-file Threshold",
+  "大文件阈值（GB）": "Large-file Threshold (GB)",
+  "记住上次扫描目标": "Remember Last Scan Targets",
+  "设置大文件阈值；记住的目标仅用于下次选择，不会自动扫描。": "Set the large-file threshold. Remembered targets only repopulate the next selector and never start a scan.",
+  "大文件列表默认显示达到此阈值的文件；扫描目标只会在手动开始扫描后保存。": "The large-files list shows files at or above this threshold. Targets are saved only after you manually start a scan.",
+  "空间分析设置已保存": "Space Analysis settings saved",
+  "已关闭并清除记住的扫描目标": "Target memory disabled and remembered scan targets cleared",
+  "保存空间分析设置失败：": "Failed to save Space Analysis settings: ",
   "快速扫描": "Quick Scan",
   "取消扫描": "Cancel Scan",
   "正在取消…": "Cancelling...",

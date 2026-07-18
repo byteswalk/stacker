@@ -10,6 +10,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 static MIN_TO_TRAY: AtomicBool = AtomicBool::new(false);
 static LOG_WINDOW_OPENING: AtomicBool = AtomicBool::new(false);
 
+const ONE_GIB: u64 = 1024 * 1024 * 1024;
+const ONE_TIB: u64 = 1024 * ONE_GIB;
+
 fn settings_path() -> PathBuf {
     dirs::config_dir()
         .unwrap_or_default()
@@ -17,7 +20,7 @@ fn settings_path() -> PathBuf {
         .join("settings.json")
 }
 
-#[derive(Serialize, Deserialize, Default, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct AppSettings {
     #[serde(default)]
     pub minimize_to_tray: bool,
@@ -35,6 +38,10 @@ pub struct AppSettings {
     pub log_retention_days: u16,
     #[serde(default = "default_locale")]
     pub locale: String,
+    #[serde(default = "default_large_file_threshold_bytes")]
+    pub large_file_threshold_bytes: u64,
+    #[serde(default = "default_remember_scan_targets")]
+    pub remember_scan_targets: bool,
 }
 fn default_theme() -> String {
     "dark".into()
@@ -47,6 +54,28 @@ fn default_log_retention_days() -> u16 {
 }
 fn default_locale() -> String {
     "zh-CN".into()
+}
+fn default_large_file_threshold_bytes() -> u64 {
+    ONE_GIB
+}
+fn default_remember_scan_targets() -> bool {
+    true
+}
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self {
+            minimize_to_tray: false,
+            theme: default_theme(),
+            proxy_host: default_proxy_host(),
+            proxy_port: default_proxy_port(),
+            no_proxy_manual: Vec::new(),
+            log_level: default_log_level(),
+            log_retention_days: default_log_retention_days(),
+            locale: default_locale(),
+            large_file_threshold_bytes: default_large_file_threshold_bytes(),
+            remember_scan_targets: default_remember_scan_targets(),
+        }
+    }
 }
 fn parse_proxy_addr(raw: &str) -> Option<(String, u16)> {
     let rest = raw
@@ -140,6 +169,7 @@ fn normalize(mut s: AppSettings) -> AppSettings {
         "en" | "en-us" => "en-US".into(),
         _ => "zh-CN".into(),
     };
+    s.large_file_threshold_bytes = s.large_file_threshold_bytes.clamp(ONE_GIB, ONE_TIB);
     s
 }
 
@@ -181,6 +211,8 @@ pub fn load() -> AppSettings {
             log_level: default_log_level(),
             log_retention_days: default_log_retention_days(),
             locale: default_locale(),
+            large_file_threshold_bytes: default_large_file_threshold_bytes(),
+            remember_scan_targets: default_remember_scan_targets(),
         });
     normalize(s)
 }
@@ -283,6 +315,19 @@ pub fn settings_set_log_retention_days(days: u16) -> Result<u16, String> {
     save(&settings)?;
     cleanup_expired_logs(days)?;
     Ok(days)
+}
+
+#[tauri::command]
+pub fn settings_set_space_analysis(
+    large_file_threshold_bytes: u64,
+    remember_scan_targets: bool,
+) -> Result<AppSettings, String> {
+    let mut settings = load();
+    settings.large_file_threshold_bytes = large_file_threshold_bytes;
+    settings.remember_scan_targets = remember_scan_targets;
+    let settings = normalize(settings);
+    save(&settings)?;
+    Ok(settings)
 }
 
 fn current_log_path() -> PathBuf {
@@ -555,5 +600,40 @@ pub fn os_info() -> OsInfo {
             build: 0,
             supported: false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn settings_with_threshold(large_file_threshold_bytes: u64) -> AppSettings {
+        let mut settings: AppSettings = serde_json::from_str("{}").unwrap();
+        settings.large_file_threshold_bytes = large_file_threshold_bytes;
+        settings
+    }
+
+    #[test]
+    fn zero_large_file_threshold_normalizes_to_one_gib() {
+        let settings = normalize(settings_with_threshold(0));
+
+        assert_eq!(settings.large_file_threshold_bytes, ONE_GIB);
+    }
+
+    #[test]
+    fn oversized_large_file_threshold_clamps_to_one_tib() {
+        let settings = normalize(settings_with_threshold(ONE_TIB + 1));
+
+        assert_eq!(settings.large_file_threshold_bytes, ONE_TIB);
+    }
+
+    #[test]
+    fn older_settings_receive_space_analysis_defaults() {
+        let settings: AppSettings = serde_json::from_str("{}").unwrap();
+
+        assert_eq!(settings.large_file_threshold_bytes, ONE_GIB);
+        assert!(settings.remember_scan_targets);
+        assert_eq!(AppSettings::default().large_file_threshold_bytes, ONE_GIB);
+        assert!(AppSettings::default().remember_scan_targets);
     }
 }

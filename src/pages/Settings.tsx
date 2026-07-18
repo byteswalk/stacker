@@ -7,8 +7,18 @@ import { SourceManagerModal } from "../SourceManagerModal";
 import { getTheme, setTheme, type Theme } from "../theme";
 import { formatBytes, useNotifications } from "../notifications";
 import { useI18n, type Locale } from "../i18n";
+import { applyRememberScanTargetsPreference } from "../features/space-analysis/targetStore";
 
-type AppSettings = { minimize_to_tray: boolean; theme: Theme; proxy_host: string; proxy_port: number; log_level: "error" | "warn" | "info" | "debug"; log_retention_days: number };
+type AppSettings = {
+  minimize_to_tray: boolean;
+  theme: Theme;
+  proxy_host: string;
+  proxy_port: number;
+  log_level: "error" | "warn" | "info" | "debug";
+  log_retention_days: number;
+  large_file_threshold_bytes: number;
+  remember_scan_targets: boolean;
+};
 type SourceSummary = {
   server_version: string | null;
   builtin_count: number;
@@ -34,6 +44,13 @@ type MirrorsUpdateCheck = {
 };
 type LogCleanupResult = { deletedFiles: number; releasedBytes: number; failedFiles: number };
 
+const GIB_BYTES = 1024 ** 3;
+const MAX_LARGE_FILE_THRESHOLD_GB = 1024;
+
+function normalizeLargeFileThresholdGb(value: string): number {
+  return Math.min(MAX_LARGE_FILE_THRESHOLD_GB, Math.max(1, Math.round(Number(value) || 1)));
+}
+
 export default function Settings() {
   const { locale, setLocale } = useI18n();
   const toast = useToast();
@@ -49,6 +66,9 @@ export default function Settings() {
   const [logLevel, setLogLevel] = useState<AppSettings["log_level"]>("error");
   const [logRetentionDays, setLogRetentionDays] = useState("7");
   const [logRetentionSaving, setLogRetentionSaving] = useState(false);
+  const [largeFileThresholdGb, setLargeFileThresholdGb] = useState("1");
+  const [rememberScanTargets, setRememberScanTargets] = useState(true);
+  const [spaceAnalysisSaving, setSpaceAnalysisSaving] = useState(false);
   const [clearLogConfirm, setClearLogConfirm] = useState(false);
   const [clearLogBusy, setClearLogBusy] = useState(false);
   const [proxyHost, setProxyHost] = useState("127.0.0.1");
@@ -75,6 +95,8 @@ export default function Settings() {
       setProxyPort(String(s.proxy_port || 7890));
       setLogLevel(s.log_level || "error");
       setLogRetentionDays(String(s.log_retention_days || 7));
+      setLargeFileThresholdGb(String(Math.round(s.large_file_threshold_bytes / GIB_BYTES) || 1));
+      setRememberScanTargets(s.remember_scan_targets ?? true);
     }).catch(() => setNoBackend(true));
     autostartIsEnabled().then(setAutostart).catch(() => {});
     checkNotifications("settings").catch(() => {});
@@ -166,6 +188,34 @@ export default function Settings() {
     } finally {
       setClearLogBusy(false);
     }
+  }
+
+  async function saveSpaceAnalysis(nextRememberScanTargets = rememberScanTargets) {
+    const thresholdGb = normalizeLargeFileThresholdGb(largeFileThresholdGb);
+    setLargeFileThresholdGb(String(thresholdGb));
+    setSpaceAnalysisSaving(true);
+    try {
+      const saved = await invoke<AppSettings>("settings_set_space_analysis", {
+        largeFileThresholdBytes: thresholdGb * GIB_BYTES,
+        rememberScanTargets: nextRememberScanTargets,
+      });
+      setLargeFileThresholdGb(String(Math.round(saved.large_file_threshold_bytes / GIB_BYTES)));
+      setRememberScanTargets(saved.remember_scan_targets);
+      toast(nextRememberScanTargets ? "空间分析设置已保存" : "已关闭并清除记住的扫描目标", "ok");
+      return true;
+    } catch (e) {
+      toast("保存空间分析设置失败：" + e, "err");
+      return false;
+    } finally {
+      setSpaceAnalysisSaving(false);
+    }
+  }
+
+  async function toggleRememberScanTargets(enabled: boolean) {
+    const previous = rememberScanTargets;
+    applyRememberScanTargetsPreference(enabled);
+    setRememberScanTargets(enabled);
+    if (!await saveSpaceAnalysis(enabled)) setRememberScanTargets(previous);
   }
 
   async function saveProxyAddr() {
@@ -366,6 +416,30 @@ export default function Settings() {
         <button className="gh sm" onClick={() => setClearLogConfirm(true)}>
           <i className="ti ti-eraser" /> 清理日志
         </button>
+      </div>
+      <div className="srcrow">
+        <span className="av st"><i className="ti ti-chart-treemap" /></span>
+        <div className="mt">
+          <div className="t">空间分析</div>
+          <div className="s dim" title="大文件列表默认显示达到此阈值的文件；扫描目标只会在手动开始扫描后保存。">
+            设置大文件阈值；记住的目标仅用于下次选择，不会自动扫描。
+          </div>
+        </div>
+        <span className="s dim">大文件阈值</span>
+        <input className="ip sm" type="number" min="1" max={MAX_LARGE_FILE_THRESHOLD_GB} step="1"
+          aria-label="大文件阈值（GB）" value={largeFileThresholdGb} disabled={spaceAnalysisSaving || noBackend}
+          onChange={(e) => setLargeFileThresholdGb(e.target.value)}
+          onBlur={() => setLargeFileThresholdGb(String(normalizeLargeFileThresholdGb(largeFileThresholdGb)))} />
+        <span className="s dim">GB</span>
+        <button className="pr sm" disabled={spaceAnalysisSaving || noBackend} onClick={() => saveSpaceAnalysis()}>
+          <i className={"ti " + (spaceAnalysisSaving ? "ti-loader spin" : "ti-device-floppy")} /> {spaceAnalysisSaving ? "保存中…" : "保存"}
+        </button>
+        <span className="s dim">记住上次扫描目标</span>
+        <label className="sw sm2">
+          <input type="checkbox" disabled={spaceAnalysisSaving || noBackend} checked={rememberScanTargets}
+            aria-label="记住上次扫描目标" onChange={(e) => toggleRememberScanTargets(e.target.checked)} />
+          <span className="tk" />
+        </label>
       </div>
 
       <div className="grouphd" style={{ marginTop: 18 }}><span className="gt"><i className="ti ti-bell-cog" /> 提示管理</span></div>

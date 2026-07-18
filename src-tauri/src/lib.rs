@@ -216,6 +216,7 @@ pub fn run() {
             settings::settings_set_locale,
             settings::settings_set_log_level,
             settings::settings_set_log_retention_days,
+            settings::settings_set_space_analysis,
             settings::settings_open_logs_dir,
             settings::settings_open_log_window,
             settings::settings_read_log,
