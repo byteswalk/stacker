@@ -28,8 +28,9 @@ const DEEP_TASK_LIMIT_REACHED: &str = "at most two deep scan tasks may run concu
 const DUPLICATE_DEEP_TASK: &str = "an active deep scan already has the same targets";
 const OVERLAPPING_TARGETS: &str = "deep scan targets must not overlap";
 const DIRECTORY_NODE_NOT_FOUND: &str = "directory node was not found";
-// Retain enough completed indexes for recent navigation without allowing scan maps to accumulate.
+// Three deep indexes cover recent navigation; 32 lightweight records cover route recovery and retries.
 const MAX_RETAINED_DEEP_RESULTS: usize = 3;
+const MAX_RETAINED_LIGHTWEIGHT_TASKS: usize = 32;
 
 enum TaskKind {
     Quick,
@@ -367,10 +368,17 @@ impl SpaceTaskManager {
                         Some(worker_terminal_order.fetch_add(1, Ordering::Relaxed));
                     record.progress.clone()
                 };
-                evict_old_deep_results(&mut tasks);
+                prune_terminal_tasks(&mut tasks);
                 progress
             };
             emit(&final_progress);
+
+            // A worker cannot join itself. Dropping its own handle detaches it without
+            // retaining an OS thread resource in the terminal task record.
+            let completed_handle = lock_records(&worker_tasks)
+                .get_mut(&worker_task_id)
+                .and_then(|record| record.handle.take());
+            drop(completed_handle);
         });
 
         match handle {
@@ -429,9 +437,41 @@ impl SpaceTaskManager {
             handle.join().unwrap();
         }
     }
+
+    #[cfg(test)]
+    fn wait_until_terminal_for_test(&self, task_id: &str) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let state = self.status(task_id).unwrap().state;
+            if is_terminal(state) {
+                return;
+            }
+            assert!(Instant::now() < deadline, "task {task_id} did not finish");
+            thread::yield_now();
+        }
+    }
+
+    #[cfg(test)]
+    fn wait_until_terminal_handles_are_released_for_test(&self) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let released = lock_records(&self.tasks)
+                .values()
+                .filter(|record| is_terminal(record.progress.state))
+                .all(|record| record.handle.is_none());
+            if released {
+                return;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "terminal task handles were not released"
+            );
+            thread::yield_now();
+        }
+    }
 }
 
-fn evict_old_deep_results(tasks: &mut HashMap<String, TaskRecord>) {
+fn prune_terminal_tasks(tasks: &mut HashMap<String, TaskRecord>) {
     let mut completed_deep = tasks
         .iter()
         .filter_map(|(task_id, record)| {
@@ -441,7 +481,28 @@ fn evict_old_deep_results(tasks: &mut HashMap<String, TaskRecord>) {
         .collect::<Vec<_>>();
     completed_deep.sort_by_key(|(_, terminal_order)| std::cmp::Reverse(*terminal_order));
 
-    for (task_id, _) in completed_deep.into_iter().skip(MAX_RETAINED_DEEP_RESULTS) {
+    let retained_deep = completed_deep
+        .iter()
+        .take(MAX_RETAINED_DEEP_RESULTS)
+        .map(|(task_id, _)| task_id.clone())
+        .collect::<Vec<_>>();
+    for (task_id, _) in completed_deep.iter().skip(MAX_RETAINED_DEEP_RESULTS) {
+        tasks.remove(task_id);
+    }
+
+    let mut lightweight_terminal = tasks
+        .iter()
+        .filter_map(|(task_id, record)| {
+            (is_terminal(record.progress.state) && !retained_deep.contains(task_id))
+                .then_some((task_id.clone(), record.terminal_order.unwrap_or_default()))
+        })
+        .collect::<Vec<_>>();
+    lightweight_terminal.sort_by_key(|(_, terminal_order)| std::cmp::Reverse(*terminal_order));
+
+    for (task_id, _) in lightweight_terminal
+        .into_iter()
+        .skip(MAX_RETAINED_LIGHTWEIGHT_TASKS)
+    {
         tasks.remove(&task_id);
     }
 }
@@ -617,6 +678,67 @@ mod tests {
     }
 
     #[test]
+    fn repeated_quick_completions_are_bounded_and_release_handles() {
+        let manager = SpaceTaskManager::default();
+        let mut task_ids = Vec::new();
+
+        for _ in 0..MAX_RETAINED_LIGHTWEIGHT_TASKS + 2 {
+            let task_id = manager.start_for_test(|_| Ok(QuickScanResult::default()));
+            manager.wait_until_terminal_for_test(&task_id);
+            task_ids.push(task_id);
+        }
+        manager.wait_until_terminal_handles_are_released_for_test();
+
+        let tasks = lock_records(&manager.tasks);
+        assert_eq!(tasks.len(), MAX_RETAINED_LIGHTWEIGHT_TASKS);
+        assert!(tasks.values().all(|record| record.handle.is_none()));
+        drop(tasks);
+
+        for task_id in &task_ids[..2] {
+            assert_eq!(manager.status(task_id).unwrap_err(), TASK_NOT_FOUND);
+        }
+        for task_id in &task_ids[2..] {
+            assert_eq!(
+                manager.status(task_id).unwrap().state,
+                ScanTaskState::Completed
+            );
+            assert_eq!(manager.quick_result(task_id).unwrap().task_id, *task_id);
+        }
+    }
+
+    #[test]
+    fn cancelled_and_failed_task_retention_is_bounded() {
+        let manager = SpaceTaskManager::default();
+        let mut cancelled_ids = Vec::new();
+
+        for _ in 0..MAX_RETAINED_LIGHTWEIGHT_TASKS + 1 {
+            let task_id = manager.start_for_test(|_| Err(ScanWalkError::Cancelled));
+            manager.wait_until_terminal_for_test(&task_id);
+            cancelled_ids.push(task_id);
+        }
+        let failed_id = manager.start_for_test(|_| panic!("retention test failure"));
+        manager.wait_until_terminal_for_test(&failed_id);
+        manager.wait_until_terminal_handles_are_released_for_test();
+
+        assert_eq!(
+            manager.status(&cancelled_ids[0]).unwrap_err(),
+            TASK_NOT_FOUND
+        );
+        assert_eq!(
+            manager.status(cancelled_ids.last().unwrap()).unwrap().state,
+            ScanTaskState::Cancelled
+        );
+        assert_eq!(
+            manager.status(&failed_id).unwrap().state,
+            ScanTaskState::Failed
+        );
+        assert_eq!(
+            lock_records(&manager.tasks).len(),
+            MAX_RETAINED_LIGHTWEIGHT_TASKS
+        );
+    }
+
+    #[test]
     fn worker_panic_becomes_a_user_facing_failure() {
         let manager = SpaceTaskManager::default();
         let id = manager.start_for_test(|_| panic!("test worker panic"));
@@ -767,6 +889,57 @@ mod tests {
                 ScanTaskState::Completed
             );
         }
+    }
+
+    #[test]
+    fn lightweight_pruning_preserves_active_tasks_and_retained_deep_results() {
+        let manager = SpaceTaskManager::default();
+        let active_target = tempfile::tempdir().unwrap();
+        let active_id = manager
+            .start_deep_for_test(vec![active_target.path().to_path_buf()], |_, token, _| {
+                while !token.is_cancelled() {
+                    std::thread::yield_now();
+                }
+                Err(ScanWalkError::Cancelled)
+            })
+            .unwrap();
+        while manager.status(&active_id).unwrap().state == ScanTaskState::Queued {
+            std::thread::yield_now();
+        }
+
+        let retained_target = tempfile::tempdir().unwrap();
+        let retained_id = manager
+            .start_deep_for_test(
+                vec![retained_target.path().to_path_buf()],
+                |targets, token, progress| build_indexed_result(targets, token, progress),
+            )
+            .unwrap();
+        manager.wait_for_test(&retained_id);
+
+        for _ in 0..MAX_RETAINED_LIGHTWEIGHT_TASKS + 2 {
+            let task_id = manager.start_for_test(|_| Ok(QuickScanResult::default()));
+            manager.wait_until_terminal_for_test(&task_id);
+        }
+        manager.wait_until_terminal_handles_are_released_for_test();
+
+        assert_eq!(
+            manager.status(&active_id).unwrap().state,
+            ScanTaskState::Running
+        );
+        assert_eq!(manager.summary(&retained_id).unwrap().task_id, retained_id);
+        let tasks = lock_records(&manager.tasks);
+        assert!(tasks.contains_key(&active_id));
+        assert!(matches!(
+            tasks
+                .get(&retained_id)
+                .and_then(|record| record.result.as_ref()),
+            Some(TaskResult::Deep(_))
+        ));
+        assert_eq!(tasks.len(), MAX_RETAINED_LIGHTWEIGHT_TASKS + 2);
+        drop(tasks);
+
+        manager.cancel(&active_id).unwrap();
+        manager.wait_for_test(&active_id);
     }
 
     #[test]
