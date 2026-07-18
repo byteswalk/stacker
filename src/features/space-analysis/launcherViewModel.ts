@@ -39,6 +39,9 @@ export function createDiskSelectorState(
   availableVolumes: readonly VolumeInfo[],
   rememberedTargets: readonly string[],
 ): DiskSelectorState {
+  const reportedRoots = new Set(
+    availableVolumes.map((volume) => comparableRoot(volume.root)),
+  );
   const volumes = availableVolumes.filter((volume) => volume.fixed);
   const availableRoots = new Map(
     volumes.map((volume) => [comparableRoot(volume.root), volume]),
@@ -60,7 +63,7 @@ export function createDiskSelectorState(
   const unavailableRows = kind === "all"
     ? []
     : [...rememberedRoots.entries()].flatMap(([comparable, root]) => (
-      availableRoots.has(comparable)
+      reportedRoots.has(comparable)
         ? []
         : [{
           root,

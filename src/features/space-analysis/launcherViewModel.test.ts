@@ -36,6 +36,22 @@ const volumes: VolumeInfo[] = [
     freeBytes: 0,
     fixed: false,
   },
+  {
+    root: "E:\\",
+    label: "Removable",
+    fileSystem: "exFAT",
+    totalBytes: 64 * 1024 ** 3,
+    freeBytes: 32 * 1024 ** 3,
+    fixed: false,
+  },
+  {
+    root: "F:\\",
+    label: "Optical",
+    fileSystem: "UDF",
+    totalBytes: 0,
+    freeBytes: 0,
+    fixed: false,
+  },
 ];
 
 describe("space scan launcher view model", () => {
@@ -61,14 +77,17 @@ describe("space scan launcher view model", () => {
     expect(state.rows.map((row) => row.root)).toEqual(["C:\\", "D:\\"]);
   });
 
-  it("shows unavailable remembered drives as disabled invalid rows", () => {
-    const state = createDiskSelectorState("drives", volumes, ["D:\\", "Y:\\", "Z:\\"]);
+  it("shows absent remembered drives as invalid but omits known non-fixed roots", () => {
+    const state = createDiskSelectorState(
+      "drives",
+      volumes,
+      ["D:\\", "Y:\\", "Z:\\", "E:\\", "F:\\"],
+    );
 
     expect(state.rows.map((row) => ({ root: row.root, available: row.available }))).toEqual([
       { root: "C:\\", available: true },
       { root: "D:\\", available: true },
       { root: "Y:\\", available: false },
-      { root: "Z:\\", available: false },
     ]);
     expect(state.selected).toEqual(["D:\\"]);
   });
