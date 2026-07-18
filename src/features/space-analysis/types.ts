@@ -5,6 +5,15 @@ export interface ScanRequest {
   targets: string[];
 }
 
+export interface VolumeInfo {
+  root: string;
+  label: string;
+  fileSystem: string;
+  totalBytes: number;
+  freeBytes: number;
+  fixed: boolean;
+}
+
 export type ScanTaskState =
   | "queued"
   | "running"

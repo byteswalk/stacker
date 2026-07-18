@@ -18,6 +18,7 @@ export interface SpaceScanAdapter {
 
 export interface SpaceScanSnapshot {
   taskId: string | null;
+  request: ScanRequest | null;
   progress: ScanProgress | null;
   result: QuickScanResult | null;
   error: string | null;
@@ -26,6 +27,7 @@ export interface SpaceScanSnapshot {
 export interface SpaceScanStore {
   getSnapshot(): SpaceScanSnapshot;
   subscribe(listener: () => void): () => void;
+  startScan(request: ScanRequest): Promise<string>;
   startQuickScan(): Promise<string>;
   cancelScan(): Promise<void>;
   refreshTask(): Promise<void>;
@@ -34,6 +36,7 @@ export interface SpaceScanStore {
 
 const INITIAL_SNAPSHOT: SpaceScanSnapshot = {
   taskId: null,
+  request: null,
   progress: null,
   result: null,
   error: null,
@@ -131,7 +134,7 @@ export function createSpaceScanStore(adapter: SpaceScanAdapter): SpaceScanStore 
       error: progress.state === "failed" ? snapshot.error : null,
     });
 
-    if (progress.state === "completed") {
+    if (progress.state === "completed" && snapshot.request?.mode === "quick") {
       await fetchCompletedResult(progress.taskId);
     }
   }
@@ -188,29 +191,42 @@ export function createSpaceScanStore(adapter: SpaceScanAdapter): SpaceScanStore 
       };
     },
 
-    startQuickScan() {
+    startScan(request) {
       if (startPromise) return startPromise;
 
       const pending = (async () => {
         let taskId: string;
         try {
-          taskId = await adapter.start({ mode: "quick", targets: [] });
+          taskId = await adapter.start(request);
         } catch (cause) {
           setError(cause);
           throw cause;
         }
 
-        if (snapshot.taskId !== taskId) {
-          progressGeneration += 1;
-          publish({ taskId, progress: null, result: null, error: null });
+        progressGeneration += 1;
+        publish({
+          taskId,
+          request: { ...request, targets: [...request.targets] },
+          progress: null,
+          result: null,
+          error: null,
+        });
+        try {
+          await refreshTaskById(taskId);
+        } catch {
+          // The backend has already accepted the task; progress events or a
+          // later refresh can recover from a transient initial status failure.
         }
-        await refreshTaskById(taskId);
         return taskId;
       })().finally(() => {
         startPromise = null;
       });
       startPromise = pending;
       return pending;
+    },
+
+    startQuickScan() {
+      return store.startScan({ mode: "quick", targets: [] });
     },
 
     async cancelScan() {
@@ -267,6 +283,10 @@ export function useSpaceScan(): SpaceScanSnapshot {
 
 export function startQuickScan(): Promise<string> {
   return spaceScanStore.startQuickScan();
+}
+
+export function startScan(request: ScanRequest): Promise<string> {
+  return spaceScanStore.startScan(request);
 }
 
 export function cancelScan(): Promise<void> {

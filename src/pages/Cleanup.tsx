@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import { ScanHeader } from "../features/space-analysis/components/ScanHeader";
+import { ScanLauncher } from "../features/space-analysis/components/ScanLauncher";
 import { cancelScan, startQuickScan, useSpaceScan } from "../features/space-analysis/store";
-import type { KnownSpaceItem, ScanProgress } from "../features/space-analysis/types";
+import type { KnownSpaceItem } from "../features/space-analysis/types";
 import { quickScanView } from "../features/space-analysis/viewModel";
 import { useI18n } from "../i18n";
 import { invoke } from "../invoke";
@@ -103,37 +105,6 @@ function toCacheItem(item: KnownSpaceItem, tr: Translate): CacheItem {
   };
 }
 
-function ScanMetrics({ progress, locale, tr }: {
-  progress: ScanProgress;
-  locale: string;
-  tr: Translate;
-}) {
-  const metrics = [
-    ["已扫描文件", new Intl.NumberFormat(locale).format(progress.scannedFiles)],
-    ["已扫描目录", new Intl.NumberFormat(locale).format(progress.scannedDirectories)],
-    ["已统计空间", fmt(progress.accountedBytes)],
-    ["无法访问", new Intl.NumberFormat(locale).format(progress.skippedPaths)],
-    ["耗时", `${new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(progress.elapsedMs / 1000)} s`],
-  ];
-  const currentPath = progress.currentPath || tr("等待扫描任务…");
-  return (
-    <div className="scan-progress" aria-live="polite">
-      <div className="scan-metrics">
-        {metrics.map(([label, value]) => (
-          <div className="scan-metric" key={label} title={`${tr(label)}: ${value}`}>
-            <span>{tr(label)}</span>
-            <b>{value}</b>
-          </div>
-        ))}
-      </div>
-      <div className="scan-current-path" title={currentPath}>
-        <i className="ti ti-folder-search" aria-hidden="true" />
-        <span>{currentPath}</span>
-      </div>
-    </div>
-  );
-}
-
 export default function Cleanup() {
   const toast = useToast();
   const notices = useNotifications();
@@ -160,17 +131,6 @@ export default function Cleanup() {
         .map((item) => item.path) ?? [],
     ));
   }, [scan.result]);
-
-  async function beginScan() {
-    setActionBusy(true);
-    try {
-      await startQuickScan();
-    } catch {
-      toast(tr("无法启动扫描，请重试。"), "err");
-    } finally {
-      setActionBusy(false);
-    }
-  }
 
   async function cancelCurrentScan() {
     setActionBusy(true);
@@ -243,7 +203,6 @@ export default function Cleanup() {
   const safeTotal = scan.result?.safelyReleasableBytes ?? safe.reduce((sum, item) => sum + item.size, 0);
   const selItems = items.filter((item) => sel.has(item.path));
   const selTotal = selItems.reduce((sum, item) => sum + item.size, 0);
-  const scanning = view.phase === "running" || view.phase === "cancelling";
 
   function toggle(item: CacheItem) {
     if (!item.canSelect) return;
@@ -311,46 +270,23 @@ export default function Cleanup() {
 
   return (
     <>
-      <section className={`clhero space-scan-hero${scanning ? " scanning trace-card" : ""}`}>
-        {scanning && <span className="border-runner" aria-hidden="true" />}
-        <span className="clic"><i className={`ti ${scanning ? "ti-database-search" : "ti-database"}`} /></span>
-        <div className="clt">
-          <div className="t1" title={heroTitle}>{heroTitle}</div>
-          <div className="t2">{view.phase === "idle" ? idleDescription : tr(view.description)}</div>
-          {view.errorSummary && (
-            <div className="scan-error-summary" title={scan.taskId ? `${tr("任务 ID")}${locale === "zh-CN" ? "：" : ": "}${scan.taskId}` : undefined}>
-              <i className="ti ti-alert-triangle" /> {tr(view.errorSummary)}
-            </div>
-          )}
-          {view.showProgress && scan.progress && <ScanMetrics progress={scan.progress} locale={locale} tr={tr} />}
-        </div>
-        <div className="ghr scan-actions">
-          {scanning ? (
-            <button
-              className="gh"
-              disabled={!view.canCancel || actionBusy}
-              title={tr(view.primaryLabel)}
-              onClick={cancelCurrentScan}
-            >
-              <i className={`ti ${view.phase === "cancelling" || actionBusy ? "ti-loader spin" : "ti-x"}`} />
-              {tr(view.primaryLabel)}
-            </button>
-          ) : (
-            <button className="gh" disabled={!view.canStart || actionBusy || cleanupBusy} onClick={beginScan}>
-              <i className={`ti ${actionBusy ? "ti-loader spin" : "ti-player-play"}`} /> {tr(view.primaryLabel)}
-            </button>
-          )}
-          {view.phase === "completed" && (
-            <button
-              className="pr"
-              disabled={cleanupBusy || sel.size === 0}
-              onClick={() => setConfirm([...sel])}
-            >
-              <i className="ti ti-eraser" /> {tr("清理所选")}{locale === "zh-CN" ? `（${fmt(selTotal)}）` : ` (${fmt(selTotal)})`}
-            </button>
-          )}
-        </div>
-      </section>
+      <ScanLauncher disabled={cleanupBusy} />
+      <ScanHeader
+        scan={scan}
+        headline={view.phase === "completed" && scan.result ? heroTitle : undefined}
+        idleDescription={idleDescription}
+        actionBusy={actionBusy}
+        onCancel={cancelCurrentScan}
+        trailingAction={view.phase === "completed" && scan.request?.mode === "quick" ? (
+          <button
+            className="pr"
+            disabled={cleanupBusy || sel.size === 0}
+            onClick={() => setConfirm([...sel])}
+          >
+            <i className="ti ti-eraser" /> {tr("清理所选")}{locale === "zh-CN" ? `（${fmt(selTotal)}）` : ` (${fmt(selTotal)})`}
+          </button>
+        ) : null}
+      />
 
       {view.phase === "completed" && items.length === 0 && scan.result && (
         <div className="stub">

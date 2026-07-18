@@ -116,6 +116,45 @@ describe("space scan store", () => {
     expect(store.getSnapshot().progress?.scannedFiles).toBe(9);
   });
 
+  it("starts and retains an explicit manual scan request", async () => {
+    const harness = fakeAdapter({ startId: "scan-deep" });
+    const store = createSpaceScanStore(harness.adapter);
+    const request = { mode: "directories" as const, targets: ["C:\\work"] };
+
+    await store.startScan(request);
+
+    expect(harness.adapter.start).toHaveBeenCalledWith(request);
+    expect(store.getSnapshot()).toMatchObject({
+      taskId: "scan-deep",
+      request,
+    });
+  });
+
+  it("does not request a quick result when a deep scan completes", async () => {
+    const harness = fakeAdapter({ startId: "scan-deep" });
+    const store = createSpaceScanStore(harness.adapter);
+    await store.startScan({ mode: "drives", targets: ["D:\\"] });
+
+    harness.emit(progress("scan-deep", "completed"));
+    await flushPromises();
+
+    expect(harness.adapter.quickResult).not.toHaveBeenCalled();
+    expect(store.getSnapshot().progress?.state).toBe("completed");
+  });
+
+  it("keeps an accepted scan when the initial status read fails", async () => {
+    const harness = fakeAdapter({ startId: "scan-accepted" });
+    vi.mocked(harness.adapter.status).mockRejectedValueOnce(new Error("status unavailable"));
+    const store = createSpaceScanStore(harness.adapter);
+
+    await expect(store.startScan({ mode: "directories", targets: ["C:\\work"] }))
+      .resolves.toBe("scan-accepted");
+    expect(store.getSnapshot()).toMatchObject({
+      taskId: "scan-accepted",
+      error: "status unavailable",
+    });
+  });
+
   it("fetches the result only after the current task completes", async () => {
     const result = quickResult("scan-1");
     const harness = fakeAdapter({ startId: "scan-1", result });

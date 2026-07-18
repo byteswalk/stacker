@@ -22,6 +22,7 @@ function snapshot(
 ): SpaceScanSnapshot {
   return {
     taskId: state ? "scan-1" : null,
+    request: null,
     progress: state ? progress(state) : null,
     result: null,
     error: null,

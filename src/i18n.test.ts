@@ -14,6 +14,8 @@ describe("internationalization", () => {
   it("uses curated product terminology", () => {
     expect(translateText("生态环境体检", "en-US")).toBe("Environment Check");
     expect(translateText("复制摘要给 AI", "en-US")).toBe("Copy Summary for AI");
+    expect(translateText("快速扫描 · 选择目录 · 选择磁盘 · 全盘分析", "en-US"))
+      .toBe("Quick Scan · Choose Folder · Choose Disk · All-disk Analysis");
   });
 
   it("translates dynamic messages without changing values", () => {
