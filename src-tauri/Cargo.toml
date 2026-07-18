@@ -38,4 +38,4 @@ tempfile = "3"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
-winapi = { version = "0.3", features = ["winuser", "fileapi", "shellapi", "synchapi", "processthreadsapi", "handleapi", "winbase", "dpapi", "wincrypt", "minwindef"] }
+winapi = { version = "0.3", features = ["winuser", "fileapi", "shellapi", "synchapi", "processthreadsapi", "handleapi", "winbase", "dpapi", "wincrypt", "minwindef", "winnt", "errhandlingapi"] }

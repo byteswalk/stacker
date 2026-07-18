@@ -1,4 +1,5 @@
 use super::model::ScanErrorSummary;
+use super::windows_fs::{allocated_size, file_identity, FileIdentity};
 use jwalk::{Parallelism, WalkDir};
 use std::collections::HashSet;
 use std::fmt;
@@ -32,6 +33,7 @@ pub struct WalkStats {
     pub files: u64,
     pub directories: u64,
     pub logical_bytes: u64,
+    pub allocated_bytes: u64,
     pub skipped: u64,
     pub errors: ScanErrorSummary,
 }
@@ -99,7 +101,7 @@ where
         });
 
     let mut entries = walker.into_iter();
-    let mut file_ids = HashSet::new();
+    let mut file_ids = HashSet::<FileIdentity>::new();
     let now = Instant::now();
     let mut last_progress = now.checked_sub(PROGRESS_INTERVAL).unwrap_or(now);
 
@@ -130,14 +132,17 @@ where
                         stats.directories = stats.directories.saturating_add(1);
                     }
                     Ok(metadata) if metadata.is_file() => {
-                        match file_identity(entry.path().as_path(), &metadata) {
-                            Ok(Some(identity)) if !file_ids.insert(identity) => {
+                        match file_identity(entry.path().as_path()) {
+                            Ok(identity) if !file_ids.insert(identity) => {
                                 stats.skipped = stats.skipped.saturating_add(1);
                             }
                             Ok(_) => {
                                 stats.files = stats.files.saturating_add(1);
                                 stats.logical_bytes =
                                     stats.logical_bytes.saturating_add(metadata.len());
+                                stats.allocated_bytes = stats.allocated_bytes.saturating_add(
+                                    allocated_size(entry.path().as_path(), &metadata),
+                                );
                             }
                             Err(error) => {
                                 stats.skipped = stats.skipped.saturating_add(1);
@@ -201,59 +206,6 @@ fn is_link_or_reparse_point(metadata: &Metadata) -> bool {
     metadata.file_type().is_symlink()
 }
 
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
-struct FileIdentity(u64, u64);
-
-#[cfg(windows)]
-fn file_identity(path: &Path, _metadata: &Metadata) -> io::Result<Option<FileIdentity>> {
-    use std::fs::OpenOptions;
-    use std::mem::MaybeUninit;
-    use std::os::windows::fs::OpenOptionsExt;
-    use std::os::windows::io::AsRawHandle;
-    use winapi::um::fileapi::{GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION};
-
-    const SHARE_READ_WRITE_DELETE: u32 = 0x0000_0001 | 0x0000_0002 | 0x0000_0004;
-    let file = OpenOptions::new()
-        .access_mode(0)
-        .share_mode(SHARE_READ_WRITE_DELETE)
-        .open(path)?;
-    let mut information = MaybeUninit::<BY_HANDLE_FILE_INFORMATION>::uninit();
-    let succeeded = unsafe {
-        GetFileInformationByHandle(file.as_raw_handle().cast(), information.as_mut_ptr())
-    };
-    if succeeded == 0 {
-        return Err(io::Error::last_os_error());
-    }
-
-    let information = unsafe { information.assume_init() };
-    if information.nNumberOfLinks <= 1 {
-        return Ok(None);
-    }
-
-    let file_index =
-        (u64::from(information.nFileIndexHigh) << 32) | u64::from(information.nFileIndexLow);
-    Ok(Some(FileIdentity(
-        u64::from(information.dwVolumeSerialNumber),
-        file_index,
-    )))
-}
-
-#[cfg(unix)]
-fn file_identity(_path: &Path, metadata: &Metadata) -> io::Result<Option<FileIdentity>> {
-    use std::os::unix::fs::MetadataExt;
-
-    if metadata.nlink() <= 1 {
-        Ok(None)
-    } else {
-        Ok(Some(FileIdentity(metadata.dev(), metadata.ino())))
-    }
-}
-
-#[cfg(not(any(windows, unix)))]
-fn file_identity(_path: &Path, _metadata: &Metadata) -> io::Result<Option<FileIdentity>> {
-    Ok(None)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -269,6 +221,11 @@ mod tests {
         let token = CancellationToken::default();
         let stats = measure_path(dir.path(), &token, |_| {}).unwrap();
         assert_eq!(stats.logical_bytes, 24);
+        let expected_allocated = [dir.path().join("a.bin"), dir.path().join("nested/b.bin")]
+            .iter()
+            .map(|path| allocated_size(path, &path.metadata().unwrap()))
+            .sum::<u64>();
+        assert_eq!(stats.allocated_bytes, expected_allocated);
         assert_eq!(stats.files, 2);
 
         token.cancel();
@@ -324,6 +281,10 @@ mod tests {
         let stats = measure_path(dir.path(), &CancellationToken::default(), |_| {}).unwrap();
 
         assert_eq!(stats.logical_bytes, 32);
+        assert_eq!(
+            stats.allocated_bytes,
+            allocated_size(&original, &original.metadata().unwrap())
+        );
         assert_eq!(stats.files, 1);
         assert_eq!(stats.skipped, 1);
     }

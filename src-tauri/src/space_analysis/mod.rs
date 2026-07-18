@@ -3,6 +3,7 @@ pub mod model;
 pub mod targets;
 pub mod tasks;
 pub mod walker;
+pub mod windows_fs;
 
 use self::model::{QuickScanResult, ScanMode, ScanProgress, ScanRequest, VolumeInfo};
 use self::targets::list_fixed_volumes;
