@@ -58,3 +58,41 @@ export interface QuickScanResult {
   items: KnownSpaceItem[];
   errors: ScanErrorSummary;
 }
+
+export interface AnalysisSummary {
+  taskId: string;
+  targets: string[];
+  allocatedBytes: number;
+  logicalBytes: number;
+  fileCount: number;
+  directoryCount: number;
+  skippedPaths: number;
+  rootNodes: DirectoryNode[];
+}
+
+export interface DirectoryNode {
+  nodeId: string;
+  parentId: string | null;
+  name: string;
+  path: string;
+  allocatedBytes: number;
+  logicalBytes: number;
+  childCount: number;
+  safety: string;
+}
+
+export interface LargeFileRow {
+  nodeId: string;
+  name: string;
+  path: string;
+  allocatedBytes: number;
+  logicalBytes: number;
+  modifiedAt: string | null;
+}
+
+export interface Paged<T> {
+  items: T[];
+  offset: number;
+  limit: number;
+  total: number;
+}

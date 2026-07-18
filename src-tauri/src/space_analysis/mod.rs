@@ -89,3 +89,63 @@ pub fn space_scan_large_files(
 ) -> Result<Paged<LargeFileRow>, String> {
     manager.large_files(&task_id, min_bytes, offset, limit)
 }
+
+fn directory_to_open(path: &std::path::Path) -> Result<std::path::PathBuf, String> {
+    let metadata = std::fs::metadata(path).map_err(|_| "The selected path is no longer available.".to_string())?;
+    let directory = if metadata.is_dir() {
+        path
+    } else {
+        path.parent()
+            .ok_or_else(|| "The containing directory is unavailable.".to_string())?
+    };
+    let canonical = directory
+        .canonicalize()
+        .map_err(|_| "The selected directory is no longer available.".to_string())?;
+    if !canonical.is_dir() {
+        return Err("The selected path is not a directory.".into());
+    }
+    Ok(canonical)
+}
+
+#[tauri::command]
+pub fn space_open_directory(path: String) -> Result<(), String> {
+    let directory = directory_to_open(std::path::Path::new(&path))?;
+    #[cfg(windows)]
+    {
+        std::process::Command::new("explorer.exe")
+            .arg(directory)
+            .spawn()
+            .map(|_| ())
+            .map_err(|_| "Unable to open the selected directory.".to_string())
+    }
+    #[cfg(not(windows))]
+    {
+        let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+        std::process::Command::new(opener)
+            .arg(directory)
+            .spawn()
+            .map(|_| ())
+            .map_err(|_| "Unable to open the selected directory.".to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::directory_to_open;
+
+    #[test]
+    fn directory_opening_resolves_files_to_their_parent() {
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp.path().join("large.bin");
+        std::fs::write(&file, b"data").unwrap();
+
+        assert_eq!(directory_to_open(&file).unwrap(), temp.path().canonicalize().unwrap());
+        assert_eq!(directory_to_open(temp.path()).unwrap(), temp.path().canonicalize().unwrap());
+    }
+
+    #[test]
+    fn directory_opening_rejects_missing_paths() {
+        let temp = tempfile::tempdir().unwrap();
+        assert!(directory_to_open(&temp.path().join("missing.bin")).is_err());
+    }
+}

@@ -142,6 +142,7 @@ pub fn run() {
             space_analysis::space_scan_summary,
             space_analysis::space_scan_children,
             space_analysis::space_scan_large_files,
+            space_analysis::space_open_directory,
             fnm::fnm_status,
             fnm::fnm_root_dir,
             fnm::fnm_set_default,

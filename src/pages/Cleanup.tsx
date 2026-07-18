@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ScanHeader } from "../features/space-analysis/components/ScanHeader";
 import { ScanLauncher } from "../features/space-analysis/components/ScanLauncher";
+import { AnalysisTabs } from "../features/space-analysis/components/AnalysisTabs";
 import { cancelScan, startQuickScan, useSpaceScan } from "../features/space-analysis/store";
 import type { KnownSpaceItem } from "../features/space-analysis/types";
 import { quickScanView } from "../features/space-analysis/viewModel";
@@ -287,6 +288,12 @@ export default function Cleanup() {
           </button>
         ) : null}
       />
+
+      {view.phase === "completed"
+        && scan.taskId
+        && scan.request
+        && scan.request.mode !== "quick"
+        && <AnalysisTabs taskId={scan.taskId} request={scan.request} />}
 
       {view.phase === "completed" && items.length === 0 && scan.result && (
         <div className="stub">
