@@ -1,12 +1,19 @@
 pub mod known;
 pub mod model;
+pub mod targets;
 pub mod tasks;
 pub mod walker;
 
-use self::model::{QuickScanResult, ScanMode, ScanProgress, ScanRequest};
+use self::model::{QuickScanResult, ScanMode, ScanProgress, ScanRequest, VolumeInfo};
+use self::targets::list_fixed_volumes;
 pub use self::tasks::SpaceTaskManager;
 
 const UNSUPPORTED_SCAN_SCOPE: &str = "当前版本尚未启用该扫描范围";
+
+#[tauri::command]
+pub fn space_fixed_volumes() -> Vec<VolumeInfo> {
+    list_fixed_volumes()
+}
 
 #[tauri::command]
 pub fn space_scan_start(

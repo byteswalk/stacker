@@ -16,6 +16,17 @@ pub struct ScanRequest {
     pub targets: Vec<String>,
 }
 
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VolumeInfo {
+    pub root: String,
+    pub label: String,
+    pub file_system: String,
+    pub total_bytes: u64,
+    pub free_bytes: u64,
+    pub fixed: bool,
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum ScanTaskState {
