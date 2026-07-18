@@ -18,6 +18,10 @@ type AppSettings = {
   log_retention_days: number;
   large_file_threshold_bytes: number;
   remember_scan_targets: boolean;
+  snapshots_enabled: boolean;
+  snapshot_retention_days: number;
+  snapshot_max_per_target: number;
+  common_scan_directories: string[];
 };
 type SourceSummary = {
   server_version: string | null;
@@ -69,6 +73,10 @@ export default function Settings() {
   const [logRetentionSaving, setLogRetentionSaving] = useState(false);
   const [largeFileThresholdGb, setLargeFileThresholdGb] = useState("1");
   const [rememberScanTargets, setRememberScanTargets] = useState(true);
+  const [snapshotsEnabled, setSnapshotsEnabled] = useState(true);
+  const [snapshotRetentionDays, setSnapshotRetentionDays] = useState("30");
+  const [snapshotMaxPerTarget, setSnapshotMaxPerTarget] = useState("20");
+  const [commonScanDirectories, setCommonScanDirectories] = useState("");
   const [spaceAnalysisSaving, setSpaceAnalysisSaving] = useState(false);
   const [clearLogConfirm, setClearLogConfirm] = useState(false);
   const [clearLogBusy, setClearLogBusy] = useState(false);
@@ -98,6 +106,10 @@ export default function Settings() {
       setLogRetentionDays(String(s.log_retention_days || 7));
       setLargeFileThresholdGb(String(Math.round(s.large_file_threshold_bytes / GIB_BYTES) || 1));
       setRememberScanTargets(s.remember_scan_targets ?? true);
+      setSnapshotsEnabled(s.snapshots_enabled ?? true);
+      setSnapshotRetentionDays(String(s.snapshot_retention_days ?? 30));
+      setSnapshotMaxPerTarget(String(s.snapshot_max_per_target ?? 20));
+      setCommonScanDirectories((s.common_scan_directories ?? []).join("; "));
     }).catch(() => setNoBackend(true));
     autostartIsEnabled().then(setAutostart).catch(() => {});
     checkNotifications("settings").catch(() => {});
@@ -201,9 +213,17 @@ export default function Settings() {
       const saved = await invoke<AppSettings>("settings_set_space_analysis", {
         largeFileThresholdBytes: thresholdGb * GIB_BYTES,
         rememberScanTargets: nextRememberScanTargets,
+        snapshotsEnabled,
+        snapshotRetentionDays: Math.min(365, Math.max(1, Number(snapshotRetentionDays) || 30)),
+        snapshotMaxPerTarget: Math.min(100, Math.max(2, Number(snapshotMaxPerTarget) || 20)),
+        commonScanDirectories: commonScanDirectories.split(/[;\r\n]+/).map((value) => value.trim()).filter(Boolean),
       });
       setLargeFileThresholdGb(String(Math.round(saved.large_file_threshold_bytes / GIB_BYTES)));
       setRememberScanTargets(saved.remember_scan_targets);
+      setSnapshotsEnabled(saved.snapshots_enabled);
+      setSnapshotRetentionDays(String(saved.snapshot_retention_days));
+      setSnapshotMaxPerTarget(String(saved.snapshot_max_per_target));
+      setCommonScanDirectories(saved.common_scan_directories.join("; "));
     };
     try {
       if (!nextRememberScanTargets) {
@@ -323,6 +343,16 @@ export default function Settings() {
 
   return (
     <>
+      <div className="grouphd"><span className="gt"><i className="ti ti-history" /> 空间快照</span></div>
+      <div className="srcrow space-snapshot-settings">
+        <span className="av st"><i className="ti ti-chart-histogram" /></span>
+        <div className="mt"><div className="t">扫描快照与变化记录</div><div className="s dim" title="仅保存扫描目标指纹和相对目录占用，不保存文件名或文件内容。">用于比较同一组扫描目标在不同时间的空间变化。</div></div>
+        <label className="ck"><input type="checkbox" checked={snapshotsEnabled} disabled={spaceAnalysisSaving || noBackend} onChange={(event) => setSnapshotsEnabled(event.target.checked)} /> 启用</label>
+        <span className="s dim">保留</span><input className="ip sm" type="number" min="1" max="365" value={snapshotRetentionDays} disabled={spaceAnalysisSaving || noBackend} aria-label="快照保留天数" onChange={(event) => setSnapshotRetentionDays(event.target.value)} /><span className="s dim">天</span>
+        <span className="s dim">每组最多</span><input className="ip sm" type="number" min="2" max="100" value={snapshotMaxPerTarget} disabled={spaceAnalysisSaving || noBackend} aria-label="每组目标最多快照数" onChange={(event) => setSnapshotMaxPerTarget(event.target.value)} /><span className="s dim">份</span>
+        <input className="ip space-common-dirs" value={commonScanDirectories} disabled={spaceAnalysisSaving || noBackend} aria-label="常用扫描目录" title={commonScanDirectories} placeholder="常用目录，以分号分隔" onChange={(event) => setCommonScanDirectories(event.target.value)} />
+        <button className="pr sm" disabled={spaceAnalysisSaving || noBackend} onClick={() => saveSpaceAnalysis()}><i className={spaceAnalysisSaving ? "ti ti-loader spin" : "ti ti-device-floppy"} /> 保存</button>
+      </div>
       <div className="grouphd">
         <span className="gt">
           <i className="ti ti-database-cog" /> 源管理

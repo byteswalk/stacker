@@ -268,6 +268,35 @@ pub struct Paged<T> {
     pub total: u64,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SnapshotMetadata {
+    pub id: String,
+    pub target_fingerprint: String,
+    pub created_at: String,
+    pub targets: Vec<String>,
+    pub allocated_bytes: u64,
+    pub directory_count: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SnapshotChangeRow {
+    pub relative_path: String,
+    pub before_bytes: u64,
+    pub after_bytes: u64,
+    pub delta_bytes: i64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SnapshotComparison {
+    pub base: SnapshotMetadata,
+    pub current: SnapshotMetadata,
+    pub delta_bytes: i64,
+    pub changes: Paged<SnapshotChangeRow>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

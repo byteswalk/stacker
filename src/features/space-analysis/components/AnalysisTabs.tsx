@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useI18n } from "../../../i18n";
 import { invoke } from "../../../invoke";
-import type { AnalysisSummary, ScanRequest, VolumeInfo } from "../types";
+import type { AnalysisSummary, ScanRequest, SnapshotMetadata, VolumeInfo } from "../types";
 import { loadCleanupCandidates, prepareCleanupPlan, useCleanupStore } from "../cleanupStore";
 import { startScan } from "../store";
 import { CacheDownloads } from "./CacheDownloads";
@@ -11,12 +11,14 @@ import { DevelopmentArtifacts, formatSpaceBytes } from "./DevelopmentArtifacts";
 import { DirectoryRanking } from "./DirectoryRanking";
 import { LargeFiles } from "./LargeFiles";
 import { SpaceOverview } from "./SpaceOverview";
+import { SpaceChanges } from "./SpaceChanges";
 
-export const ANALYSIS_TABS = ["overview", "directories", "large-files", "development-artifacts", "cache-downloads"] as const;
+export const ANALYSIS_TABS = ["overview", "directories", "large-files", "development-artifacts", "cache-downloads", "changes"] as const;
 type AnalysisTab = (typeof ANALYSIS_TABS)[number];
 
 type SpaceAnalysisSettings = { large_file_threshold_bytes: number };
 const DEFAULT_LARGE_FILE_THRESHOLD = 1024 ** 3;
+const savedSnapshots = new Map<string, SnapshotMetadata | null>();
 
 function normalizedRoot(value: string) {
   return value.trim().replaceAll("/", "\\").replace(/\\+$/, "").toLocaleLowerCase("en-US");
@@ -39,6 +41,7 @@ export function AnalysisTabs({ taskId, request }: { taskId: string; request: Sca
   const [largeFileThreshold, setLargeFileThreshold] = useState(DEFAULT_LARGE_FILE_THRESHOLD);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [snapshot, setSnapshot] = useState<SnapshotMetadata | null>(savedSnapshots.get(taskId) ?? null);
 
   useEffect(() => {
     let current = true;
@@ -60,6 +63,12 @@ export function AnalysisTabs({ taskId, request }: { taskId: string; request: Sca
         return;
       }
       setSummary(summaryResult.value);
+      if (!savedSnapshots.has(taskId)) {
+        void invoke<SnapshotMetadata | null>("space_snapshot_save", { taskId }).then((metadata) => {
+          savedSnapshots.set(taskId, metadata);
+          if (current) setSnapshot(metadata);
+        }).catch(() => undefined);
+      }
       if (volumeResult.status === "fulfilled") setFreeBytes(matchedFreeBytes(request, volumeResult.value));
       if (settingsResult.status === "fulfilled") setLargeFileThreshold(Math.max(1, settingsResult.value.large_file_threshold_bytes));
       setLoading(false);
@@ -74,6 +83,7 @@ export function AnalysisTabs({ taskId, request }: { taskId: string; request: Sca
   const labels: Record<AnalysisTab, string> = {
     overview: tr("空间概览"), directories: tr("目录排行"), "large-files": tr("大文件"),
     "development-artifacts": tr("开发产物"), "cache-downloads": tr("缓存与下载"),
+    changes: tr("空间变化"),
   };
   const cacheImpactKeys = new Set(["spaceAnalysis.impact.nodeDependencies", "spaceAnalysis.impact.gradleProjectCache"]);
   const cacheNodes = cleanup.candidates.filter((node) => cacheImpactKeys.has(node.impactKey ?? ""));
@@ -103,6 +113,9 @@ export function AnalysisTabs({ taskId, request }: { taskId: string; request: Sca
       {activeTab === "large-files" && <LargeFiles taskId={taskId} thresholdBytes={largeFileThreshold} />}
       {activeTab === "development-artifacts" && <DevelopmentArtifacts nodes={artifactNodes} />}
       {activeTab === "cache-downloads" && <CacheDownloads nodes={cacheNodes} />}
+      {activeTab === "changes" && (snapshot
+        ? <SpaceChanges fingerprint={snapshot.targetFingerprint} />
+        : <div className="space-analysis-empty">{tr("空间快照已关闭，或本次扫描尚未生成快照。")}</div>)}
     </div>
     <CleanupPlanModal />
     <CleanupResultModal onRescan={rescanAffected} />

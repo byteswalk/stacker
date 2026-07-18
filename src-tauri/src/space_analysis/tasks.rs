@@ -187,6 +187,12 @@ impl SpaceTaskManager {
         Ok(result.cleanup_candidates())
     }
 
+    pub(crate) fn snapshot_data(&self, task_id: &str) -> Result<(AnalysisSummary, Vec<(String, u64)>), String> {
+        let tasks = lock_records(&self.tasks);
+        let result = completed_deep_result(&tasks, task_id)?;
+        Ok((result.summary(), result.snapshot_directories()))
+    }
+
     pub fn create_cleanup_plan(
         &self,
         scan_task_id: &str,

@@ -171,6 +171,14 @@ impl IndexedScanResult {
         nodes
     }
 
+    pub(crate) fn snapshot_directories(&self) -> Vec<(String, u64)> {
+        let mut rows = self.nodes.values().map(|record| {
+            (record.node.path.clone(), record.node.allocated_bytes)
+        }).collect::<Vec<_>>();
+        rows.sort_by(|left, right| left.0.cmp(&right.0));
+        rows
+    }
+
     fn annotate_classifications(&mut self) {
         let projects = detect_projects(self);
         let evidence = self.project_root_evidence(&projects);

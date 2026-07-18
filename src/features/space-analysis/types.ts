@@ -152,3 +152,26 @@ export interface CleanupResult {
   actualReleasedBytes: number;
   items: CleanupItemResult[];
 }
+
+export interface SnapshotMetadata {
+  id: string;
+  targetFingerprint: string;
+  createdAt: string;
+  targets: string[];
+  allocatedBytes: number;
+  directoryCount: number;
+}
+
+export interface SnapshotChangeRow {
+  relativePath: string;
+  beforeBytes: number;
+  afterBytes: number;
+  deltaBytes: number;
+}
+
+export interface SnapshotComparison {
+  base: SnapshotMetadata;
+  current: SnapshotMetadata;
+  deltaBytes: number;
+  changes: Paged<SnapshotChangeRow>;
+}
