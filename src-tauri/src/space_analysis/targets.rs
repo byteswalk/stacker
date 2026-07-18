@@ -25,6 +25,7 @@ pub enum TargetError {
     NotAbsolute(String),
     NotFound(String),
     NotDirectory(String),
+    LinkedTarget(String),
     CannotCanonicalize(String),
     NotFixedVolume(String),
 }
@@ -39,6 +40,12 @@ impl fmt::Display for TargetError {
             Self::NotAbsolute(path) => write!(formatter, "scan target is not absolute: {path}"),
             Self::NotFound(path) => write!(formatter, "scan target does not exist: {path}"),
             Self::NotDirectory(path) => write!(formatter, "scan target is not a directory: {path}"),
+            Self::LinkedTarget(path) => {
+                write!(
+                    formatter,
+                    "scan target is a symbolic link or reparse point: {path}"
+                )
+            }
             Self::CannotCanonicalize(path) => {
                 write!(formatter, "scan target cannot be canonicalized: {path}")
             }
@@ -77,13 +84,16 @@ fn validate_directories(targets: &[String]) -> Result<Vec<ValidatedTarget>, Targ
                 return Err(TargetError::NotAbsolute(target.clone()));
             }
 
-            let metadata = fs::metadata(path).map_err(|error| {
+            let metadata = fs::symlink_metadata(path).map_err(|error| {
                 if error.kind() == std::io::ErrorKind::NotFound {
                     TargetError::NotFound(target.clone())
                 } else {
                     TargetError::CannotCanonicalize(target.clone())
                 }
             })?;
+            if is_link_or_reparse_point(&metadata) {
+                return Err(TargetError::LinkedTarget(target.clone()));
+            }
             if !metadata.is_dir() {
                 return Err(TargetError::NotDirectory(target.clone()));
             }
@@ -129,6 +139,23 @@ fn require_targets(targets: &[String]) -> Result<(), TargetError> {
 
 fn roots_equal(left: &str, right: &str) -> bool {
     left.replace('/', "\\").eq_ignore_ascii_case(right)
+}
+
+fn is_link_or_reparse_point(metadata: &fs::Metadata) -> bool {
+    if metadata.file_type().is_symlink() {
+        return true;
+    }
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
+        metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+    }
+
+    #[cfg(not(windows))]
+    false
 }
 
 #[cfg(windows)]
@@ -316,6 +343,57 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
+    fn directories_reject_symbolic_link_targets() {
+        use std::os::windows::fs::symlink_dir;
+
+        let directory = tempfile::tempdir().unwrap();
+        let target = tempfile::tempdir().unwrap();
+        let link = directory.path().join("directory-link");
+        if symlink_dir(target.path(), &link).is_err() {
+            return;
+        }
+        let request = ScanRequest {
+            mode: ScanMode::Directories,
+            targets: vec![link.to_string_lossy().into_owned()],
+        };
+
+        assert!(matches!(
+            validate_targets(&request),
+            Err(TargetError::LinkedTarget(_))
+        ));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn directories_reject_junction_targets() {
+        use std::process::{Command, Stdio};
+
+        let directory = tempfile::tempdir().unwrap();
+        let target = tempfile::tempdir().unwrap();
+        let junction = directory.path().join("directory-junction");
+        let status = Command::new("cmd")
+            .args(["/c", "mklink", "/J"])
+            .arg(&junction)
+            .arg(target.path())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .unwrap();
+        assert!(status.success(), "failed to create test junction");
+        let request = ScanRequest {
+            mode: ScanMode::Directories,
+            targets: vec![junction.to_string_lossy().into_owned()],
+        };
+
+        assert!(matches!(
+            validate_targets(&request),
+            Err(TargetError::LinkedTarget(_))
+        ));
+        std::fs::remove_dir(&junction).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
     fn drive_targets_must_be_roots_from_the_fixed_volume_list() {
         let Some(volume) = list_fixed_volumes().into_iter().next() else {
             return;
@@ -352,7 +430,13 @@ mod tests {
         use winapi::um::fileapi::GetDriveTypeW;
         use winapi::um::winbase::DRIVE_FIXED;
 
-        for volume in list_fixed_volumes() {
+        let volumes = list_fixed_volumes();
+        assert!(
+            !volumes.is_empty(),
+            "expected at least one discoverable fixed volume"
+        );
+
+        for volume in volumes {
             let root: Vec<u16> = volume
                 .root
                 .encode_utf16()
