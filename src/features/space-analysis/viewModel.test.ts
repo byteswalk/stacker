@@ -23,6 +23,7 @@ function snapshot(
   return {
     taskId: state ? "scan-1" : null,
     request: null,
+    pendingRequest: null,
     progress: state ? progress(state) : null,
     result: null,
     error: null,
@@ -31,6 +32,17 @@ function snapshot(
 }
 
 describe("quickScanView", () => {
+  it("shows pending backend acceptance as a visible non-cancellable start", () => {
+    expect(quickScanView(snapshot(undefined, {
+      pendingRequest: { mode: "drives", targets: ["D:\\"] },
+    }))).toMatchObject({
+      phase: "starting",
+      canStart: false,
+      canCancel: false,
+      showProgress: true,
+    });
+  });
+
   it("keeps the idle page manual and ready to start", () => {
     expect(quickScanView(snapshot())).toMatchObject({
       phase: "idle",

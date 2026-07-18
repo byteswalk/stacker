@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ScanRequest, VolumeInfo } from "./types";
 import {
+  beginDiskSelectorRequest,
+  closeDiskSelectorRequest,
   createDiskSelectorState,
+  diskSelectorResponseIsCurrent,
+  launcherControlsDisabled,
+  rememberSettingFrom,
   scanHeaderLayoutClass,
   startAndRememberScan,
 } from "./launcherViewModel";
@@ -53,7 +58,45 @@ describe("space scan launcher view model", () => {
   it("never exposes non-fixed volume rows", () => {
     const state = createDiskSelectorState("drives", volumes, []);
 
-    expect(state.volumes.map((volume) => volume.root)).toEqual(["C:\\", "D:\\"]);
+    expect(state.rows.map((row) => row.root)).toEqual(["C:\\", "D:\\"]);
+  });
+
+  it("shows unavailable remembered drives as disabled invalid rows", () => {
+    const state = createDiskSelectorState("drives", volumes, ["D:\\", "Y:\\", "Z:\\"]);
+
+    expect(state.rows.map((row) => ({ root: row.root, available: row.available }))).toEqual([
+      { root: "C:\\", available: true },
+      { root: "D:\\", available: true },
+      { root: "Y:\\", available: false },
+      { root: "Z:\\", available: false },
+    ]);
+    expect(state.selected).toEqual(["D:\\"]);
+  });
+
+  it("invalidates overlapping and closed disk selector requests", () => {
+    const chooseDisk = beginDiskSelectorRequest(0, "drives");
+    const allDisk = beginDiskSelectorRequest(chooseDisk.generation, "all");
+
+    expect(diskSelectorResponseIsCurrent(allDisk, chooseDisk)).toBe(false);
+    expect(diskSelectorResponseIsCurrent(allDisk, allDisk)).toBe(true);
+
+    const closed = closeDiskSelectorRequest(allDisk.generation);
+    const reopened = beginDiskSelectorRequest(closed.generation, "all");
+    expect(diskSelectorResponseIsCurrent(closed, allDisk)).toBe(false);
+    expect(diskSelectorResponseIsCurrent(reopened, allDisk)).toBe(false);
+    expect(reopened.kind).toBe("all");
+  });
+
+  it("disables launchers until settings are loaded", () => {
+    expect(launcherControlsDisabled({ settings: null, externallyDisabled: false, busy: false, scanActive: false })).toBe(true);
+    expect(launcherControlsDisabled({ settings: true, externallyDisabled: false, busy: false, scanActive: false })).toBe(false);
+  });
+
+  it("keeps missing or malformed remember settings unknown", () => {
+    expect(rememberSettingFrom(undefined)).toBeNull();
+    expect(rememberSettingFrom("false")).toBeNull();
+    expect(rememberSettingFrom(false)).toBe(false);
+    expect(rememberSettingFrom(true)).toBe(true);
   });
 
   it("uses the same header layout class for idle, running, and completed", () => {
@@ -68,16 +111,45 @@ describe("space scan launcher view model", () => {
     const result = await startAndRememberScan(request, true, {
       start: async () => {
         calls.push("start");
-        return "scan-42";
+        return {
+          taskId: "scan-42",
+          request: { mode: "directories", targets: ["D:\\accepted"] },
+          persistenceOwner: true,
+        };
       },
-      remember: () => {
+      remember: (acceptedRequest) => {
         calls.push("remember");
+        expect(acceptedRequest.targets).toEqual(["D:\\accepted"]);
         return { ok: true };
       },
     });
 
     expect(calls).toEqual(["start", "remember"]);
-    expect(result).toEqual({ taskId: "scan-42", memory: { ok: true } });
+    expect(result).toEqual({
+      taskId: "scan-42",
+      request: { mode: "directories", targets: ["D:\\accepted"] },
+      memory: { ok: true },
+    });
+  });
+
+  it("does not persist from a coalesced non-owner start", async () => {
+    const remember = vi.fn(() => ({ ok: true as const }));
+
+    const result = await startAndRememberScan(
+      { mode: "directories", targets: ["C:\\work"] },
+      true,
+      {
+        start: async () => ({
+          taskId: "scan-42",
+          request: { mode: "directories", targets: ["C:\\work"] },
+          persistenceOwner: false,
+        }),
+        remember,
+      },
+    );
+
+    expect(result.memory).toBeNull();
+    expect(remember).not.toHaveBeenCalled();
   });
 
   it("does not remember targets when the backend rejects the scan", async () => {

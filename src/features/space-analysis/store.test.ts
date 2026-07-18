@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   createSpaceScanStore,
+  scanSnapshotIsActive,
   type SpaceScanAdapter,
 } from "./store";
 import type {
@@ -127,7 +128,54 @@ describe("space scan store", () => {
     expect(store.getSnapshot()).toMatchObject({
       taskId: "scan-deep",
       request,
+      pendingRequest: null,
     });
+  });
+
+  it("owns a pending request across remounts and assigns one persistence owner", async () => {
+    const accepted = deferred<string>();
+    const harness = fakeAdapter();
+    vi.mocked(harness.adapter.start).mockReturnValueOnce(accepted.promise);
+    const store = createSpaceScanStore(harness.adapter);
+    const original = { mode: "directories" as const, targets: ["C:\\work"] };
+    const expected = { mode: "directories" as const, targets: ["C:\\work"] };
+    const unsubscribe = store.subscribe(() => undefined);
+
+    const first = store.startScan(original);
+    original.targets[0] = "C:\\mutated-after-dispatch";
+    unsubscribe();
+    const remountedUnsubscribe = store.subscribe(() => undefined);
+    const coalesced = store.startScan({ mode: "directories", targets: ["C:\\work"] });
+    const different = store.startScan({ mode: "drives", targets: ["D:\\"] });
+
+    expect(store.getSnapshot()).toMatchObject({
+      pendingRequest: expected,
+      taskId: null,
+    });
+    expect(scanSnapshotIsActive(store.getSnapshot())).toBe(true);
+    await expect(different).rejects.toThrow("different scan request");
+    expect(harness.adapter.start).toHaveBeenCalledOnce();
+
+    await store.cancelScan();
+    expect(harness.adapter.cancel).not.toHaveBeenCalled();
+
+    accepted.resolve("scan-owned");
+    await expect(first).resolves.toEqual({
+      taskId: "scan-owned",
+      request: expected,
+      persistenceOwner: true,
+    });
+    await expect(coalesced).resolves.toEqual({
+      taskId: "scan-owned",
+      request: expected,
+      persistenceOwner: false,
+    });
+    expect(store.getSnapshot()).toMatchObject({
+      pendingRequest: null,
+      taskId: "scan-owned",
+      request: expected,
+    });
+    remountedUnsubscribe();
   });
 
   it("does not request a quick result when a deep scan completes", async () => {
@@ -148,7 +196,11 @@ describe("space scan store", () => {
     const store = createSpaceScanStore(harness.adapter);
 
     await expect(store.startScan({ mode: "directories", targets: ["C:\\work"] }))
-      .resolves.toBe("scan-accepted");
+      .resolves.toMatchObject({
+        taskId: "scan-accepted",
+        request: { mode: "directories", targets: ["C:\\work"] },
+        persistenceOwner: true,
+      });
     expect(store.getSnapshot()).toMatchObject({
       taskId: "scan-accepted",
       error: "status unavailable",

@@ -15,13 +15,18 @@ function formatBytes(bytes: number) {
 }
 
 function targetSummary(scan: SpaceScanSnapshot, tr: Translate) {
-  if (!scan.request) return tr("尚未选择扫描目标");
-  if (scan.request.mode === "quick") return tr("快速扫描 · 已知开发工具缓存与临时目录");
-  const prefix = scan.request.mode === "directories" ? tr("目录") : tr("磁盘");
-  return `${prefix} · ${scan.request.targets.join(" · ")}`;
+  const request = scan.pendingRequest ?? scan.request;
+  if (!request) return tr("尚未选择扫描目标");
+  if (request.mode === "quick") return tr("快速扫描 · 已知开发工具缓存与临时目录");
+  const prefix = request.mode === "directories" ? tr("目录") : tr("磁盘");
+  return `${prefix} · ${request.targets.join(" · ")}`;
 }
 
 function deepScanCopy(phase: QuickScanPhase, tr: Translate) {
+  if (phase === "starting") return {
+    title: tr("正在启动空间分析"),
+    description: tr("正在等待后台接受扫描任务。切换页面不会重复启动。"),
+  };
   if (phase === "running") return {
     title: tr("正在分析所选范围"),
     description: tr("正在统计文件的实际分配空间。切换页面不会中断扫描。"),
@@ -63,8 +68,9 @@ export function ScanHeader({
   const { locale, tr } = useI18n();
   const view = quickScanView(scan);
   const progress = scan.progress;
-  const active = view.phase === "running" || view.phase === "cancelling";
-  const isDeep = scan.request?.mode === "directories" || scan.request?.mode === "drives";
+  const active = view.phase === "starting" || view.phase === "running" || view.phase === "cancelling";
+  const activeRequest = scan.pendingRequest ?? scan.request;
+  const isDeep = activeRequest?.mode === "directories" || activeRequest?.mode === "drives";
   const copy = isDeep
     ? deepScanCopy(view.phase, tr)
     : { title: tr(view.title), description: view.phase === "idle" && idleDescription ? idleDescription : tr(view.description) };
@@ -114,7 +120,7 @@ export function ScanHeader({
         </div>
       </div>
       <div className="scan-header-actions">
-        {active && (
+        {(view.phase === "running" || view.phase === "cancelling") && (
           <button className="gh" disabled={!view.canCancel || actionBusy} onClick={onCancel}>
             <i className={`ti ${view.phase === "cancelling" || actionBusy ? "ti-loader spin" : "ti-x"}`} />
             {tr(view.primaryLabel)}

@@ -19,24 +19,37 @@ export interface SpaceScanAdapter {
 export interface SpaceScanSnapshot {
   taskId: string | null;
   request: ScanRequest | null;
+  pendingRequest: ScanRequest | null;
   progress: ScanProgress | null;
   result: QuickScanResult | null;
   error: string | null;
 }
 
+export interface ScanStartResult {
+  taskId: string;
+  request: ScanRequest;
+  persistenceOwner: boolean;
+}
+
 export interface SpaceScanStore {
   getSnapshot(): SpaceScanSnapshot;
   subscribe(listener: () => void): () => void;
-  startScan(request: ScanRequest): Promise<string>;
-  startQuickScan(): Promise<string>;
+  startScan(request: ScanRequest): Promise<ScanStartResult>;
+  startQuickScan(): Promise<ScanStartResult>;
   cancelScan(): Promise<void>;
   refreshTask(): Promise<void>;
   dispose(): void;
 }
 
+type PendingStart = {
+  request: ScanRequest;
+  promise: Promise<{ taskId: string; request: ScanRequest }>;
+};
+
 const INITIAL_SNAPSHOT: SpaceScanSnapshot = {
   taskId: null,
   request: null,
+  pendingRequest: null,
   progress: null,
   result: null,
   error: null,
@@ -68,11 +81,28 @@ function errorMessage(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
 }
 
+function cloneRequest(request: ScanRequest): ScanRequest {
+  return { mode: request.mode, targets: [...request.targets] };
+}
+
+function sameRequest(left: ScanRequest, right: ScanRequest): boolean {
+  return left.mode === right.mode
+    && left.targets.length === right.targets.length
+    && left.targets.every((target, index) => target === right.targets[index]);
+}
+
+export function scanSnapshotIsActive(snapshot: SpaceScanSnapshot): boolean {
+  if (snapshot.pendingRequest) return true;
+  if (!snapshot.taskId) return false;
+  if (!snapshot.progress) return true;
+  return !TERMINAL_STATES.has(snapshot.progress.state);
+}
+
 export function createSpaceScanStore(adapter: SpaceScanAdapter): SpaceScanStore {
   let snapshot = INITIAL_SNAPSHOT;
   let disposed = false;
   let unlisten: UnlistenFn | undefined;
-  let startPromise: Promise<string> | null = null;
+  let pendingStart: PendingStart | null = null;
   let resultTaskId: string | null = null;
   let resultPromise: Promise<void> | null = null;
   let progressGeneration = 0;
@@ -192,21 +222,40 @@ export function createSpaceScanStore(adapter: SpaceScanAdapter): SpaceScanStore 
     },
 
     startScan(request) {
-      if (startPromise) return startPromise;
+      const requested = cloneRequest(request);
+      if (pendingStart) {
+        if (!sameRequest(pendingStart.request, requested)) {
+          return Promise.reject(new Error("A different scan request is already starting."));
+        }
+        return pendingStart.promise.then((accepted) => ({
+          taskId: accepted.taskId,
+          request: cloneRequest(accepted.request),
+          persistenceOwner: false,
+        }));
+      }
+      if (scanSnapshotIsActive(snapshot)) {
+        return Promise.reject(new Error("A scan is already active."));
+      }
 
-      const pending = (async () => {
+      publish({ ...snapshot, pendingRequest: cloneRequest(requested), error: null });
+      let ownedStart: PendingStart | null = null;
+      const pending = (async (): Promise<{ taskId: string; request: ScanRequest }> => {
         let taskId: string;
         try {
-          taskId = await adapter.start(request);
+          taskId = await adapter.start(requested);
         } catch (cause) {
-          setError(cause);
+          if (!ownedStart || pendingStart === ownedStart) {
+            publish({ ...snapshot, pendingRequest: null, error: errorMessage(cause) });
+          }
           throw cause;
         }
 
+        const acceptedRequest = cloneRequest(requested);
         progressGeneration += 1;
         publish({
           taskId,
-          request: { ...request, targets: [...request.targets] },
+          request: cloneRequest(acceptedRequest),
+          pendingRequest: null,
           progress: null,
           result: null,
           error: null,
@@ -217,12 +266,17 @@ export function createSpaceScanStore(adapter: SpaceScanAdapter): SpaceScanStore 
           // The backend has already accepted the task; progress events or a
           // later refresh can recover from a transient initial status failure.
         }
-        return taskId;
+        return { taskId, request: acceptedRequest };
       })().finally(() => {
-        startPromise = null;
+        if (ownedStart && pendingStart === ownedStart) pendingStart = null;
       });
-      startPromise = pending;
-      return pending;
+      ownedStart = { request: requested, promise: pending };
+      pendingStart = ownedStart;
+      return pending.then((accepted) => ({
+        taskId: accepted.taskId,
+        request: cloneRequest(accepted.request),
+        persistenceOwner: true,
+      }));
     },
 
     startQuickScan() {
@@ -230,6 +284,7 @@ export function createSpaceScanStore(adapter: SpaceScanAdapter): SpaceScanStore 
     },
 
     async cancelScan() {
+      if (snapshot.pendingRequest) return;
       const taskId = snapshot.taskId;
       if (!taskId) return;
 
@@ -281,11 +336,11 @@ export function useSpaceScan(): SpaceScanSnapshot {
   );
 }
 
-export function startQuickScan(): Promise<string> {
+export function startQuickScan(): Promise<ScanStartResult> {
   return spaceScanStore.startQuickScan();
 }
 
-export function startScan(request: ScanRequest): Promise<string> {
+export function startScan(request: ScanRequest): Promise<ScanStartResult> {
   return spaceScanStore.startScan(request);
 }
 

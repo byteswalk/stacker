@@ -2,6 +2,7 @@ import type { SpaceScanSnapshot } from "./store";
 
 export type QuickScanPhase =
   | "idle"
+  | "starting"
   | "running"
   | "cancelling"
   | "completed"
@@ -29,6 +30,16 @@ const VIEWS: Record<QuickScanPhase, Omit<QuickScanView, "showProgress" | "snapsh
     primaryLabel: "开始扫描",
     autoStart: false,
     canStart: true,
+    canCancel: false,
+    errorSummary: null,
+  },
+  starting: {
+    phase: "starting",
+    title: "正在启动扫描",
+    description: "正在等待后台接受扫描任务，切换页面不会重复启动。",
+    primaryLabel: "正在启动…",
+    autoStart: false,
+    canStart: false,
     canCancel: false,
     errorSummary: null,
   },
@@ -85,6 +96,7 @@ const VIEWS: Record<QuickScanPhase, Omit<QuickScanView, "showProgress" | "snapsh
 };
 
 function phaseOf(snapshot: SpaceScanSnapshot): QuickScanPhase {
+  if (snapshot.pendingRequest) return "starting";
   const state = snapshot.progress?.state;
   if (state === "queued" || state === "running") return "running";
   if (state === "cancelling") return "cancelling";
@@ -99,7 +111,7 @@ export function quickScanView(snapshot: SpaceScanSnapshot): QuickScanView {
   const phase = phaseOf(snapshot);
   return {
     ...VIEWS[phase],
-    showProgress: snapshot.progress !== null,
+    showProgress: snapshot.pendingRequest !== null || snapshot.progress !== null,
     snapshotComparable: phase === "completed" && snapshot.result?.completed === true,
   };
 }

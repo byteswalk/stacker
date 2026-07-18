@@ -1,18 +1,25 @@
 import { open } from "@tauri-apps/plugin-dialog";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../../../i18n";
 import { invoke } from "../../../invoke";
 import { Modal, operationWasCancelled, useToast } from "../../../ui";
-import { startScan, useSpaceScan } from "../store";
+import { scanSnapshotIsActive, startScan, useSpaceScan } from "../store";
 import {
   loadRememberedTargets,
   rememberStartedScan,
 } from "../targetStore";
-import type { ScanRequest, ScanTaskState, VolumeInfo } from "../types";
+import type { ScanRequest, VolumeInfo } from "../types";
 import {
+  beginDiskSelectorRequest,
+  closeDiskSelectorRequest,
   createDiskSelectorState,
+  diskSelectorResponseIsCurrent,
+  launcherControlsDisabled,
+  rememberSettingFrom,
   startAndRememberScan,
   type DiskSelectorKind,
+  type DiskSelectorRequestIdentity,
+  type DiskSelectorRow,
 } from "../launcherViewModel";
 
 type SpaceAnalysisSettings = {
@@ -26,33 +33,61 @@ function formatBytes(bytes: number) {
   return `${bytes} B`;
 }
 
-function isActiveScan(state: ScanTaskState | undefined) {
-  return state === "queued" || state === "running" || state === "cancelling";
-}
-
 export function ScanLauncher({ disabled = false }: { disabled?: boolean }) {
   const { tr } = useI18n();
   const toast = useToast();
   const scan = useSpaceScan();
-  const [rememberTargets, setRememberTargets] = useState(false);
+  const [rememberTargets, setRememberTargets] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const [selector, setSelector] = useState<DiskSelectorKind | null>(null);
-  const [volumes, setVolumes] = useState<VolumeInfo[]>([]);
+  const [rows, setRows] = useState<DiskSelectorRow[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [volumeLoading, setVolumeLoading] = useState(false);
   const [volumeError, setVolumeError] = useState(false);
-  const active = isActiveScan(scan.progress?.state);
-  const controlsDisabled = disabled || busy || active;
+  const selectorRequest = useRef<DiskSelectorRequestIdentity>({ generation: 0, kind: null });
+  const controlsDisabled = launcherControlsDisabled({
+    settings: rememberTargets,
+    externallyDisabled: disabled,
+    busy,
+    scanActive: scanSnapshotIsActive(scan),
+  });
 
   useEffect(() => {
+    let current = true;
     invoke<SpaceAnalysisSettings>("settings_get")
-      .then((settings) => setRememberTargets(settings.remember_scan_targets ?? true))
-      .catch(() => setRememberTargets(false));
+      .then((settings) => {
+        if (!current) return;
+        const resolved = rememberSettingFrom(settings.remember_scan_targets);
+        if (resolved === null) {
+          throw new Error("invalid space-analysis settings");
+        }
+        setRememberTargets(resolved);
+      })
+      .catch(() => {
+        if (current) toast(tr("无法读取空间分析设置。扫描入口已保持禁用，请重试。"), "err");
+      });
+    return () => {
+      current = false;
+    };
+  }, [toast, tr]);
+
+  useEffect(() => () => {
+    selectorRequest.current = closeDiskSelectorRequest(selectorRequest.current.generation);
   }, []);
+
+  function closeSelector() {
+    selectorRequest.current = closeDiskSelectorRequest(selectorRequest.current.generation);
+    setSelector(null);
+    setRows([]);
+    setSelected(new Set());
+    setVolumeLoading(false);
+    setVolumeError(false);
+  }
 
   async function launch(request: ScanRequest) {
     setBusy(true);
     try {
+      if (rememberTargets === null) return;
       const outcome = await startAndRememberScan(request, rememberTargets, {
         start: startScan,
         remember: (acceptedRequest, remember) => rememberStartedScan(
@@ -61,10 +96,10 @@ export function ScanLauncher({ disabled = false }: { disabled?: boolean }) {
           remember,
         ),
       });
-      if (!outcome.memory.ok) {
+      if (outcome.memory && !outcome.memory.ok) {
         toast(tr("扫描已开始，但无法保存扫描目标。"), "info");
       }
-      setSelector(null);
+      closeSelector();
     } catch {
       toast(tr("无法启动扫描，请重试。"), "err");
     } finally {
@@ -91,8 +126,10 @@ export function ScanLauncher({ disabled = false }: { disabled?: boolean }) {
   }
 
   async function openDiskSelector(kind: DiskSelectorKind) {
+    const request = beginDiskSelectorRequest(selectorRequest.current.generation, kind);
+    selectorRequest.current = request;
     setSelector(kind);
-    setVolumes([]);
+    setRows([]);
     setSelected(new Set());
     setVolumeError(false);
     setVolumeLoading(true);
@@ -100,12 +137,13 @@ export function ScanLauncher({ disabled = false }: { disabled?: boolean }) {
       const available = await invoke<VolumeInfo[]>("space_fixed_volumes");
       const remembered = kind === "drives" ? loadRememberedTargets("drives") : [];
       const state = createDiskSelectorState(kind, available, remembered);
-      setVolumes(state.volumes);
+      if (!diskSelectorResponseIsCurrent(selectorRequest.current, request)) return;
+      setRows(state.rows);
       setSelected(new Set(state.selected));
     } catch {
-      setVolumeError(true);
+      if (diskSelectorResponseIsCurrent(selectorRequest.current, request)) setVolumeError(true);
     } finally {
-      setVolumeLoading(false);
+      if (diskSelectorResponseIsCurrent(selectorRequest.current, request)) setVolumeLoading(false);
     }
   }
 
@@ -118,13 +156,6 @@ export function ScanLauncher({ disabled = false }: { disabled?: boolean }) {
     });
   }
 
-  const entries = [
-    { label: "快速扫描", icon: "ti-bolt", action: () => launch({ mode: "quick", targets: [] }) },
-    { label: "选择目录", icon: "ti-folder-open", action: chooseFolder },
-    { label: "选择磁盘", icon: "ti-device-hdd", action: () => openDiskSelector("drives") },
-    { label: "全盘分析", icon: "ti-chart-treemap", action: () => openDiskSelector("all") },
-  ];
-
   return (
     <>
       <section className="scan-launcher" aria-label={tr("选择扫描范围")}>
@@ -133,12 +164,22 @@ export function ScanLauncher({ disabled = false }: { disabled?: boolean }) {
           <span>{tr("选择快速检查、目录或本地固定磁盘。扫描仅在手动确认后开始。")}</span>
         </div>
         <div className="scan-launcher-toolbar">
-          {entries.map((entry) => (
-            <button className={entry.label === "快速扫描" ? "pr" : "gh"} disabled={controlsDisabled} key={entry.label} onClick={entry.action}>
-              <i className={`ti ${busy ? "ti-loader spin" : entry.icon}`} aria-hidden="true" />
-              {tr(entry.label)}
-            </button>
-          ))}
+          <button className="pr" disabled={controlsDisabled} onClick={() => launch({ mode: "quick", targets: [] })}>
+            <i className={`ti ${busy ? "ti-loader spin" : "ti-bolt"}`} aria-hidden="true" />
+            {tr("快速扫描")}
+          </button>
+          <button className="gh" disabled={controlsDisabled} onClick={chooseFolder}>
+            <i className={`ti ${busy ? "ti-loader spin" : "ti-folder-open"}`} aria-hidden="true" />
+            {tr("选择目录")}
+          </button>
+          <button className="gh" disabled={controlsDisabled} onClick={() => openDiskSelector("drives")}>
+            <i className={`ti ${busy ? "ti-loader spin" : "ti-device-hdd"}`} aria-hidden="true" />
+            {tr("选择磁盘")}
+          </button>
+          <button className="gh" disabled={controlsDisabled} onClick={() => openDiskSelector("all")}>
+            <i className={`ti ${busy ? "ti-loader spin" : "ti-chart-treemap"}`} aria-hidden="true" />
+            {tr("全盘分析")}
+          </button>
         </div>
       </section>
 
@@ -149,9 +190,9 @@ export function ScanLauncher({ disabled = false }: { disabled?: boolean }) {
           sub={tr(selector === "all"
             ? "全盘分析不会预选磁盘。请选择一个或多个本地固定磁盘。"
             : "可恢复上次选择，但扫描不会自动开始。仅显示本地固定磁盘。")}
-          onClose={() => !busy && setSelector(null)}
+          onClose={() => !busy && closeSelector()}
           footer={<>
-            <button className="gh sm" disabled={busy} onClick={() => setSelector(null)}>{tr("取消")}</button>
+            <button className="gh sm" disabled={busy} onClick={closeSelector}>{tr("取消")}</button>
             <button
               className="pr sm"
               disabled={busy || volumeLoading || selected.size === 0}
@@ -169,27 +210,35 @@ export function ScanLauncher({ disabled = false }: { disabled?: boolean }) {
             {!volumeLoading && volumeError && (
               <div className="scan-volume-state error"><i className="ti ti-alert-circle" /> {tr("无法读取本地磁盘，请关闭后重试。")}</div>
             )}
-            {!volumeLoading && !volumeError && volumes.length === 0 && (
+            {!volumeLoading && !volumeError && rows.length === 0 && (
               <div className="scan-volume-state"><i className="ti ti-device-hdd-off" /> {tr("未发现可分析的本地固定磁盘。")}</div>
             )}
-            {!volumeLoading && !volumeError && volumes.map((volume) => {
-              const checked = selected.has(volume.root);
-              const usedBytes = Math.max(0, volume.totalBytes - volume.freeBytes);
+            {!volumeLoading && !volumeError && rows.map((row) => {
+              const checked = row.available && selected.has(row.root);
+              const usedBytes = Math.max(0, row.totalBytes - row.freeBytes);
               return (
-                <label className={`scan-volume-row${checked ? " selected" : ""}`} key={volume.root}>
+                <label
+                  className={`scan-volume-row${checked ? " selected" : ""}${row.available ? "" : " invalid"}`}
+                  key={row.root}
+                  aria-disabled={!row.available}
+                >
                   <input
                     className="ck2"
                     type="checkbox"
                     checked={checked}
-                    disabled={busy}
-                    onChange={() => toggleVolume(volume.root)}
+                    disabled={busy || !row.available}
+                    onChange={() => row.available && toggleVolume(row.root)}
                   />
-                  <span className="scan-volume-icon"><i className="ti ti-device-hdd" /></span>
+                  <span className="scan-volume-icon"><i className={`ti ${row.available ? "ti-device-hdd" : "ti-device-hdd-off"}`} /></span>
                   <span className="scan-volume-main">
-                    <strong>{volume.root}{volume.label ? ` ${volume.label}` : ""}</strong>
-                    <span>{volume.fileSystem || tr("未知文件系统")} · {tr("已用")} {formatBytes(usedBytes)} / {formatBytes(volume.totalBytes)}</span>
+                    <strong>{row.root}{row.label ? ` ${row.label}` : ""}</strong>
+                    <span>{row.available
+                      ? `${row.fileSystem || tr("未知文件系统")} · ${tr("已用")} ${formatBytes(usedBytes)} / ${formatBytes(row.totalBytes)}`
+                      : tr("上次选择 · 当前不是可用的本地固定磁盘")}</span>
                   </span>
-                  <span className="scan-volume-free">{tr("可用")} {formatBytes(volume.freeBytes)}</span>
+                  {row.available
+                    ? <span className="scan-volume-free">{tr("可用")} {formatBytes(row.freeBytes)}</span>
+                    : <span className="scan-volume-invalid">{tr("不可用")}</span>}
                 </label>
               );
             })}
