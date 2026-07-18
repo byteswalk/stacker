@@ -309,20 +309,21 @@ export function SourceManagerModal({ onClose, onChanged }: { onClose: () => void
 
   return (
     <>
-      <Modal wide title="源管理" icon="ti-database-cog"
-        sub={<div className="sm-summary">
-          <span>内置 {catalog?.builtin_count ?? 0}</span>
-          <span>服务器清单{catalog?.server_version ? ` v${catalog.server_version}` : "未更新"}</span>
-          <span>本地 {catalog?.local_count ?? 0}</span>
-          <span>大文件 {catalog?.binary_count ?? 0}</span>
-        </div>}
-        onClose={onClose}
-        footer={<>
-          <button className="gh sm" onClick={importSources}><i className="ti ti-download" /> 导入</button>
-          <button className="gh sm" onClick={exportSources}><i className="ti ti-upload" /> 导出</button>
-          <button className="pr sm" onClick={onClose}>完成</button>
-        </>}>
-        <div className="sourcemgr">
+      <div className="source-manager-modal">
+        <Modal wide title="源管理" icon="ti-database-cog"
+          sub={<div className="sm-summary">
+            <span>内置 {catalog?.builtin_count ?? 0}</span>
+            <span>服务器清单{catalog?.server_version ? ` v${catalog.server_version}` : "未更新"}</span>
+            <span>本地 {catalog?.local_count ?? 0}</span>
+            <span>大文件 {catalog?.binary_count ?? 0}</span>
+          </div>}
+          onClose={onClose}
+          footer={<>
+            <button className="gh sm" onClick={importSources}><i className="ti ti-download" /> 导入</button>
+            <button className="gh sm" onClick={exportSources}><i className="ti ti-upload" /> 导出</button>
+            <button className="pr sm" onClick={onClose}>完成</button>
+          </>}>
+          <div className="sourcemgr">
           <div className="smnav">
             {CATEGORY_ORDER.map((key) => (
               <button key={key} className={category === key ? "on" : ""} onClick={() => { setCategory(key); setToolFilter("all"); }}>
@@ -337,14 +338,16 @@ export function SourceManagerModal({ onClose, onChanged }: { onClose: () => void
                 <div className="t">服务器清单</div>
                 <div className="s dim" title="从服务器拉取最新公共源清单，并全量替换内置源；本地自定义源不会被覆盖。">拉取后全量更新内置源；本地自定义源不会被覆盖。</div>
               </div>
-              <input className="ip full" value={serverUrl} placeholder="https://raw.githubusercontent.com/user/repo/main/mirrors.json"
+              <input className="ip full" value={serverUrl} title={serverUrl} placeholder="https://raw.githubusercontent.com/user/repo/main/mirrors.json"
                 onChange={(e) => setServerUrl(e.target.value)} />
-              <button className="gh sm" disabled={checkingRemote || busy === "server"} onClick={() => checkRemoteUpdate(serverUrl, true)}>
-                <i className={"ti " + (checkingRemote ? "ti-loader spin" : "ti-refresh")} /> {checkingRemote ? "检查中…" : "检查更新"}
-              </button>
-              <button className="pr sm" disabled={busy === "server"} onClick={() => updateServer()}>
-                <i className={"ti " + (busy === "server" ? "ti-loader spin" : "ti-cloud-download")} /> 拉取最新
-              </button>
+              <div className="smserver-actions">
+                <button className="gh sm" disabled={checkingRemote || busy === "server"} onClick={() => checkRemoteUpdate(serverUrl, true)}>
+                  <i className={"ti " + (checkingRemote ? "ti-loader spin" : "ti-refresh")} /> {checkingRemote ? "检查中…" : "检查更新"}
+                </button>
+                <button className="pr sm" disabled={busy === "server"} onClick={() => updateServer()}>
+                  <i className={"ti " + (busy === "server" ? "ti-loader spin" : "ti-cloud-download")} /> 拉取最新
+                </button>
+              </div>
             </div>
 
             <div className="smtools">
@@ -387,8 +390,9 @@ export function SourceManagerModal({ onClose, onChanged }: { onClose: () => void
                   })}
             </div>
           </div>
-        </div>
-      </Modal>
+          </div>
+        </Modal>
+      </div>
 
       {draft && (
         <Modal title={draft.id ? "编辑本地源" : "新建本地源"} icon="ti-key"
