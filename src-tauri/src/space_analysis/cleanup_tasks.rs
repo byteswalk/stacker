@@ -179,6 +179,32 @@ impl CleanupTaskManager {
             .ok_or_else(|| TASK_NOT_FINISHED.to_string())
     }
 
+    pub(crate) fn import_completed(&self, result: CleanupResult) -> String {
+        let task_id = result.task_id.clone();
+        let progress = CleanupProgress {
+            task_id: task_id.clone(),
+            plan_id: result.plan_id.clone(),
+            state: result.state,
+            completed_items: result.items.len() as u64,
+            total_items: result.items.len() as u64,
+            actual_released_bytes: result.actual_released_bytes,
+            current_node_id: None,
+        };
+        let mut tasks = lock_tasks(&self.tasks);
+        tasks.insert(
+            task_id.clone(),
+            CleanupTaskRecord {
+                token: CancellationToken::default(),
+                progress,
+                result: Some(result),
+                terminal_order: Some(self.next_terminal_order.fetch_add(1, Ordering::Relaxed)),
+                handle: None,
+            },
+        );
+        prune_tasks(&mut tasks);
+        task_id
+    }
+
     pub fn cancel_all_and_wait(&self, timeout: Duration) {
         let mut handles = {
             let mut tasks = lock_tasks(&self.tasks);
@@ -228,7 +254,7 @@ impl CleanupTaskManager {
     }
 }
 
-fn select_plan_items(
+pub(crate) fn select_plan_items(
     mut stored: StoredCleanupPlan,
     selected_node_ids: &[String],
 ) -> Result<StoredCleanupPlan, String> {
@@ -255,7 +281,7 @@ fn select_plan_items(
     Ok(stored)
 }
 
-fn execute_plan<F>(
+pub(crate) fn execute_plan<F>(
     task_id: &str,
     stored: StoredCleanupPlan,
     token: &CancellationToken,

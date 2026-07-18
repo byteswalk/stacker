@@ -1,6 +1,7 @@
 pub mod classifier;
 pub mod cleanup_plan;
 pub mod cleanup_tasks;
+pub mod elevated;
 pub mod known;
 pub mod model;
 pub mod targets;
@@ -114,6 +115,22 @@ pub fn space_cleanup_start(
     use tauri::Emitter;
 
     let plan = scan_manager.cleanup_plan_record(&plan_id)?;
+    let needs_elevation = plan.plan.items.iter().any(|item| {
+        item.requires_elevation && node_ids.iter().any(|node_id| node_id == &item.node_id)
+    });
+    if needs_elevation {
+        let result = elevated::run_cleanup(plan, &node_ids)?;
+        let task_id = cleanup_manager.import_completed(result);
+        let progress = cleanup_manager.status(&task_id)?;
+        if let Err(error) = window.emit("space-cleanup-progress", &progress) {
+            log::warn!(
+                "failed to emit progress for elevated space cleanup task {}: {}",
+                progress.task_id,
+                error
+            );
+        }
+        return Ok(task_id);
+    }
     cleanup_manager.start(plan, &node_ids, move |progress| {
         if let Err(error) = window.emit("space-cleanup-progress", progress) {
             log::warn!(
@@ -123,6 +140,15 @@ pub fn space_cleanup_start(
             );
         }
     })
+}
+
+#[tauri::command]
+pub fn space_scan_supplement_elevated(
+    scan_task_id: String,
+    manager: tauri::State<'_, SpaceTaskManager>,
+) -> Result<AnalysisSummary, String> {
+    let summary = manager.summary(&scan_task_id)?;
+    elevated::run_supplement_scan(&scan_task_id, &summary.targets)
 }
 
 #[tauri::command]

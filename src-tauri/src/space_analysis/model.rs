@@ -57,7 +57,7 @@ pub enum ElevationRequirement {
     Required,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CleanupPlanItem {
     pub node_id: String,
@@ -70,7 +70,7 @@ pub struct CleanupPlanItem {
     pub default_selected: bool,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CleanupPlan {
     pub plan_id: String,
@@ -103,7 +103,7 @@ pub enum CleanupItemState {
     Cancelled,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CleanupItemResult {
     pub node_id: String,
@@ -114,7 +114,7 @@ pub struct CleanupItemResult {
     pub reason_key: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CleanupProgress {
     pub task_id: String,
@@ -126,7 +126,7 @@ pub struct CleanupProgress {
     pub current_node_id: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CleanupResult {
     pub task_id: String,
@@ -187,7 +187,7 @@ pub struct ScanProgress {
     pub current_path: Option<String>,
 }
 
-#[derive(Clone, Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScanErrorSummary {
     pub access_denied: u64,
@@ -219,7 +219,7 @@ pub struct QuickScanResult {
     pub errors: ScanErrorSummary,
 }
 
-#[derive(Clone, Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AnalysisSummary {
     pub task_id: String,
@@ -232,7 +232,7 @@ pub struct AnalysisSummary {
     pub root_nodes: Vec<DirectoryNode>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DirectoryNode {
     pub node_id: String,

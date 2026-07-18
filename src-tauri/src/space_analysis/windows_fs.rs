@@ -2,8 +2,8 @@ use std::fs::Metadata;
 use std::io;
 use std::path::Path;
 
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
-pub(crate) struct FileIdentity(u64, u64);
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+pub(crate) struct FileIdentity(pub(crate) u64, pub(crate) u64);
 
 #[cfg(windows)]
 pub(crate) fn file_identity(path: &Path) -> io::Result<FileIdentity> {

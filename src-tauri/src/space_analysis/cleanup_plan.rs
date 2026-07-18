@@ -51,7 +51,7 @@ impl fmt::Display for PlanError {
 
 impl std::error::Error for PlanError {}
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub(crate) enum ValidationSource {
     Known {
         candidate_id: String,
@@ -63,14 +63,14 @@ pub(crate) enum ValidationSource {
     },
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub(crate) struct PlanValidation {
     pub(crate) expected_identity: FileIdentity,
     pub(crate) allowed_roots: Vec<PathBuf>,
     pub(crate) source: ValidationSource,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub(crate) struct StoredCleanupPlan {
     pub(crate) plan: CleanupPlan,
     pub(crate) validation: HashMap<String, PlanValidation>,

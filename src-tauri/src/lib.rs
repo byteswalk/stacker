@@ -27,6 +27,12 @@ mod winenv;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    if let Some((file, token)) = space_analysis::elevated::helper_arg() {
+        std::process::exit(space_analysis::elevated::run_helper_from_file(
+            &file, &token,
+        ));
+    }
+
     // 提权实例：写完 HKLM 系统级环境变量就退出，不起 GUI
     if let Some((file, token)) = winadmin::syssetenv_arg() {
         std::process::exit(winadmin::apply_from_file(&file, &token));
@@ -143,6 +149,7 @@ pub fn run() {
             space_analysis::space_scan_summary,
             space_analysis::space_scan_children,
             space_analysis::space_scan_large_files,
+            space_analysis::space_scan_supplement_elevated,
             space_analysis::space_cleanup_plan,
             space_analysis::space_cleanup_start,
             space_analysis::space_cleanup_status,
