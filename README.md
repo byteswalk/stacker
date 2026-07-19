@@ -6,7 +6,7 @@ Stacker gives Windows developers one control surface for the infrastructure behi
 
 [Chinese documentation](README.zh-CN.md)
 
-[![Release](https://img.shields.io/github/v/release/byteswalk/stacker?label=release)](https://github.com/byteswalk/stacker/releases/latest)
+[![Release](assets/badges/release.svg)](https://github.com/byteswalk/stacker/releases/latest)
 [![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-2563eb)](#requirements)
 [![License](https://img.shields.io/github/license/byteswalk/stacker)](LICENSE)
 [![Tauri](https://img.shields.io/badge/Tauri-2-24c8db)](https://tauri.app/)

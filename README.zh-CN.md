@@ -6,7 +6,7 @@ Stacker 把现代软件开发依赖的本机基础设施集中到一个控制界
 
 [English](README.md)
 
-[![Release](https://img.shields.io/github/v/release/byteswalk/stacker?label=release)](https://github.com/byteswalk/stacker/releases/latest)
+[![Release](assets/badges/release.svg)](https://github.com/byteswalk/stacker/releases/latest)
 [![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-2563eb)](#系统要求)
 [![License](https://img.shields.io/github/license/byteswalk/stacker)](LICENSE)
 [![Tauri](https://img.shields.io/badge/Tauri-2-24c8db)](https://tauri.app/)
