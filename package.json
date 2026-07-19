@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "test": "vitest run",
     "typecheck": "tsc -b --pretty false",
+    "check:release-metadata": "node scripts/check-release-metadata.mjs",
     "preview": "vite preview",
     "tauri": "tauri",
     "release:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release-windows.ps1"

@@ -1,25 +1,26 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { invoke } from "./invoke";
 import { collectFrontendSettings, restoreFrontendSettings, type FrontendSettings } from "./frontendSettings";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { ToastProvider, ToastHost, useToast, Modal, ConfirmModal, BusyProvider, BusyHost } from "./ui";
 import { Select } from "./Select";
-import Overview from "./pages/Overview";
-import Vibe from "./pages/Vibe";
-import Git from "./pages/Git";
-import Proxy from "./pages/Proxy";
-import History from "./pages/History";
-import Java from "./pages/Java";
-import Python from "./pages/Python";
-import Maven from "./pages/Maven";
-import Gradle from "./pages/Gradle";
-import Rust from "./pages/Rust";
-import Go from "./pages/Go";
-import Cleanup from "./pages/Cleanup";
-import Node from "./pages/Node";
-import Settings from "./pages/Settings";
 import { useI18n, type MessageKey } from "./i18n";
 import { NotificationProvider, useNotifications, formatBytes } from "./notifications";
+
+const Overview = lazy(() => import("./pages/Overview"));
+const Vibe = lazy(() => import("./pages/Vibe"));
+const Git = lazy(() => import("./pages/Git"));
+const Proxy = lazy(() => import("./pages/Proxy"));
+const History = lazy(() => import("./pages/History"));
+const Java = lazy(() => import("./pages/Java"));
+const Python = lazy(() => import("./pages/Python"));
+const Maven = lazy(() => import("./pages/Maven"));
+const Gradle = lazy(() => import("./pages/Gradle"));
+const Rust = lazy(() => import("./pages/Rust"));
+const Go = lazy(() => import("./pages/Go"));
+const Cleanup = lazy(() => import("./pages/Cleanup"));
+const Node = lazy(() => import("./pages/Node"));
+const Settings = lazy(() => import("./pages/Settings"));
 
 export type Page =
   | "overview" | "vibe" | "git" | "python" | "node" | "java" | "maven" | "gradle" | "go" | "rust"
@@ -92,6 +93,16 @@ function Stub({ item }: { item: NavItem }) {
       <div className="si"><i className={"ti " + item.icon} /></div>
       <h2>{t(item.labelKey)}</h2>
       <p>{t("state.comingSoonDesc")}</p>
+    </div>
+  );
+}
+
+function PageFallback() {
+  const { tr } = useI18n();
+  return (
+    <div className="page-loading-slot" role="status" aria-live="polite">
+      <i className="ti ti-loader-2" />
+      <span>{tr("正在加载…")}</span>
     </div>
   );
 }
@@ -273,21 +284,23 @@ function Shell() {
               <button className="gh xs" onClick={() => setOsDismiss(true)}>关闭提示</button>
             </div>
           )}
-          {page === "overview" ? <Overview key={configEpoch} goto={setPage} />
-            : page === "vibe" ? <Vibe key={configEpoch} />
-            : page === "git" ? <Git key={configEpoch} />
-            : page === "node" ? <Node key={configEpoch} />
-            : page === "proxy" ? <Proxy key={configEpoch} />
-            : page === "history" ? <History key={configEpoch} />
-            : page === "java" ? <Java key={configEpoch} />
-            : page === "python" ? <Python key={configEpoch} />
-            : page === "maven" ? <Maven key={configEpoch} />
-            : page === "gradle" ? <Gradle key={configEpoch} />
-            : page === "rust" ? <Rust key={configEpoch} />
-            : page === "go" ? <Go key={configEpoch} />
-            : page === "cleanup" ? <Cleanup key={configEpoch} />
-            : page === "settings" ? <Settings key={configEpoch} />
-            : <Stub item={cur} />}
+          <Suspense fallback={<PageFallback />}>
+            {page === "overview" ? <Overview key={configEpoch} goto={setPage} />
+              : page === "vibe" ? <Vibe key={configEpoch} />
+              : page === "git" ? <Git key={configEpoch} />
+              : page === "node" ? <Node key={configEpoch} />
+              : page === "proxy" ? <Proxy key={configEpoch} />
+              : page === "history" ? <History key={configEpoch} />
+              : page === "java" ? <Java key={configEpoch} />
+              : page === "python" ? <Python key={configEpoch} />
+              : page === "maven" ? <Maven key={configEpoch} />
+              : page === "gradle" ? <Gradle key={configEpoch} />
+              : page === "rust" ? <Rust key={configEpoch} />
+              : page === "go" ? <Go key={configEpoch} />
+              : page === "cleanup" ? <Cleanup key={configEpoch} />
+              : page === "settings" ? <Settings key={configEpoch} />
+              : <Stub item={cur} />}
+          </Suspense>
         </div>
       </div>
 

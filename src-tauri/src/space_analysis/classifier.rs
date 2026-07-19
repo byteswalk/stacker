@@ -108,19 +108,20 @@ pub(crate) fn detect_projects(index: &IndexedScanResult) -> DetectedProjects {
 
     let mut detected = DetectedProjects::default();
     for entry in entries {
-        let own_project = (!is_tool_or_dependency_managed_project_root(Path::new(&entry.node.path)))
-            .then(|| detect_project_kind(entry.direct_file_names))
-            .flatten()
-            .map(|kind| {
-                let project_id = format!("project-{}", entry.node.node_id);
-                detected.roots.push(ProjectRoot {
-                    project_id: project_id.clone(),
-                    node_id: entry.node.node_id.clone(),
-                    path: entry.node.path.clone(),
-                    kind,
+        let own_project =
+            (!is_tool_or_dependency_managed_project_root(Path::new(&entry.node.path)))
+                .then(|| detect_project_kind(entry.direct_file_names))
+                .flatten()
+                .map(|kind| {
+                    let project_id = format!("project-{}", entry.node.node_id);
+                    detected.roots.push(ProjectRoot {
+                        project_id: project_id.clone(),
+                        node_id: entry.node.node_id.clone(),
+                        path: entry.node.path.clone(),
+                        kind,
+                    });
+                    project_id
                 });
-                project_id
-            });
 
         let nearest = own_project.or_else(|| {
             entry
@@ -238,10 +239,12 @@ fn path_component_words(path: &Path) -> impl Iterator<Item = String> + '_ {
 
 fn is_tool_or_dependency_managed_project_root(path: &Path) -> bool {
     let components = path_component_words(path).collect::<Vec<_>>();
-    components.iter().any(|component| component == "node_modules")
-        || components
-            .windows(2)
-            .any(|pair| pair == ["fnm", "node-versions"] || pair == ["node-versions", "installation"])
+    components
+        .iter()
+        .any(|component| component == "node_modules")
+        || components.windows(2).any(|pair| {
+            pair == ["fnm", "node-versions"] || pair == ["node-versions", "installation"]
+        })
         || components.iter().any(|component| {
             matches!(
                 component.as_str(),

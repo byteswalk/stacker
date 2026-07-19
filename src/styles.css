@@ -77,6 +77,9 @@ button{ font-family:inherit; }
 .a .pbtn:hover{ background:rgba(255,255,255,.08); color:var(--tx); }
 .a .content{ padding:16px 18px; display:flex; flex-direction:column; gap:2px; overflow:auto; }
 .a .content > *{ min-width:0; max-width:100%; flex-shrink:0; }
+.a .page-loading-slot{ min-height:calc(100vh - 126px); display:flex; align-items:center; justify-content:center; gap:8px;
+  color:var(--mut); font-size:12px; }
+.a .page-loading-slot i{ font-size:17px; color:var(--acc); animation:spin .9s linear infinite; }
 
 /* 分组标题 */
 .a .grouphd{ display:flex; align-items:center; justify-content:space-between; gap:8px 12px; margin:12px 2px 8px; min-width:0; flex-wrap:wrap; }
