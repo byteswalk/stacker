@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useI18n } from "../../../i18n";
 import { invoke } from "../../../invoke";
+import { useToast } from "../../../ui";
 import type { AnalysisSummary, ScanRequest, SnapshotMetadata, VolumeInfo } from "../types";
 import { loadCleanupCandidates, prepareCleanupPlan, useCleanupStore } from "../cleanupStore";
 import { startScan } from "../store";
@@ -34,6 +35,7 @@ export function matchedFreeBytes(request: ScanRequest, volumes: readonly VolumeI
 
 export function AnalysisTabs({ taskId, request }: { taskId: string; request: ScanRequest }) {
   const { tr } = useI18n();
+  const toast = useToast();
   const cleanup = useCleanupStore();
   const [activeTab, setActiveTab] = useState<AnalysisTab>("overview");
   const [summary, setSummary] = useState<AnalysisSummary | null>(null);
@@ -89,6 +91,7 @@ export function AnalysisTabs({ taskId, request }: { taskId: string; request: Sca
   const cacheNodes = cleanup.candidates.filter((node) => cacheImpactKeys.has(node.impactKey ?? ""));
   const artifactNodes = cleanup.candidates.filter((node) => !cacheImpactKeys.has(node.impactKey ?? ""));
   const selectedBytes = cleanup.candidates.filter((node) => cleanup.selected.has(node.nodeId)).reduce((sum, node) => sum + node.allocatedBytes, 0);
+  const cleanupTabActive = activeTab === "development-artifacts" || activeTab === "cache-downloads";
 
   function rescanAffected(paths: string[]) {
     const targets = [...new Set(paths.map((path) => path.replace(/[\\/][^\\/]+[\\/]?$/, "")).filter(Boolean))];
@@ -103,8 +106,15 @@ export function AnalysisTabs({ taskId, request }: { taskId: string; request: Sca
       </div>
       <div className="space-cleanup-toolbar">
         <span>{tr("已选择")} {cleanup.selected.size} {tr("项")} · {formatSpaceBytes(selectedBytes)}</span>
-        <button className="pr sm" disabled={cleanup.loading || cleanup.selected.size === 0 || cleanup.progress?.state === "running"}
-          onClick={() => void prepareCleanupPlan()}><i className="ti ti-list-check" /> {tr("生成清理计划")}</button>
+        <button className="pr sm" disabled={!cleanupTabActive || cleanup.loading || cleanup.planning || cleanup.selected.size === 0 || cleanup.progress?.state === "running"}
+          title={tr(cleanupTabActive ? "核对所选项目后进入清理确认" : "请在“开发产物”或“缓存与下载”页面选择需要清理的项目")}
+          onClick={async () => {
+            try {
+              await prepareCleanupPlan();
+            } catch (error) {
+              toast(`${tr("无法准备清理：")}${String(error)}`, "err");
+            }
+          }}><i className={`ti ${cleanup.planning ? "ti-loader spin" : "ti-eraser"}`} /> {tr(cleanup.planning ? "正在准备…" : "清理")}</button>
       </div>
     </div>
     <div className="space-analysis-tab-panel" role="tabpanel">

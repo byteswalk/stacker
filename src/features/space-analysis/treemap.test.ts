@@ -37,6 +37,15 @@ describe("layoutTreemap", () => {
     expect(rows.map((row) => row.id)).toEqual(["largest", "second", "first"]);
   });
 
+  it("can preserve input order for top-level scan roots", () => {
+    const rows = layoutTreemap([
+      { id: "C:\\", value: 20 },
+      { id: "D:\\", value: 80 },
+    ], 300, 200, "input");
+
+    expect(rows.map((row) => row.id)).toEqual(["C:\\", "D:\\"]);
+  });
+
   it("is deterministic and accounts for the full container area", () => {
     const input = Array.from({ length: 30 }, (_, index) => ({
       id: `node-${index}`,

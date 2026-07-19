@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canSelectSafety, defaultSelectedNodeIds, selectionWithNodes } from "./cleanupStore";
+import { canSelectSafety, compactCleanupSelection, defaultSelectedNodeIds, selectionWithNodes } from "./cleanupStore";
 import type { DirectoryNode } from "./types";
 
 function node(nodeId: string, safety: string): DirectoryNode {
@@ -25,5 +25,15 @@ describe("cleanup selection", () => {
     const selected = selectionWithNodes(new Set(["outside"]), category, true);
     expect([...selected]).toEqual(["outside", "one", "two"]);
     expect([...selectionWithNodes(selected, category, false)]).toEqual(["outside"]);
+  });
+});
+
+describe("cleanup preparation", () => {
+  it("keeps only the parent when selected cleanup paths overlap", () => {
+    const parent = { ...node("parent", "rebuildable"), path: String.raw`D:\project\target` };
+    const child = { ...node("child", "rebuildable"), path: String.raw`D:\project\target\debug` };
+    const sibling = { ...node("sibling", "safe"), path: String.raw`D:\project\node_modules` };
+    expect(compactCleanupSelection([child, sibling, parent], new Set(["child", "sibling", "parent"])))
+      .toEqual(["parent", "sibling"]);
   });
 });

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "../invoke";
 import { enable as autostartEnable, disable as autostartDisable, isEnabled as autostartIsEnabled } from "@tauri-apps/plugin-autostart";
 import { ConfirmModal, Modal, useBusy, useToast } from "../ui";
@@ -63,6 +64,7 @@ export default function Settings() {
   const notices = useNotifications();
   const checkNotifications = notices.checkNow;
   const [noBackend, setNoBackend] = useState(false);
+  const [appVersion, setAppVersion] = useState("…");
   const [sourceOpen, setSourceOpen] = useState(false);
   const [sourceSummary, setSourceSummary] = useState<SourceSummary | null>(null);
   const [tray, setTray] = useState(false);
@@ -78,6 +80,7 @@ export default function Settings() {
   const [snapshotMaxPerTarget, setSnapshotMaxPerTarget] = useState("20");
   const [commonScanDirectories, setCommonScanDirectories] = useState("");
   const [spaceAnalysisSaving, setSpaceAnalysisSaving] = useState(false);
+
   const [clearLogConfirm, setClearLogConfirm] = useState(false);
   const [clearLogBusy, setClearLogBusy] = useState(false);
   const [proxyHost, setProxyHost] = useState("127.0.0.1");
@@ -89,6 +92,10 @@ export default function Settings() {
   const [sourceUpdBusy, setSourceUpdBusy] = useState(false);
   const activeSourceUpdate = sourceUpdate ?? notices.sourceUpdate;
   const activeAppUpdate = updateInfo ?? notices.appUpdate;
+
+  useEffect(() => {
+    void getVersion().then(setAppVersion).catch(() => setAppVersion("unknown"));
+  }, []);
 
   const refreshSourceSummary = useCallback(() => {
     invoke<SourceSummary>("source_catalog_status")
@@ -540,11 +547,11 @@ export default function Settings() {
         <span className="s dim">GB</span>
         <label className="sw sm2"><input type="checkbox" checked={notices.prefs.cleanup} onChange={(e) => updatePrefs({ cleanup: e.target.checked })} /><span className="tk" /></label>
       </div>
-      <div className="grouphd" style={{ marginTop: 18 }}><span className="gt"><i className="ti ti-info-circle" /> 关于</span></div>
+      <div className="grouphd" style={{ marginTop: 18 }}><span className="gt"><i className="ti ti-info-circle" /> {tr("关于")}</span></div>
       <div className="srcrow">
         <span className="av st"><i className="ti ti-hexagon-letter-s" /></span>
-        <div className="mt"><div className="t">Stacker 0.2.0 <span className="bd n">开源 · 无遥测</span>{activeAppUpdate && <span className="bd r">发现 v{activeAppUpdate.latest}</span>}</div>
-          <div className="s dim" title="Windows 开发环境与工作智能体工具管理器 · https://github.com/byteswalk/stacker">Windows 开发环境与工作智能体工具管理器 · github.com/byteswalk/stacker</div></div>
+        <div className="mt"><div className="t">Stacker {appVersion} <span className="bd n">{tr("开源 · 无遥测")}</span>{activeAppUpdate && <span className="bd r">{tr("发现新版本")} v{activeAppUpdate.latest}</span>}</div>
+          <div className="s dim" title={tr("Windows 开发工作站管理器：统一管理运行时、AI 工作智能体、Git 账号、网络源与开发磁盘空间。")}>{tr("Windows 开发工作站管理器")} · github.com/byteswalk/stacker</div></div>
         <button className="gh sm" onClick={() => openUrl("https://github.com/byteswalk/stacker")}>
           <i className="ti ti-brand-github" /> GitHub</button>
         <button className="gh sm" disabled={appUpdBusy} onClick={checkAppUpdate}>

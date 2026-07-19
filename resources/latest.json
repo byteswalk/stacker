@@ -1,14 +1,12 @@
 {
-  "version": "0.3.0",
-  "released_at": "2026-07-19T03:02:13+08:00",
-  "release_url": "https://github.com/byteswalk/stacker/releases/tag/v0.3.0",
-  "installer_url": "https://github.com/byteswalk/stacker/releases/download/v0.3.0/Stacker-0.3.0-setup-windows-x64.exe",
-  "portable_url": "https://github.com/byteswalk/stacker/releases/download/v0.3.0/Stacker-0.3.0-portable-windows-x64.zip",
+  "version": "0.3.1",
+  "released_at": "2026-07-19T21:47:02+08:00",
+  "release_url": "https://github.com/byteswalk/stacker/releases/tag/v0.3.1",
+  "installer_url": "https://github.com/byteswalk/stacker/releases/download/v0.3.1/Stacker-0.3.1-setup-windows-x64.exe",
+  "portable_url": "https://github.com/byteswalk/stacker/releases/download/v0.3.1/Stacker-0.3.1-portable-windows-x64.zip",
   "notes": [
-    "新增可持续后台运行的目录与磁盘空间分析，支持多目录、全盘选择、进度统计和扫描恢复",
-    "新增目录下钻、项目识别、大文件与开发产物分类，以及执行前重新验证的安全清理计划",
-    "支持按需使用管理员权限扫描受保护目录，并改进磁盘扫描取消、状态恢复与任务隔离",
-    "修复 Git for Windows 更新可能关闭 Stacker 或其他开发工具的问题，并新增安装诊断日志",
-    "重写中英文项目说明，更新产品定位与代表性功能截图"
+    "Improved disk cleanup safety for runtime-managed and tool-bundled Node.js dependencies.",
+    "Prevented cleanup progress effects from creating horizontal overflow in the confirmation dialog.",
+    "Updated version metadata and release artifacts for Stacker 0.3.1."
   ]
 }

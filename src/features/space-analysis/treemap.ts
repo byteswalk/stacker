@@ -102,6 +102,7 @@ export function layoutTreemap(
   data: readonly TreemapDatum[],
   width: number,
   height: number,
+  sort: "value" | "input" = "value",
 ): TreemapRect[] {
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
     return [];
@@ -110,7 +111,7 @@ export function layoutTreemap(
   const values = data
     .map((item, order) => ({ ...item, order }))
     .filter((item) => Number.isFinite(item.value) && item.value > 0)
-    .sort((left, right) => right.value - left.value || left.order - right.order);
+    .sort((left, right) => sort === "input" ? left.order - right.order : right.value - left.value || left.order - right.order);
   const total = values.reduce((sum, item) => sum + item.value, 0);
   if (total <= 0) return [];
 

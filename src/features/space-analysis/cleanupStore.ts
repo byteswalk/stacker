@@ -8,6 +8,7 @@ export type CleanupStoreState = {
   candidates: DirectoryNode[];
   selected: Set<string>;
   loading: boolean;
+  planning: boolean;
   error: string | null;
   plan: CleanupPlan | null;
   progress: CleanupProgress | null;
@@ -19,6 +20,7 @@ const initialState: CleanupStoreState = {
   candidates: [],
   selected: new Set(),
   loading: false,
+  planning: false,
   error: null,
   plan: null,
   progress: null,
@@ -40,6 +42,23 @@ export function defaultSelectedNodeIds(nodes: readonly DirectoryNode[]) {
 
 export function canSelectSafety(safety: string): safety is Exclude<SafetyClass, "viewOnly"> {
   return safety === "safe" || safety === "rebuildable" || safety === "needsConfirmation";
+}
+
+function normalizedCleanupPath(path: string) {
+  return path.trim().replaceAll("/", "\\").replace(/\\+$/, "").toLocaleLowerCase("en-US");
+}
+
+export function compactCleanupSelection(nodes: readonly DirectoryNode[], selected: ReadonlySet<string>) {
+  const selectedNodes = nodes
+    .filter((node) => selected.has(node.nodeId) && canSelectSafety(node.safety))
+    .map((node) => ({ nodeId: node.nodeId, path: normalizedCleanupPath(node.path) }))
+    .sort((left, right) => left.path.length - right.path.length || left.path.localeCompare(right.path));
+  const kept: Array<{ nodeId: string; path: string }> = [];
+  selectedNodes.forEach((candidate) => {
+    const covered = kept.some((parent) => candidate.path === parent.path || candidate.path.startsWith(`${parent.path}\\`));
+    if (!covered) kept.push(candidate);
+  });
+  return kept.map((item) => item.nodeId);
 }
 
 export function useCleanupStore() {
@@ -64,7 +83,7 @@ export async function loadCleanupCandidates(scanTaskId: string) {
 }
 
 export function toggleCleanupNode(node: DirectoryNode) {
-  if (!canSelectSafety(node.safety) || state.progress?.state === "running") return;
+  if (!canSelectSafety(node.safety) || state.planning || state.progress?.state === "running") return;
   const selected = new Set(state.selected);
   if (selected.has(node.nodeId)) selected.delete(node.nodeId);
   else selected.add(node.nodeId);
@@ -86,7 +105,7 @@ export function selectionWithNodes(
 }
 
 export function setCleanupNodesSelected(nodes: readonly DirectoryNode[], selected: boolean) {
-  if (state.progress?.state === "running") return;
+  if (state.planning || state.progress?.state === "running") return;
   publish({
     ...state,
     selected: selectionWithNodes(state.selected, nodes, selected),
@@ -96,13 +115,19 @@ export function setCleanupNodesSelected(nodes: readonly DirectoryNode[], selecte
 }
 
 export async function prepareCleanupPlan() {
-  if (!state.scanTaskId || state.selected.size === 0) return null;
-  const plan = await invoke<CleanupPlan>("space_cleanup_plan", {
-    scanTaskId: state.scanTaskId,
-    nodeIds: [...state.selected],
-  });
-  publish({ ...state, plan, error: null });
-  return plan;
+  if (!state.scanTaskId || state.selected.size === 0 || state.planning) return null;
+  const nodeIds = compactCleanupSelection(state.candidates, state.selected);
+  if (nodeIds.length === 0) return null;
+  const scanTaskId = state.scanTaskId;
+  publish({ ...state, selected: new Set(nodeIds), planning: true, plan: null });
+  try {
+    const plan = await invoke<CleanupPlan>("space_cleanup_plan", { scanTaskId, nodeIds });
+    publish({ ...state, planning: false, plan });
+    return plan;
+  } catch (error) {
+    publish({ ...state, planning: false });
+    throw error;
+  }
 }
 
 function terminal(value: CleanupProgress["state"]) {

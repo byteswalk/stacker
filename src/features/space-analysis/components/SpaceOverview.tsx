@@ -29,6 +29,10 @@ function rootMap(nodes: readonly DirectoryNode[]) {
   return new Map(nodes.map((node) => [node.nodeId, node]));
 }
 
+export function sortRootNodes(nodes: readonly DirectoryNode[]) {
+  return [...nodes].sort((left, right) => left.path.localeCompare(right.path, "en-US", { numeric: true, sensitivity: "base" }));
+}
+
 export function SpaceOverview({
   taskId,
   summary,
@@ -41,17 +45,21 @@ export function SpaceOverview({
   const { tr } = useI18n();
   const toast = useToast();
   const treemapRef = useRef<HTMLDivElement>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
   const requestGeneration = useRef(0);
   const [treemapWidth, setTreemapWidth] = useState(800);
   const [levels, setLevels] = useState<Array<{ node: DirectoryNode; nodes: DirectoryNode[] }>>([]);
   const [loadingNodeId, setLoadingNodeId] = useState<string | null>(null);
-  const visibleNodes = levels.at(-1)?.nodes ?? summary.rootNodes;
+  const [contextMenu, setContextMenu] = useState<{ node: DirectoryNode; x: number; y: number } | null>(null);
+  const rootLevel = levels.length === 0;
+  const visibleNodes = levels.at(-1)?.nodes ?? sortRootNodes(summary.rootNodes);
   const nodesById = useMemo(() => rootMap(visibleNodes), [visibleNodes]);
   const rectangles = useMemo(() => layoutTreemap(
     visibleNodes.map((node) => ({ id: node.nodeId, value: node.allocatedBytes })),
     treemapWidth,
     TREEMAP_HEIGHT,
-  ), [visibleNodes, treemapWidth]);
+    rootLevel ? "input" : "value",
+  ), [rootLevel, visibleNodes, treemapWidth]);
 
   useEffect(() => {
     requestGeneration.current += 1;
@@ -69,6 +77,29 @@ export function SpaceOverview({
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = (event: PointerEvent) => {
+      if (!contextMenuRef.current?.contains(event.target as Node)) setContextMenu(null);
+    };
+    const closeImmediately = () => setContextMenu(null);
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeImmediately();
+    };
+    document.addEventListener("pointerdown", close);
+    document.addEventListener("keydown", closeOnEscape);
+    window.addEventListener("blur", closeImmediately);
+    window.addEventListener("resize", closeImmediately);
+    window.addEventListener("scroll", closeImmediately, true);
+    return () => {
+      document.removeEventListener("pointerdown", close);
+      document.removeEventListener("keydown", closeOnEscape);
+      window.removeEventListener("blur", closeImmediately);
+      window.removeEventListener("resize", closeImmediately);
+      window.removeEventListener("scroll", closeImmediately, true);
+    };
+  }, [contextMenu]);
 
   const metrics = [
     { label: tr("实际占用"), value: formatSpaceBytes(summary.allocatedBytes), icon: "ti-database" },
@@ -114,6 +145,7 @@ export function SpaceOverview({
   function showLevel(index: number) {
     requestGeneration.current += 1;
     setLoadingNodeId(null);
+    setContextMenu(null);
     setLevels((current) => current.slice(0, index));
   }
 
@@ -142,7 +174,7 @@ export function SpaceOverview({
       <div className="space-analysis-section-heading">
         <div>
           <strong>{tr("扫描范围占用")}</strong>
-          <span>{tr("矩形面积按实际磁盘占用计算；单击下钻目录，右键直接打开目录。")}</span>
+          <span>{tr("矩形面积按实际磁盘占用计算；单击下钻目录，右键可打开目录。")}</span>
         </div>
         <span>{summary.directoryCount.toLocaleString()} {tr("个目录")} · {summary.fileCount.toLocaleString()} {tr("个文件")}</span>
       </div>
@@ -175,7 +207,12 @@ export function SpaceOverview({
                 onClick={() => void drillInto(node)}
                 onContextMenu={(event) => {
                   event.preventDefault();
-                  void openDirectory(node.path);
+                  event.stopPropagation();
+                  setContextMenu({
+                    node,
+                    x: Math.max(8, Math.min(event.clientX, window.innerWidth - 168)),
+                    y: Math.max(8, Math.min(event.clientY, window.innerHeight - 54)),
+                  });
                 }}
                 style={{
                   left: rectangle.x,
@@ -196,6 +233,14 @@ export function SpaceOverview({
           })}
           {loadingNodeId && <div className="space-treemap-loading"><i className="ti ti-loader spin" /> {tr("正在读取子目录…")}</div>}
         </div>
+        {contextMenu && <div ref={contextMenuRef} className="space-treemap-context-menu" role="menu"
+          style={{ left: contextMenu.x, top: contextMenu.y }}>
+          <button type="button" role="menuitem" autoFocus onClick={() => {
+            const path = contextMenu.node.path;
+            setContextMenu(null);
+            void openDirectory(path);
+          }}><i className="ti ti-folder-open" /> {tr("打开目录")}</button>
+        </div>}
         </>
       )}
     </div>

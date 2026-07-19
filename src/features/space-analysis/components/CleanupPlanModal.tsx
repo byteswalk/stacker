@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Modal, useToast } from "../../../ui";
 import { useI18n } from "../../../i18n";
 import { dismissCleanupPlan, startCleanup, useCleanupStore } from "../cleanupStore";
@@ -11,9 +11,12 @@ export function CleanupPlanModal() {
   const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const plan = cleanup.plan;
+  useEffect(() => {
+    setConfirmed(false);
+  }, [plan?.planId]);
   if (!plan || cleanup.result) return null;
   const destructive = plan.items.some((item) => item.safety !== "safe");
-  return <Modal wide title={tr("确认清理计划")} icon="ti-eraser" onClose={busy ? undefined : dismissCleanupPlan}
+  return <Modal wide title={tr("确认清理")} icon="ti-eraser" onClose={busy ? undefined : dismissCleanupPlan}
     footer={<>
       <button className="gh sm" disabled={busy} onClick={dismissCleanupPlan}>{tr("取消")}</button>
       <button className={`pr sm${destructive ? " danger-solid" : ""}`} disabled={busy || !confirmed}
@@ -48,7 +51,7 @@ export function CleanupPlanModal() {
         <span>{tr("已释放")} {formatSpaceBytes(cleanup.progress.actualReleasedBytes)}</span>
       </div>}
       <label className="space-cleanup-confirm"><input type="checkbox" checked={confirmed} disabled={busy} onChange={(event) => setConfirmed(event.target.checked)} />
-        <span>{tr("我已确认所选目录和影响，允许执行此清理计划。")}</span>
+        <span>{tr("我已确认所选目录和影响，允许执行清理。")}</span>
       </label>
     </div>
   </Modal>;

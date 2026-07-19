@@ -2,7 +2,7 @@ use super::known::CleanupKind;
 use super::model::{DirectoryNode, ProjectKind, ProjectRoot, SafetyClass};
 use super::walker::IndexedScanResult;
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
+use std::path::{Component, Path};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ArtifactRule {
@@ -108,16 +108,19 @@ pub(crate) fn detect_projects(index: &IndexedScanResult) -> DetectedProjects {
 
     let mut detected = DetectedProjects::default();
     for entry in entries {
-        let own_project = detect_project_kind(entry.direct_file_names).map(|kind| {
-            let project_id = format!("project-{}", entry.node.node_id);
-            detected.roots.push(ProjectRoot {
-                project_id: project_id.clone(),
-                node_id: entry.node.node_id.clone(),
-                path: entry.node.path.clone(),
-                kind,
+        let own_project = (!is_tool_or_dependency_managed_project_root(Path::new(&entry.node.path)))
+            .then(|| detect_project_kind(entry.direct_file_names))
+            .flatten()
+            .map(|kind| {
+                let project_id = format!("project-{}", entry.node.node_id);
+                detected.roots.push(ProjectRoot {
+                    project_id: project_id.clone(),
+                    node_id: entry.node.node_id.clone(),
+                    path: entry.node.path.clone(),
+                    kind,
+                });
+                project_id
             });
-            project_id
-        });
 
         let nearest = own_project.or_else(|| {
             entry
@@ -186,6 +189,9 @@ pub(crate) fn matches_artifact_rule(
     impact_key: &str,
     safety: SafetyClass,
 ) -> bool {
+    if is_tool_or_dependency_managed_project_root(project_root) {
+        return false;
+    }
     let Ok(relative_path) = artifact_path.strip_prefix(project_root) else {
         return false;
     };
@@ -221,6 +227,32 @@ fn normalized_relative_path(path: &Path) -> String {
         .collect::<Vec<_>>()
         .join("/")
         .to_lowercase()
+}
+
+fn path_component_words(path: &Path) -> impl Iterator<Item = String> + '_ {
+    path.components().filter_map(|component| match component {
+        Component::Normal(value) => Some(value.to_string_lossy().to_ascii_lowercase()),
+        _ => None,
+    })
+}
+
+fn is_tool_or_dependency_managed_project_root(path: &Path) -> bool {
+    let components = path_component_words(path).collect::<Vec<_>>();
+    components.iter().any(|component| component == "node_modules")
+        || components
+            .windows(2)
+            .any(|pair| pair == ["fnm", "node-versions"] || pair == ["node-versions", "installation"])
+        || components.iter().any(|component| {
+            matches!(
+                component.as_str(),
+                "hbuilderx"
+                    | "androidstudio"
+                    | "jetbrains"
+                    | "plugins"
+                    | "extensions"
+                    | "app.asar.unpacked"
+            )
+        })
 }
 
 pub(crate) fn detect_project_kind(file_names: &HashSet<String>) -> Option<ProjectKind> {
@@ -421,7 +453,7 @@ mod tests {
             fs::write(artifact_path.join("generated.bin"), b"generated").unwrap();
 
             let classification = classify_fixture(&project, &artifact_path);
-            assert_eq!(classification.safety, SafetyClass::Rebuildable);
+            assert_eq!(classification.safety, SafetyClass::Rebuildable, "{name}");
             assert_eq!(classification.cleanup_kind, CleanupKind::WholeDirectory);
             assert!(classification.project_id.is_some());
             assert!(classification.impact_key.is_some());
@@ -438,6 +470,41 @@ mod tests {
                 SafetyClass::ViewOnly
             );
         }
+    }
+
+    #[test]
+    fn node_modules_inside_runtime_installations_are_view_only() {
+        let temp = tempfile::tempdir().unwrap();
+        let npm_root = temp
+            .path()
+            .join("fnm")
+            .join("node-versions")
+            .join("v24.18.0")
+            .join("installation")
+            .join("node_modules")
+            .join("npm");
+        let nested_modules = npm_root.join("node_modules");
+        fs::create_dir_all(&nested_modules).unwrap();
+        fs::write(npm_root.join("package.json"), b"marker").unwrap();
+
+        assert_eq!(
+            classify_fixture(temp.path(), &nested_modules).safety,
+            SafetyClass::ViewOnly
+        );
+    }
+
+    #[test]
+    fn node_modules_inside_tool_plugin_directories_are_view_only() {
+        let temp = tempfile::tempdir().unwrap();
+        let plugin_root = temp.path().join("HBuilderX").join("plugins").join("yshint");
+        let node_modules = plugin_root.join("node_modules");
+        fs::create_dir_all(&node_modules).unwrap();
+        fs::write(plugin_root.join("package.json"), b"marker").unwrap();
+
+        assert_eq!(
+            classify_fixture(temp.path(), &node_modules).safety,
+            SafetyClass::ViewOnly
+        );
     }
 
     #[test]

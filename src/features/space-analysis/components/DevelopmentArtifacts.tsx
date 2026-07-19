@@ -1,3 +1,4 @@
+import { useMemo, useState } from "react";
 import type { DirectoryNode } from "../types";
 import { canSelectSafety, setCleanupNodesSelected, toggleCleanupNode, useCleanupStore } from "../cleanupStore";
 import { useI18n } from "../../../i18n";
@@ -22,12 +23,12 @@ export function candidateImpact(node: Pick<DirectoryNode, "impactKey">) {
   return impactLabels[node.impactKey ?? ""] ?? "可重新生成的开发文件";
 }
 
-export function CandidateRows({ nodes }: { nodes: DirectoryNode[] }) {
+export function CandidateRows({ nodes, emptyText }: { nodes: DirectoryNode[]; emptyText?: string }) {
   const { tr } = useI18n();
   const cleanup = useCleanupStore();
   if (cleanup.loading) return <div className="space-analysis-state"><i className="ti ti-loader spin" />{tr("正在读取可清理项…")}</div>;
   if (cleanup.error) return <div className="space-analysis-state error"><i className="ti ti-alert-triangle" />{tr("无法读取可清理项，请重新扫描。")}</div>;
-  if (nodes.length === 0) return <div className="space-analysis-empty">{tr("当前扫描结果没有此类可清理项。")}</div>;
+  if (nodes.length === 0) return <div className="space-analysis-empty">{emptyText ?? tr("当前扫描结果没有此类可清理项。")}</div>;
   return <div className="space-cleanup-list">
     {nodes.map((node) => {
       const disabled = node.safety === "viewOnly" || cleanup.progress?.state === "running";
@@ -68,10 +69,37 @@ export function SelectionActions({ nodes }: { nodes: DirectoryNode[] }) {
   </div>;
 }
 
+export function CleanupPathFilter({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const { tr } = useI18n();
+  return <label className="space-cleanup-filter">
+    <i className="ti ti-search" aria-hidden="true" />
+    <input value={value} onChange={(event) => onChange(event.target.value)} placeholder={tr("筛选路径或目录名")} />
+    {value && <button type="button" title={tr("清除筛选")} aria-label={tr("清除筛选")} onClick={() => onChange("")}>
+      <i className="ti ti-x" aria-hidden="true" />
+    </button>}
+  </label>;
+}
+
+export function filterCleanupNodes(nodes: DirectoryNode[], query: string) {
+  const keyword = query.trim().toLocaleLowerCase();
+  if (!keyword) return nodes;
+  return nodes.filter((node) => `${node.name}\n${node.path}`.toLocaleLowerCase().includes(keyword));
+}
+
+export function useFilteredCleanupNodes(nodes: DirectoryNode[], query: string) {
+  return useMemo(() => filterCleanupNodes(nodes, query), [nodes, query]);
+}
+
 export function DevelopmentArtifacts({ nodes }: { nodes: DirectoryNode[] }) {
   const { tr } = useI18n();
+  const [query, setQuery] = useState("");
+  const filteredNodes = useFilteredCleanupNodes(nodes, query);
   return <>
-    <div className="space-analysis-section-heading"><div><strong>{tr("开发产物")}</strong><span>{tr("仅列出已识别项目中可重新生成的依赖、构建目录和发布产物。")}</span></div><SelectionActions nodes={nodes} /></div>
-    <CandidateRows nodes={nodes} />
+    <div className="space-analysis-section-heading space-cleanup-heading">
+      <div><strong>{tr("开发产物")}</strong><span>{tr("仅列出已识别项目中可重新生成的依赖、构建目录和发布产物。")}</span></div>
+      <div className="space-cleanup-heading-actions"><CleanupPathFilter value={query} onChange={setQuery} /><SelectionActions nodes={filteredNodes} /></div>
+    </div>
+    {query && <div className="space-cleanup-filter-note">{tr("批量操作仅作用于当前筛选结果。")} {filteredNodes.length} / {nodes.length}</div>}
+    <CandidateRows nodes={filteredNodes} emptyText={query ? tr("未找到匹配的可清理项。") : undefined} />
   </>;
 }
