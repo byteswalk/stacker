@@ -39,10 +39,11 @@ struct Cfg {
 const DEFAULT_MIRROR_LIST_URL: &str =
     "https://raw.githubusercontent.com/byteswalk/stacker/main/resources/mirrors.json";
 const GITEE_MIRROR_LIST_URL: &str =
-    "https://gitee.com/shaxiong/stacker/raw/main/resources/mirrors.json";
+    "https://gitee.com/shaxiong/stacker/raw/main/resources/mirrors.json?download=1";
 const DEFAULT_LATEST_URL: &str =
     "https://raw.githubusercontent.com/byteswalk/stacker/main/resources/latest.json";
-const GITEE_LATEST_URL: &str = "https://gitee.com/shaxiong/stacker/raw/main/resources/latest.json";
+const GITEE_LATEST_URL: &str =
+    "https://gitee.com/shaxiong/stacker/raw/main/resources/latest.json?download=1";
 
 fn official_mirror_urls_for_locale(locale: &str) -> Vec<&'static str> {
     if locale.eq_ignore_ascii_case("en-US") {
