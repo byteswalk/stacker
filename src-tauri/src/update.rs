@@ -44,6 +44,7 @@ const DEFAULT_LATEST_URL: &str =
     "https://raw.githubusercontent.com/byteswalk/stacker/main/resources/latest.json";
 const GITEE_LATEST_URL: &str =
     "https://gitee.com/shaxiong/stacker/raw/main/resources/latest.json?download=1";
+const GITEE_APP_REPO: &str = "shaxiong/stacker";
 
 fn official_mirror_urls_for_locale(locale: &str) -> Vec<&'static str> {
     if locale.eq_ignore_ascii_case("en-US") {
@@ -317,9 +318,13 @@ pub async fn app_check_update() -> Result<UpdateInfo, String> {
         let mut errors = Vec::new();
 
         if !english {
+            match gitee_latest_release(GITEE_APP_REPO, &current) {
+                Ok(info) => return Ok(info),
+                Err(error) => errors.push(format!("Gitee Releases: {error}")),
+            }
             match latest_json_update_from(GITEE_LATEST_URL, &current) {
                 Ok(info) => return Ok(info),
-                Err(error) => errors.push(format!("Gitee: {error}")),
+                Err(error) => errors.push(format!("Gitee manifest: {error}")),
             }
         }
         match github_latest_release(APP_REPO, &current) {
@@ -331,9 +336,13 @@ pub async fn app_check_update() -> Result<UpdateInfo, String> {
             Err(error) => errors.push(format!("GitHub manifest: {error}")),
         }
         if english {
+            match gitee_latest_release(GITEE_APP_REPO, &current) {
+                Ok(info) => return Ok(info),
+                Err(error) => errors.push(format!("Gitee Releases: {error}")),
+            }
             match latest_json_update_from(GITEE_LATEST_URL, &current) {
                 Ok(info) => return Ok(info),
-                Err(error) => errors.push(format!("Gitee: {error}")),
+                Err(error) => errors.push(format!("Gitee manifest: {error}")),
             }
         }
 
@@ -466,6 +475,15 @@ struct GitHubRelease {
 }
 
 #[derive(Deserialize)]
+struct GiteeRelease {
+    tag_name: String,
+    body: Option<String>,
+    created_at: Option<String>,
+    #[serde(default)]
+    assets: Vec<GitHubAsset>,
+}
+
+#[derive(Deserialize)]
 struct LatestFile {
     version: String,
     #[serde(default)]
@@ -551,6 +569,38 @@ fn github_latest_release(repo: &str, current: &str) -> Result<UpdateInfo, String
         }
     }
     Err(format!("获取最新版本失败：{last}"))
+}
+
+fn gitee_latest_release(repo: &str, current: &str) -> Result<UpdateInfo, String> {
+    let url = format!("https://gitee.com/api/v5/repos/{repo}/releases/latest");
+    let response = agent()
+        .get(&url)
+        .set("User-Agent", "Stacker")
+        .call()
+        .map_err(|error| format!("获取最新版本失败：{error}"))?;
+    let body = response
+        .into_string()
+        .map_err(|error| format!("读取版本信息失败：{error}"))?;
+    let release: GiteeRelease =
+        serde_json::from_str(&body).map_err(|error| format!("Gitee Release 格式错误：{error}"))?;
+    let latest = release.tag_name.trim_start_matches('v').trim().to_string();
+    Ok(UpdateInfo {
+        has_update: ver_lt(current, &latest),
+        current: current.into(),
+        latest,
+        release_url: Some(format!(
+            "https://gitee.com/{repo}/releases/tag/{}",
+            release.tag_name
+        )),
+        installer_url: pick_asset(&release.assets, false),
+        portable_url: pick_asset(&release.assets, true),
+        published_at: release.created_at,
+        notes: release
+            .body
+            .as_deref()
+            .map(notes_from_body)
+            .unwrap_or_default(),
+    })
 }
 
 fn latest_json_update_from(url: &str, current: &str) -> Result<UpdateInfo, String> {
