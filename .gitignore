@@ -15,23 +15,6 @@ src-tauri/target
 src-tauri/gen/schemas
 *.local
 
-# Local planning / design documents
-docs/
-design/
-CLAUDE.md
-claude.md
-AGENTS.md
-AI*.md
-ai*.md
-*AI*.md
-*ai*.md
-*系统设计*.md
-*设计*.md
-ARCHITECTURE*.md
-architecture*.md
-SYSTEM_DESIGN*.md
-system_design*.md
-
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
