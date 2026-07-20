@@ -6,10 +6,9 @@ Stacker 把现代软件开发依赖的本机基础设施集中到一个控制界
 
 [English](README.md)
 
-[![Release](assets/badges/release.svg)](https://github.com/byteswalk/stacker/releases/latest)
-[![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-2563eb)](#系统要求)
-[![License](https://img.shields.io/github/license/byteswalk/stacker)](LICENSE)
-[![Tauri](https://img.shields.io/badge/Tauri-2-24c8db)](https://tauri.app/)
+**下载 Stacker：** [Gitee 发行版](https://gitee.com/shaxiong/stacker/releases) · [GitHub 备用下载](https://github.com/byteswalk/stacker/releases/latest)
+
+**支持系统：** Windows 10/11 · **开源许可：** [MIT](LICENSE) · **桌面框架：** [Tauri 2](https://tauri.app/)
 
 ## 为什么需要 Stacker
 
@@ -73,7 +72,7 @@ Stacker 管理的正是这一层，并且不要求接入大模型，也不会上
 
 ## 下载
 
-从 [GitHub Releases](https://github.com/byteswalk/stacker/releases/latest) 下载最新版本：
+国内网络建议从 [Gitee 发行版](https://gitee.com/shaxiong/stacker/releases) 下载；也可以使用 [GitHub Releases](https://github.com/byteswalk/stacker/releases/latest) 备用入口。
 
 - **安装版**：适合日常桌面使用。
 - **免安装版**：适合临时使用或便携工具盘。

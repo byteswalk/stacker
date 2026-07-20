@@ -6,10 +6,9 @@ Stacker gives Windows developers one control surface for the infrastructure behi
 
 [Chinese documentation](README.zh-CN.md)
 
-[![Release](assets/badges/release.svg)](https://github.com/byteswalk/stacker/releases/latest)
-[![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-2563eb)](#requirements)
-[![License](https://img.shields.io/github/license/byteswalk/stacker)](LICENSE)
-[![Tauri](https://img.shields.io/badge/Tauri-2-24c8db)](https://tauri.app/)
+**Get Stacker:** [GitHub Releases](https://github.com/byteswalk/stacker/releases/latest) · [Gitee mirror](https://gitee.com/shaxiong/stacker/releases)
+
+**Platform:** Windows 10/11 · **License:** [MIT](LICENSE) · **Desktop runtime:** [Tauri 2](https://tauri.app/)
 
 ## Why Stacker
 
@@ -73,7 +72,7 @@ Quick Scan checks known developer caches. Deep analysis accepts multiple folders
 
 ## Download
 
-Download the latest build from [GitHub Releases](https://github.com/byteswalk/stacker/releases/latest):
+Download the latest build from [GitHub Releases](https://github.com/byteswalk/stacker/releases/latest). If GitHub is slow or unavailable on your network, use the [Gitee release mirror](https://gitee.com/shaxiong/stacker/releases).
 
 - **Installer** for regular desktop use.
 - **Portable package** for temporary or removable-tool use.
