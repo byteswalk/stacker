@@ -1,3 +1,5 @@
+![Stacker 开发工作站管理器](assets/brand/stacker-banner.png)
+
 # Stacker
 
 **面向 Windows 开发者的本地工作站管理器，统一管理运行时、AI 工作智能体、Git 身份、网络源和开发磁盘空间。**

@@ -1,3 +1,5 @@
+![Stacker developer workstation banner](assets/brand/stacker-banner.png)
+
 # Stacker
 
 **A local-first Windows developer workstation manager for runtimes, AI work agents, Git identities, network sources, and developer disk space.**
