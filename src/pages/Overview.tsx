@@ -369,7 +369,7 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
               {checkingAll ? <i className="ti ti-loader spin" style={{ fontSize: 24 }} /> : !hasChecked ? <><b>--</b><span>分</span></> : emptySetup ? <i className="ti ti-package-off" style={{ fontSize: 26 }} /> : <><b>{overallScore}</b><span>分</span></>}
             </span>
             <div className="ct">
-              <div className="t1">生态环境体检 · {overallTitle}</div>
+              <div className="t1">编程生态体检 · {overallTitle}</div>
               <div className="t2">{overallSummary}</div>
             </div>
             <div className="cacts">

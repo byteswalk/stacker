@@ -28,11 +28,11 @@ Stacker 管理的正是这一层，并且不要求接入大模型，也不会上
 
 ## 功能预览
 
-### 生态环境体检
+### 编程生态体检
 
 按需检查当前工作站真正生效的命令、运行时、包管理器、构建工具、代理设置和开发缓存。
 
-![Stacker 生态环境体检](assets/screenshots/zh-CN/environment-check.png)
+![Stacker 编程生态体检](assets/screenshots/zh-CN/environment-check.png)
 
 ### AI 工作智能体
 

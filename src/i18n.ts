@@ -12,7 +12,7 @@ const CHINESE_TEXT = /[\u3400-\u9fff]/;
 
 const messages = {
   "zh-CN": {
-    "nav.overview": "生态环境体检",
+    "nav.overview": "编程生态体检",
     "nav.vibe": "AI工作智能体",
     "nav.git": "Git",
     "nav.python": "Python",
@@ -30,7 +30,7 @@ const messages = {
     "state.comingSoonDesc": "当前版本尚未开放此功能。",
   },
   "en-US": {
-    "nav.overview": "Environment Check",
+    "nav.overview": "Programming Ecosystem Check",
     "nav.vibe": "AI Work Agents",
     "nav.git": "Git",
     "nav.python": "Python",
@@ -199,7 +199,7 @@ const CURATED_EN: Record<string, string> = {
   "个": "items",
   "约": "about",
   "删除后若再次使用会自动重新获取。": "Deleted data will be downloaded again when needed.",
-  "生态环境体检": "Environment Check",
+  "编程生态体检": "Programming Ecosystem Check",
   "AI工作智能体": "AI Work Agents",
   "工作智能体生态": "Work Agent Ecosystem",
   "编程生态": "Development Ecosystems",
@@ -370,7 +370,7 @@ const CURATED_EN: Record<string, string> = {
   "检测 npm、pip、Maven、Gradle、Cargo 等工具链状态。": "Check npm, pip, Maven, Gradle, Cargo, and related toolchains.",
   "配置、代理与缓存": "Configuration, Proxy & Cache",
   "检测终端集成、镜像源配置、代理环境变量和开发缓存占用。": "Review terminal integration, mirrors, proxy environment variables, and development caches.",
-  "生态环境体检 · 未开始": "Environment Check · Not Started",
+  "编程生态体检 · 未开始": "Programming Ecosystem Check · Not Started",
   "点击「开始体检」后，Stacker 将检测运行时、包管理器、构建工具、代理与缓存状态。": "Select Start Check to inspect runtimes, package managers, build tools, proxy settings, and caches.",
   "仅显示红点，不自动弹窗。": "Shows badges only and never opens pop-ups automatically.",
   "无法读取本次空间分析结果，请重新扫描。": "Unable to read this analysis result. Run the scan again.",
@@ -515,7 +515,7 @@ function polishEnglish(value: string) {
     .replace(/\bwarehouse\b/gi, "repository")
     .replace(/mirror images?/gi, "mirrors")
     .replace(/image sources?/gi, "mirrors")
-    .replace(/ecological environment physical examination/gi, "environment check")
+    .replace(/programming ecological physical examination/gi, "programming ecosystem check")
     .replace(/ecological environment/gi, "development environment")
     .replace(/submission identity/gi, "commit identity")
     .replace(/the new terminal takes effect/gi, "takes effect in new terminals")

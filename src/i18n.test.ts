@@ -8,11 +8,11 @@ describe("internationalization", () => {
   });
 
   it("keeps source text in Chinese mode", () => {
-    expect(translateText("生态环境体检", "zh-CN")).toBe("生态环境体检");
+    expect(translateText("编程生态体检", "zh-CN")).toBe("编程生态体检");
   });
 
   it("uses curated product terminology", () => {
-    expect(translateText("生态环境体检", "en-US")).toBe("Environment Check");
+    expect(translateText("编程生态体检", "en-US")).toBe("Programming Ecosystem Check");
     expect(translateText("待体检", "en-US")).toBe("Pending");
     expect(translateText("体检中…", "en-US")).toBe("Checking...");
     expect(translateText("复制摘要给 AI", "en-US")).toBe("Copy Summary for AI");

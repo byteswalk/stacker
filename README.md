@@ -28,11 +28,11 @@ Stacker manages that local layer without requiring a model connection or uploadi
 
 ## Product Tour
 
-### Environment Check
+### Programming Ecosystem Check
 
 Run an on-demand check of the commands, runtimes, package managers, build tools, proxy configuration, and developer caches that are actually effective on the workstation.
 
-![Stacker environment check](assets/screenshots/environment-check.png)
+![Stacker programming ecosystem check](assets/screenshots/environment-check.png)
 
 ### AI Work Agents
 

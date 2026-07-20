@@ -722,7 +722,7 @@ fn checkup_page_impl(page: &str) -> Vec<CheckItem> {
 pub async fn coding_ecosystem_check() -> Result<CodingEcosystemCheck, String> {
     tauri::async_runtime::spawn_blocking(coding_ecosystem_check_impl)
         .await
-        .map_err(|error| format!("生态环境体检任务异常结束：{error}"))
+        .map_err(|error| format!("编程生态体检任务异常结束：{error}"))
 }
 
 fn coding_ecosystem_check_impl() -> CodingEcosystemCheck {
