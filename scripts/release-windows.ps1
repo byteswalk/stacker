@@ -18,6 +18,23 @@ function Invoke-Checked {
     }
 }
 
+function Get-Sha256Hex {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path
+    )
+
+    $Stream = [System.IO.File]::OpenRead($Path)
+    $Algorithm = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $Bytes = $Algorithm.ComputeHash($Stream)
+        return ([System.BitConverter]::ToString($Bytes) -replace "-", "").ToLowerInvariant()
+    }
+    finally {
+        $Algorithm.Dispose()
+        $Stream.Dispose()
+    }
+}
+
 $Package = Get-Content (Join-Path $Root "package.json") -Raw | ConvertFrom-Json
 $Version = [string]$Package.version
 $Tauri = Get-Content (Join-Path $Root "src-tauri\tauri.conf.json") -Raw | ConvertFrom-Json
@@ -64,8 +81,7 @@ Remove-Item $PortableStage -Recurse -Force
 
 $ChecksumPath = Join-Path $Output "SHA256SUMS.txt"
 $Checksums = @($InstallerPath, $PortablePath) | ForEach-Object {
-    $Hash = Get-FileHash $_ -Algorithm SHA256
-    "$($Hash.Hash.ToLowerInvariant()) *$([System.IO.Path]::GetFileName($_))"
+    "$(Get-Sha256Hex $_) *$([System.IO.Path]::GetFileName($_))"
 }
 $Checksums | Set-Content $ChecksumPath -Encoding ascii
 
