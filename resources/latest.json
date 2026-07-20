@@ -1,12 +1,12 @@
 {
-  "version": "0.3.1",
-  "released_at": "2026-07-19T21:47:02+08:00",
-  "release_url": "https://github.com/byteswalk/stacker/releases/tag/v0.3.1",
-  "installer_url": "https://github.com/byteswalk/stacker/releases/download/v0.3.1/Stacker-0.3.1-setup-windows-x64.exe",
-  "portable_url": "https://github.com/byteswalk/stacker/releases/download/v0.3.1/Stacker-0.3.1-portable-windows-x64.zip",
+  "version": "0.3.2",
+  "released_at": "2026-07-20T17:19:31+08:00",
+  "release_url": "https://github.com/byteswalk/stacker/releases/tag/v0.3.2",
+  "installer_url": "https://github.com/byteswalk/stacker/releases/download/v0.3.2/Stacker-0.3.2-setup-windows-x64.exe",
+  "portable_url": "https://github.com/byteswalk/stacker/releases/download/v0.3.2/Stacker-0.3.2-portable-windows-x64.zip",
   "notes": [
-    "Improved disk cleanup safety for runtime-managed and tool-bundled Node.js dependencies.",
-    "Prevented cleanup progress effects from creating horizontal overflow in the confirmation dialog.",
-    "Updated version metadata and release artifacts for Stacker 0.3.1."
+    "Added coordinated GitHub and Gitee update discovery with locale-aware fallback ordering.",
+    "Added CI and reproducible Windows release automation for installer and portable packages.",
+    "Refreshed the public documentation and branding, and renamed Environment Check to Programming Ecosystem Check."
   ]
 }

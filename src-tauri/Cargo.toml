@@ -1,6 +1,6 @@
 [package]
 name = "stacker"
-version = "0.3.1"
+version = "0.3.2"
 description = "Windows developer workstation manager for runtimes, AI work agents, Git identities, and developer disk space"
 authors = ["Stacker"]
 license = "MIT"
