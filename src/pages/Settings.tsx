@@ -554,6 +554,8 @@ export default function Settings() {
           <div className="s dim" title={tr("Windows 开发工作站管理器：统一管理运行时、AI 工作智能体、Git 账号、网络源与开发磁盘空间。")}>{tr("Windows 开发工作站管理器")} · github.com/byteswalk/stacker</div></div>
         <button className="gh sm" onClick={() => openUrl("https://github.com/byteswalk/stacker")}>
           <i className="ti ti-brand-github" /> GitHub</button>
+        <button className="gh sm" onClick={() => openUrl("https://gitee.com/shaxiong/stacker")}>
+          <i className="ti ti-letter-g" /> Gitee</button>
         <button className="gh sm" disabled={appUpdBusy} onClick={checkAppUpdate}>
           <i className={"ti " + (appUpdBusy ? "ti-loader spin" : "ti-refresh")} /> {appUpdBusy ? "检查中…" : "检查更新"}</button>
       </div>

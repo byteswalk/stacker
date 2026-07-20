@@ -38,8 +38,34 @@ struct Cfg {
 
 const DEFAULT_MIRROR_LIST_URL: &str =
     "https://raw.githubusercontent.com/byteswalk/stacker/main/resources/mirrors.json";
+const GITEE_MIRROR_LIST_URL: &str =
+    "https://gitee.com/shaxiong/stacker/raw/main/resources/mirrors.json";
 const DEFAULT_LATEST_URL: &str =
     "https://raw.githubusercontent.com/byteswalk/stacker/main/resources/latest.json";
+const GITEE_LATEST_URL: &str = "https://gitee.com/shaxiong/stacker/raw/main/resources/latest.json";
+
+fn official_mirror_urls_for_locale(locale: &str) -> Vec<&'static str> {
+    if locale.eq_ignore_ascii_case("en-US") {
+        vec![DEFAULT_MIRROR_LIST_URL, GITEE_MIRROR_LIST_URL]
+    } else {
+        vec![GITEE_MIRROR_LIST_URL, DEFAULT_MIRROR_LIST_URL]
+    }
+}
+
+fn github_first_for_locale(locale: &str) -> bool {
+    locale.eq_ignore_ascii_case("en-US")
+}
+
+fn official_mirror_urls() -> Vec<String> {
+    official_mirror_urls_for_locale(&crate::settings::load().locale)
+        .into_iter()
+        .map(str::to_string)
+        .collect()
+}
+
+fn is_official_mirror_url(url: &str) -> bool {
+    matches!(url.trim(), DEFAULT_MIRROR_LIST_URL | GITEE_MIRROR_LIST_URL)
+}
 
 fn default_catalog_version() -> String {
     "197001010000".into()
@@ -59,10 +85,35 @@ where
 
 fn configured_mirror_url() -> String {
     let cfg = load_cfg();
-    if cfg.mirror_list_url.trim().is_empty() {
-        DEFAULT_MIRROR_LIST_URL.into()
+    if cfg.mirror_list_url.trim().is_empty() || is_official_mirror_url(&cfg.mirror_list_url) {
+        official_mirror_urls()
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| DEFAULT_MIRROR_LIST_URL.into())
     } else {
         cfg.mirror_list_url
+    }
+}
+
+fn configured_mirror_urls() -> Vec<String> {
+    let cfg = load_cfg();
+    if cfg.mirror_list_url.trim().is_empty() || is_official_mirror_url(&cfg.mirror_list_url) {
+        official_mirror_urls()
+    } else {
+        vec![cfg.mirror_list_url]
+    }
+}
+
+fn requested_mirror_urls(url: Option<String>) -> Vec<String> {
+    match url.filter(|value| !value.trim().is_empty()) {
+        Some(value) if is_official_mirror_url(&value) => {
+            let mut urls = vec![value.trim().to_string()];
+            urls.extend(official_mirror_urls());
+            urls.dedup();
+            urls
+        }
+        Some(value) => vec![value],
+        None => configured_mirror_urls(),
     }
 }
 
@@ -207,6 +258,17 @@ fn candidates(url: &str) -> Vec<String> {
     v
 }
 
+fn fetch_first(urls: &[String]) -> Result<(String, String), String> {
+    let mut errors = Vec::new();
+    for url in urls {
+        match fetch(url) {
+            Ok(body) => return Ok((url.clone(), body)),
+            Err(error) => errors.push(format!("{url}: {error}")),
+        }
+    }
+    Err(errors.join("; "))
+}
+
 fn agent() -> ureq::Agent {
     ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(8))
@@ -245,28 +307,41 @@ pub struct UpdateInfo {
 // Stacker 自身的发布仓库（owner/repo）。发布到 GitHub Releases 后填上即可启用「检查更新」。
 const APP_REPO: &str = "byteswalk/stacker";
 
-/// 检查 Stacker 自身是否有新版（比对当前版本号与 GitHub 最新 release）。
+/// 按界面语言选择 GitHub/Gitee 的检查顺序。
 #[tauri::command]
 pub async fn app_check_update() -> Result<UpdateInfo, String> {
     tauri::async_runtime::spawn_blocking(|| {
         let current = env!("CARGO_PKG_VERSION").to_string();
-        if APP_REPO.is_empty() {
-            return Err(
-                "尚未配置更新源：项目仓库未发布。发布到 GitHub Releases 后即可在此检查更新。"
-                    .to_string(),
-            );
+        let english = github_first_for_locale(&crate::settings::load().locale);
+        let mut errors = Vec::new();
+
+        if !english {
+            match latest_json_update_from(GITEE_LATEST_URL, &current) {
+                Ok(info) => return Ok(info),
+                Err(error) => errors.push(format!("Gitee: {error}")),
+            }
         }
         match github_latest_release(APP_REPO, &current) {
-            Ok(info) => Ok(info),
-            Err(primary) => latest_json_update(&current)
-                .map_err(|fallback| format!("检查更新失败：{primary}；兜底清单失败：{fallback}")),
+            Ok(info) => return Ok(info),
+            Err(error) => errors.push(format!("GitHub Releases: {error}")),
         }
+        match latest_json_update_from(DEFAULT_LATEST_URL, &current) {
+            Ok(info) => return Ok(info),
+            Err(error) => errors.push(format!("GitHub manifest: {error}")),
+        }
+        if english {
+            match latest_json_update_from(GITEE_LATEST_URL, &current) {
+                Ok(info) => return Ok(info),
+                Err(error) => errors.push(format!("Gitee: {error}")),
+            }
+        }
+
+        Err(format!("检查更新失败：{}", errors.join("；")))
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|error| error.to_string())?
 }
 
-/// 在应用内下载安装版更新。下载完成后启动 NSIS 安装程序，并退出当前进程。
 #[tauri::command]
 pub async fn app_download_update(
     window: tauri::Window,
@@ -477,8 +552,8 @@ fn github_latest_release(repo: &str, current: &str) -> Result<UpdateInfo, String
     Err(format!("获取最新版本失败：{last}"))
 }
 
-fn latest_json_update(current: &str) -> Result<UpdateInfo, String> {
-    let body = fetch(DEFAULT_LATEST_URL)?;
+fn latest_json_update_from(url: &str, current: &str) -> Result<UpdateInfo, String> {
+    let body = fetch(url)?;
     let file: LatestFile =
         serde_json::from_str(&body).map_err(|e| format!("latest.json 格式错误：{e}"))?;
     let latest = file.version.trim_start_matches('v').trim().to_string();
@@ -597,11 +672,10 @@ fn version_gt(remote: &str, local: Option<&str>) -> bool {
     }
 }
 
-fn fetch_remote_list(url: &str) -> Result<RemoteList, String> {
-    let body = fetch(url.trim())?;
-    let list: RemoteList = serde_json::from_str(&body).map_err(|e| format!("清单格式错误：{e}"))?;
+fn parse_remote_list_body(body: &str) -> Result<RemoteList, String> {
+    let list: RemoteList = serde_json::from_str(body).map_err(|error| error.to_string())?;
     if list.tools.is_empty() {
-        return Err("服务器清单为空".into());
+        return Err("The remote source manifest is empty.".into());
     }
     Ok(list)
 }
@@ -610,10 +684,9 @@ fn fetch_remote_list(url: &str) -> Result<RemoteList, String> {
 #[tauri::command]
 pub async fn mirrors_check_update(url: Option<String>) -> Result<MirrorsUpdateCheck, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let url = url
-            .filter(|s| !s.trim().is_empty())
-            .unwrap_or_else(configured_mirror_url);
-        let remote = fetch_remote_list(&url)?;
+        let urls = requested_mirror_urls(url);
+        let (url, body) = fetch_first(&urls)?;
+        let remote = parse_remote_list_body(&body)?;
         let local = load_list();
         let local_version = local.as_ref().map(|l| l.version.clone());
         Ok(MirrorsUpdateCheck {
@@ -632,10 +705,8 @@ pub async fn mirrors_check_update(url: Option<String>) -> Result<MirrorsUpdateCh
 #[tauri::command]
 pub async fn mirrors_update(url: Option<String>) -> Result<MirrorsStatus, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let url = url
-            .filter(|s| !s.trim().is_empty())
-            .unwrap_or_else(configured_mirror_url);
-        let body = fetch(url.trim())?;
+        let urls = requested_mirror_urls(url);
+        let (url, body) = fetch_first(&urls)?;
         let list: RemoteList =
             serde_json::from_str(&body).map_err(|e| format!("清单格式错误：{e}"))?;
         if list.tools.is_empty() {
@@ -657,4 +728,27 @@ pub async fn mirrors_update(url: Option<String>) -> Result<MirrorsStatus, String
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn english_prefers_github() {
+        assert!(github_first_for_locale("en-US"));
+        assert_eq!(
+            official_mirror_urls_for_locale("en-US"),
+            vec![DEFAULT_MIRROR_LIST_URL, GITEE_MIRROR_LIST_URL]
+        );
+    }
+
+    #[test]
+    fn chinese_prefers_gitee() {
+        assert!(!github_first_for_locale("zh-CN"));
+        assert_eq!(
+            official_mirror_urls_for_locale("zh-CN"),
+            vec![GITEE_MIRROR_LIST_URL, DEFAULT_MIRROR_LIST_URL]
+        );
+    }
 }
