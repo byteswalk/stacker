@@ -72,6 +72,12 @@ Quick Scan checks known developer caches. Deep analysis accepts multiple folders
 - Supported configuration changes create local backups before writing.
 - Release assets include SHA-256 checksums.
 
+## Code Signing Policy
+
+See the project [code signing policy](CODE_SIGNING.md) for the signing scope, build and approval process, project roles, privacy behavior, and release verification guidance.
+
+Planned signing service (application pending): Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/). Stacker `v0.3.2` and earlier releases are currently unsigned.
+
 ## Download
 
 Download the latest build from [GitHub Releases](https://github.com/byteswalk/stacker/releases/latest). If GitHub is slow or unavailable on your network, use the [Gitee release mirror](https://gitee.com/shaxiong/stacker/releases).
