@@ -60,7 +60,7 @@ impl ElevatedProgress {
             directories: stats.directories,
             logical_bytes: stats.logical_bytes,
             allocated_bytes: stats.allocated_bytes,
-            skipped: stats.skipped,
+            skipped: stats.skipped_paths(),
         }
     }
 

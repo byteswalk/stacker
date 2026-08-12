@@ -137,7 +137,7 @@ export function LargeFiles({ taskId, thresholdBytes }: { taskId: string; thresho
     try {
       await invoke("space_open_directory", { path });
     } catch {
-      toast(tr("无法打开文件所在目录，请确认路径仍然存在。"), "err");
+      toast(tr("无法打开文件夹。请确认路径仍然存在，并且当前账户拥有访问权限。"), "err");
     }
   }
 

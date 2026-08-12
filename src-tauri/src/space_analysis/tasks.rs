@@ -733,7 +733,7 @@ fn apply_walk_stats(progress: &mut ScanProgress, stats: &WalkStats, started_at: 
     progress.scanned_files = stats.files;
     progress.scanned_directories = stats.directories;
     progress.accounted_bytes = stats.allocated_bytes;
-    progress.skipped_paths = stats.skipped;
+    progress.skipped_paths = stats.skipped_paths();
     progress.elapsed_ms = elapsed_ms(started_at);
 }
 

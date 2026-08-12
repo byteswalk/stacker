@@ -1232,9 +1232,9 @@ fn cleanup_check_items() -> Vec<CheckItem> {
         out.push(CheckItem {
             id: "jetbrains_history".into(),
             sev: "info".into(),
-            title: "JetBrains IDE 历史版本可清理".into(),
+            title: "开发工具历史版本可清理".into(),
             desc: format!(
-                "检测到旧版 JetBrains IDE 数据目录，占用约 {:.1} GB。清理时会保留同产品最新版本。",
+                "检测到旧版 JetBrains IDE 或 Android Studio 数据目录，占用约 {:.1} GB。清理时会保留同产品最新版本。",
                 history_total as f64 / GB as f64
             ),
             page: "cleanup".into(),

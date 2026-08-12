@@ -12,18 +12,27 @@ use tauri::Emitter;
 static OP_CANCEL: AtomicBool = AtomicBool::new(false);
 const DOWNLOAD_STALL_TIMEOUT_SECS: u64 = 30;
 const PROCESS_LONG_HINT_SECS: u64 = 180;
-fn process_log_line(log_path: Option<&Path>, msg: impl AsRef<str>) {
-    let Some(path) = log_path else {
-        return;
-    };
-    let ts = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
-    if let Ok(mut file) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-    {
-        let _ = writeln!(file, "[{ts}] {}", msg.as_ref());
+
+pub(crate) fn diagnostic_excerpt(text: &str) -> String {
+    const MAX_CHARS: usize = 128 * 1024;
+    let trimmed = text.trim();
+    if trimmed.chars().count() <= MAX_CHARS {
+        return trimmed.to_string();
     }
+
+    let tail = trimmed
+        .chars()
+        .rev()
+        .take(MAX_CHARS)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect::<String>();
+    format!("[installer output truncated; showing the final {MAX_CHARS} characters]\n{tail}")
+}
+
+fn process_log_line(msg: impl AsRef<str>) {
+    log::debug!(target: "stacker::installer", "{}", msg.as_ref());
 }
 pub fn op_reset() {
     OP_CANCEL.store(false, Ordering::SeqCst);
@@ -118,13 +127,52 @@ fn safe_zip_rel(rel: &str) -> Option<PathBuf> {
     }
 }
 
-/// Stacker 所在目录（运行时下载的运行时默认装在它下面）。
-#[tauri::command]
-pub fn app_dir() -> String {
+fn executable_dir() -> Option<PathBuf> {
     std::env::current_exe()
         .ok()
-        .and_then(|p| p.parent().map(|d| d.to_string_lossy().to_string()))
+        .and_then(|path| path.parent().map(Path::to_path_buf))
+}
+
+fn managed_storage_root_for(
+    executable_dir: Option<&Path>,
+    local_data_dir: Option<PathBuf>,
+) -> PathBuf {
+    if let Some(dir) = executable_dir.filter(|dir| dir.join("portable.flag").is_file()) {
+        return dir.join("data");
+    }
+    local_data_dir
+        .unwrap_or_else(std::env::temp_dir)
+        .join("Stacker")
+}
+
+pub fn managed_storage_root() -> PathBuf {
+    let executable_dir = executable_dir();
+    managed_storage_root_for(executable_dir.as_deref(), dirs::data_local_dir())
+}
+
+pub fn managed_tools_root() -> PathBuf {
+    managed_storage_root().join("tools")
+}
+
+pub fn managed_runtimes_root() -> PathBuf {
+    managed_storage_root().join("runtimes")
+}
+
+/// Stacker 所在目录。只用于打开终端和兼容旧版本，不再作为工具安装目录。
+#[tauri::command]
+pub fn app_dir() -> String {
+    executable_dir()
+        .map(|dir| dir.to_string_lossy().into_owned())
         .unwrap_or_default()
+}
+
+/// Stacker 管理的运行时默认目录。安装版使用本地应用数据目录；
+/// 带 portable.flag 的免安装版使用程序目录下的 data\runtimes。
+#[tauri::command]
+pub fn managed_runtime_dir() -> Result<String, String> {
+    let root = managed_runtimes_root();
+    std::fs::create_dir_all(&root).map_err(|error| format!("无法创建运行时目录：{error}"))?;
+    Ok(root.to_string_lossy().into_owned())
 }
 
 /// 跑一个长命令：流式发真实输出进度（按 \r/\n 切分）+ 心跳兜底 + 可取消（杀子进程）。
@@ -136,27 +184,7 @@ pub fn run_with_heartbeat(
     envs: &[(&str, &str)],
     label: &str,
 ) -> Result<(), String> {
-    run_with_heartbeat_impl(window, program, args, envs, label, None, None)
-}
-
-#[allow(dead_code)]
-pub fn run_with_heartbeat_logged(
-    window: &tauri::Window,
-    program: &str,
-    args: &[&str],
-    envs: &[(&str, &str)],
-    label: &str,
-    log_path: &Path,
-) -> Result<(), String> {
-    run_with_heartbeat_impl(
-        window,
-        program,
-        args,
-        envs,
-        label,
-        None,
-        Some(log_path.to_path_buf()),
-    )
+    run_with_heartbeat_impl(window, program, args, envs, label, None)
 }
 
 pub fn run_with_heartbeat_until(
@@ -167,15 +195,7 @@ pub fn run_with_heartbeat_until(
     label: &str,
     success_probe: &dyn Fn() -> bool,
 ) -> Result<(), String> {
-    run_with_heartbeat_impl(
-        window,
-        program,
-        args,
-        envs,
-        label,
-        Some(success_probe),
-        None,
-    )
+    run_with_heartbeat_impl(window, program, args, envs, label, Some(success_probe))
 }
 
 fn run_with_heartbeat_impl(
@@ -185,19 +205,15 @@ fn run_with_heartbeat_impl(
     envs: &[(&str, &str)],
     label: &str,
     success_probe: Option<&dyn Fn() -> bool>,
-    log_path: Option<PathBuf>,
 ) -> Result<(), String> {
     use std::io::Read;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
     op_reset();
-    process_log_line(
-        log_path.as_deref(),
-        format!(
-            "process start program={} args={:?} envs={:?} label={label}",
-            program, args, envs
-        ),
-    );
+    process_log_line(format!(
+        "process start program={} args={:?} envs={:?} label={label}",
+        program, args, envs
+    ));
     let mut c = std::process::Command::new(program);
     c.args(args)
         .stdout(std::process::Stdio::piped())
@@ -211,14 +227,16 @@ fn run_with_heartbeat_impl(
         c.creation_flags(0x08000000);
     }
     let mut child = c.spawn().map_err(|e| {
-        process_log_line(log_path.as_deref(), format!("process spawn failed err={e}"));
+        log::error!(
+            target: "stacker::installer",
+            "process spawn failed: program={program} label={label} error={e}"
+        );
         format!("启动失败：{e}")
     })?;
 
     // stdout 线程：按 \r/\n 切分，逐段当进度发（捕获 \r 刷新的下载条）
     let mut out = child.stdout.take().unwrap();
     let win = window.clone();
-    let out_log = log_path.clone();
     let t_out = std::thread::spawn(move || {
         let mut line: Vec<u8> = Vec::new();
         let mut chunk = [0u8; 512];
@@ -232,7 +250,7 @@ fn run_with_heartbeat_impl(
                         let l = String::from_utf8_lossy(&line).trim().to_string();
                         if !l.is_empty() {
                             let _ = win.emit("install-progress", l.clone());
-                            process_log_line(out_log.as_deref(), format!("stdout {l}"));
+                            process_log_line(format!("stdout {l}"));
                         }
                         line.clear();
                     }
@@ -247,7 +265,6 @@ fn run_with_heartbeat_impl(
     let buf = Arc::new(Mutex::new(String::new()));
     let b2 = buf.clone();
     let win_err = window.clone();
-    let err_log = log_path.clone();
     let t_err = std::thread::spawn(move || {
         let mut line: Vec<u8> = Vec::new();
         let mut all: Vec<u8> = Vec::new();
@@ -263,7 +280,7 @@ fn run_with_heartbeat_impl(
                         let l = String::from_utf8_lossy(&line).trim().to_string();
                         if !l.is_empty() {
                             let _ = win_err.emit("install-progress", l.clone());
-                            process_log_line(err_log.as_deref(), format!("stderr {l}"));
+                            process_log_line(format!("stderr {l}"));
                         }
                         line.clear();
                     }
@@ -276,7 +293,7 @@ fn run_with_heartbeat_impl(
             let l = String::from_utf8_lossy(&line).trim().to_string();
             if !l.is_empty() {
                 let _ = win_err.emit("install-progress", l.clone());
-                process_log_line(err_log.as_deref(), format!("stderr {l}"));
+                process_log_line(format!("stderr {l}"));
             }
         }
         *b2.lock().unwrap() = String::from_utf8_lossy(&all).into_owned();
@@ -286,7 +303,7 @@ fn run_with_heartbeat_impl(
     let mut ready_since: Option<Instant> = None;
     let status = loop {
         if op_cancelled() {
-            process_log_line(log_path.as_deref(), "process cancelled by user");
+            process_log_line("process cancelled by user");
             kill_process_tree(&mut child);
             let _ = child.wait();
             let _ = t_out.join();
@@ -327,7 +344,10 @@ fn run_with_heartbeat_impl(
                 std::thread::sleep(Duration::from_millis(900));
             }
             Err(e) => {
-                process_log_line(log_path.as_deref(), format!("process wait failed err={e}"));
+                log::error!(
+                    target: "stacker::installer",
+                    "process wait failed: program={program} label={label} error={e}"
+                );
                 return Err(e.to_string());
             }
         }
@@ -336,24 +356,24 @@ fn run_with_heartbeat_impl(
     let _ = t_err.join();
     let stderr_text = buf.lock().unwrap().clone();
     if !stderr_text.trim().is_empty() {
-        process_log_line(
-            log_path.as_deref(),
-            format!("stderr\n{}", stderr_text.trim()),
-        );
+        process_log_line(format!("stderr\n{}", stderr_text.trim()));
     }
-    process_log_line(
-        log_path.as_deref(),
-        format!(
-            "process exit success={} code={:?}",
-            status.success(),
-            status.code()
-        ),
-    );
+    process_log_line(format!(
+        "process exit success={} code={:?}",
+        status.success(),
+        status.code()
+    ));
     if status.success()
         || (ready_since.is_some() && success_probe.map(|probe| probe()).unwrap_or(false))
     {
         Ok(())
     } else {
+        log::error!(
+            target: "stacker::installer",
+            "process failed: program={program} label={label} code={:?} stderr={}",
+            status.code(),
+            stderr_text.trim()
+        );
         let lines = stderr_text
             .lines()
             .map(str::trim)
@@ -604,6 +624,20 @@ pub fn open_ecosystem_verify_shell(kind: String, ecosystem: String) -> Result<()
 }
 
 fn launch_shell(kind: &str, cwd: &str, command: Option<&str>) -> Result<(), String> {
+    let title = if command.is_some() {
+        "Stacker Verify"
+    } else {
+        "Stacker Terminal"
+    };
+    launch_shell_titled(kind, cwd, command, title)
+}
+
+fn launch_shell_titled(
+    kind: &str,
+    cwd: &str,
+    command: Option<&str>,
+    title: &str,
+) -> Result<(), String> {
     let mut c = std::process::Command::new("cmd");
     #[cfg(windows)]
     {
@@ -615,11 +649,6 @@ fn launch_shell(kind: &str, cwd: &str, command: Option<&str>) -> Result<(), Stri
         "powershell" => {
             let ps = powershell_launch_script(cwd, command);
             let encoded = powershell_encoded_command(&ps);
-            let title = if command.is_some() {
-                "Stacker Verify"
-            } else {
-                "Stacker PowerShell"
-            };
             #[cfg(windows)]
             if let Some(wt) = windows_terminal() {
                 let mut wt_cmd = std::process::Command::new(wt);
@@ -660,7 +689,7 @@ fn launch_shell(kind: &str, cwd: &str, command: Option<&str>) -> Result<(), Stri
                 ));
                 let body = format!(
                     "@echo off\r\n\
-                     title Stacker Verify\r\n\
+                     title {title}\r\n\
                      cd /d \"{cwd}\"\r\n\
                      {command}\r\n\
                      echo.\r\n\
@@ -686,7 +715,9 @@ fn launch_shell(kind: &str, cwd: &str, command: Option<&str>) -> Result<(), Stri
             {
                 let gb = git_bash().ok_or("未找到 Git Bash（git-bash.exe）")?;
                 if let Some(command) = command {
-                    let bash_command = format!("cd '{}'; {}", cwd.replace('\'', "'\\''"), command);
+                    let cwd = cwd.replace('\'', "'\\''");
+                    let bash_command =
+                        format!("cd \"$(cygpath -u '{cwd}')\"; {command}; exec bash --login -i");
                     c.args(["/c", "start", "", &gb, "-lc", &bash_command]);
                 } else {
                     c.args(["/c", "start", "", &gb, &format!("--cd={cwd}")]);
@@ -701,6 +732,85 @@ fn launch_shell(kind: &str, cwd: &str, command: Option<&str>) -> Result<(), Stri
     }
     c.spawn().map_err(|e| e.to_string())?;
     Ok(())
+}
+
+pub(crate) fn launch_managed_shell(
+    kind: &str,
+    cwd: &Path,
+    program: &Path,
+    environment: &[(String, String)],
+    agent_name: &str,
+) -> Result<(), String> {
+    if !cwd.is_dir() {
+        return Err("The selected project folder no longer exists.".into());
+    }
+    if !program.is_file() {
+        return Err("The selected work agent CLI no longer exists.".into());
+    }
+    for (name, value) in environment {
+        if !name
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || character == '_')
+            || value.contains(['\r', '\n', '\0'])
+        {
+            return Err("The managed environment contains an invalid value.".into());
+        }
+    }
+
+    let program_text = program.to_string_lossy();
+    let command = match kind {
+        "powershell" => {
+            let mut rows = environment
+                .iter()
+                .map(|(name, value)| format!("$env:{name}='{}'", value.replace('\'', "''")))
+                .collect::<Vec<_>>();
+            rows.push(format!(
+                "Write-Host 'Stacker managed session: {}' -ForegroundColor Cyan",
+                agent_name.replace('\'', "''")
+            ));
+            rows.push("Write-Host 'Environment is scoped to this terminal only.' -ForegroundColor DarkGray".into());
+            rows.push(format!("& '{}'", program_text.replace('\'', "''")));
+            rows.join("\n")
+        }
+        "cmd" => {
+            let mut rows = environment
+                .iter()
+                .map(|(name, value)| format!("set \"{name}={value}\""))
+                .collect::<Vec<_>>();
+            rows.push(format!("echo Stacker managed session: {agent_name}"));
+            rows.push("echo Environment is scoped to this terminal only.".into());
+            rows.push(format!("call \"{program_text}\""));
+            rows.join(" & ")
+        }
+        "gitbash" => {
+            let mut rows = environment
+                .iter()
+                .map(|(name, value)| {
+                    let value = value.replace('\'', "'\\''");
+                    if name == "PATH" {
+                        format!("export PATH=\"$(cygpath -p -u '{value}')\"")
+                    } else {
+                        format!("export {name}='{value}'")
+                    }
+                })
+                .collect::<Vec<_>>();
+            let program = program_text.replace('\\', "/").replace('\'', "'\\''");
+            rows.push(format!(
+                "printf '%s\\n' 'Stacker managed session: {agent_name}'"
+            ));
+            rows.push("printf '%s\\n' 'Environment is scoped to this terminal only.'".into());
+            rows.push(format!("\"$(cygpath -u '{program}')\""));
+            rows.join("; ")
+        }
+        _ => return Err("Unknown shell type.".into()),
+    };
+
+    launch_shell_titled(
+        kind,
+        &cwd.to_string_lossy(),
+        Some(&command),
+        "Stacker Work Session",
+    )
 }
 
 fn verification_command(kind: &str, ecosystem: &str) -> Result<String, String> {
@@ -1122,6 +1232,13 @@ pub fn download_impl_candidates(
 ) -> Result<String, String> {
     use std::time::Duration;
     op_reset();
+    let source_hosts = candidates
+        .iter()
+        .map(|url| host_of(url))
+        .collect::<Vec<_>>();
+    log::info!(
+        "runtime download started: sources={source_hosts:?} destination={dest_dir} strip_top={strip_top}"
+    );
     // 连接/无进度超过 30s 失败；总下载时长不限制，避免大文件在正常下载中被误杀。
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(DOWNLOAD_STALL_TIMEOUT_SECS))
@@ -1150,6 +1267,10 @@ pub fn download_impl_candidates(
             }
             Err(e) => {
                 last = e.to_string();
+                log::warn!(
+                    "runtime download source failed: host={} error={e}",
+                    host_of(u)
+                );
                 let _ = window.emit(
                     "install-progress",
                     format!("{} 连不上，换下一个…", host_of(u)),
@@ -1157,7 +1278,13 @@ pub fn download_impl_candidates(
             }
         }
     }
-    let resp = resp.ok_or_else(|| format!("所有下载源都连不上：{last}"))?;
+    let resp = resp.ok_or_else(|| {
+        let error = format!("所有下载源都连不上：{last}");
+        log::error!(
+            "runtime download failed: sources={source_hosts:?} destination={dest_dir} error={error}"
+        );
+        error
+    })?;
     let total: u64 = resp
         .header("Content-Length")
         .and_then(|s| s.parse().ok())
@@ -1178,7 +1305,13 @@ pub fn download_impl_candidates(
                 let _ = fs::remove_file(&tmp);
                 return Err("已取消下载".into());
             }
-            let n = reader.read(&mut buf).map_err(|e| e.to_string())?;
+            let n = reader.read(&mut buf).map_err(|e| {
+                let error = format!("下载连接中断：{e}");
+                log::error!(
+                    "runtime download interrupted: sources={source_hosts:?} destination={dest_dir} received_bytes={got} error={error}"
+                );
+                error
+            })?;
             if n == 0 {
                 break;
             }
@@ -1201,9 +1334,16 @@ pub fn download_impl_candidates(
         }
     }
     let _ = window.emit("install-progress", "解压中…".to_string());
-    extract_zip(&tmp, Path::new(&dest_dir), strip_top).map_err(|e| format!("解压失败：{e}"))?;
+    extract_zip(&tmp, Path::new(&dest_dir), strip_top).map_err(|e| {
+        let error = format!("解压失败：{e}");
+        log::error!(
+            "runtime extraction failed: sources={source_hosts:?} destination={dest_dir} error={error}"
+        );
+        error
+    })?;
     let _ = fs::remove_file(&tmp);
     let _ = window.emit("install-progress", "__done__".to_string());
+    log::info!("runtime download completed: sources={source_hosts:?} destination={dest_dir}");
     Ok(dest_dir)
 }
 
@@ -1238,4 +1378,54 @@ pub fn extract_embedded_zip(
     result?;
     let _ = window.emit("install-progress", "__done__".to_string());
     Ok(dest_dir)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{diagnostic_excerpt, managed_storage_root_for};
+
+    #[test]
+    fn diagnostic_excerpt_keeps_short_output() {
+        assert_eq!(
+            diagnostic_excerpt("  installer output  "),
+            "installer output"
+        );
+    }
+
+    #[test]
+    fn diagnostic_excerpt_limits_large_output_to_its_tail() {
+        let input = format!("HEAD{}", "x".repeat(128 * 1024 + 16));
+        let excerpt = diagnostic_excerpt(&input);
+
+        assert!(excerpt.starts_with("[installer output truncated;"));
+        assert!(!excerpt.contains("HEAD"));
+        assert!(excerpt.ends_with('x'));
+    }
+
+    #[test]
+    fn installed_build_uses_local_application_data() {
+        let executable = tempfile::tempdir().unwrap();
+        let local_data = tempfile::tempdir().unwrap();
+
+        let root = managed_storage_root_for(
+            Some(executable.path()),
+            Some(local_data.path().to_path_buf()),
+        );
+
+        assert_eq!(root, local_data.path().join("Stacker"));
+    }
+
+    #[test]
+    fn portable_marker_keeps_data_beside_executable() {
+        let executable = tempfile::tempdir().unwrap();
+        let local_data = tempfile::tempdir().unwrap();
+        std::fs::write(executable.path().join("portable.flag"), b"portable").unwrap();
+
+        let root = managed_storage_root_for(
+            Some(executable.path()),
+            Some(local_data.path().to_path_buf()),
+        );
+
+        assert_eq!(root, executable.path().join("data"));
+    }
 }

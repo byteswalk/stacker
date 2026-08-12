@@ -12,6 +12,7 @@ mod git;
 mod gradle;
 mod installer;
 mod jdk;
+mod logging;
 mod profile;
 mod proxy;
 mod pyenv;
@@ -24,6 +25,7 @@ mod versions;
 mod vibe;
 mod winadmin;
 mod winenv;
+mod work_session;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -39,6 +41,21 @@ pub fn run() {
     }
 
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+            use tauri::Manager;
+
+            log::info!(
+                target: "stacker::startup",
+                "secondary launch redirected to the running instance: cwd={} args={:?}",
+                cwd,
+                args
+            );
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
@@ -46,9 +63,10 @@ pub fn run() {
         ))
         .manage(space_analysis::SpaceTaskManager::default())
         .manage(space_analysis::CleanupTaskManager::default())
+        .manage(space_analysis::SpaceMonitorManager::default())
         .setup(|app| {
             let app_settings = settings::load();
-            let log_name = format!("stacker-{}", chrono::Local::now().format("%Y-%m-%d"));
+            let log_target = logging::target(settings::logs_dir())?;
             app.handle().plugin(
                 tauri_plugin_log::Builder::default()
                     .clear_targets()
@@ -58,29 +76,55 @@ pub fn run() {
                             || target.starts_with(tauri_plugin_log::WEBVIEW_TARGET)
                             || metadata.level() <= log::Level::Warn
                     })
-                    .target(tauri_plugin_log::Target::new(
-                        tauri_plugin_log::TargetKind::Folder {
-                            path: settings::logs_dir(),
-                            file_name: Some(log_name),
-                        },
-                    ))
-                    .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepAll)
+                    .target(log_target)
+                    .timezone_strategy(tauri_plugin_log::TimezoneStrategy::UseLocal)
                     .level(log::LevelFilter::Debug)
                     .build(),
             )?;
             log::set_max_level(settings::log_level_filter(&app_settings.log_level));
+            logging::install_panic_hook();
+            log::debug!(
+                target: "stacker::startup",
+                "Stacker {} started; os={} arch={} log_level={} log_file={} max_log_file_bytes={}",
+                app.package_info().version,
+                std::env::consts::OS,
+                std::env::consts::ARCH,
+                app_settings.log_level,
+                logging::current_log_path(&settings::logs_dir()).display(),
+                logging::MAX_LOG_FILE_BYTES
+            );
             settings::init();
             settings::start_log_retention_worker();
             binary::migrate_legacy_envs();
             build_tray(app.handle())?;
             Ok(())
         })
-        // 「最小化到托盘」开启时，关闭窗口改为隐藏到托盘而非退出
+        // 主窗口按已保存策略退出、隐藏到托盘，或通知前端首次询问。
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                if window.label() == "main" && settings::minimize_to_tray() {
-                    api.prevent_close();
-                    let _ = window.hide();
+                if window.label() == "main" {
+                    match settings::close_behavior() {
+                        settings::CloseBehavior::Ask => {
+                            use tauri::Emitter;
+                            api.prevent_close();
+                            if let Err(error) = window.emit("app-close-choice-required", ()) {
+                                log::error!(
+                                    target: "stacker::window",
+                                    "failed to request close behavior choice: {error}"
+                                );
+                            }
+                        }
+                        settings::CloseBehavior::Tray => {
+                            api.prevent_close();
+                            if let Err(error) = window.hide() {
+                                log::error!(
+                                    target: "stacker::window",
+                                    "failed to hide main window to tray: {error}"
+                                );
+                            }
+                        }
+                        settings::CloseBehavior::Exit => {}
+                    }
                 }
             }
         })
@@ -162,6 +206,10 @@ pub fn run() {
             space_analysis::space_snapshot_delete,
             space_analysis::space_snapshot_clear,
             space_analysis::space_open_directory,
+            space_analysis::space_monitor_start,
+            space_analysis::space_monitor_status,
+            space_analysis::space_monitor_stop,
+            space_analysis::space_monitor_dispose,
             fnm::fnm_status,
             fnm::fnm_root_dir,
             fnm::fnm_set_default,
@@ -205,6 +253,7 @@ pub fn run() {
             rustup::rustup_target_set,
             installer::installer_download,
             installer::app_dir,
+            installer::managed_runtime_dir,
             installer::open_shell,
             installer::open_ecosystem_verify_shell,
             installer::ecosystem_activation_commands,
@@ -232,6 +281,7 @@ pub fn run() {
             update::app_open_url,
             settings::settings_get,
             settings::settings_set_tray,
+            settings::settings_set_close_behavior,
             settings::settings_set_theme,
             settings::settings_set_locale,
             settings::settings_set_log_level,
@@ -249,6 +299,17 @@ pub fn run() {
             vibe::vibe_environment_prompt,
             vibe::vibe_tool_action,
             vibe::vibe_open_desktop,
+            vibe::vibe_agent_activity,
+            vibe::vibe_agent_environment,
+            work_session::work_environment_contract,
+            work_session::work_session_tracking_roots,
+            work_session::work_session_launch,
+            work_session::work_session_desktop_candidates,
+            work_session::work_session_desktop_launch,
+            work_session::work_session_desktop_process_status,
+            work_session::work_session_report_save,
+            work_session::work_session_report_list,
+            work_session::work_session_report_delete,
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application");

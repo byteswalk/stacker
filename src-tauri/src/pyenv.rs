@@ -119,19 +119,14 @@ const PYTHON_REQUIRED_MSI_COMPONENTS: &[&str] = &["core", "exe", "lib"];
 const PYTHON_OPTIONAL_MSI_COMPONENTS: &[&str] = &["dev", "tcltk"];
 
 struct InstallLog {
-    path: PathBuf,
+    context: String,
 }
 
 impl InstallLog {
     fn new(version: &str, source: &str) -> Result<Self, String> {
-        let dir = dirs::data_local_dir()
-            .unwrap_or_else(std::env::temp_dir)
-            .join("Stacker")
-            .join("logs");
-        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-        let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
-        let path = dir.join(format!("python-install-session-{version}-{stamp}.log"));
-        let log = Self { path };
+        let log = Self {
+            context: format!("version={version} source={source}"),
+        };
         log.line(format!(
             "START python install session version={version} source={source}"
         ));
@@ -139,21 +134,23 @@ impl InstallLog {
     }
 
     fn line(&self, msg: impl AsRef<str>) {
-        use std::io::Write;
-        let ts = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
-        if let Ok(mut file) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&self.path)
-        {
-            let _ = writeln!(file, "[{ts}] {}", msg.as_ref());
-        }
+        log::debug!(
+            target: "stacker::python_install",
+            "[{}] {}",
+            self.context,
+            msg.as_ref()
+        );
     }
 
     fn error(&self, err: impl AsRef<str>) -> String {
         let err = err.as_ref();
-        self.line(format!("ERROR {err}"));
-        format!("{err}\n诊断日志：{}", self.path.display())
+        log::error!(
+            target: "stacker::python_install",
+            "[{}] {}",
+            self.context,
+            err
+        );
+        err.to_string()
     }
 
     fn sidecar(&self, suffix: &str) -> PathBuf {
@@ -167,13 +164,49 @@ impl InstallLog {
                 }
             })
             .collect();
-        let stem = self
-            .path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("python-install-session");
-        self.path.with_file_name(format!("{stem}-{clean}.log"))
+        let dir = std::env::temp_dir().join("Stacker");
+        let _ = std::fs::create_dir_all(&dir);
+        dir.join(format!(
+            "python-installer-{}-{clean}.tmp",
+            chrono::Local::now().format("%Y%m%d%H%M%S%3f")
+        ))
     }
+
+    fn absorb_sidecar(&self, path: &Path, failed: bool) -> String {
+        let text = std::fs::read_to_string(path).unwrap_or_default();
+        let _ = std::fs::remove_file(path);
+        let excerpt = crate::installer::diagnostic_excerpt(&text);
+        if !excerpt.is_empty() {
+            if failed {
+                log::error!(
+                    target: "stacker::python_install",
+                    "[{}] installer output:\n{}",
+                    self.context,
+                    excerpt
+                );
+            } else {
+                log::debug!(
+                    target: "stacker::python_install",
+                    "[{}] installer output:\n{}",
+                    self.context,
+                    excerpt
+                );
+            }
+        }
+        log_tail(&text)
+    }
+}
+
+fn log_tail(text: &str) -> String {
+    let mut lines = text
+        .lines()
+        .rev()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .take(8)
+        .collect::<Vec<_>>();
+    lines.reverse();
+    lines.join(" | ")
 }
 
 fn pyenv_pypi_simple(id: &str) -> Option<&'static str> {
@@ -1291,7 +1324,8 @@ fn cleanup_python_uninstall_registration(
     };
     let versions_dir = version_dir.parent().map(Path::to_path_buf);
     let pyenv = pyenv_root().map(PathBuf::from);
-    let app_pyenv = PathBuf::from(crate::installer::app_dir()).join("pyenv");
+    let app_pyenv = crate::installer::managed_tools_root().join("pyenv");
+    let legacy_app_pyenv = PathBuf::from(crate::installer::app_dir()).join("pyenv");
     let stale_stacker_registration = has_stale_stacker_python_registration(version, version_dir);
     let mut removed = 0usize;
     let names: Vec<String> = uninstall.enum_keys().flatten().collect();
@@ -1334,7 +1368,8 @@ fn cleanup_python_uninstall_registration(
                 .as_ref()
                 .map(|p| text_mentions_path(&values, p))
                 .unwrap_or(false)
-            || text_mentions_path(&values, &app_pyenv);
+            || text_mentions_path(&values, &app_pyenv)
+            || text_mentions_path(&values, &legacy_app_pyenv);
         let install_missing =
             !install_location.trim().is_empty() && !PathBuf::from(install_location.trim()).exists();
         if managed_ref || install_missing || stale_stacker_registration {
@@ -1515,37 +1550,6 @@ fn try_copy_existing_python_install(
     Ok(())
 }
 
-fn python_installer_log_path(version: &str) -> Result<PathBuf, String> {
-    let dir = dirs::data_local_dir()
-        .unwrap_or_else(std::env::temp_dir)
-        .join("Stacker")
-        .join("logs");
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
-    Ok(dir.join(format!("python-installer-{version}-{stamp}.log")))
-}
-
-fn installer_log_excerpt(log_path: &Path) -> String {
-    let display = log_path.display();
-    let Ok(text) = std::fs::read_to_string(log_path) else {
-        return format!("\n安装日志：{display}（未生成或无法读取）");
-    };
-    let mut lines: Vec<String> = text
-        .lines()
-        .rev()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .take(8)
-        .map(ToString::to_string)
-        .collect();
-    lines.reverse();
-    if lines.is_empty() {
-        format!("\n安装日志：{display}（日志为空）")
-    } else {
-        format!("\n安装日志：{display}\n日志末尾：{}", lines.join(" | "))
-    }
-}
-
 fn any_existing_python_ready(version: &str) -> bool {
     existing_python_install_dirs(version).iter().any(|dir| {
         python_core_layout_ready(dir)
@@ -1670,14 +1674,20 @@ fn extract_msi_to_python_dir(
         "正在安装 Python 运行时",
     );
     match &result {
-        Ok(()) => log.line(format!(
-            "msiexec extract ok label={label} elapsed_ms={}",
-            started.elapsed().as_millis()
-        )),
-        Err(e) => log.line(format!(
-            "msiexec extract failed label={label} elapsed_ms={} err={e}",
-            started.elapsed().as_millis()
-        )),
+        Ok(()) => {
+            log.absorb_sidecar(&msiexec_log, false);
+            log.line(format!(
+                "msiexec extract ok label={label} elapsed_ms={}",
+                started.elapsed().as_millis()
+            ));
+        }
+        Err(e) => {
+            log.absorb_sidecar(&msiexec_log, true);
+            log.line(format!(
+                "msiexec extract failed label={label} elapsed_ms={} err={e}",
+                started.elapsed().as_millis()
+            ));
+        }
     }
     result
 }
@@ -2058,7 +2068,7 @@ fn install_python_with_official_installer(
         ));
     }
 
-    let log_path = python_installer_log_path(version)?;
+    let log_path = log.sidecar("full-installer");
     let target = version_dir.to_string_lossy().to_string();
     let log_arg = log_path.to_string_lossy().to_string();
     let args = vec![
@@ -2101,28 +2111,37 @@ fn install_python_with_official_installer(
             "full-installer failed elapsed_ms={} err={e}",
             started.elapsed().as_millis()
         ));
-        return Err(format!(
-            "Python 安装器执行失败：{e}{}",
-            installer_log_excerpt(&log_path)
-        ));
+        let tail = log.absorb_sidecar(&log_path, true);
+        let detail = if tail.is_empty() {
+            String::new()
+        } else {
+            format!("；安装器输出：{tail}")
+        };
+        return Err(format!("Python 安装器执行失败：{e}{detail}"));
     }
     log.line(format!(
         "full-installer returned ok elapsed_ms={}",
         started.elapsed().as_millis()
     ));
+    let installer_tail = log.absorb_sidecar(&log_path, false);
     try_copy_existing_python_install(window, version, version_dir)?;
     log_version_dir_snapshot(log, version_dir, "after full installer");
     if let Err(e) = finalize_python_layout(window, version_dir, version) {
         log.line(format!("full-installer finalize failed err={e}"));
-        return Err(format!("{e}{}", installer_log_excerpt(&log_path)));
+        return Err(if installer_tail.is_empty() {
+            e
+        } else {
+            format!("{e}；安装器输出：{installer_tail}")
+        });
     }
     ensure_python_pip_best_effort(window, version_dir, version, log)?;
     if !installed_python_ready(version_dir, version) {
         log.line("full-installer target not ready after finalize");
-        return Err(format!(
-            "Python 安装器已退出，但版本目录不完整{}",
-            installer_log_excerpt(&log_path)
-        ));
+        return Err(if installer_tail.is_empty() {
+            "Python 安装器已退出，但版本目录不完整".into()
+        } else {
+            format!("Python 安装器已退出，但版本目录不完整；安装器输出：{installer_tail}")
+        });
     }
     Ok(())
 }
@@ -2579,8 +2598,8 @@ pub async fn pyenv_install_self(
         .map_err(|e| e.to_string())?
 }
 fn install_self_impl(window: tauri::Window, source: Option<String>) -> Result<String, String> {
-    // 装到「工具目录\pyenv」（与 JDK/Maven/fnm 等一致，整套随 Stacker 目录走）。
-    let root = PathBuf::from(crate::installer::app_dir()).join("pyenv");
+    // 装到稳定的应用数据目录，避免开发模式落入 Cargo target。
+    let root = crate::installer::managed_tools_root().join("pyenv");
     std::fs::create_dir_all(&root).map_err(|e| e.to_string())?;
     let _ = source;
     crate::installer::extract_embedded_zip(
@@ -2598,7 +2617,7 @@ fn install_self_impl(window: tauri::Window, source: Option<String>) -> Result<St
 }
 
 fn install_self_online(window: tauri::Window, source: Option<String>) -> Result<String, String> {
-    let root = PathBuf::from(crate::installer::app_dir()).join("pyenv");
+    let root = crate::installer::managed_tools_root().join("pyenv");
     std::fs::create_dir_all(&root).map_err(|e| e.to_string())?;
     let source = source.unwrap_or_else(|| "official".into());
     // GitHub master.zip 顶层是 pyenv-win-master/，需要 strip；

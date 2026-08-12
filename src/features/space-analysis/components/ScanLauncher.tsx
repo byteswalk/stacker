@@ -7,6 +7,7 @@ import { scanSnapshotIsActive, startScan, useSpaceScan } from "../store";
 import {
   loadRememberedTargets,
   rememberStartedScan,
+  takePendingDirectoryTargets,
 } from "../targetStore";
 import type { ScanRequest, VolumeInfo } from "../types";
 import {
@@ -80,6 +81,14 @@ export function ScanLauncher({ disabled = false }: { disabled?: boolean }) {
 
   useEffect(() => () => {
     selectorRequest.current = closeDiskSelectorRequest(selectorRequest.current.generation);
+  }, []);
+
+  useEffect(() => {
+    const pending = nonOverlappingDirectoryTargets(takePendingDirectoryTargets());
+    if (pending.length === 0) return;
+    setDirectoryTargets(pending);
+    setElevated(false);
+    setDirectorySelectorOpen(true);
   }, []);
 
   function closeSelector() {
@@ -238,6 +247,13 @@ export function ScanLauncher({ disabled = false }: { disabled?: boolean }) {
             </button>
           </>}
         >
+          <label className="scan-elevation-option">
+            <input className="ck2" type="checkbox" checked={elevated} disabled={busy} onChange={(event) => setElevated(event.target.checked)} />
+            <span>
+              <strong>{tr("使用管理员权限扫描")}</strong>
+              <small>{tr("适用于包含受保护目录的范围；开始时将显示 Windows 用户账户控制提示。")}</small>
+            </span>
+          </label>
           <div className="scan-directory-toolbar">
             <button className="gh sm" disabled={busy} onClick={addDirectory}>
               <i className="ti ti-folder-plus" /> {tr("添加目录")}
@@ -268,13 +284,6 @@ export function ScanLauncher({ disabled = false }: { disabled?: boolean }) {
               </div>
             ))}
           </div>
-          <label className="scan-elevation-option">
-            <input className="ck2" type="checkbox" checked={elevated} disabled={busy} onChange={(event) => setElevated(event.target.checked)} />
-            <span>
-              <strong>{tr("使用管理员权限扫描")}</strong>
-              <small>{tr("适用于包含受保护目录的范围；开始时将显示 Windows 用户账户控制提示。")}</small>
-            </span>
-          </label>
         </Modal>
       )}
 
@@ -296,6 +305,13 @@ export function ScanLauncher({ disabled = false }: { disabled?: boolean }) {
             </button>
           </>}
         >
+          <label className="scan-elevation-option">
+            <input className="ck2" type="checkbox" checked={elevated} disabled={busy} onChange={(event) => setElevated(event.target.checked)} />
+            <span>
+              <strong>{tr("使用管理员权限扫描")}</strong>
+              <small>{tr("适用于需要统计系统受保护目录的磁盘；开始时将显示 Windows 用户账户控制提示。")}</small>
+            </span>
+          </label>
           {!volumeLoading && !volumeError && rows.length > 0 && (
             <div className="scan-volume-toolbar">
               <span>{tr("已选择 {count} 个磁盘").replace("{count}", String(selected.size))}</span>
@@ -353,13 +369,6 @@ export function ScanLauncher({ disabled = false }: { disabled?: boolean }) {
             <i className="ti ti-shield-check" />
             <span>{tr("可移动磁盘、光驱和网络磁盘不会出现在此列表中。")}</span>
           </div>
-          <label className="scan-elevation-option">
-            <input className="ck2" type="checkbox" checked={elevated} disabled={busy} onChange={(event) => setElevated(event.target.checked)} />
-            <span>
-              <strong>{tr("使用管理员权限扫描")}</strong>
-              <small>{tr("适用于需要统计系统受保护目录的磁盘；开始时将显示 Windows 用户账户控制提示。")}</small>
-            </span>
-          </label>
         </Modal>
       )}
     </>

@@ -196,6 +196,14 @@ pub struct ScanErrorSummary {
     pub other: u64,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SkippedPathEntry {
+    pub path: String,
+    pub reason: String,
+    pub occurrences: u64,
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct KnownSpaceItem {
@@ -229,6 +237,10 @@ pub struct AnalysisSummary {
     pub file_count: u64,
     pub directory_count: u64,
     pub skipped_paths: u64,
+    #[serde(default)]
+    pub skipped_path_entries: Vec<SkippedPathEntry>,
+    #[serde(default)]
+    pub unlisted_skipped_paths: u64,
     pub root_nodes: Vec<DirectoryNode>,
 }
 

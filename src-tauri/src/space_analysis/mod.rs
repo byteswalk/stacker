@@ -4,6 +4,7 @@ pub mod cleanup_tasks;
 pub mod elevated;
 pub mod known;
 pub mod model;
+pub mod monitor;
 pub mod snapshots;
 pub mod targets;
 pub mod tasks;
@@ -16,8 +17,41 @@ use self::model::{
     Paged, QuickScanResult, ScanMode, ScanProgress, ScanRequest, SnapshotComparison,
     SnapshotMetadata, VolumeInfo,
 };
+pub use self::monitor::SpaceMonitorManager;
 use self::targets::{list_fixed_volumes, validate_targets};
 pub use self::tasks::SpaceTaskManager;
+
+#[tauri::command]
+pub fn space_monitor_start(
+    roots: Vec<String>,
+    manager: tauri::State<'_, SpaceMonitorManager>,
+) -> Result<String, String> {
+    manager.start(roots)
+}
+
+#[tauri::command]
+pub fn space_monitor_status(
+    task_id: String,
+    manager: tauri::State<'_, SpaceMonitorManager>,
+) -> Result<monitor::MonitorSnapshot, String> {
+    manager.status(&task_id)
+}
+
+#[tauri::command]
+pub fn space_monitor_stop(
+    task_id: String,
+    manager: tauri::State<'_, SpaceMonitorManager>,
+) -> Result<(), String> {
+    manager.stop(&task_id)
+}
+
+#[tauri::command]
+pub fn space_monitor_dispose(
+    task_id: String,
+    manager: tauri::State<'_, SpaceMonitorManager>,
+) -> Result<(), String> {
+    manager.dispose(&task_id)
+}
 
 #[tauri::command]
 pub fn space_fixed_volumes() -> Vec<VolumeInfo> {

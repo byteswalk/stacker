@@ -1,6 +1,6 @@
 [package]
 name = "stacker"
-version = "0.3.2"
+version = "0.3.3"
 description = "Windows developer workstation manager for runtimes, AI work agents, Git identities, and developer disk space"
 authors = ["Stacker"]
 license = "MIT"
@@ -12,7 +12,7 @@ rust-version = "1.77.2"
 
 [lib]
 name = "stacker_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+crate-type = ["rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2.6.2", features = [] }
@@ -21,15 +21,18 @@ tauri-build = { version = "2.6.2", features = [] }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
+fern = "0.7"
 tauri = { version = "2.11.2", features = ["tray-icon"] }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-autostart = "2"
+tauri-plugin-single-instance = "2"
 dirs = "5"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 encoding_rs = "0.8"
 rust-ini = "0.21"
 jwalk = "0.8"
+notify = "8"
 ureq = "2"
 zip = "2"
 
@@ -39,3 +42,24 @@ tempfile = "3"
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
 winapi = { version = "0.3", features = ["winuser", "fileapi", "shellapi", "synchapi", "processthreadsapi", "handleapi", "winbase", "dpapi", "wincrypt", "minwindef", "winnt", "errhandlingapi"] }
+
+[profile.dev]
+debug = 1
+
+[profile.dev.package."*"]
+debug = 0
+
+[profile.dev.build-override]
+debug = 0
+incremental = false
+
+[profile.test]
+debug = 1
+incremental = false
+
+[profile.test.package."*"]
+debug = 0
+
+[profile.test.build-override]
+debug = 0
+incremental = false

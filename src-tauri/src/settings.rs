@@ -4,10 +4,14 @@
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
-// 缓存「最小化到托盘」开关，供窗口关闭事件同步读取（不走异步命令）。
-static MIN_TO_TRAY: AtomicBool = AtomicBool::new(false);
+const CLOSE_BEHAVIOR_ASK: u8 = 0;
+const CLOSE_BEHAVIOR_TRAY: u8 = 1;
+const CLOSE_BEHAVIOR_EXIT: u8 = 2;
+
+// 窗口关闭事件是同步回调，使用原子值缓存设置，避免每次关闭时读取磁盘。
+static CLOSE_BEHAVIOR: AtomicU8 = AtomicU8::new(CLOSE_BEHAVIOR_ASK);
 static LOG_WINDOW_OPENING: AtomicBool = AtomicBool::new(false);
 
 const ONE_GIB: u64 = 1024 * 1024 * 1024;
@@ -22,6 +26,10 @@ fn settings_path() -> PathBuf {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct AppSettings {
+    /// "ask" | "tray" | "exit"。空值表示尚未从旧版配置迁移。
+    #[serde(default)]
+    pub close_behavior: String,
+    /// 旧版兼容字段；新版本以 close_behavior 为准。
     #[serde(default)]
     pub minimize_to_tray: bool,
     #[serde(default = "default_theme")]
@@ -81,6 +89,7 @@ fn default_snapshot_max_per_target() -> u16 {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
+            close_behavior: "ask".into(),
             minimize_to_tray: false,
             theme: default_theme(),
             proxy_host: default_proxy_host(),
@@ -169,6 +178,8 @@ fn default_proxy_port() -> u16 {
     detected_proxy_addr().1
 }
 fn normalize(mut s: AppSettings) -> AppSettings {
+    s.close_behavior = normalize_close_behavior(&s.close_behavior, s.minimize_to_tray).into();
+    s.minimize_to_tray = s.close_behavior == "tray";
     if s.theme.trim().is_empty() {
         s.theme = default_theme();
     }
@@ -198,6 +209,24 @@ fn normalize(mut s: AppSettings) -> AppSettings {
     s.common_scan_directories.sort();
     s.common_scan_directories.dedup();
     s
+}
+
+fn normalize_close_behavior(value: &str, legacy_minimize_to_tray: bool) -> &'static str {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "tray" => "tray",
+        "exit" => "exit",
+        "ask" => "ask",
+        _ if legacy_minimize_to_tray => "tray",
+        _ => "ask",
+    }
+}
+
+fn close_behavior_code(value: &str) -> u8 {
+    match value {
+        "tray" => CLOSE_BEHAVIOR_TRAY,
+        "exit" => CLOSE_BEHAVIOR_EXIT,
+        _ => CLOSE_BEHAVIOR_ASK,
+    }
 }
 
 fn normalize_log_level(level: &str) -> &'static str {
@@ -230,6 +259,7 @@ pub fn load() -> AppSettings {
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_else(|| AppSettings {
+            close_behavior: "ask".into(),
             minimize_to_tray: false,
             theme: default_theme(),
             proxy_host: default_proxy_host(),
@@ -260,10 +290,13 @@ fn save(s: &AppSettings) -> Result<(), String> {
     .map_err(|e| e.to_string())
 }
 
-/// 启动时把「最小化到托盘」读进原子缓存。
+/// 启动时把关闭策略读进原子缓存。
 pub fn init() {
     let settings = load();
-    MIN_TO_TRAY.store(settings.minimize_to_tray, Ordering::Relaxed);
+    CLOSE_BEHAVIOR.store(
+        close_behavior_code(&settings.close_behavior),
+        Ordering::Relaxed,
+    );
     if let Err(error) = cleanup_expired_logs(settings.log_retention_days) {
         log::warn!("清理过期日志失败：{error}");
     }
@@ -280,8 +313,19 @@ pub fn start_log_retention_worker() {
             }
         });
 }
-pub fn minimize_to_tray() -> bool {
-    MIN_TO_TRAY.load(Ordering::Relaxed)
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CloseBehavior {
+    Ask,
+    Tray,
+    Exit,
+}
+
+pub fn close_behavior() -> CloseBehavior {
+    match CLOSE_BEHAVIOR.load(Ordering::Relaxed) {
+        CLOSE_BEHAVIOR_TRAY => CloseBehavior::Tray,
+        CLOSE_BEHAVIOR_EXIT => CloseBehavior::Exit,
+        _ => CloseBehavior::Ask,
+    }
 }
 
 #[tauri::command]
@@ -292,10 +336,27 @@ pub fn settings_get() -> AppSettings {
 #[tauri::command]
 pub fn settings_set_tray(enabled: bool) -> Result<(), String> {
     let mut s = load();
+    s.close_behavior = if enabled { "tray" } else { "exit" }.into();
     s.minimize_to_tray = enabled;
     save(&s)?;
-    MIN_TO_TRAY.store(enabled, Ordering::Relaxed);
+    CLOSE_BEHAVIOR.store(close_behavior_code(&s.close_behavior), Ordering::Relaxed);
     Ok(())
+}
+
+#[tauri::command]
+pub fn settings_set_close_behavior(behavior: String) -> Result<String, String> {
+    let behavior = match behavior.trim().to_ascii_lowercase().as_str() {
+        "ask" => "ask",
+        "tray" => "tray",
+        "exit" => "exit",
+        _ => return Err("无效的关闭按钮行为".into()),
+    };
+    let mut settings = load();
+    settings.close_behavior = behavior.into();
+    settings.minimize_to_tray = behavior == "tray";
+    save(&settings)?;
+    CLOSE_BEHAVIOR.store(close_behavior_code(behavior), Ordering::Relaxed);
+    Ok(behavior.into())
 }
 
 #[tauri::command]
@@ -378,10 +439,7 @@ pub fn settings_set_space_analysis(
 }
 
 fn current_log_path() -> PathBuf {
-    logs_dir().join(format!(
-        "stacker-{}.log",
-        chrono::Local::now().format("%Y-%m-%d")
-    ))
+    crate::logging::current_log_path(&logs_dir())
 }
 
 #[derive(Serialize)]
@@ -682,5 +740,29 @@ mod tests {
         assert!(settings.remember_scan_targets);
         assert_eq!(AppSettings::default().large_file_threshold_bytes, ONE_GIB);
         assert!(AppSettings::default().remember_scan_targets);
+    }
+
+    #[test]
+    fn old_tray_setting_migrates_to_tray_close_behavior() {
+        let settings: AppSettings = serde_json::from_str(r#"{"minimize_to_tray":true}"#).unwrap();
+
+        assert_eq!(normalize(settings).close_behavior, "tray");
+    }
+
+    #[test]
+    fn old_disabled_tray_setting_prompts_for_a_close_behavior() {
+        let settings: AppSettings = serde_json::from_str(r#"{"minimize_to_tray":false}"#).unwrap();
+
+        assert_eq!(normalize(settings).close_behavior, "ask");
+    }
+
+    #[test]
+    fn explicit_close_behavior_takes_priority_over_legacy_setting() {
+        let settings: AppSettings =
+            serde_json::from_str(r#"{"close_behavior":"exit","minimize_to_tray":true}"#).unwrap();
+        let settings = normalize(settings);
+
+        assert_eq!(settings.close_behavior, "exit");
+        assert!(!settings.minimize_to_tray);
     }
 }

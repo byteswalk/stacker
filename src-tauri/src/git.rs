@@ -2410,16 +2410,10 @@ fn install_git_impl(window: tauri::Window, source_id: &str) -> Result<String, St
                 "正在为当前用户静默安装 Git，无需管理员授权…"
             },
         );
-        let installer_log = git_installer_log_path(&release.latest)?;
-        run_git_installer(&window, &installer, system_install, &installer_log).map_err(
-            |error| {
-                if installer_log.is_file() {
-                    format!("{error}。诊断日志：{}", installer_log.display())
-                } else {
-                    error
-                }
-            },
-        )?;
+        let installer_log = git_installer_temp_log_path(&release.latest)?;
+        let install_result = run_git_installer(&window, &installer, system_install, &installer_log);
+        absorb_git_installer_log(&installer_log, install_result.is_err());
+        install_result?;
         let _ = window.emit("install-progress", "正在验证 Git、Git Bash 与 GCM…");
 
         let mut after = GitStatus::default();
@@ -2457,7 +2451,7 @@ fn install_git_impl(window: tauri::Window, source_id: &str) -> Result<String, St
     result
 }
 
-fn git_installer_log_path(version: &str) -> Result<PathBuf, String> {
+fn git_installer_temp_log_path(version: &str) -> Result<PathBuf, String> {
     let safe_version = version
         .chars()
         .map(|ch| {
@@ -2468,16 +2462,35 @@ fn git_installer_log_path(version: &str) -> Result<PathBuf, String> {
             }
         })
         .collect::<String>();
-    let local = std::env::var_os("LOCALAPPDATA")
-        .map(PathBuf::from)
-        .ok_or("无法读取当前用户的应用数据目录")?;
-    let directory = local.join("Stacker").join("logs");
+    let directory = std::env::temp_dir().join("Stacker");
     std::fs::create_dir_all(&directory)
-        .map_err(|error| format!("无法创建 Git 安装日志目录：{error}"))?;
+        .map_err(|error| format!("无法创建 Git 安装临时目录：{error}"))?;
     Ok(directory.join(format!(
-        "git-install-{safe_version}-{}.log",
-        chrono::Local::now().format("%Y%m%d-%H%M%S")
+        "git-install-{safe_version}-{}.tmp",
+        chrono::Local::now().format("%Y%m%d%H%M%S%3f")
     )))
+}
+
+fn absorb_git_installer_log(path: &Path, failed: bool) {
+    let text = std::fs::read_to_string(path).unwrap_or_default();
+    let _ = std::fs::remove_file(path);
+    let excerpt = crate::installer::diagnostic_excerpt(&text);
+    if excerpt.is_empty() {
+        return;
+    }
+    if failed {
+        log::error!(
+            target: "stacker::git_install",
+            "Git installer output:\n{}",
+            excerpt
+        );
+    } else {
+        log::debug!(
+            target: "stacker::git_install",
+            "Git installer output:\n{}",
+            excerpt
+        );
+    }
 }
 
 fn git_install_requires_elevation(status: &GitStatus) -> bool {

@@ -2,6 +2,9 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { invoke } from "./invoke";
 import { collectFrontendSettings, restoreFrontendSettings, type FrontendSettings } from "./frontendSettings";
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { getVersion } from "@tauri-apps/api/app";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ToastProvider, ToastHost, useToast, Modal, ConfirmModal, BusyProvider, BusyHost } from "./ui";
 import { Select } from "./Select";
 import { useI18n, type MessageKey } from "./i18n";
@@ -128,7 +131,7 @@ type SavedProfile = {
 };
 
 function Shell() {
-  const { t } = useI18n();
+  const { t, tr } = useI18n();
   const toast = useToast();
   const notices = useNotifications();
   const [page, setPage] = useState<Page>("overview");
@@ -142,6 +145,9 @@ function Shell() {
   const [deleteProfile, setDeleteProfile] = useState<string | null>(null);
   const [osWarn, setOsWarn] = useState<{ name: string; build: number } | null>(null);
   const [osDismiss, setOsDismiss] = useState(false);
+  const [appVersion, setAppVersion] = useState("");
+  const [closeChoiceOpen, setCloseChoiceOpen] = useState(false);
+  const [closeChoiceBusy, setCloseChoiceBusy] = useState(false);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const cur = ALL.find((n) => n.id === page)!;
   const currentNoticeCount = page === "settings"
@@ -161,8 +167,25 @@ function Shell() {
   }
   useEffect(() => {
     refreshProfiles();
+    void getVersion().then(setAppVersion).catch(() => undefined);
     invoke<{ name: string; build: number; supported: boolean }>("os_info")
       .then((o) => { if (!o.supported) setOsWarn({ name: o.name, build: o.build }); }).catch(() => {});
+  }, []);
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined;
+    let disposed = false;
+    void listen("app-close-choice-required", () => setCloseChoiceOpen(true))
+      .then((dispose) => {
+        if (disposed) dispose();
+        else unlisten = dispose;
+      })
+      .catch((error) => {
+        console.error("failed to listen for close behavior choice", error);
+      });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
   }, []);
   useEffect(() => {
     if (contentRef.current) contentRef.current.scrollTop = 0;
@@ -228,6 +251,19 @@ function Shell() {
     }
   }
 
+  async function chooseCloseBehavior(behavior: "tray" | "exit") {
+    setCloseChoiceBusy(true);
+    try {
+      await invoke("settings_set_close_behavior", { behavior });
+      setCloseChoiceOpen(false);
+      setCloseChoiceBusy(false);
+      await getCurrentWindow().close();
+    } catch (error) {
+      toast(tr("无法保存关闭按钮行为：") + error, "err");
+      setCloseChoiceBusy(false);
+    }
+  }
+
   return (
     <div className="a">
       <aside className="side">
@@ -240,6 +276,7 @@ function Shell() {
             </svg>
           </span>
           Stacker
+          {appVersion && <span className="brand-version" title={`Stacker v${appVersion}`}>v{appVersion}</span>}
         </div>
         <nav>
           {NAV_TOP.map((n) => <NavBtn key={n.id} item={n} page={page} set={setPage} />)}
@@ -286,7 +323,7 @@ function Shell() {
           )}
           <Suspense fallback={<PageFallback />}>
             {page === "overview" ? <Overview key={configEpoch} goto={setPage} />
-              : page === "vibe" ? <Vibe key={configEpoch} />
+              : page === "vibe" ? <Vibe key={configEpoch} goto={setPage} />
               : page === "git" ? <Git key={configEpoch} />
               : page === "node" ? <Node key={configEpoch} />
               : page === "proxy" ? <Proxy key={configEpoch} />
@@ -343,6 +380,28 @@ function Shell() {
         <ConfirmModal title="删除配置方案" icon="ti-trash" danger
           message={<>将删除配置方案「{deleteProfile}」。已应用到各工具的配置不会被更改。</>}
           confirmLabel="确认删除" onConfirm={() => delProfile(deleteProfile)} onClose={() => setDeleteProfile(null)} />
+      )}
+
+      {closeChoiceOpen && (
+        <Modal
+          title={tr("选择关闭方式")}
+          icon="ti-logout"
+          sub={tr("选择将作为默认关闭行为保存，之后可在“设置”中修改。")}
+          onClose={() => !closeChoiceBusy && setCloseChoiceOpen(false)}
+          footer={<>
+            <button className="gh sm" disabled={closeChoiceBusy} onClick={() => setCloseChoiceOpen(false)}>{tr("取消")}</button>
+            <button className="gh sm" disabled={closeChoiceBusy} onClick={() => void chooseCloseBehavior("exit")}>
+              <i className="ti ti-logout" /> {tr("退出程序")}
+            </button>
+            <button className="pr sm" autoFocus disabled={closeChoiceBusy} onClick={() => void chooseCloseBehavior("tray")}>
+              <i className={"ti " + (closeChoiceBusy ? "ti-loader spin" : "ti-device-desktop-down")} /> {tr("驻留系统托盘")}
+            </button>
+          </>}
+        >
+          <div style={{ fontSize: 13, lineHeight: 1.7, color: "var(--tx)" }}>
+            {tr("尚未设置关闭按钮行为。你可以退出 Stacker，或让它继续在系统托盘运行后台任务。")}
+          </div>
+        </Modal>
       )}
 
       <ToastHost />

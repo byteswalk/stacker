@@ -118,7 +118,7 @@ export function VersionManager({ kind, icon, cmd, envvar, download, onChanged, o
   }, []);
 
   useEffect(() => {
-    invoke<string>("app_dir").then((d) => {
+    invoke<string>("managed_runtime_dir").then((d) => {
       setAppDir(d);
       setInstallRoot(`${d}\\${download.subdir}`);
     }).catch(() => setInstallRoot(`D:\\Environments\\${download.subdir}`));

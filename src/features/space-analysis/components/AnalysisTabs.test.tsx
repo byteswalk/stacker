@@ -13,6 +13,7 @@ describe("AnalysisTabs", () => {
     expect(html).toContain("large-files");
     expect(html).toContain("development-artifacts");
     expect(html).toContain("cache-downloads");
+    expect(html).toContain("skipped-paths");
     expect(html).toContain("changes");
   });
 });

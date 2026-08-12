@@ -9,6 +9,9 @@
   "permissions": [
     "core:default",
     "core:window:allow-close",
+    "core:window:allow-set-size",
+    "core:window:allow-center",
+    "core:window:allow-unmaximize",
     "dialog:allow-save",
     "dialog:allow-open",
     "autostart:allow-enable",

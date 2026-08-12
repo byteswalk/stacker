@@ -2,9 +2,12 @@ import { useEffect, useState } from "react";
 import { invoke } from "../invoke";
 import { ConfirmModal, useBusy, useToast } from "../ui";
 import { useNotifications } from "../notifications";
-import { translateText } from "../i18n";
+import { translateText, useI18n } from "../i18n";
+import { AgentActivity } from "../features/agent-workspace/AgentActivity";
+import { ManagedWorkSession } from "../features/agent-workspace/ManagedWorkSession";
+import type { Page } from "../App";
 
-type VibeSurface = {
+export type VibeSurface = {
   available: boolean;
   label: string;
   kind: string;
@@ -27,7 +30,7 @@ type VibeSurface = {
   can_uninstall: boolean;
   can_open: boolean;
 };
-type VibeTool = {
+export type VibeTool = {
   id: string;
   name: string;
   description: string;
@@ -144,7 +147,9 @@ async function refreshOneTool(id: string) {
   return next;
 }
 
-export default function Vibe() {
+export default function Vibe({ goto }: { goto?: (page: Page) => void }) {
+  const { locale } = useI18n();
+  const en = locale === "en-US";
   const toast = useToast();
   const runBusy = useBusy();
   const notices = useNotifications();
@@ -154,6 +159,7 @@ export default function Vibe() {
   const [promptBusy, setPromptBusy] = useState(false);
   const [checkingTool, setCheckingTool] = useState("");
   const [uninstall, setUninstall] = useState<{ tool: VibeTool; target: "cli" | "desktop"; surface: VibeSurface } | null>(null);
+  const [workspaceView, setWorkspaceView] = useState<"agents" | "session" | "activity">("agents");
 
   useEffect(() => subscribeVibe((s) => {
     setTools(s.tools);
@@ -172,6 +178,16 @@ export default function Vibe() {
       toast("智能体状态已刷新", "ok");
     } catch (e) {
       toast("刷新智能体状态失败：" + e, "err");
+    }
+  }
+
+  async function openWorkSession() {
+    setWorkspaceView("session");
+    if (vibeCache.checked || vibeCache.loading) return;
+    try {
+      await load();
+    } catch (e) {
+      toast("读取已安装智能体失败：" + e, "err");
     }
   }
 
@@ -219,7 +235,7 @@ export default function Vibe() {
     const actionText = action === "install" ? "安装" : action === "update" ? "更新" : "卸载";
     const nativeClaudeInstall = tool.id === "claude" && target === "cli" && action === "install";
     const message = nativeClaudeInstall
-      ? "正在安装 Claude Code 官方 Windows 原生版，无需预先安装 Node.js。下载或安装连续 30 秒没有响应时会自动停止，也可随时取消。"
+      ? "正在安装 Claude Code 官方 Windows 原生版，无需预先安装 Node.js。下载安装期间可随时取消。"
       : action === "uninstall"
       ? `正在卸载 ${surface.label}。Stacker 会优先使用检测到的包管理器或系统卸载入口。`
       : `正在${actionText} ${surface.label}。Stacker 会优先按官方推荐方式执行，并在完成后刷新当前项状态。`;
@@ -252,7 +268,8 @@ export default function Vibe() {
       if (cancelled || detail.includes("已取消")) {
         toast(`已取消${surface.label}${actionText}`, "info");
       } else {
-        toast(`${actionText}失败：` + detail, "err");
+        const logHint = detail.includes("日志") ? "" : "；诊断记录已写入 Stacker 日志，可在设置中打开日志目录查看";
+        toast(`${actionText}失败：${detail}${logHint}`, "err");
       }
     }
   }
@@ -347,6 +364,20 @@ export default function Vibe() {
 
   return (
     <>
+      <div className="agent-workspace-tabs" role="tablist" aria-label={en ? "Work agent workspace" : "智能体工作区"}>
+        <button className={workspaceView === "agents" ? "active" : ""} onClick={() => setWorkspaceView("agents")}>
+          <i className="ti ti-sparkles" /> {en ? "Work Agents" : "工作智能体"}
+        </button>
+        <button className={workspaceView === "session" ? "active" : ""} onClick={() => void openWorkSession()}>
+          <i className="ti ti-terminal-2" /> {en ? "Work Session" : "工作会话"}
+        </button>
+        <button className={workspaceView === "activity" ? "active" : ""} onClick={() => setWorkspaceView("activity")}>
+          <i className="ti ti-activity-heartbeat" /> {en ? "Local Activity" : "本机活动"}
+        </button>
+      </div>
+
+      {workspaceView === "agents" ? (
+      <>
       <div className={"checkup agent" + (loading ? " checking" : "")}>
         {loading && <span className="border-runner" aria-hidden="true" />}
         <span className="av" style={{ width: 52, height: 52 }}><i className={"ti " + (loading ? "ti-loader spin" : "ti-sparkles")} /></span>
@@ -424,6 +455,21 @@ export default function Vibe() {
           onConfirm={() => runToolAction(uninstall.tool, uninstall.target, "uninstall")}
         />
       )}
+      </>
+      ) : workspaceView === "session" ? (
+        <ManagedWorkSession
+          agents={tools.map((tool) => ({
+            id: tool.id,
+            name: tool.name,
+            cliInstalled: surfaceDetected(tool.cli),
+            cliPath: tool.cli.path ?? null,
+            desktopInstalled: surfaceDetected(tool.desktop),
+            desktopPath: tool.desktop.path ?? null,
+            desktopName: tool.desktop.label,
+          }))}
+          onOpenCleanup={goto ? () => goto("cleanup") : undefined}
+        />
+      ) : <AgentActivity />}
     </>
   );
 }

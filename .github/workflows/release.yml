@@ -26,6 +26,8 @@ jobs:
           rustup default stable
       - name: Install frontend dependencies
         run: npm ci
+      - name: Validate internationalization coverage
+        run: npm run check:i18n
       - name: Validate tag and package version
         if: startsWith(github.ref, 'refs/tags/')
         shell: pwsh

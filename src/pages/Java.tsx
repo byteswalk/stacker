@@ -75,7 +75,7 @@ export default function Java() {
   const destFor = (v: string, vd: string = vendor, a: string = arch) =>
     (appDir ? `${appDir}\\jdk\\${vd}-${v}-${archSuffix(a)}` : `D:\\Environments\\${vd}-${v}-${archSuffix(a)}`);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { invoke<string>("app_dir").then((d) => { setAppDir(d); setDlDest((d ? `${d}\\jdk\\` : "D:\\Environments\\") + `temurin-${dlVer}-x64`); }).catch(() => {}); }, []);
+  useEffect(() => { invoke<string>("managed_runtime_dir").then((d) => { setAppDir(d); setDlDest((d ? `${d}\\jdk\\` : "D:\\Environments\\") + `temurin-${dlVer}-x64`); }).catch(() => {}); }, []);
   function pickVer(v: string) {
     const a = supportsX32(v, vendor) ? arch : "x64";
     setDlVer(v); setArch(a); setDlDest(destFor(v, vendor, a));

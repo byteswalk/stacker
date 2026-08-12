@@ -9,8 +9,10 @@ import { getTheme, setTheme, type Theme } from "../theme";
 import { formatBytes, useNotifications } from "../notifications";
 import { useI18n, type Locale } from "../i18n";
 import { disableRememberScanTargets } from "../features/space-analysis/targetStore";
+import { resetMainWindowSize } from "../windowSize";
 
 type AppSettings = {
+  close_behavior: CloseBehavior;
   minimize_to_tray: boolean;
   theme: Theme;
   proxy_host: string;
@@ -24,6 +26,7 @@ type AppSettings = {
   snapshot_max_per_target: number;
   common_scan_directories: string[];
 };
+type CloseBehavior = "ask" | "tray" | "exit";
 type SourceSummary = {
   server_version: string | null;
   builtin_count: number;
@@ -67,7 +70,7 @@ export default function Settings() {
   const [appVersion, setAppVersion] = useState("…");
   const [sourceOpen, setSourceOpen] = useState(false);
   const [sourceSummary, setSourceSummary] = useState<SourceSummary | null>(null);
-  const [tray, setTray] = useState(false);
+  const [closeBehavior, setCloseBehavior] = useState<CloseBehavior>("ask");
   const [autostart, setAutostart] = useState(false);
   const [theme, setThemeState] = useState<Theme>(getTheme());
   const [logLevel, setLogLevel] = useState<AppSettings["log_level"]>("error");
@@ -80,6 +83,7 @@ export default function Settings() {
   const [snapshotMaxPerTarget, setSnapshotMaxPerTarget] = useState("20");
   const [commonScanDirectories, setCommonScanDirectories] = useState("");
   const [spaceAnalysisSaving, setSpaceAnalysisSaving] = useState(false);
+  const [windowSizeResetting, setWindowSizeResetting] = useState(false);
 
   const [clearLogConfirm, setClearLogConfirm] = useState(false);
   const [clearLogBusy, setClearLogBusy] = useState(false);
@@ -106,7 +110,7 @@ export default function Settings() {
   useEffect(() => {
     refreshSourceSummary();
     invoke<AppSettings>("settings_get").then((s) => {
-      setTray(s.minimize_to_tray);
+      setCloseBehavior(s.close_behavior || (s.minimize_to_tray ? "tray" : "ask"));
       setProxyHost(s.proxy_host || "127.0.0.1");
       setProxyPort(String(s.proxy_port || 7890));
       setLogLevel(s.log_level || "error");
@@ -122,13 +126,18 @@ export default function Settings() {
     checkNotifications("settings").catch(() => {});
   }, [checkNotifications, refreshSourceSummary]);
 
-  async function toggleTray(v: boolean) {
+  async function changeCloseBehavior(value: string) {
     try {
-      await invoke("settings_set_tray", { enabled: v });
-      setTray(v);
-      toast(v ? "关闭窗口将最小化到托盘" : "已关闭最小化到托盘", "ok");
+      const saved = await invoke<CloseBehavior>("settings_set_close_behavior", { behavior: value });
+      setCloseBehavior(saved);
+      const message = saved === "tray"
+        ? tr("关闭窗口时将驻留系统托盘")
+        : saved === "exit"
+          ? tr("关闭窗口时将退出程序")
+          : tr("下次关闭窗口时将询问处理方式");
+      toast(message, "ok");
     } catch (e) {
-      toast("设置失败：" + e, "err");
+      toast(tr("设置失败：") + e, "err");
     }
   }
 
@@ -154,6 +163,18 @@ export default function Settings() {
     const next = value as Locale;
     setLocale(next);
     toast(next === "zh-CN" ? "界面语言已切换为简体中文" : "Display language changed to English", "ok");
+  }
+
+  async function restoreDefaultWindowSize() {
+    setWindowSizeResetting(true);
+    try {
+      await resetMainWindowSize();
+      toast(tr("窗口大小已恢复为 1280 × 720"), "ok");
+    } catch (e) {
+      toast(tr("恢复默认窗口大小失败：") + e, "err");
+    } finally {
+      setWindowSizeResetting(false);
+    }
   }
 
   async function changeLogLevel(level: string) {
@@ -400,8 +421,22 @@ export default function Settings() {
       </div>
       <div className="srcrow">
         <span className="av st"><i className="ti ti-device-desktop" /></span>
-        <div className="mt"><div className="t">最小化到托盘</div><div className="s dim" title="开启后，关闭窗口会隐藏到系统托盘；可从托盘菜单显示窗口、切换终端代理或退出应用。">关闭窗口时隐藏到系统托盘。</div></div>
-        <label className="sw sm2"><input type="checkbox" disabled={noBackend} checked={tray} onChange={(e) => toggleTray(e.target.checked)} /><span className="tk" /></label>
+        <div className="mt">
+          <div className="t">{tr("关闭按钮行为")}</div>
+          <div className="s dim" title={tr("选择关闭窗口时退出程序、驻留系统托盘，或在关闭时询问。可随时在此修改。")}>{
+            closeBehavior === "tray"
+              ? tr("关闭窗口时驻留系统托盘。")
+              : closeBehavior === "exit"
+                ? tr("关闭窗口时退出程序。")
+                : tr("关闭窗口时询问处理方式。")
+          }</div>
+        </div>
+        <Select value={closeBehavior} width={190} disabled={noBackend} onChange={changeCloseBehavior}
+          options={[
+            { value: "ask", label: tr("每次关闭时询问") },
+            { value: "tray", label: tr("驻留系统托盘") },
+            { value: "exit", label: tr("退出程序") },
+          ]} />
       </div>
       <div className="srcrow">
         <span className="av st"><i className="ti ti-player-play" /></span>
@@ -422,6 +457,24 @@ export default function Settings() {
         </div>
         <Select value={locale} width={150} onChange={changeLanguage}
           options={[{ value: "zh-CN", label: "简体中文" }, { value: "en-US", label: "English" }]} />
+      </div>
+      <div className="srcrow">
+        <span className="av st"><i className="ti ti-arrows-maximize" /></span>
+        <div className="mt">
+          <div className="t">{tr("窗口大小")}</div>
+          <div className="s dim" title={tr("自动记住最后调整的大小；可恢复为默认 1280 × 720。")}>
+            {tr("自动记住最后调整的大小；可恢复为默认 1280 × 720。")}
+          </div>
+        </div>
+        <button
+          className="gh sm"
+          disabled={windowSizeResetting}
+          onClick={restoreDefaultWindowSize}
+          title={tr("将主窗口恢复为默认的 1280 × 720，并继续记住后续调整。")}
+        >
+          <i className={"ti " + (windowSizeResetting ? "ti-loader spin" : "ti-restore")} />
+          {windowSizeResetting ? tr("恢复中…") : tr("恢复默认大小")}
+        </button>
       </div>
       <div className="srcrow">
         <span className="av st"><i className="ti ti-file-description" /></span>

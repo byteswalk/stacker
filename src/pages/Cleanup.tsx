@@ -37,7 +37,7 @@ const KNOWN_ITEM_NAMES: Record<string, string> = {
   "spaceAnalysis.known.playwright": "Playwright 浏览器",
   "spaceAnalysis.known.huggingFace": "Hugging Face 模型缓存",
   "spaceAnalysis.known.mavenRepository": "Maven 本地仓库",
-  "spaceAnalysis.known.jetbrainsHistory": "JetBrains 历史版本",
+  "spaceAnalysis.known.jetbrainsHistory": "开发工具历史版本",
   "spaceAnalysis.known.windowsTemp": "Windows 临时目录",
   "spaceAnalysis.known.userTemp": "用户临时目录",
 };
@@ -176,6 +176,14 @@ export default function Cleanup() {
     }
   }
 
+  async function openDirectory(path: string) {
+    try {
+      await invoke("space_open_directory", { path });
+    } catch {
+      toast(tr("无法打开文件夹。请确认路径仍然存在，并且当前账户拥有访问权限。"), "err");
+    }
+  }
+
   function openAged(path: string) {
     setAged(path);
     void loadStats(path, 90);
@@ -249,6 +257,15 @@ export default function Cleanup() {
           <div className="big">{fmt(item.size)}</div>
           <div className="small">{item.safetyLabel}</div>
         </div>
+        <button
+          type="button"
+          className="space-icon-button"
+          title={tr("打开目录")}
+          aria-label={`${tr("打开目录")}: ${item.name}`}
+          onClick={() => void openDirectory(item.path)}
+        >
+          <i className="ti ti-folder-open" />
+        </button>
         {item.canSelect && (
           <button
             className="gh sm"
@@ -304,7 +321,7 @@ export default function Cleanup() {
       )}
       {safe.length > 0 && <div className="seclabel"><i className="ti ti-shield-check" style={{ color: "#6bcf86" }} /> {tr("可安全清理（纯缓存，删除后会自动重新获取）")}</div>}
       {safe.map(row)}
-      {history.length > 0 && <div className="seclabel"><i className="ti ti-code" style={{ color: "#e4b450" }} /> {tr("JetBrains IDE 历史版本（保留同产品最新版本）")}</div>}
+      {history.length > 0 && <div className="seclabel"><i className="ti ti-code" style={{ color: "#e4b450" }} /> {tr("开发工具历史版本（保留同产品最新版本）")}</div>}
       {history.map(row)}
       {temp.length > 0 && <div className="seclabel"><i className="ti ti-trash" style={{ color: "#e4b450" }} /> {tr("Windows 临时目录（超过 1 GB 才显示）")}</div>}
       {temp.map(row)}
@@ -315,7 +332,7 @@ export default function Cleanup() {
         <ConfirmModal
           title={tr("确认清理")}
           icon="ti-eraser"
-          message={<>{tr("将清理")} <b style={{ color: "var(--tx)" }}>{confirm.length} {tr("项")}</b>{locale === "zh-CN" ? "，" : "; "}{tr("预计释放")} <b style={{ color: "#6bcf86" }}>{fmt(items.filter((item) => confirm.includes(item.path)).reduce((sum, item) => sum + item.size, 0))}</b>{locale === "zh-CN" ? "。" : "."}<br />{tr("缓存和临时目录会清理目录内容；JetBrains 历史版本会删除旧版本目录；被系统占用的临时文件会自动跳过。")}</>}
+          message={<>{tr("将清理")} <b style={{ color: "var(--tx)" }}>{confirm.length} {tr("项")}</b>{locale === "zh-CN" ? "，" : "; "}{tr("预计释放")} <b style={{ color: "#6bcf86" }}>{fmt(items.filter((item) => confirm.includes(item.path)).reduce((sum, item) => sum + item.size, 0))}</b>{locale === "zh-CN" ? "。" : "."}<br />{tr("缓存和临时目录会清理目录内容；开发工具历史版本会删除旧版本目录；被系统占用的临时文件会自动跳过。")}</>}
           confirmLabel={cleanupBusy ? tr("清理中…") : tr("清理")}
           busy={cleanupBusy}
           onConfirm={() => del(confirm)}

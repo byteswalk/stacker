@@ -11,10 +11,12 @@ import { CleanupResultModal } from "./CleanupResultModal";
 import { DevelopmentArtifacts, formatSpaceBytes } from "./DevelopmentArtifacts";
 import { DirectoryRanking } from "./DirectoryRanking";
 import { LargeFiles } from "./LargeFiles";
+import { SkippedPaths } from "./SkippedPaths";
 import { SpaceOverview } from "./SpaceOverview";
 import { SpaceChanges } from "./SpaceChanges";
+import { SpaceMonitorModal } from "./SpaceMonitorModal";
 
-export const ANALYSIS_TABS = ["overview", "directories", "large-files", "development-artifacts", "cache-downloads", "changes"] as const;
+export const ANALYSIS_TABS = ["overview", "directories", "large-files", "development-artifacts", "cache-downloads", "skipped-paths", "changes"] as const;
 type AnalysisTab = (typeof ANALYSIS_TABS)[number];
 
 type SpaceAnalysisSettings = { large_file_threshold_bytes: number };
@@ -44,6 +46,7 @@ export function AnalysisTabs({ taskId, request }: { taskId: string; request: Sca
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [snapshot, setSnapshot] = useState<SnapshotMetadata | null>(savedSnapshots.get(taskId) ?? null);
+  const [monitorOpen, setMonitorOpen] = useState(false);
 
   useEffect(() => {
     let current = true;
@@ -85,6 +88,7 @@ export function AnalysisTabs({ taskId, request }: { taskId: string; request: Sca
   const labels: Record<AnalysisTab, string> = {
     overview: tr("空间概览"), directories: tr("目录排行"), "large-files": tr("大文件"),
     "development-artifacts": tr("开发产物"), "cache-downloads": tr("缓存与下载"),
+    "skipped-paths": tr("已跳过路径"),
     changes: tr("空间变化"),
   };
   const cacheImpactKeys = new Set(["spaceAnalysis.impact.nodeDependencies", "spaceAnalysis.impact.gradleProjectCache"]);
@@ -106,6 +110,7 @@ export function AnalysisTabs({ taskId, request }: { taskId: string; request: Sca
       </div>
       <div className="space-cleanup-toolbar">
         <span>{tr("已选择")} {cleanup.selected.size} {tr("项")} · {formatSpaceBytes(selectedBytes)}</span>
+        <button className="gh sm" type="button" onClick={() => setMonitorOpen(true)} title={tr("追踪选定目录的空间变化")}><i className="ti ti-activity" /> {tr("实时追踪")}</button>
         <button className="pr sm" disabled={!cleanupTabActive || cleanup.loading || cleanup.planning || cleanup.selected.size === 0 || cleanup.progress?.state === "running"}
           title={tr(cleanupTabActive ? "核对所选项目后进入清理确认" : "请在“开发产物”或“缓存与下载”页面选择需要清理的项目")}
           onClick={async () => {
@@ -123,11 +128,13 @@ export function AnalysisTabs({ taskId, request }: { taskId: string; request: Sca
       {activeTab === "large-files" && <LargeFiles taskId={taskId} thresholdBytes={largeFileThreshold} />}
       {activeTab === "development-artifacts" && <DevelopmentArtifacts nodes={artifactNodes} />}
       {activeTab === "cache-downloads" && <CacheDownloads nodes={cacheNodes} />}
+      {activeTab === "skipped-paths" && <SkippedPaths summary={summary} />}
       {activeTab === "changes" && (snapshot
         ? <SpaceChanges fingerprint={snapshot.targetFingerprint} />
         : <div className="space-analysis-empty">{tr("空间快照已关闭，或本次扫描尚未生成快照。")}</div>)}
     </div>
     <CleanupPlanModal />
     <CleanupResultModal onRescan={rescanAffected} />
+    {monitorOpen && <SpaceMonitorModal roots={summary.targets} onClose={() => setMonitorOpen(false)} />}
   </section>;
 }

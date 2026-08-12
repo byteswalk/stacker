@@ -19,17 +19,20 @@ export async function invoke<T>(
   args?: InvokeArgs,
   options?: InvokeOptions,
 ): Promise<T> {
+  const startedAt = performance.now();
   if (!quietCommands.has(command)) {
     await debug(`Command started: ${command}`).catch(() => undefined);
   }
   try {
     const result = await tauriInvoke<T>(command, args, options);
     if (!quietCommands.has(command)) {
-      await debug(`Command completed: ${command}`).catch(() => undefined);
+      await debug(`Command completed: ${command}; elapsed_ms=${Math.round(performance.now() - startedAt)}`).catch(() => undefined);
     }
     return result;
   } catch (cause) {
-    await error(`Command failed: ${command}: ${safeLogText(cause)}`).catch(() => undefined);
+    await error(
+      `Command failed: ${command}; elapsed_ms=${Math.round(performance.now() - startedAt)}; error=${safeLogText(cause)}`,
+    ).catch(() => undefined);
     throw cause;
   }
 }

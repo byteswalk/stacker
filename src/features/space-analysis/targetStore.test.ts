@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   LAST_DIRECTORIES_KEY,
   LAST_DRIVES_KEY,
+  PENDING_DIRECTORIES_KEY,
   disableRememberScanTargets,
   loadRememberedTargets,
   markTargetAvailability,
   rememberStartedScan,
+  setPendingDirectoryTargets,
+  takePendingDirectoryTargets,
 } from "./targetStore";
 
 class MemoryStorage implements Storage {
@@ -132,5 +135,22 @@ describe("remembered space-analysis targets", () => {
     );
 
     expect(result).toMatchObject({ ok: false, stage: "storage" });
+  });
+
+  it("hands cleanup targets to the next directory selector exactly once", () => {
+    const storage = new MemoryStorage();
+    expect(setPendingDirectoryTargets(["C:\\cache", "c:\\CACHE", "D:\\store"], storage)).toEqual({ ok: true });
+    expect(storage.getItem(PENDING_DIRECTORIES_KEY)).not.toBeNull();
+
+    expect(takePendingDirectoryTargets(storage)).toEqual(["C:\\cache", "D:\\store"]);
+    expect(takePendingDirectoryTargets(storage)).toEqual([]);
+  });
+
+  it("does not leave stale cleanup targets when the handoff payload is invalid", () => {
+    const storage = new MemoryStorage();
+    storage.setItem(PENDING_DIRECTORIES_KEY, "not-json");
+
+    expect(takePendingDirectoryTargets(storage)).toEqual([]);
+    expect(storage.getItem(PENDING_DIRECTORIES_KEY)).toBeNull();
   });
 });

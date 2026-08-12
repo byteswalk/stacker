@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Stacker",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "identifier": "com.stacker.app",
   "build": {
     "frontendDist": "../dist",
@@ -13,10 +13,10 @@
     "windows": [
       {
         "title": "Stacker",
-        "width": 1040,
-        "height": 700,
+        "width": 1280,
+        "height": 720,
         "minWidth": 960,
-        "minHeight": 600,
+        "minHeight": 540,
         "center": true,
         "resizable": true,
         "fullscreen": false

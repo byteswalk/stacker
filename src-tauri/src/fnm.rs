@@ -179,23 +179,18 @@ pub struct FnmStatus {
 }
 
 struct NodeInstallLog {
-    path: PathBuf,
+    context: String,
 }
 
 impl NodeInstallLog {
     fn new(version: &str, source: &str) -> Result<Self, String> {
-        let dir = dirs::data_local_dir()
-            .unwrap_or_else(std::env::temp_dir)
-            .join("Stacker")
-            .join("logs");
-        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-        let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
-        let clean_version = clean_log_part(version);
-        let clean_source = clean_log_part(source);
-        let path = dir.join(format!(
-            "node-install-session-{clean_version}-{clean_source}-{stamp}.log"
-        ));
-        let log = Self { path };
+        let log = Self {
+            context: format!(
+                "version={} source={}",
+                clean_log_part(version),
+                clean_log_part(source)
+            ),
+        };
         log.line(format!(
             "START node install session version={version} source={source}"
         ));
@@ -203,21 +198,23 @@ impl NodeInstallLog {
     }
 
     fn line(&self, msg: impl AsRef<str>) {
-        use std::io::Write;
-        let ts = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
-        if let Ok(mut file) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&self.path)
-        {
-            let _ = writeln!(file, "[{ts}] {}", msg.as_ref());
-        }
+        log::debug!(
+            target: "stacker::node_install",
+            "[{}] {}",
+            self.context,
+            msg.as_ref()
+        );
     }
 
     fn error(&self, err: impl AsRef<str>) -> String {
         let err = err.as_ref();
-        self.line(format!("ERROR {err}"));
-        format!("{err}\n诊断日志：{}", self.path.display())
+        log::error!(
+            target: "stacker::node_install",
+            "[{}] {}",
+            self.context,
+            err
+        );
+        err.to_string()
     }
 }
 
@@ -985,12 +982,9 @@ pub fn fnm_write_integration(shells: Vec<String>) -> Result<Vec<String>, String>
     Ok(done)
 }
 
-// fnm 装到「工具目录\fnm」（与 JDK/Maven/Go 等一致，整套可随 Stacker 目录一起拷走）。
+// fnm 装到稳定的应用数据目录，避免开发模式落入 Cargo target。
 fn app_fnm_dir() -> PathBuf {
-    std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|d| d.join("fnm")))
-        .unwrap_or_else(|| PathBuf::from("fnm"))
+    crate::installer::managed_tools_root().join("fnm")
 }
 const FNM_URL: &str = "https://github.com/Schniz/fnm/releases/latest/download/fnm-windows.zip";
 const BUNDLED_FNM_VERSION: &str = "1.39.0";

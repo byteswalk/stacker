@@ -48,6 +48,7 @@ if ($Version -ne [string]$Tauri.version -or $Version -ne $CargoVersion -or $Vers
 
 if (-not $SkipChecks) {
     Invoke-Checked "Release metadata" { & npm.cmd run check:release-metadata }
+    Invoke-Checked "Internationalization coverage" { & npm.cmd run check:i18n }
     Invoke-Checked "Rust format" { & cargo fmt --manifest-path src-tauri\Cargo.toml -- --check }
     Invoke-Checked "Frontend lint" { & npm.cmd run lint }
     Invoke-Checked "Frontend tests" { & npm.cmd run test }
@@ -76,6 +77,7 @@ Copy-Item $NsisSource $InstallerPath
 Copy-Item $ReleaseExe (Join-Path $PortableStage "Stacker.exe")
 Copy-Item (Join-Path $Root "LICENSE") (Join-Path $PortableStage "LICENSE")
 Copy-Item (Join-Path $Root "resources\PORTABLE_README.txt") (Join-Path $PortableStage "README.txt")
+New-Item (Join-Path $PortableStage "portable.flag") -ItemType File -Force | Out-Null
 Compress-Archive -Path (Join-Path $PortableStage "*") -DestinationPath $PortablePath -CompressionLevel Optimal
 Remove-Item $PortableStage -Recurse -Force
 

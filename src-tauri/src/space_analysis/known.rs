@@ -65,7 +65,7 @@ pub fn known_candidates() -> Vec<KnownCandidate> {
             })
         })
         .collect::<Vec<_>>();
-    candidates.extend(jetbrains_history_candidates());
+    candidates.extend(developer_tool_history_candidates());
     candidates.extend(temp_directory_candidates());
     candidates
 }
@@ -287,53 +287,93 @@ fn split_versioned_dir(name: &str) -> Option<(String, String)> {
 
 type VersionedDirectory = (PathBuf, Vec<u32>, String);
 
-fn jetbrains_history_candidates() -> Vec<KnownCandidate> {
+fn developer_tool_history_candidates() -> Vec<KnownCandidate> {
+    const ANDROID_STUDIO_PRODUCTS: &[&str] = &["AndroidStudio"];
     let roots = [
-        ("Local", local_app_data().join("JetBrains")),
-        ("Roaming", roaming_app_data().join("JetBrains")),
+        (
+            "JetBrainsLocal",
+            local_app_data().join("JetBrains"),
+            None,
+            "jetbrains",
+        ),
+        (
+            "JetBrainsRoaming",
+            roaming_app_data().join("JetBrains"),
+            None,
+            "jetbrains",
+        ),
+        (
+            "AndroidStudioLocal",
+            local_app_data().join("Google"),
+            Some(ANDROID_STUDIO_PRODUCTS),
+            "android-studio",
+        ),
+        (
+            "AndroidStudioRoaming",
+            roaming_app_data().join("Google"),
+            Some(ANDROID_STUDIO_PRODUCTS),
+            "android-studio",
+        ),
     ];
-    let mut candidates = Vec::new();
+    roots
+        .into_iter()
+        .flat_map(|(scope, root, allowed_products, ecosystem)| {
+            history_candidates_in_root(scope, &root, allowed_products, ecosystem)
+        })
+        .collect()
+}
 
-    for (scope, root) in roots {
-        if !is_plain_directory(&root) {
+fn history_candidates_in_root(
+    scope: &str,
+    root: &Path,
+    allowed_products: Option<&[&str]>,
+    ecosystem: &str,
+) -> Vec<KnownCandidate> {
+    if !is_plain_directory(root) {
+        return Vec::new();
+    }
+    let Ok(entries) = fs::read_dir(root) else {
+        return Vec::new();
+    };
+    let mut groups: HashMap<String, Vec<VersionedDirectory>> = HashMap::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !is_plain_directory(&path) {
             continue;
         }
-        let Ok(entries) = fs::read_dir(root) else {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Some((product, version)) = split_versioned_dir(&name) else {
             continue;
         };
-        let mut groups: HashMap<String, Vec<VersionedDirectory>> = HashMap::new();
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if !is_plain_directory(&path) {
-                continue;
-            }
-            let name = entry.file_name().to_string_lossy().into_owned();
-            let Some((product, version)) = split_versioned_dir(&name) else {
-                continue;
-            };
-            groups
-                .entry(product)
-                .or_default()
-                .push((path, version_key(&version), name));
+        if allowed_products.is_some_and(|allowed| {
+            !allowed
+                .iter()
+                .any(|candidate| product.eq_ignore_ascii_case(candidate))
+        }) {
+            continue;
         }
-
-        for (_, mut versions) in groups {
-            if versions.len() <= 1 {
-                continue;
-            }
-            versions.sort_by(|left, right| left.1.cmp(&right.1).then(left.2.cmp(&right.2)));
-            versions.pop();
-            candidates.extend(versions.into_iter().map(|(path, _, name)| KnownCandidate {
-                id: format!("jetbrains-history:{scope}:{name}"),
-                name_key: "spaceAnalysis.known.jetbrainsHistory".into(),
-                path,
-                ecosystem: Some("jetbrains".into()),
-                safety: SafetyClass::NeedsConfirmation,
-                cleanup_kind: CleanupKind::WholeDirectory,
-            }));
-        }
+        groups
+            .entry(product)
+            .or_default()
+            .push((path, version_key(&version), name));
     }
 
+    let mut candidates = Vec::new();
+    for (_, mut versions) in groups {
+        if versions.len() <= 1 {
+            continue;
+        }
+        versions.sort_by(|left, right| left.1.cmp(&right.1).then(left.2.cmp(&right.2)));
+        versions.pop();
+        candidates.extend(versions.into_iter().map(|(path, _, name)| KnownCandidate {
+            id: format!("developer-tool-history:{scope}:{name}"),
+            name_key: "spaceAnalysis.known.jetbrainsHistory".into(),
+            path,
+            ecosystem: Some(ecosystem.into()),
+            safety: SafetyClass::NeedsConfirmation,
+            cleanup_kind: CleanupKind::WholeDirectory,
+        }));
+    }
     candidates
 }
 
@@ -446,6 +486,63 @@ mod tests {
     #[test]
     fn jetbrains_history_keeps_the_highest_version_per_product() {
         assert!(version_key("2026.1") > version_key("2025.3.4"));
+    }
+
+    #[test]
+    fn android_studio_filter_does_not_match_other_google_apps() {
+        let allowed = ["AndroidStudio"];
+        let matches = |name: &str| {
+            split_versioned_dir(name).is_some_and(|(product, _)| {
+                allowed
+                    .iter()
+                    .any(|candidate| product.eq_ignore_ascii_case(candidate))
+            })
+        };
+
+        assert!(matches("AndroidStudio2025.3.4"));
+        assert!(!matches("Chrome2025.3.4"));
+    }
+
+    #[test]
+    fn android_studio_history_keeps_only_the_latest_directory() {
+        let root = std::env::temp_dir().join(format!(
+            "stacker-android-studio-history-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock should be valid")
+                .as_nanos()
+        ));
+        for name in [
+            "AndroidStudio2025.3.2",
+            "AndroidStudio2025.3.4",
+            "AndroidStudio2026.1.1",
+            "Chrome2025.3.4",
+        ] {
+            fs::create_dir_all(root.join(name)).expect("test directory should be created");
+        }
+
+        let candidates = history_candidates_in_root(
+            "AndroidStudioLocal",
+            &root,
+            Some(&["AndroidStudio"]),
+            "android-studio",
+        );
+        let mut names = candidates
+            .iter()
+            .filter_map(|candidate| candidate.path.file_name())
+            .map(|name| name.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        names.sort();
+
+        assert_eq!(
+            names,
+            vec!["AndroidStudio2025.3.2", "AndroidStudio2025.3.4"]
+        );
+        assert!(candidates
+            .iter()
+            .all(|candidate| candidate.cleanup_kind == CleanupKind::WholeDirectory));
+        fs::remove_dir_all(root).expect("test directory should be removed");
     }
 
     #[test]

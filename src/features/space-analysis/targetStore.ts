@@ -2,6 +2,7 @@ import type { ScanMode } from "./types";
 
 export const LAST_DIRECTORIES_KEY = "stacker.space.lastDirectories";
 export const LAST_DRIVES_KEY = "stacker.space.lastDrives";
+export const PENDING_DIRECTORIES_KEY = "stacker.space.pendingDirectories.v1";
 
 export type RememberedTargetKind = Extract<ScanMode, "directories" | "drives">;
 
@@ -60,6 +61,34 @@ export function loadRememberedTargets(
     if (!targetStorage) return [];
     const raw = targetStorage.getItem(storageKey(kind));
     if (raw === null) return [];
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? cleanTargets(parsed) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function setPendingDirectoryTargets(
+  targets: readonly string[],
+  storage?: Storage | null,
+): TargetStorageResult {
+  const targetStorage = resolveStorage(storage);
+  if (!targetStorage) return { ok: false, error: new Error(STORAGE_UNAVAILABLE) };
+  try {
+    targetStorage.setItem(PENDING_DIRECTORIES_KEY, JSON.stringify(cleanTargets([...targets])));
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error };
+  }
+}
+
+export function takePendingDirectoryTargets(storage?: Storage | null): string[] {
+  const targetStorage = resolveStorage(storage);
+  if (!targetStorage) return [];
+  try {
+    const raw = targetStorage.getItem(PENDING_DIRECTORIES_KEY);
+    targetStorage.removeItem(PENDING_DIRECTORIES_KEY);
+    if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     return Array.isArray(parsed) ? cleanTargets(parsed) : [];
   } catch {

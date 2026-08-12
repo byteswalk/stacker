@@ -7,11 +7,19 @@ import LogViewer from './LogViewer.tsx'
 import { applyTheme, watchSystemTheme } from './theme'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { LanguageProvider } from './i18n'
+import { initializeMainWindowSize } from './windowSize'
 
 applyTheme()        // 渲染前套用已保存主题，避免闪烁
 watchSystemTheme()  // 「跟随系统」时实时响应明暗变化
 
-const isLogViewer = getCurrentWindow().label === 'live-log'
+const currentWindow = getCurrentWindow()
+const isLogViewer = currentWindow.label === 'live-log'
+
+if (!isLogViewer) {
+  await initializeMainWindowSize(currentWindow).catch((error) => {
+    console.warn('Unable to restore the saved main-window size.', error)
+  })
+}
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

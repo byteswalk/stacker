@@ -2,6 +2,8 @@ import { useMemo, useState } from "react";
 import type { DirectoryNode } from "../types";
 import { canSelectSafety, setCleanupNodesSelected, toggleCleanupNode, useCleanupStore } from "../cleanupStore";
 import { useI18n } from "../../../i18n";
+import { invoke } from "../../../invoke";
+import { useToast } from "../../../ui";
 
 export function formatSpaceBytes(bytes: number) {
   if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
@@ -25,7 +27,15 @@ export function candidateImpact(node: Pick<DirectoryNode, "impactKey">) {
 
 export function CandidateRows({ nodes, emptyText }: { nodes: DirectoryNode[]; emptyText?: string }) {
   const { tr } = useI18n();
+  const toast = useToast();
   const cleanup = useCleanupStore();
+  async function openDirectory(path: string) {
+    try {
+      await invoke("space_open_directory", { path });
+    } catch {
+      toast(tr("无法打开文件夹。请确认路径仍然存在，并且当前账户拥有访问权限。"), "err");
+    }
+  }
   if (cleanup.loading) return <div className="space-analysis-state"><i className="ti ti-loader spin" />{tr("正在读取可清理项…")}</div>;
   if (cleanup.error) return <div className="space-analysis-state error"><i className="ti ti-alert-triangle" />{tr("无法读取可清理项，请重新扫描。")}</div>;
   if (nodes.length === 0) return <div className="space-analysis-empty">{emptyText ?? tr("当前扫描结果没有此类可清理项。")}</div>;
@@ -46,6 +56,9 @@ export function CandidateRows({ nodes, emptyText }: { nodes: DirectoryNode[]; em
           <b>{formatSpaceBytes(node.allocatedBytes)}</b>
           <span>{tr(node.safety === "safe" ? "安全清理" : node.safety === "rebuildable" ? "可重新生成" : node.safety === "needsConfirmation" ? "需要确认" : "仅供查看")}</span>
         </div>
+        <button type="button" className="space-icon-button" title={tr("打开目录")} aria-label={`${tr("打开目录")}: ${node.name}`} onClick={() => void openDirectory(node.path)}>
+          <i className="ti ti-folder-open" />
+        </button>
       </div>;
     })}
   </div>;

@@ -3,6 +3,7 @@ import { Modal, useToast } from "../../../ui";
 import { useI18n } from "../../../i18n";
 import { dismissCleanupPlan, startCleanup, useCleanupStore } from "../cleanupStore";
 import { candidateImpact, formatSpaceBytes } from "./DevelopmentArtifacts";
+import { invoke } from "../../../invoke";
 
 export function CleanupPlanModal() {
   const { tr } = useI18n();
@@ -16,6 +17,13 @@ export function CleanupPlanModal() {
   }, [plan?.planId]);
   if (!plan || cleanup.result) return null;
   const destructive = plan.items.some((item) => item.safety !== "safe");
+  async function openDirectory(path: string) {
+    try {
+      await invoke("space_open_directory", { path });
+    } catch {
+      toast(tr("无法打开文件夹。请确认路径仍然存在，并且当前账户拥有访问权限。"), "err");
+    }
+  }
   return <Modal wide title={tr("确认清理")} icon="ti-eraser" onClose={busy ? undefined : dismissCleanupPlan}
     footer={<>
       <button className="gh sm" disabled={busy} onClick={dismissCleanupPlan}>{tr("取消")}</button>
@@ -44,6 +52,9 @@ export function CleanupPlanModal() {
           <span className={`space-safety-dot ${item.safety}`} />
           <div><strong title={item.path}>{item.path}</strong><small>{tr(candidateImpact({ impactKey: item.impactKey }))}</small></div>
           <b>{formatSpaceBytes(item.estimatedBytes)}</b>
+          <button type="button" className="space-icon-button" title={tr("打开目录")} aria-label={tr("打开目录")} disabled={busy} onClick={() => void openDirectory(item.path)}>
+            <i className="ti ti-folder-open" />
+          </button>
         </div>)}
       </div>
       {cleanup.progress && <div className="space-cleanup-progress">

@@ -5,6 +5,7 @@ use super::classifier::{
 use super::known::CleanupKind;
 use super::model::{
     AnalysisSummary, DirectoryNode, LargeFileRow, Paged, ProjectKind, ScanErrorSummary,
+    SkippedPathEntry,
 };
 use super::windows_fs::{allocated_size, display_path, file_identity, FileIdentity};
 use chrono::{DateTime, Utc};
@@ -23,6 +24,7 @@ use std::time::{Duration, Instant};
 
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(120);
 const MAX_PAGE_SIZE: u64 = 200;
+const MAX_SKIPPED_PATH_ENTRIES: usize = 2_000;
 const VIEW_ONLY: &str = "ViewOnly";
 
 #[derive(Clone, Default)]
@@ -46,10 +48,11 @@ pub struct WalkStats {
     pub allocated_bytes: u64,
     pub skipped: u64,
     pub errors: ScanErrorSummary,
+    pub(crate) skipped_path_entries: HashMap<(String, String), u64>,
 }
 
 impl WalkStats {
-    fn skipped_paths(&self) -> u64 {
+    pub(crate) fn skipped_paths(&self) -> u64 {
         self.skipped
             .saturating_add(self.errors.access_denied)
             .saturating_add(self.errors.vanished)
@@ -355,12 +358,12 @@ where
 
     match fs::symlink_metadata(path) {
         Ok(metadata) if is_link_or_reparse_point(&metadata) => {
-            stats.skipped = stats.skipped.saturating_add(1);
+            record_skip(stats, path, "reparsePoint");
             return Ok(());
         }
         Ok(_) => {}
         Err(error) => {
-            record_io_error(&mut stats.errors, error.kind());
+            record_io_error(stats, path, error.kind());
             return Ok(());
         }
     }
@@ -403,12 +406,12 @@ where
         match entry_result {
             Ok(entry) => {
                 if let Some(error) = entry.read_children_error.as_ref() {
-                    record_walk_error(&mut stats.errors, error);
+                    record_walk_error(stats, error);
                 }
 
                 match fs::symlink_metadata(entry.path()) {
                     Ok(metadata) if is_link_or_reparse_point(&metadata) => {
-                        stats.skipped = stats.skipped.saturating_add(1);
+                        record_skip(stats, entry.path().as_path(), "reparsePoint");
                     }
                     Ok(metadata) if metadata.is_dir() => {
                         stats.directories = stats.directories.saturating_add(1);
@@ -417,7 +420,7 @@ where
                     Ok(metadata) if metadata.is_file() => {
                         match file_identity(entry.path().as_path()) {
                             Ok(identity) if !accounting.file_ids.insert(identity) => {
-                                stats.skipped = stats.skipped.saturating_add(1);
+                                record_skip(stats, entry.path().as_path(), "duplicateFile");
                             }
                             Ok(_) => {
                                 let allocated_bytes =
@@ -430,18 +433,17 @@ where
                                 visitor.file(entry.path().as_path(), &metadata, allocated_bytes);
                             }
                             Err(error) => {
-                                stats.skipped = stats.skipped.saturating_add(1);
-                                record_io_error(&mut stats.errors, error.kind());
+                                record_io_error(stats, entry.path().as_path(), error.kind());
                             }
                         }
                     }
                     Ok(_) => {
-                        stats.skipped = stats.skipped.saturating_add(1);
+                        record_skip(stats, entry.path().as_path(), "unsupportedFileType");
                     }
-                    Err(error) => record_io_error(&mut stats.errors, error.kind()),
+                    Err(error) => record_io_error(stats, entry.path().as_path(), error.kind()),
                 }
             }
-            Err(error) => record_walk_error(&mut stats.errors, &error),
+            Err(error) => record_walk_error(stats, &error),
         }
 
         if last_progress.elapsed() >= PROGRESS_INTERVAL {
@@ -494,6 +496,25 @@ impl IndexBuilder {
             .filter_map(|node_id| self.nodes.get(node_id))
             .map(|record| record.node.clone())
             .collect();
+        let skipped_paths = stats.skipped_paths();
+        let mut skipped_path_entries = stats
+            .skipped_path_entries
+            .into_iter()
+            .map(|((path, reason), occurrences)| SkippedPathEntry {
+                path,
+                reason,
+                occurrences,
+            })
+            .collect::<Vec<_>>();
+        skipped_path_entries.sort_by(|left, right| {
+            left.path
+                .to_lowercase()
+                .cmp(&right.path.to_lowercase())
+                .then_with(|| left.reason.cmp(&right.reason))
+        });
+        let listed_skipped_paths = skipped_path_entries
+            .iter()
+            .fold(0u64, |total, entry| total.saturating_add(entry.occurrences));
         let summary = AnalysisSummary {
             task_id: String::new(),
             targets: self.targets.iter().map(|path| display_path(path)).collect(),
@@ -501,7 +522,9 @@ impl IndexBuilder {
             logical_bytes: stats.logical_bytes,
             file_count: stats.files,
             directory_count: self.nodes.len() as u64,
-            skipped_paths: stats.skipped_paths(),
+            skipped_paths,
+            skipped_path_entries,
+            unlisted_skipped_paths: skipped_paths.saturating_sub(listed_skipped_paths),
             root_nodes,
         };
 
@@ -691,24 +714,59 @@ fn compare_large_files(left: &LargeFileRow, right: &LargeFileRow) -> std::cmp::O
         .then_with(|| left.node_id.cmp(&right.node_id))
 }
 
-fn record_walk_error(errors: &mut ScanErrorSummary, error: &jwalk::Error) {
-    match error.io_error() {
-        Some(error) => record_io_error(errors, error.kind()),
-        None => errors.other = errors.other.saturating_add(1),
+fn record_skip(stats: &mut WalkStats, path: &Path, reason: &str) {
+    stats.skipped = stats.skipped.saturating_add(1);
+    record_skipped_path(stats, path, reason);
+}
+
+fn record_skipped_path(stats: &mut WalkStats, path: &Path, reason: &str) {
+    let key = (display_path(path), reason.to_string());
+    if let Some(occurrences) = stats.skipped_path_entries.get_mut(&key) {
+        *occurrences = occurrences.saturating_add(1);
+    } else if stats.skipped_path_entries.len() < MAX_SKIPPED_PATH_ENTRIES {
+        stats.skipped_path_entries.insert(key, 1);
     }
 }
 
-fn record_io_error(errors: &mut ScanErrorSummary, kind: io::ErrorKind) {
-    match kind {
-        io::ErrorKind::PermissionDenied => {
-            errors.access_denied = errors.access_denied.saturating_add(1)
+fn record_walk_error(stats: &mut WalkStats, error: &jwalk::Error) {
+    let path = error.path();
+    match error.io_error() {
+        Some(error) => {
+            if let Some(path) = path {
+                record_io_error(stats, path, error.kind());
+            } else {
+                stats.errors.other = stats.errors.other.saturating_add(1);
+            }
         }
-        io::ErrorKind::NotFound => errors.vanished = errors.vanished.saturating_add(1),
-        io::ErrorKind::InvalidData | io::ErrorKind::InvalidInput => {
-            errors.invalid_target = errors.invalid_target.saturating_add(1)
+        None => {
+            stats.errors.other = stats.errors.other.saturating_add(1);
+            if let Some(path) = path {
+                record_skipped_path(stats, path, "other");
+            }
         }
-        _ => errors.other = errors.other.saturating_add(1),
     }
+}
+
+fn record_io_error(stats: &mut WalkStats, path: &Path, kind: io::ErrorKind) {
+    let reason = match kind {
+        io::ErrorKind::PermissionDenied => {
+            stats.errors.access_denied = stats.errors.access_denied.saturating_add(1);
+            "accessDenied"
+        }
+        io::ErrorKind::NotFound => {
+            stats.errors.vanished = stats.errors.vanished.saturating_add(1);
+            "vanished"
+        }
+        io::ErrorKind::InvalidData | io::ErrorKind::InvalidInput => {
+            stats.errors.invalid_target = stats.errors.invalid_target.saturating_add(1);
+            "invalidTarget"
+        }
+        _ => {
+            stats.errors.other = stats.errors.other.saturating_add(1);
+            "unreadable"
+        }
+    };
+    record_skipped_path(stats, path, reason);
 }
 
 #[cfg(windows)]
@@ -928,6 +986,11 @@ mod tests {
         assert_eq!(result.summary().file_count, 1);
         assert_eq!(result.summary().logical_bytes, 32);
         assert_eq!(result.large_files(0, 0, 10).total, 1);
+        let summary = result.summary();
+        assert_eq!(summary.skipped_paths, 1);
+        assert_eq!(summary.skipped_path_entries.len(), 1);
+        assert_eq!(summary.skipped_path_entries[0].reason, "duplicateFile");
+        assert_eq!(summary.unlisted_skipped_paths, 0);
     }
 
     #[test]
@@ -976,6 +1039,9 @@ mod tests {
         let stats = measure_path(&missing, &CancellationToken::default(), |_| {}).unwrap();
 
         assert_eq!(stats.errors.vanished, 1);
+        assert_eq!(stats.skipped_paths(), 1);
+        assert_eq!(stats.skipped_path_entries.len(), 1);
+        assert_eq!(stats.skipped_path_entries.values().copied().sum::<u64>(), 1);
     }
 
     #[test]

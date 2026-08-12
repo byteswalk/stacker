@@ -1,6 +1,7 @@
 use encoding_rs::GBK;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -42,6 +43,28 @@ pub struct VibeTool {
     pub docs_url: String,
     pub cli: VibeSurface,
     pub desktop: VibeSurface,
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub struct AgentProcess {
+    pub agent_id: String,
+    pub agent: String,
+    pub pid: u32,
+    pub parent_pid: u32,
+    pub process_name: String,
+}
+
+#[derive(Serialize, Clone)]
+pub struct AgentActivitySnapshot {
+    pub scanned_at: String,
+    pub processes: Vec<AgentProcess>,
+    pub note: String,
+}
+
+#[derive(Serialize, Clone)]
+pub struct AgentEnvironmentSnapshot {
+    pub variable_count: u32,
+    pub fingerprint: String,
 }
 
 #[derive(Clone)]
@@ -136,6 +159,170 @@ pub async fn vibe_open_desktop(id: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || open_desktop_tool(&id))
         .await
         .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn vibe_agent_activity() -> Result<AgentActivitySnapshot, String> {
+    tauri::async_runtime::spawn_blocking(scan_agent_activity)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn vibe_agent_environment() -> Result<AgentEnvironmentSnapshot, String> {
+    tauri::async_runtime::spawn_blocking(scan_agent_environment)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn scan_agent_environment() -> Result<AgentEnvironmentSnapshot, String> {
+    #[cfg(windows)]
+    {
+        let script = r#"
+$ErrorActionPreference = 'SilentlyContinue'
+$names = @(
+  foreach ($scope in @('User', 'Machine')) {
+    [Environment]::GetEnvironmentVariables($scope).Keys | ForEach-Object { [string]$_ }
+  }
+)
+$names | Sort-Object -Unique | ConvertTo-Json -Compress
+"#;
+        let mut command = Command::new("powershell.exe");
+        command.args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            script,
+        ]);
+        let output = command_output_timeout_named(
+            command,
+            "agent environment scan",
+            Duration::from_secs(8),
+        )?;
+        if !output.status.success() {
+            return Err(output_all_text(&output));
+        }
+        let text = output_text(&output);
+        let value: Value = if text.is_empty() {
+            Value::Array(Vec::new())
+        } else {
+            serde_json::from_str(&text)
+                .map_err(|e| format!("failed to parse environment scan result: {e}"))?
+        };
+        let mut names = match value {
+            Value::Array(items) => items
+                .into_iter()
+                .filter_map(|item| item.as_str().map(str::to_owned))
+                .collect::<Vec<_>>(),
+            Value::String(name) => vec![name],
+            _ => Vec::new(),
+        };
+        names.sort_unstable();
+        names.dedup();
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        names.hash(&mut hasher);
+        Ok(AgentEnvironmentSnapshot {
+            variable_count: names.len() as u32,
+            fingerprint: format!("{:016x}", hasher.finish()),
+        })
+    }
+
+    #[cfg(not(windows))]
+    {
+        Ok(AgentEnvironmentSnapshot {
+            variable_count: 0,
+            fingerprint: String::new(),
+        })
+    }
+}
+
+pub(crate) fn scan_agent_activity() -> Result<AgentActivitySnapshot, String> {
+    #[cfg(windows)]
+    {
+        // ponytail: process names and command lines are used only for classification;
+        // raw command lines never cross the IPC boundary because they may contain secrets.
+        let script = r#"
+$ErrorActionPreference = 'SilentlyContinue'
+$patterns = @(
+  @{ Id = 'claude'; Name = 'Claude Code'; Pattern = '(?i)claude|@anthropic-ai[\\/]claude-code' },
+  @{ Id = 'codex'; Name = 'Codex'; Pattern = '(?i)codex' },
+  @{ Id = 'antigravity'; Name = 'Antigravity'; Pattern = '(?i)antigravity|(^|[\\/])agy(\\.cmd|\\.exe)?' },
+  @{ Id = 'opencode'; Name = 'OpenCode'; Pattern = '(?i)opencode' },
+  @{ Id = 'zcode'; Name = 'ZCode'; Pattern = '(?i)zcode|z\.ai' },
+  @{ Id = 'kimi'; Name = 'Kimi Code'; Pattern = '(?i)kimi' },
+  @{ Id = 'workbuddy'; Name = 'WorkBuddy'; Pattern = '(?i)workbuddy' },
+  @{ Id = 'qoder'; Name = 'Qoder'; Pattern = '(?i)qoder' },
+  @{ Id = 'trae-work'; Name = 'TRAE Work'; Pattern = '(?i)trae' },
+  @{ Id = 'openclaw'; Name = 'OpenClaw'; Pattern = '(?i)openclaw' },
+  @{ Id = 'hermes'; Name = 'Hermes'; Pattern = '(?i)hermes' }
+)
+$rows = @(
+  foreach ($p in (Get-CimInstance Win32_Process)) {
+    $text = "{0} {1}" -f $p.Name, $p.CommandLine
+    foreach ($pattern in $patterns) {
+      if ($text -match $pattern.Pattern) {
+        [pscustomobject]@{
+          agent_id = $pattern.Id
+          agent = $pattern.Name
+          pid = [uint32]$p.ProcessId
+          parent_pid = [uint32]$p.ParentProcessId
+          process_name = [string]$p.Name
+        }
+        break
+      }
+    }
+  }
+)
+$rows | ConvertTo-Json -Compress
+"#;
+
+        let mut command = Command::new("powershell.exe");
+        command.args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            script,
+        ]);
+        let output =
+            command_output_timeout_named(command, "工作智能体进程扫描", Duration::from_secs(8))?;
+        if !output.status.success() {
+            return Err(output_all_text(&output));
+        }
+        let text = output_text(&output);
+        let processes = if text.is_empty() {
+            Vec::new()
+        } else {
+            let value: Value =
+                serde_json::from_str(&text).map_err(|e| format!("解析进程扫描结果失败：{e}"))?;
+            let values = match value {
+                Value::Array(items) => items,
+                item => vec![item],
+            };
+            values
+                .into_iter()
+                .filter_map(|item| serde_json::from_value::<AgentProcess>(item).ok())
+                .collect()
+        };
+        Ok(AgentActivitySnapshot {
+            scanned_at: chrono::Local::now().to_rfc3339(),
+            processes,
+            note: "仅根据进程名称和启动参数识别工作智能体；原始命令行、令牌和文件内容不会返回。"
+                .to_string(),
+        })
+    }
+
+    #[cfg(not(windows))]
+    {
+        Ok(AgentActivitySnapshot {
+            scanned_at: chrono::Local::now().to_rfc3339(),
+            processes: Vec::new(),
+            note: "当前版本仅支持 Windows 工作智能体进程扫描。".to_string(),
+        })
+    }
 }
 
 fn tool_specs() -> Vec<ToolSpec> {
@@ -286,8 +473,8 @@ fn tool_specs() -> Vec<ToolSpec> {
         },
         ToolSpec {
             id: "kimi",
-            name: "Kimi Code",
-            description: "Kimi 的终端工作智能体，可读取和修改项目、运行命令并完成开发任务。",
+            name: "Kimi",
+            description: "Kimi 提供终端开发智能体和 Windows 本地工作智能体，可处理项目代码、文档与本地任务。",
             docs_url: "https://www.kimi.com/help/kimi-code/cli-getting-started",
             cli: CliSpec {
                 name: "Kimi Code CLI",
@@ -300,31 +487,44 @@ fn tool_specs() -> Vec<ToolSpec> {
                 docs_url: "https://www.kimi.com/help/kimi-code/cli-getting-started",
             },
             desktop: DesktopSpec {
-                name: "Kimi Code 桌面端",
-                description: "Kimi Code 当前以 CLI 和编辑器扩展为主要形态。",
+                name: "Kimi Work 桌面端",
+                description: "Kimi Work Windows 本地工作智能体，可处理本地文件、执行自动化任务并协助完成知识工作。",
                 winget_id: None,
                 winget_source: None,
                 appx_names: &[],
-                install_url: "https://www.kimi.com/help/kimi-code/cli-getting-started",
-                docs_url: "https://www.kimi.com/help/kimi-code/cli-getting-started",
-                keywords: &[],
-                excludes: &[],
+                install_url: "https://www.kimi.com/products/kimi-work",
+                docs_url: "https://www.kimi.com/products/kimi-work",
+                keywords: &["kimi work", "kimi"],
+                excludes: &["kimi code", "kimi-code"],
             },
         },
         ToolSpec {
             id: "workbuddy",
             name: "WorkBuddy",
-            description: "腾讯 WorkBuddy 桌面智能体，支持本地文件处理、开发任务与多步骤工作流。",
-            docs_url: "https://www.workbuddy.ai/docs/workbuddy/Quickstart",
+            description: "腾讯 WorkBuddy 提供桌面工作智能体和 CodeBuddy CLI，支持本地任务、项目开发与终端自动化。",
+            docs_url: "https://www.workbuddy.ai/cli",
             cli: CliSpec {
-                name: "WorkBuddy CLI",
-                description: "WorkBuddy 当前未提供独立的 Windows CLI。",
-                command: "",
-                candidates: &[],
-                npm_package: None,
+                name: "CodeBuddy CLI",
+                description: "命令名 codebuddy，可在终端中分析项目、修改代码、运行命令并完成开发任务。",
+                command: "codebuddy",
+                candidates: &[
+                    "codebuddy.exe",
+                    "codebuddy.cmd",
+                    "codebuddy.bat",
+                    "codebuddy.ps1",
+                    "codebuddy-code.exe",
+                    "codebuddy-code.cmd",
+                    "codebuddy-code.bat",
+                    "codebuddy-code.ps1",
+                    "cbc.exe",
+                    "cbc.cmd",
+                    "cbc.bat",
+                    "cbc.ps1",
+                ],
+                npm_package: Some("@tencent-ai/codebuddy-code"),
                 winget_id: None,
-                install_url: "https://www.workbuddy.ai/docs/workbuddy/From-Beginner-to-Expert-Guide/Installation-Win-Guide",
-                docs_url: "https://www.workbuddy.ai/docs/workbuddy/Quickstart",
+                install_url: "https://www.workbuddy.ai/cli",
+                docs_url: "https://www.workbuddy.ai/cli",
             },
             desktop: DesktopSpec {
                 name: "WorkBuddy 桌面端",
@@ -373,17 +573,28 @@ fn tool_specs() -> Vec<ToolSpec> {
         ToolSpec {
             id: "trae-work",
             name: "TRAE Work",
-            description: "TRAE Work 桌面智能体，支持工作区文件处理、开发任务和并行执行。",
-            docs_url: "https://www.trae.ai/work",
+            description: "TRAE 提供终端开发智能体和 Windows 桌面智能体，支持工作区文件处理、开发任务和并行执行。",
+            docs_url: "https://docs.trae.cn/cli_get-started-with-trae-cli",
             cli: CliSpec {
-                name: "TRAE Work CLI",
-                description: "TRAE Work 当前未提供独立的 Windows CLI。",
-                command: "",
-                candidates: &[],
+                name: "TRAE CLI",
+                description: "命令名 traecli，可在终端中运行 TRAE 智能体、处理项目任务并管理开发工作流。",
+                command: "traecli",
+                candidates: &[
+                    "traecli.exe",
+                    "traecli.cmd",
+                    "traecli.bat",
+                    "traecli.ps1",
+                    "trae-cli.exe",
+                    "trae-cli.cmd",
+                    "trae-cli.bat",
+                    "trae-cli.ps1",
+                    "trae-agent.exe",
+                    "ta.exe",
+                ],
                 npm_package: None,
                 winget_id: None,
-                install_url: "https://www.trae.ai/download",
-                docs_url: "https://www.trae.ai/work",
+                install_url: "https://docs.trae.cn/cli_get-started-with-trae-cli",
+                docs_url: "https://docs.trae.cn/cli_get-started-with-trae-cli",
             },
             desktop: DesktopSpec {
                 name: "TRAE Work 桌面端",
@@ -463,6 +674,90 @@ fn tool_specs() -> Vec<ToolSpec> {
 
 fn spec_by_id(id: &str) -> Option<ToolSpec> {
     tool_specs().into_iter().find(|s| s.id == id)
+}
+
+pub(crate) struct ManagedCli {
+    pub id: String,
+    pub agent_name: String,
+    pub cli_name: String,
+    pub path: PathBuf,
+}
+
+pub(crate) struct ManagedDesktop {
+    pub id: String,
+    pub agent_name: String,
+    pub desktop_name: String,
+    pub target: Option<String>,
+}
+
+pub(crate) fn managed_agent(id: &str) -> Result<(), String> {
+    spec_by_id(id)
+        .map(|_| ())
+        .ok_or_else(|| "Unknown work agent.".to_string())
+}
+
+pub(crate) fn managed_cli(id: &str) -> Result<ManagedCli, String> {
+    let spec = spec_by_id(id).ok_or_else(|| "Unknown work agent.".to_string())?;
+    if spec.cli.command.is_empty() {
+        return Err(format!("{} does not provide a supported CLI.", spec.name));
+    }
+    let path = resolve_command(spec.cli.candidates)
+        .ok_or_else(|| format!("{} CLI is not installed or cannot be resolved.", spec.name))?;
+    Ok(ManagedCli {
+        id: spec.id.to_string(),
+        agent_name: spec.name.to_string(),
+        cli_name: spec.cli.name.to_string(),
+        path,
+    })
+}
+
+pub(crate) fn managed_desktop(id: &str) -> Result<ManagedDesktop, String> {
+    let spec = spec_by_id(id).ok_or_else(|| "Unknown work agent.".to_string())?;
+    let found = detect_desktop_app(&spec.desktop).ok_or_else(|| {
+        format!(
+            "{} desktop app is not installed or cannot be resolved.",
+            spec.name
+        )
+    })?;
+    let target = found
+        .launch
+        .or_else(|| found.path.map(|path| path.to_string_lossy().into_owned()));
+    Ok(ManagedDesktop {
+        id: spec.id.to_string(),
+        agent_name: spec.name.to_string(),
+        desktop_name: spec.desktop.name.to_string(),
+        target,
+    })
+}
+
+pub(crate) fn desktop_agent_processes(id: &str) -> Result<Vec<AgentProcess>, String> {
+    managed_agent(id)?;
+    Ok(scan_agent_activity()?
+        .processes
+        .into_iter()
+        .filter(|process| process.agent_id == id && is_probable_desktop_process(process))
+        .collect())
+}
+
+fn is_probable_desktop_process(process: &AgentProcess) -> bool {
+    let name = process
+        .process_name
+        .trim_end_matches(".exe")
+        .to_ascii_lowercase();
+    !matches!(
+        name.as_str(),
+        "node"
+            | "cmd"
+            | "powershell"
+            | "pwsh"
+            | "conhost"
+            | "windowsterminal"
+            | "wt"
+            | "bash"
+            | "sh"
+            | "python"
+            | "pythonw"
+    )
 }
 
 fn scan_vibe_tools(check_latest: bool) -> Vec<VibeTool> {
@@ -601,8 +896,8 @@ fn desktop_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurface {
             .as_deref()
             .zip(latest.as_deref())
             .is_some_and(|(cur, next)| crate::update::ver_lt(cur, next));
-    let can_install =
-        spec.desktop.winget_id.is_some() || direct_desktop_installer(spec.id).is_some();
+    let has_direct_installer = direct_desktop_installer(spec.id).is_some();
+    let can_install = spec.desktop.winget_id.is_some() || has_direct_installer;
     VibeSurface {
         available: true,
         label: spec.desktop.name.into(),
@@ -629,7 +924,8 @@ fn desktop_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurface {
         can_install,
         install_unavailable_reason: (!can_install)
             .then(|| desktop_install_unavailable_reason(spec).to_string()),
-        can_update: installed && (spec.desktop.winget_id.is_some() || update_available),
+        can_update: installed
+            && (spec.desktop.winget_id.is_some() || has_direct_installer || update_available),
         can_uninstall: installed,
         can_open: installed,
     }
@@ -675,6 +971,7 @@ fn run_tool_action(
 ) -> Result<String, String> {
     crate::installer::op_reset();
     let spec = spec_by_id(id).ok_or_else(|| "未知的工作智能体工具".to_string())?;
+    log::info!("work agent action started: id={id} target={target} action={action}");
     let res = match (target, action) {
         ("cli", "install") => install_cli_tool(&spec, &window),
         ("cli", "update") => update_cli_tool(&spec, &window),
@@ -684,6 +981,14 @@ fn run_tool_action(
         ("desktop", "uninstall") => uninstall_desktop_tool(&spec, &window),
         _ => Err("不支持的操作".into()),
     };
+    match &res {
+        Ok(message) => log::info!(
+            "work agent action completed: id={id} target={target} action={action} result={message}"
+        ),
+        Err(error) => log::error!(
+            "work agent action failed: id={id} target={target} action={action} error={error}"
+        ),
+    }
     emit_progress(&window, "__done__");
     res
 }
@@ -725,6 +1030,7 @@ fn install_cli_tool(spec: &ToolSpec, window: &Option<tauri::Window>) -> Result<S
             install_or_update_antigravity_cli(window, "安装")
         }
         "opencode" => install_opencode(window),
+        "trae-work" => install_or_update_trae_cli(window, "安装"),
         "openclaw" => install_openclaw(window),
         "hermes" => install_hermes(window),
         _ => {
@@ -828,6 +1134,24 @@ fn update_cli_tool(spec: &ToolSpec, window: &Option<tauri::Window>) -> Result<St
             ),
             (None, _) => install_cli_tool(spec, window),
         },
+        "trae-work" => {
+            if let Some(program) = program {
+                emit_progress(window, "正在执行 traecli update…");
+                match run_command_text(
+                    &program,
+                    &["update"],
+                    "traecli update",
+                    Duration::from_secs(1200),
+                ) {
+                    Ok(_) => return Ok("TRAE CLI 已更新".into()),
+                    Err(err) => emit_progress(
+                        window,
+                        format!("traecli update 未完成，改用官方安装脚本：{err}"),
+                    ),
+                }
+            }
+            install_or_update_trae_cli(window, "更新")
+        }
         "hermes" => {
             let program = program.ok_or_else(|| "未检测到 Hermes CLI。".to_string())?;
             emit_progress(window, "正在执行 hermes update…");
@@ -875,6 +1199,9 @@ fn uninstall_cli_tool(spec: &ToolSpec, window: &Option<tauri::Window>) -> Result
         emit_progress(window, "正在卸载 OpenClaw CLI…");
         npm_uninstall(pkg, Some(&program))?;
         return Ok("OpenClaw CLI 与网关服务已卸载，配置和工作区已保留".into());
+    }
+    if spec.id == "trae-work" {
+        return uninstall_trae_cli(window);
     }
     match method.as_deref() {
         Some("winget") => {
@@ -941,13 +1268,19 @@ fn install_desktop_tool(spec: &ToolSpec, window: &Option<tauri::Window>) -> Resu
         match result {
             Ok(_) => {}
             Err(err) => {
-                if desktop_installed_after_action(spec) {
+                if wait_for_desktop_install(spec, window, Duration::from_secs(30)) {
                     return Ok(format!("{} 已安装", spec.desktop.name));
                 }
                 return Err(err);
             }
         }
-        return Ok(format!("{} 已通过 WinGet 安装", spec.desktop.name));
+        if wait_for_desktop_install(spec, window, Duration::from_secs(120)) {
+            return Ok(format!("{} 已通过 WinGet 安装", spec.desktop.name));
+        }
+        return Err(format!(
+            "WinGet 已完成，但尚未检测到 {}。请打开 Microsoft Store 检查下载状态，或在设置中打开 Stacker 日志目录查看详细记录",
+            spec.desktop.name
+        ));
     }
     if let Some(installer) = direct_desktop_installer(spec.id) {
         return match install_desktop_from_official_package(spec, installer, window) {
@@ -967,6 +1300,36 @@ fn install_desktop_tool(spec: &ToolSpec, window: &Option<tauri::Window>) -> Resu
         spec.desktop.name,
         desktop_install_unavailable_reason(spec)
     ))
+}
+
+fn wait_for_desktop_install(
+    spec: &ToolSpec,
+    window: &Option<tauri::Window>,
+    timeout: Duration,
+) -> bool {
+    let started = Instant::now();
+    let mut last_reported = u64::MAX;
+    while started.elapsed() < timeout {
+        if desktop_installed_after_action(spec) {
+            return true;
+        }
+        if crate::installer::op_cancelled() {
+            return false;
+        }
+        let elapsed = started.elapsed().as_secs();
+        if elapsed != last_reported {
+            last_reported = elapsed;
+            emit_progress(
+                window,
+                format!(
+                    "正在确认 {} 安装状态 · 已 {} 秒",
+                    spec.desktop.name, elapsed
+                ),
+            );
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
+    false
 }
 
 fn update_desktop_tool(spec: &ToolSpec, window: &Option<tauri::Window>) -> Result<String, String> {
@@ -994,6 +1357,10 @@ fn update_desktop_tool(spec: &ToolSpec, window: &Option<tauri::Window>) -> Resul
             window,
         )?;
         return Ok(format!("{} 已通过 WinGet 更新", spec.desktop.name));
+    }
+    if let Some(installer) = direct_desktop_installer(spec.id) {
+        return install_desktop_from_official_package(spec, installer, window)
+            .map(|_| format!("{} 已更新", spec.desktop.name));
     }
     Err(format!(
         "{} 暂无可自动执行的 Windows 更新源，已取消操作。",
@@ -1039,7 +1406,7 @@ fn uninstall_desktop_tool(
     ))
 }
 
-fn open_desktop_tool(id: &str) -> Result<(), String> {
+pub(crate) fn open_desktop_tool(id: &str) -> Result<(), String> {
     let spec = spec_by_id(id).ok_or_else(|| "未知的工作智能体工具".to_string())?;
     if let Some(found) = detect_desktop_app(&spec.desktop) {
         if let Some(launch) = found.launch {
@@ -1236,6 +1603,11 @@ fn desktop_installed_after_action(spec: &ToolSpec) -> bool {
 
 fn direct_desktop_installer(id: &str) -> Option<DirectDesktopInstaller> {
     match id {
+        "kimi" => Some(DirectDesktopInstaller {
+            url: "https://appsupport.moonshot.cn/api/app/pkg/latest/windows/download",
+            file_name: "Kimi-Work-Setup.exe",
+            silent_args: &["/S"],
+        }),
         "openclaw" => Some(DirectDesktopInstaller {
             url: openclaw_desktop_installer_url(),
             file_name: "OpenClawCompanion-Setup.exe",
@@ -1539,6 +1911,60 @@ fn install_or_update_antigravity_cli(
     Ok(format!("Antigravity CLI 已{action}"))
 }
 
+fn install_or_update_trae_cli(
+    window: &Option<tauri::Window>,
+    action: &str,
+) -> Result<String, String> {
+    emit_progress(window, format!("正在通过官方脚本{action} TRAE CLI…"));
+    run_powershell(
+        &[
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            "irm https://trae.cn/trae-cli/install.ps1 | iex",
+        ],
+        "TRAE CLI Installer",
+        Duration::from_secs(1200),
+    )?;
+    let spec = spec_by_id("trae-work").ok_or_else(|| "缺少 TRAE CLI 目录信息。".to_string())?;
+    if !cli_installed_after_action(&spec) {
+        return Err("TRAE CLI 安装程序已结束，但尚未检测到命令入口。请重新打开终端后重试。".into());
+    }
+    Ok(format!("TRAE CLI 已{action}"))
+}
+
+fn uninstall_trae_cli(window: &Option<tauri::Window>) -> Result<String, String> {
+    let local = std::env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .ok_or_else(|| "无法读取当前用户的本地应用目录。".to_string())?;
+    let install_dir = local.join("trae-cli");
+    if !install_dir.is_dir() {
+        return Err("未找到 TRAE CLI 官方安装目录。".into());
+    }
+    emit_progress(window, "正在卸载 TRAE CLI 并清理用户 PATH…");
+    let install = ps_single_quoted(&install_dir.to_string_lossy());
+    let bin = ps_single_quoted(&install_dir.join("bin").to_string_lossy());
+    let script = format!(
+        "$install={install}; $bin={bin}; \
+         if (Test-Path -LiteralPath $install) {{ Remove-Item -LiteralPath $install -Recurse -Force -ErrorAction Stop }}; \
+         $parts=([Environment]::GetEnvironmentVariable('Path','User') -split ';' | Where-Object {{ $_ -and $_.TrimEnd('\\') -ine $bin.TrimEnd('\\') }}); \
+         [Environment]::SetEnvironmentVariable('Path',($parts -join ';'),'User')"
+    );
+    run_powershell(
+        &[
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            &script,
+        ],
+        "TRAE CLI Uninstall",
+        Duration::from_secs(120),
+    )?;
+    Ok("TRAE CLI 已卸载，账号配置和项目文件已保留".into())
+}
+
 fn npm_install_latest(package: &str, installed_program: Option<&Path>) -> Result<(), String> {
     let npm = npm_for_program(installed_program)
         .or_else(|| resolve_command(&["npm.cmd", "npm.exe", "npm.bat"]))
@@ -1651,6 +2077,9 @@ fn detect_install_method(spec: &ToolSpec, program: Option<&Path>) -> Option<Stri
     {
         return Some("native".into());
     }
+    if spec.id == "trae-work" && p.contains("\\appdata\\local\\trae-cli\\bin\\") {
+        return Some("native".into());
+    }
     if spec.id == "hermes"
         && (p.contains("\\appdata\\local\\hermes\\") || p.contains("\\.hermes\\"))
     {
@@ -1730,6 +2159,9 @@ fn latest_for_cli(
     if spec.id == "antigravity" || spec.id == "hermes" {
         return Ok(current.map(|s| s.to_string()));
     }
+    if spec.id == "trae-work" {
+        return trae_cli_latest().map(Some);
+    }
     if method == Some("native") && spec.id == "claude" {
         return Ok(current.map(|s| s.to_string()));
     }
@@ -1739,10 +2171,56 @@ fn latest_for_cli(
     Ok(current.map(|s| s.to_string()))
 }
 
+fn trae_cli_latest() -> Result<String, String> {
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_millis(1500))
+        .timeout_read(Duration::from_millis(1500))
+        .build();
+    let version = agent
+        .get("https://lf-cdn.trae.com.cn/obj/trae-com-cn/trae-cli/trae-cli_latest_version.txt")
+        .set("User-Agent", "Stacker")
+        .call()
+        .map_err(|e| format!("获取 TRAE CLI 最新版本失败：{e}"))?
+        .into_string()
+        .map_err(|e| format!("读取 TRAE CLI 最新版本失败：{e}"))?;
+    let version = version.trim().trim_start_matches('v').trim();
+    if version.is_empty() {
+        Err("TRAE CLI 最新版本响应为空。".into())
+    } else {
+        Ok(version.to_string())
+    }
+}
+
 fn desktop_internal_latest(spec: &ToolSpec, current: Option<&str>) -> Option<String> {
     match spec.id {
         "claude" => claude_desktop_ready_update(current),
+        "kimi" => kimi_work_latest().ok(),
         _ => None,
+    }
+}
+
+fn kimi_work_latest() -> Result<String, String> {
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(5))
+        .timeout_read(Duration::from_secs(5))
+        .redirects(3)
+        .build();
+    let response = agent
+        .get("https://appsupport.moonshot.cn/api/app/pkg/latest/windows/download")
+        .set("User-Agent", "Stacker")
+        .call()
+        .map_err(|e| format!("获取 Kimi Work 最新版本失败：{e}"))?;
+    let final_url = response.get_url();
+    let file = final_url.rsplit('/').next().unwrap_or_default();
+    let version = file
+        .strip_prefix("kimi_")
+        .and_then(|value| value.strip_suffix(".exe"))
+        .unwrap_or_default()
+        .trim();
+    if version.is_empty() {
+        Err("Kimi Work 下载地址未包含版本信息。".into())
+    } else {
+        Ok(version.to_string())
     }
 }
 
@@ -2122,6 +2600,14 @@ fn desktop_candidate_paths(spec: &DesktopSpec) -> Vec<PathBuf> {
             add(&local, "Programs\\ZCode\\ZCode.exe");
             add(&pf, "ZCode\\ZCode.exe");
         }
+        name if name.contains("Kimi Work") => {
+            add(&local, "Programs\\Kimi\\Kimi.exe");
+            add(&local, "Programs\\Kimi Work\\Kimi Work.exe");
+            add(&local, "Kimi\\Kimi.exe");
+            add(&local, "Kimi Work\\Kimi Work.exe");
+            add(&pf, "Kimi\\Kimi.exe");
+            add(&pf, "Kimi Work\\Kimi Work.exe");
+        }
         name if name.contains("WorkBuddy") => {
             add(&local, "Programs\\WorkBuddy\\WorkBuddy.exe");
             add(&local, "WorkBuddy\\WorkBuddy.exe");
@@ -2192,6 +2678,16 @@ fn run_uninstall_string(uninstall: &str) -> Result<(), String> {
 }
 
 fn winget_args(action: &str, id: &str, source: Option<&str>, exact: bool) -> Vec<String> {
+    winget_args_with_proxy(action, id, source, exact, configured_proxy_url().as_deref())
+}
+
+fn winget_args_with_proxy(
+    action: &str,
+    id: &str,
+    source: Option<&str>,
+    exact: bool,
+    proxy: Option<&str>,
+) -> Vec<String> {
     let mut args = vec![action.to_string(), "--id".into(), id.into()];
     if exact {
         args.push("--exact".into());
@@ -2202,11 +2698,32 @@ fn winget_args(action: &str, id: &str, source: Option<&str>, exact: bool) -> Vec
     }
     args.push("--accept-source-agreements".into());
     args.push("--disable-interactivity".into());
+    if let Some(proxy) = proxy.filter(|value| !value.trim().is_empty()) {
+        args.push("--proxy".into());
+        args.push(proxy.to_string());
+    }
     if action == "install" || action == "upgrade" {
         args.push("--accept-package-agreements".into());
         args.push("--silent".into());
     }
     args
+}
+
+fn configured_proxy_url() -> Option<String> {
+    let status = crate::proxy::status();
+    if !status.enabled {
+        return None;
+    }
+    if !status.http.trim().is_empty() {
+        let value = status.http.trim();
+        Some(if value.contains("://") {
+            value.to_string()
+        } else {
+            format!("http://{value}")
+        })
+    } else {
+        Some(format!("http://{}:{}", status.host, status.port))
+    }
 }
 
 fn winget_command() -> Option<PathBuf> {
@@ -2262,14 +2779,7 @@ fn run_winget_owned(
 ) -> Result<String, String> {
     let winget = winget_command().ok_or_else(|| "未检测到 WinGet。".to_string())?;
     let refs: Vec<&str> = args.iter().map(String::as_str).collect();
-    run_command_streamed(
-        &winget,
-        &refs,
-        "WinGet",
-        timeout,
-        Duration::from_secs(30),
-        window,
-    )
+    run_command_streamed(&winget, &refs, "WinGet", timeout, Duration::ZERO, window)
 }
 
 fn run_command_streamed(
@@ -2292,6 +2802,10 @@ fn run_command_streamed(
         cmd.creation_flags(0x08000000);
     }
     apply_fresh_path(&mut cmd);
+    log::info!(
+        "external command started: name={display_name} program={} args={args:?}",
+        program.display()
+    );
     let mut child = cmd
         .spawn()
         .map_err(|e| format!("启动 {display_name} 失败：{e}"))?;
@@ -2353,6 +2867,12 @@ fn run_command_streamed(
                     let _ = child.wait();
                     let _ = stdout_reader.join();
                     let _ = stderr_reader.join();
+                    let partial = captured_command_output(&output);
+                    log::error!(
+                        "external command timed out: name={display_name} elapsed_ms={} output={}",
+                        elapsed.as_millis(),
+                        log_output_excerpt(&partial)
+                    );
                     return Err(format!("{display_name} 执行超时，请检查网络后重试"));
                 }
                 let activity_ms = last_activity.load(Ordering::Relaxed);
@@ -2361,11 +2881,17 @@ fn run_command_streamed(
                 } else {
                     elapsed.saturating_sub(Duration::from_millis(activity_ms))
                 };
-                if inactive >= stall_timeout {
+                if !stall_timeout.is_zero() && inactive >= stall_timeout {
                     terminate_command_tree(&mut child);
                     let _ = child.wait();
                     let _ = stdout_reader.join();
                     let _ = stderr_reader.join();
+                    let partial = captured_command_output(&output);
+                    log::error!(
+                        "external command stalled: name={display_name} inactive_ms={} output={}",
+                        inactive.as_millis(),
+                        log_output_excerpt(&partial)
+                    );
                     return Err(format!(
                         "{display_name} 连续 {} 秒没有响应，已停止操作。请检查网络或 WinGet 软件源后重试",
                         stall_timeout.as_secs()
@@ -2395,10 +2921,37 @@ fn run_command_streamed(
     let bytes = output.lock().map(|data| data.clone()).unwrap_or_default();
     let text = decode_command_bytes(&bytes).trim().to_string();
     if status.success() {
+        log::info!(
+            "external command completed: name={display_name} elapsed_ms={} output={}",
+            started.elapsed().as_millis(),
+            log_output_excerpt(&text)
+        );
         Ok(text)
     } else {
+        log::error!(
+            "external command failed: name={display_name} exit_code={:?} elapsed_ms={} output={}",
+            status.code(),
+            started.elapsed().as_millis(),
+            log_output_excerpt(&text)
+        );
         Err(first_output_line(&text).unwrap_or_else(|| format!("{display_name} 执行失败")))
     }
+}
+
+fn log_output_excerpt(text: &str) -> String {
+    const LIMIT: usize = 8_000;
+    let mut output = text.chars().take(LIMIT).collect::<String>();
+    if text.chars().count() > LIMIT {
+        output.push_str(" …[truncated]");
+    }
+    output
+}
+
+fn captured_command_output(output: &std::sync::Arc<std::sync::Mutex<Vec<u8>>>) -> String {
+    output
+        .lock()
+        .map(|data| decode_command_bytes(&data))
+        .unwrap_or_default()
 }
 
 fn emit_command_progress(window: &Option<tauri::Window>, bytes: &[u8]) {
@@ -2566,7 +3119,7 @@ fn resolve_command_including_windowsapps(candidates: &[&str]) -> Option<PathBuf>
     None
 }
 
-fn command_for_path(program: &Path, args: &[&str]) -> Command {
+pub(crate) fn command_for_path(program: &Path, args: &[&str]) -> Command {
     let ext = program
         .extension()
         .and_then(|e| e.to_str())
@@ -2751,7 +3304,9 @@ fn emit_progress<S: AsRef<str>>(window: &Option<tauri::Window>, msg: S) {
 
 #[cfg(test)]
 mod tests {
-    use super::is_launchable_desktop_exe;
+    use super::{
+        direct_desktop_installer, is_launchable_desktop_exe, spec_by_id, winget_args_with_proxy,
+    };
     use std::path::Path;
 
     #[test]
@@ -2772,5 +3327,45 @@ mod tests {
             keywords,
             &[],
         ));
+    }
+
+    #[test]
+    fn winget_uses_configured_proxy_without_separate_verbose_log() {
+        let args = winget_args_with_proxy(
+            "install",
+            "9PLM9XGG6VKS",
+            Some("msstore"),
+            true,
+            Some("http://127.0.0.1:7897"),
+        );
+        assert!(args
+            .windows(2)
+            .any(|pair| pair == ["--proxy", "http://127.0.0.1:7897"]));
+        assert!(!args.iter().any(|arg| arg == "--verbose-logs"));
+        assert!(args.windows(2).any(|pair| pair == ["--source", "msstore"]));
+    }
+
+    #[test]
+    fn new_agent_surfaces_use_official_install_sources() {
+        let kimi = spec_by_id("kimi").expect("Kimi catalog entry");
+        assert_eq!(kimi.desktop.name, "Kimi Work 桌面端");
+        assert!(!kimi.desktop.keywords.is_empty());
+        assert!(direct_desktop_installer("kimi").is_some());
+
+        let trae = spec_by_id("trae-work").expect("TRAE catalog entry");
+        assert_eq!(trae.cli.command, "traecli");
+        assert!(trae.cli.candidates.contains(&"traecli.exe"));
+        assert_eq!(
+            trae.cli.docs_url,
+            "https://docs.trae.cn/cli_get-started-with-trae-cli"
+        );
+
+        let workbuddy = spec_by_id("workbuddy").expect("WorkBuddy catalog entry");
+        assert_eq!(workbuddy.cli.name, "CodeBuddy CLI");
+        assert_eq!(
+            workbuddy.cli.npm_package,
+            Some("@tencent-ai/codebuddy-code")
+        );
+        assert!(workbuddy.cli.candidates.contains(&"codebuddy.cmd"));
     }
 }

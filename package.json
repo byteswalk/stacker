@@ -1,7 +1,7 @@
 {
   "name": "stacker",
   "private": true,
-  "version": "0.3.2",
+  "version": "0.3.3",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,6 +10,8 @@
     "test": "vitest run",
     "typecheck": "tsc -b --pretty false",
     "check:release-metadata": "node scripts/check-release-metadata.mjs",
+    "check:i18n": "node scripts/check-i18n.mjs",
+    "clean:rust-cache": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/clean-rust-dev-cache.ps1",
     "preview": "vite preview",
     "tauri": "tauri",
     "release:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release-windows.ps1"

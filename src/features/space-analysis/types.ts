@@ -67,7 +67,15 @@ export interface AnalysisSummary {
   fileCount: number;
   directoryCount: number;
   skippedPaths: number;
+  skippedPathEntries: SkippedPathEntry[];
+  unlistedSkippedPaths: number;
   rootNodes: DirectoryNode[];
+}
+
+export interface SkippedPathEntry {
+  path: string;
+  reason: "accessDenied" | "vanished" | "invalidTarget" | "reparsePoint" | "duplicateFile" | "unsupportedFileType" | "unreadable" | "other";
+  occurrences: number;
 }
 
 export interface DirectoryNode {
@@ -174,4 +182,46 @@ export interface SnapshotComparison {
   current: SnapshotMetadata;
   deltaBytes: number;
   changes: Paged<SnapshotChangeRow>;
+}
+
+export interface MonitorFileChange {
+  path: string;
+  kind: "added" | "modified" | "removed";
+  sizeBytes: number;
+  deltaBytes: number;
+  modifiedAt: string | null;
+}
+
+export interface MonitorAgentProcess {
+  agentId: string;
+  agent: string;
+  pid: number;
+  parentPid: number;
+  processName: string;
+}
+
+export interface MonitorDirectoryChange {
+  path: string;
+  deltaBytes: number;
+  filesChanged: number;
+}
+
+export interface MonitorSnapshot {
+  taskId: string;
+  state: "starting" | "running" | "stopping" | "stopped" | "failed";
+  roots: string[];
+  startedAt: string;
+  updatedAt: string;
+  baselineBytes: number;
+  currentBytes: number;
+  deltaBytes: number;
+  filesScanned: number;
+  filesChanged: number;
+  directoriesScanned: number;
+  skippedPaths: number;
+  runningAgents: MonitorAgentProcess[];
+  directories: MonitorDirectoryChange[];
+  events: MonitorFileChange[];
+  attributionNote: string;
+  error: string | null;
 }

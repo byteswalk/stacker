@@ -1,12 +1,13 @@
 {
-  "version": "0.3.2",
-  "released_at": "2026-07-20T17:19:31+08:00",
-  "release_url": "https://github.com/byteswalk/stacker/releases/tag/v0.3.2",
-  "installer_url": "https://github.com/byteswalk/stacker/releases/download/v0.3.2/Stacker-0.3.2-setup-windows-x64.exe",
-  "portable_url": "https://github.com/byteswalk/stacker/releases/download/v0.3.2/Stacker-0.3.2-portable-windows-x64.zip",
+  "version": "0.3.3",
+  "released_at": "2026-08-12T23:14:34+08:00",
+  "release_url": "https://github.com/byteswalk/stacker/releases/tag/v0.3.3",
+  "installer_url": "https://github.com/byteswalk/stacker/releases/download/v0.3.3/Stacker-0.3.3-setup-windows-x64.exe",
+  "portable_url": "https://github.com/byteswalk/stacker/releases/download/v0.3.3/Stacker-0.3.3-portable-windows-x64.zip",
   "notes": [
-    "Added coordinated GitHub and Gitee update discovery with locale-aware fallback ordering.",
-    "Added CI and reproducible Windows release automation for installer and portable packages.",
-    "Refreshed the public documentation and branding, and renamed Environment Check to Programming Ecosystem Check."
+    "Added managed work sessions for CLI and desktop agents, with confirmed tool environments, activity monitoring, and local disk-impact reports.",
+    "Expanded disk analysis with skipped-path diagnostics, live space tracking, safer cleanup classification, and previous developer-tool version detection.",
+    "Improved installer reliability, unified diagnostic logging, window restoration, and first-close tray behavior.",
+    "Added release-time internationalization coverage checks for frontend and backend user-facing messages."
   ]
 }
