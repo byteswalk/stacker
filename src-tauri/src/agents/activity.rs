@@ -93,20 +93,10 @@ pub(crate) fn scan_agent_activity() -> Result<AgentActivitySnapshot, String> {
 $ErrorActionPreference = 'SilentlyContinue'
 # Short vendor names must be a whole path segment or executable name, so workspace
 # paths such as D:\hermes-demo or .codex data folders are not attributed to an agent.
-$patterns = @(
-  @{ Id = 'claude'; Name = 'Claude Code'; Pattern = '(?i)(^|[\\/\s"])claude([\\/\s".]|$)|@anthropic-ai[\\/]claude-code' },
-  @{ Id = 'codex'; Name = 'Codex'; Pattern = '(?i)(^|[\\/\s"])codex([\\/\s".]|$)|@openai[\\/]codex' },
-  @{ Id = 'antigravity'; Name = 'Antigravity'; Pattern = '(?i)antigravity|(^|[\\/])agy(\\.cmd|\\.exe)?' },
-  @{ Id = 'opencode'; Name = 'OpenCode'; Pattern = '(?i)opencode' },
-  @{ Id = 'zcode'; Name = 'ZCode'; Pattern = '(?i)zcode|z\.ai' },
-  @{ Id = 'kimi'; Name = 'Kimi Code'; Pattern = '(?i)(^|[\\/\s"])kimi(-cli|-code)?([\\/\s".]|$)' },
-  @{ Id = 'workbuddy'; Name = 'WorkBuddy'; Pattern = '(?i)workbuddy' },
-  @{ Id = 'qoder'; Name = 'Qoder'; Pattern = '(?i)(^|[\\/\s"])qoder([\\/\s".]|$)' },
-  @{ Id = 'trae-work'; Name = 'TRAE Work'; Pattern = '(?i)(^|[\\/\s"])trae([\\/\s".]|$)' },
-  @{ Id = 'deepseek-harness'; Name = 'DeepSeek Harness'; Pattern = '(?i)deepseek-harness|@deepseek-ai[\\/]dsh|(^|[\\/])dsh(\.cmd|\.exe)?' },
-  @{ Id = 'openclaw'; Name = 'OpenClaw'; Pattern = '(?i)openclaw' },
-  @{ Id = 'hermes'; Name = 'Hermes'; Pattern = '(?i)(^|[\\/\s"])hermes(-agent)?([\\/\s".]|$)' }
-)
+"#
+        .to_string()
+            + &patterns_powershell(&process_patterns())
+            + r#"
 $rows = @(
   foreach ($p in (Get-CimInstance Win32_Process)) {
     $text = "{0} {1}" -f $p.Name, $p.CommandLine
@@ -134,7 +124,7 @@ $rows | ConvertTo-Json -Compress
             "-ExecutionPolicy",
             "Bypass",
             "-Command",
-            script,
+            &script,
         ]);
         let output =
             command_output_timeout_named(command, "工作智能体进程扫描", Duration::from_secs(8))?;
@@ -175,8 +165,9 @@ $rows | ConvertTo-Json -Compress
 }
 
 pub(crate) fn desktop_agent_processes(id: &str) -> Result<Vec<AgentProcess>, String> {
-    managed_agent(id)?;
-    let family = activity_family(id);
+    let family = spec_by_id(id)
+        .map(|spec| spec.family)
+        .ok_or_else(|| "Unknown work agent.".to_string())?;
     Ok(scan_agent_activity()?
         .processes
         .into_iter()
@@ -184,13 +175,39 @@ pub(crate) fn desktop_agent_processes(id: &str) -> Result<Vec<AgentProcess>, Str
         .collect())
 }
 
-/// The process scan reports one id per vendor; regional product variants share it.
-pub(crate) fn activity_family(id: &str) -> &str {
-    match id {
-        "qoder-cn" => "qoder",
-        "trae-global" => "trae-work",
-        other => other,
+/// One `(family, display name, pattern)` row per agent family, in catalog order.
+/// Regional editions share their family's process signature.
+pub(crate) fn process_patterns() -> Vec<(String, String, String)> {
+    let mut rows: Vec<(String, String, String)> = Vec::new();
+    for product in PRODUCTS {
+        if rows.iter().any(|row| row.0 == product.family) {
+            continue;
+        }
+        let name = product
+            .name
+            .trim_end_matches(product.edition_label)
+            .trim()
+            .to_string();
+        rows.push((product.family.into(), name, product.process_pattern.into()));
     }
+    rows
+}
+
+fn patterns_powershell(rows: &[(String, String, String)]) -> String {
+    let quote = |value: &str| value.replace('\'', "''");
+    let body = rows
+        .iter()
+        .map(|(id, name, pattern)| {
+            format!(
+                "  @{{ Id = '{}'; Name = '{}'; Pattern = '{}' }}",
+                quote(id),
+                quote(name),
+                quote(pattern)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",\n");
+    format!("$patterns = @(\n{body}\n)\n")
 }
 
 pub(crate) fn is_probable_desktop_process(process: &AgentProcess) -> bool {
@@ -212,4 +229,28 @@ pub(crate) fn is_probable_desktop_process(process: &AgentProcess) -> bool {
             | "python"
             | "pythonw"
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn one_pattern_per_family() {
+        let patterns = process_patterns();
+        let families: std::collections::HashSet<_> =
+            patterns.iter().map(|row| row.0.clone()).collect();
+        assert_eq!(families.len(), patterns.len());
+        assert!(families.contains("workbuddy"));
+        assert!(families.contains("trae"));
+        assert!(patterns.iter().any(|row| row.1 == "Claude Code"));
+        assert!(patterns.iter().any(|row| row.1 == "WorkBuddy"));
+    }
+
+    #[test]
+    fn powershell_rows_escape_single_quotes() {
+        let script = patterns_powershell(&[("x".into(), "X's".into(), "(?i)a'b".into())]);
+        assert!(script.contains("Name = 'X''s'"));
+        assert!(script.contains("Pattern = '(?i)a''b'"));
+    }
 }

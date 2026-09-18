@@ -166,8 +166,6 @@ pub(crate) struct ToolSpec {
     pub(crate) cli: CliSpec,
     pub(crate) desktop: DesktopSpec,
     pub(crate) desktop_available: bool,
-    #[allow(dead_code)] // Consumed when process detection moves to the registry.
-    pub(crate) process_pattern: &'static str,
     #[allow(dead_code)]
     pub(crate) data_dirs: &'static [DataDir],
 }
@@ -252,7 +250,6 @@ fn resolve(product: &'static ProductSpec) -> ToolSpec {
         cli,
         desktop,
         desktop_available,
-        process_pattern: product.process_pattern,
         data_dirs: product.data_dirs,
     }
 }
