@@ -7,13 +7,14 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ToastProvider, ToastHost, useToast, Modal, ConfirmModal, BusyProvider, BusyHost } from "./ui";
 import { Select } from "./Select";
-import { useI18n, type MessageKey } from "./i18n";
+import { useI18n } from "./i18n";
 import { NotificationProvider, useNotifications, formatBytes } from "./notifications";
 import { readLastPage, saveLastPage, type Page } from "./pageState";
+import { ALL_NAV_ITEMS, NAV_FOOT, NAV_SECTIONS, type NavItem } from "./navigation";
 
 const Overview = lazy(() => import("./pages/Overview"));
-const Vibe = lazy(() => import("./pages/Vibe"));
-const AgentSpace = lazy(() => import("./pages/AgentSpace"));
+const Agents = lazy(() => import("./pages/Agents"));
+const AgentData = lazy(() => import("./pages/AgentData"));
 const Git = lazy(() => import("./pages/Git"));
 const Proxy = lazy(() => import("./pages/Proxy"));
 const History = lazy(() => import("./pages/History"));
@@ -30,32 +31,7 @@ const Settings = lazy(() => import("./pages/Settings"));
 
 export type { Page } from "./pageState";
 
-type NavItem = { id: Page; icon: string; labelKey: MessageKey };
 
-// 主导航：概览 + 8 生态 ─（分隔）─ 终端代理 / 磁盘清理
-const NAV_TOP: NavItem[] = [
-  { id: "overview", icon: "ti-layout-dashboard", labelKey: "nav.overview" },
-  { id: "vibe", icon: "ti-sparkles", labelKey: "nav.vibe" },
-  { id: "agent-space", icon: "ti-box-multiple", labelKey: "nav.agentSpace" },
-  { id: "git", icon: "ti-brand-git", labelKey: "nav.git" },
-  { id: "python", icon: "ti-brand-python", labelKey: "nav.python" },
-  { id: "php", icon: "ti-brand-php", labelKey: "nav.php" },
-  { id: "node", icon: "ti-brand-nodejs", labelKey: "nav.node" },
-  { id: "java", icon: "ti-coffee", labelKey: "nav.java" },
-  { id: "maven", icon: "ti-feather", labelKey: "nav.maven" },
-  { id: "gradle", icon: "ti-box", labelKey: "nav.gradle" },
-  { id: "go", icon: "ti-brand-golang", labelKey: "nav.go" },
-  { id: "rust", icon: "ti-brand-rust", labelKey: "nav.rust" },
-];
-const NAV_TOOLS: NavItem[] = [
-  { id: "proxy", icon: "ti-world-bolt", labelKey: "nav.proxy" },
-  { id: "cleanup", icon: "ti-eraser", labelKey: "nav.cleanup" },
-];
-const NAV_FOOT: NavItem[] = [
-  { id: "history", icon: "ti-history", labelKey: "nav.history" },
-  { id: "settings", icon: "ti-settings", labelKey: "nav.settings" },
-];
-const ALL = [...NAV_TOP, ...NAV_TOOLS, ...NAV_FOOT];
 
 function NavBtn({ item, page, set }: { item: NavItem; page: Page; set: (p: Page) => void }) {
   const { t } = useI18n();
@@ -152,7 +128,7 @@ function Shell() {
   const [closeChoiceOpen, setCloseChoiceOpen] = useState(false);
   const [closeChoiceBusy, setCloseChoiceBusy] = useState(false);
   const contentRef = useRef<HTMLDivElement | null>(null);
-  const cur = ALL.find((n) => n.id === page)!;
+  const cur = ALL_NAV_ITEMS.find((n) => n.id === page)!;
   const currentNoticeCount = page === "settings"
     ? notices.settingsCount
     : page === "cleanup"
@@ -282,9 +258,12 @@ function Shell() {
           {appVersion && <span className="brand-version" title={`Stacker v${appVersion}`}>v{appVersion}</span>}
         </div>
         <nav>
-          {NAV_TOP.map((n) => <NavBtn key={n.id} item={n} page={page} set={setPage} />)}
-          <div className="navsep" />
-          {NAV_TOOLS.map((n) => <NavBtn key={n.id} item={n} page={page} set={setPage} />)}
+          {NAV_SECTIONS.map((section, index) => (
+            <div className="navsection" key={section.labelKey ?? `top-${index}`}>
+              {section.labelKey && <div className="navlabel">{t(section.labelKey)}</div>}
+              {section.items.map((n) => <NavBtn key={n.id} item={n} page={page} set={setPage} />)}
+            </div>
+          ))}
         </nav>
         <div className="sidefoot">
           {NAV_FOOT.map((n) => <NavBtn key={n.id} item={n} page={page} set={setPage} />)}
@@ -326,8 +305,8 @@ function Shell() {
           )}
           <Suspense fallback={<PageFallback />}>
             {page === "overview" ? <Overview key={configEpoch} goto={setPage} />
-              : page === "vibe" ? <Vibe key={configEpoch} />
-              : page === "agent-space" ? <AgentSpace key={configEpoch} goto={setPage} />
+              : page === "agents" ? <Agents key={configEpoch} />
+              : page === "agent-data" ? <AgentData key={configEpoch} goto={setPage} />
               : page === "git" ? <Git key={configEpoch} />
               : page === "node" ? <Node key={configEpoch} />
               : page === "proxy" ? <Proxy key={configEpoch} />

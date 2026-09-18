@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { UnavailableSurface, type VibeSurface } from "./Vibe";
+import { UnavailableSurface, type VibeSurface } from "./Agents";
 
 describe("unavailable agent interfaces", () => {
   it.each(["cli", "desktop"] as const)("renders a complete %s slot without installation actions", (target) => {

@@ -5,41 +5,18 @@ import { useNotifications } from "../notifications";
 import { translateText, useI18n } from "../i18n";
 import { Select } from "../Select";
 
-export type VibeSurface = {
-  available: boolean;
-  label: string;
-  kind: string;
-  description: string;
-  installed: boolean;
-  status: "installed" | "update" | "missing" | "unknown" | "pending";
-  version?: string | null;
-  probe_error?: string | null;
-  latest?: string | null;
-  update_available: boolean;
-  path?: string | null;
-  command?: string | null;
-  install_method?: string | null;
-  install_method_label?: string | null;
-  install_url: string;
-  docs_url: string;
-  can_install: boolean;
-  install_unavailable_reason?: string | null;
-  can_update: boolean;
-  can_uninstall: boolean;
-  can_open: boolean;
-};
-export type VibeTool = {
-  id: string;
-  family_id: string;
-  edition: "unified" | "cn" | "global";
-  edition_label: string;
-  sort_order: number;
-  name: string;
-  description: string;
-  docs_url: string;
-  cli: VibeSurface;
-  desktop: VibeSurface;
-};
+import {
+  loadCatalog,
+  refreshOneTool,
+  runVibeCheck,
+  subscribeVibe,
+  surfaceDetected,
+  vibeSnapshot,
+  type VibeSurface,
+  type VibeTool,
+} from "../features/agents/catalogStore";
+
+export type { VibeSurface, VibeTool } from "../features/agents/catalogStore";
 
 export function UnavailableSurface({ target, surface }: { target: "cli" | "desktop"; surface: VibeSurface }) {
   return (
@@ -83,10 +60,6 @@ function surfaceBadge(surface: VibeSurface) {
   return <span className="bd n">未安装</span>;
 }
 
-export function surfaceDetected(surface: VibeSurface) {
-  return surface.installed || !!surface.path;
-}
-
 function installMethodHint(surface: VibeSurface) {
   switch (surface.install_method) {
     case "winget":
@@ -120,93 +93,15 @@ function surfaceStatusText(surface: VibeSurface) {
   return surface.kind === "CLI" ? "未检测到命令入口" : "未检测到桌面端";
 }
 
-export type VibeCache = {
-  tools: VibeTool[];
-  loading: boolean;
-  checked: boolean;
-  checkedAt: string | null;
-};
-const VIBE_CACHE_KEY = "stacker.vibe.status.v2";
-
-function restoreVibeCache(): VibeCache {
-  try {
-    const stored = JSON.parse(localStorage.getItem(VIBE_CACHE_KEY) || "null") as Partial<VibeCache> | null;
-    if (Array.isArray(stored?.tools) && stored.tools.length > 0) {
-      return { tools: stored.tools, loading: false, checked: Boolean(stored.checked), checkedAt: stored.checkedAt || null };
-    }
-  } catch {
-    // Invalid or outdated cache is ignored; the lightweight catalog will replace it.
-  }
-  return { tools: [], loading: false, checked: false, checkedAt: null };
-}
-
-const VIBE_INITIAL: VibeCache = restoreVibeCache();
-let vibeCache: VibeCache = VIBE_INITIAL;
-let vibeRun: Promise<void> | null = null;
-const vibeListeners = new Set<(s: VibeCache) => void>();
-
-function publishVibe(next: Partial<VibeCache>) {
-  vibeCache = { ...vibeCache, ...next };
-  if (vibeCache.tools.length > 0) {
-    try {
-      localStorage.setItem(VIBE_CACHE_KEY, JSON.stringify({
-        tools: vibeCache.tools,
-        checked: vibeCache.checked,
-        checkedAt: vibeCache.checkedAt,
-      }));
-    } catch {
-      // A storage failure must not block environment management.
-    }
-  }
-  vibeListeners.forEach((fn) => fn(vibeCache));
-}
-
-export function vibeSnapshot() {
-  return vibeCache;
-}
-
-export function subscribeVibe(fn: (s: VibeCache) => void) {
-  vibeListeners.add(fn);
-  return () => { vibeListeners.delete(fn); };
-}
-
-export function runVibeCheck(force = false) {
-  if (vibeRun) return vibeRun;
-  publishVibe({ loading: true });
-  vibeRun = (async () => {
-    try {
-      const tools = await invoke<VibeTool[]>(force ? "vibe_tools_refresh" : "vibe_tools");
-      publishVibe({ tools, checked: true, checkedAt: new Date().toISOString() });
-    } finally {
-      publishVibe({ loading: false });
-      vibeRun = null;
-    }
-  })();
-  return vibeRun;
-}
-
-async function refreshOneTool(id: string) {
-  const next = await invoke<VibeTool>("vibe_tool", { id });
-  const current = vibeCache.tools;
-  const exists = current.some((tool) => tool.id === id);
-  publishVibe({
-    tools: exists
-      ? current.map((tool) => tool.id === id ? next : tool)
-      : [...current, next],
-    checkedAt: new Date().toISOString(),
-  });
-  return next;
-}
-
-export default function Vibe() {
+export default function Agents() {
   const { locale } = useI18n();
   const toast = useToast();
   const runBusy = useBusy();
   const notices = useNotifications();
-  const [tools, setTools] = useState<VibeTool[]>(vibeCache.tools);
-  const [loading, setLoading] = useState(vibeCache.loading);
-  const [checked, setChecked] = useState(vibeCache.checked);
-  const [checkedAt, setCheckedAt] = useState(vibeCache.checkedAt);
+  const [tools, setTools] = useState<VibeTool[]>(vibeSnapshot().tools);
+  const [loading, setLoading] = useState(vibeSnapshot().loading);
+  const [checked, setChecked] = useState(vibeSnapshot().checked);
+  const [checkedAt, setCheckedAt] = useState(vibeSnapshot().checkedAt);
   const [promptBusy, setPromptBusy] = useState(false);
   const [checkingTool, setCheckingTool] = useState("");
   const [query, setQuery] = useState("");
@@ -222,15 +117,7 @@ export default function Vibe() {
   }), []);
 
   useEffect(() => {
-    invoke<VibeTool[]>("vibe_catalog")
-      .then((catalog) => {
-        const previous = new Map(vibeCache.tools.map((tool) => [tool.id, tool]));
-        publishVibe({ tools: catalog.map((tool) => {
-          const cached = previous.get(tool.id);
-          return cached ? { ...tool, cli: cached.cli, desktop: cached.desktop } : tool;
-        }) });
-      })
-      .catch(() => undefined);
+    void loadCatalog().catch(() => undefined);
   }, []);
 
   async function load(force = false) {
@@ -240,7 +127,7 @@ export default function Vibe() {
   async function refreshAgents() {
     try {
       await load(true);
-      notices.checkNow("vibe").catch(() => undefined);
+      notices.checkNow("agents").catch(() => undefined);
       toast("智能体状态已刷新", "ok");
     } catch (e) {
       toast("刷新智能体状态失败：" + e, "err");
@@ -319,7 +206,7 @@ export default function Vibe() {
       );
       toast(result || `${surface.label} ${actionText}完成`, "ok");
       setUninstall(null);
-      void notices.checkNow("vibe-action").catch(() => undefined);
+      void notices.checkNow("agents-action").catch(() => undefined);
     } catch (e) {
       const detail = String(e);
       if (cancelled || detail.includes("已取消")) {

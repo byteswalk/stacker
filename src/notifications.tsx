@@ -57,7 +57,7 @@ type EcosystemUpdate = {
   source: string;
 };
 type AiToolUpdate = {
-  page: "vibe";
+  page: "agents";
   id: string;
   name: string;
   current: string;
@@ -376,7 +376,7 @@ async function checkAiToolUpdates(): Promise<AiToolUpdate[]> {
     for (const surface of [tool.cli, tool.desktop]) {
       if (!surface.update_available) continue;
       rows.push({
-        page: "vibe",
+        page: "agents",
         id: `${tool.id}:${surface.label}`,
         name: `${tool.name} ${surface.label}`,
         current: surface.version || "已安装",
@@ -402,7 +402,7 @@ async function attempt<T>(task: Promise<T>): Promise<Attempt<T>> {
 
 function reasonPage(reason?: string) {
   const page = reason?.split("-", 1)[0] ?? "";
-  return page === "vibe" || ECOSYSTEM_PAGES.has(page) ? page : null;
+  return page === "agents" || ECOSYSTEM_PAGES.has(page) ? page : null;
 }
 
 const NotificationCtx = createContext<NotificationContextValue>({
@@ -483,7 +483,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
           succeeded = true;
         }
       }
-      if (prefs.ecosystemUpdate && (full || sourcesChanged || (page && page !== "vibe"))) {
+      if (prefs.ecosystemUpdate && (full || sourcesChanged || (page && page !== "agents"))) {
         const target = full || sourcesChanged ? undefined : page ?? undefined;
         const result = await attempt(checkEcosystemUpdates(target));
         if (result.ok) {
@@ -493,7 +493,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
           succeeded = true;
         }
       }
-      if (prefs.ecosystemUpdate && (full || page === "vibe")) {
+      if (prefs.ecosystemUpdate && (full || page === "agents")) {
         const result = await attempt(checkAiToolUpdates());
         if (result.ok) {
           setAiToolUpdates(result.value);
