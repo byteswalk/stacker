@@ -103,7 +103,8 @@ export function SurfaceState({ surface }: { surface: VibeSurface }) {
         <span title={surface.broken_reason || undefined}>
           {surface.health === "broken" ? `生效入口无法运行：${surface.broken_reason ?? ""}` : surfaceStatusText(surface)}
         </span>
-        {surface.latest ? ` · 最新版本：${surface.latest}` : ""}
+        {/* A lower "latest" comes from a different version scheme (e.g. Store vs WinGet); hide it. */}
+        {surface.latest && (surface.update_available || surface.latest === surface.version) ? ` · 最新版本：${surface.latest}` : ""}
         {surface.latest_error && <span className="surface-warn" title={surface.latest_error}>{" · 最新版本查询失败"}</span>}
         {surface.path ? ` · ${surface.path}` : ""}
         {others.length > 0 && (
