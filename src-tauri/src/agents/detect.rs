@@ -21,21 +21,28 @@ pub(crate) fn cli_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurface {
             spec.cli.docs_url,
         );
     }
-    let program = resolve_command(spec.cli.candidates);
-    let probe = program
-        .as_deref()
-        .map(|p| run_program_probe(spec.cli.name, p, &["--version"], Duration::from_secs(5)));
-    let version = probe
+    let probe = |path: &Path| {
+        run_program_probe(spec.cli.name, path, &["--version"], Duration::from_secs(15))
+    };
+    let mut installs = super::health::enumerate_candidates(&command_dirs(), spec.cli.candidates)
+        .into_iter()
+        .map(|path| super::health::check_install(&path, &probe));
+    let effective = installs.next();
+    let other_installs: Vec<_> = installs.collect();
+    let program = effective.as_ref().map(|info| PathBuf::from(&info.path));
+    let installed = effective.as_ref().is_some_and(|info| info.healthy);
+    let version = effective.as_ref().and_then(|info| info.version.clone());
+    let broken_reason = effective
         .as_ref()
-        .and_then(|r| r.as_ref().ok())
-        .map(|s| s.to_string());
+        .filter(|info| !info.healthy)
+        .and_then(|info| info.reason.clone());
     let method = detect_install_method(spec, program.as_deref());
-    let probe_error = probe
-        .as_ref()
-        .and_then(|r| r.as_ref().err())
-        .map(|s| s.to_string());
-    let installed =
-        program.is_some() && (probe.as_ref().is_some_and(|r| r.is_ok()) || method.is_some());
+    let health = match &effective {
+        None => "missing",
+        Some(info) if info.healthy => "healthy",
+        Some(_) => "broken",
+    };
+    let can_repair = health == "broken" && other_installs.iter().any(|info| info.healthy);
     let latest = if check_latest && installed {
         latest_for_cli(spec, method.as_deref(), version.as_deref())
             .ok()
@@ -48,12 +55,12 @@ pub(crate) fn cli_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurface {
             .as_deref()
             .zip(latest.as_deref())
             .is_some_and(|(cur, next)| crate::update::ver_lt(cur, next));
-    let status = if update_available {
+    let status = if health == "broken" {
+        "broken"
+    } else if update_available {
         "update"
     } else if installed {
         "installed"
-    } else if program.is_some() {
-        "unknown"
     } else {
         "missing"
     };
@@ -65,10 +72,10 @@ pub(crate) fn cli_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurface {
         installed,
         status: status.into(),
         version,
-        probe_error,
+        probe_error: broken_reason.clone(),
         latest,
         update_available,
-        path: program.map(|p| p.to_string_lossy().into_owned()),
+        path: program.as_ref().map(|p| p.to_string_lossy().into_owned()),
         command: Some(spec.cli.command.into()),
         install_method_label: method.as_deref().and_then(install_method_label),
         install_method: method,
@@ -77,8 +84,12 @@ pub(crate) fn cli_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurface {
         can_install: true,
         install_unavailable_reason: None,
         can_update: installed,
-        can_uninstall: installed,
+        can_uninstall: program.is_some(),
         can_open: installed,
+        health: health.into(),
+        broken_reason,
+        other_installs,
+        can_repair,
     }
 }
 
@@ -93,7 +104,17 @@ pub(crate) fn desktop_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurfac
         );
     }
     let found = detect_desktop_app(&spec.desktop);
-    let installed = found.is_some();
+    let broken_reason = found
+        .as_ref()
+        .and_then(|found| found.path.as_deref())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("exe"))
+                && path.is_file()
+                && !super::health::has_pe_header(path)
+        })
+        .map(|_| "不是有效的 Windows 程序".to_string());
+    let installed = found.is_some() && broken_reason.is_none();
     let method = found.as_ref().and_then(|f| f.method.clone());
     // Kimi Work applies some updates in place. Its uninstall registration can
     // briefly keep the previous DisplayVersion, while Kimi.exe is already new.
@@ -139,7 +160,9 @@ pub(crate) fn desktop_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurfac
         kind: "桌面端".into(),
         description: spec.desktop.description.into(),
         installed,
-        status: if update_available {
+        status: if broken_reason.is_some() {
+            "broken".into()
+        } else if update_available {
             "update".into()
         } else if installed {
             "installed".into()
@@ -169,6 +192,17 @@ pub(crate) fn desktop_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurfac
         // a conventional Windows app. Never offer an unsafe partial uninstall.
         can_uninstall: installed && spec.vendor != Vendor::DeepSeekHarness,
         can_open: installed,
+        health: if broken_reason.is_some() {
+            "broken"
+        } else if installed {
+            "healthy"
+        } else {
+            "missing"
+        }
+        .into(),
+        broken_reason,
+        other_installs: Vec::new(),
+        can_repair: false,
     }
 }
 

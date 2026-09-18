@@ -1,6 +1,7 @@
 mod activity;
 pub mod commands;
 mod detect;
+mod health;
 mod install;
 mod process;
 mod registry;
@@ -34,7 +35,7 @@ pub struct VibeSurface {
     pub kind: String,
     pub description: String,
     pub installed: bool,
-    pub status: String, // installed | update | missing | unknown
+    pub status: String, // installed | update | missing | broken | pending
     pub version: Option<String>,
     pub probe_error: Option<String>,
     pub latest: Option<String>,
@@ -50,6 +51,12 @@ pub struct VibeSurface {
     pub can_update: bool,
     pub can_uninstall: bool,
     pub can_open: bool,
+    /// healthy | broken | missing
+    pub health: String,
+    pub broken_reason: Option<String>,
+    pub other_installs: Vec<health::InstallInfo>,
+    /// The effective entry is broken while another install on PATH is healthy.
+    pub can_repair: bool,
 }
 
 #[derive(Serialize, Clone)]
@@ -272,6 +279,10 @@ pub(crate) fn pending_surface(
         can_update: false,
         can_uninstall: false,
         can_open: false,
+        health: "missing".into(),
+        broken_reason: None,
+        other_installs: Vec::new(),
+        can_repair: false,
     }
 }
 
@@ -322,6 +333,10 @@ pub(crate) fn unavailable_surface(
         can_update: false,
         can_uninstall: false,
         can_open: false,
+        health: "missing".into(),
+        broken_reason: None,
+        other_installs: Vec::new(),
+        can_repair: false,
     }
 }
 
