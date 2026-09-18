@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+pub mod claude_catalog;
 pub mod codex_catalog;
 pub mod model;
 pub mod project;
