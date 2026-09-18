@@ -20,6 +20,7 @@ mod profile;
 mod proxy;
 mod pyenv;
 mod rustup;
+mod sessions;
 mod settings;
 mod sources;
 mod space_analysis;
