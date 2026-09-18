@@ -3,6 +3,7 @@ pub mod commands;
 mod detect;
 mod health;
 mod install;
+mod net;
 mod process;
 mod registry;
 

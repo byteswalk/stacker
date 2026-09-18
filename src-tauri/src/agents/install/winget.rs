@@ -8,7 +8,13 @@ pub(crate) fn winget_args(
     source: Option<&str>,
     exact: bool,
 ) -> Vec<String> {
-    winget_args_with_proxy(action, id, source, exact, configured_proxy_url().as_deref())
+    winget_args_with_proxy(
+        action,
+        id,
+        source,
+        exact,
+        crate::agents::net::stacker_proxy().as_deref(),
+    )
 }
 
 pub(crate) fn winget_args_with_proxy(
@@ -37,23 +43,6 @@ pub(crate) fn winget_args_with_proxy(
         args.push("--silent".into());
     }
     args
-}
-
-pub(crate) fn configured_proxy_url() -> Option<String> {
-    let status = crate::proxy::status();
-    if !status.enabled {
-        return None;
-    }
-    if !status.http.trim().is_empty() {
-        let value = status.http.trim();
-        Some(if value.contains("://") {
-            value.to_string()
-        } else {
-            format!("http://{value}")
-        })
-    } else {
-        Some(format!("http://{}:{}", status.host, status.port))
-    }
 }
 
 pub(crate) fn winget_command() -> Option<PathBuf> {

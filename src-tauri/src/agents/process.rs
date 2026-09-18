@@ -58,6 +58,11 @@ pub(crate) fn run_command_streamed(
         cmd.creation_flags(0x08000000);
     }
     apply_fresh_path(&mut cmd);
+    if let Some(proxy) = crate::agents::net::stacker_proxy() {
+        for (key, value) in crate::agents::net::proxy_env(&proxy) {
+            cmd.env(key, value);
+        }
+    }
     log::info!(
         "external command started: name={display_name} program={} args={args:?}",
         program.display()

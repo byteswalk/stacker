@@ -78,14 +78,9 @@ pub(crate) fn npm_for_program(program: Option<&Path>) -> Option<PathBuf> {
 pub(crate) fn validate_npm_proxy(npm: &Path) -> Result<(), String> {
     use std::net::{SocketAddr, TcpStream};
 
-    let proxy_mode = crate::settings::proxy_mode();
-    if proxy_mode == "system" {
-        // Windows proxy settings can change while Stacker remains open. Refresh the current
-        // explicit endpoint immediately before npm operations; routing mode is not inferred.
-        crate::settings::settings_set_proxy_mode("system".into())?;
-    } else if proxy_mode == "off" {
-        // Upgrade old installations by removing proxy entries written by previous versions.
-        crate::proxy::sync_existing_explicit_proxies(None, 0)?;
+    // Read-only: Stacker never rewrites npm config. An injected Stacker proxy overrides it.
+    if crate::agents::net::stacker_proxy().is_some() {
+        return Ok(());
     }
 
     for key in ["proxy", "https-proxy"] {
@@ -119,7 +114,7 @@ pub(crate) fn validate_npm_proxy(npm: &Path) -> Result<(), String> {
         let socket = SocketAddr::from(([127, 0, 0, 1], port));
         if TcpStream::connect_timeout(&socket, Duration::from_millis(1200)).is_err() {
             return Err(format!(
-                "npm 的 {key} 配置指向本机代理 {proxy}，但该端口当前不可连接。请在「设置」中同步当前网络设置，或清除 npm 的 proxy/https-proxy 后重试"
+                "npm 的 {key} 配置指向本机代理 {proxy}，但该端口当前不可连接。Stacker 不会修改 npm 配置，请在终端执行 npm config delete {key} 或恢复该代理后重试。"
             ));
         }
     }

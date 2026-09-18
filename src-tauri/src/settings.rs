@@ -153,7 +153,7 @@ fn windows_system_proxy_addr() -> Option<(String, u16)> {
     }
     None
 }
-fn detected_proxy_addr() -> Option<(String, u16)> {
+pub(crate) fn detected_proxy_addr() -> Option<(String, u16)> {
     #[cfg(windows)]
     {
         if let Some(addr) = windows_system_proxy_addr() {

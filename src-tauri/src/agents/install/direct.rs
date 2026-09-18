@@ -47,17 +47,14 @@ pub(crate) fn download_desktop_installer(
         chrono::Local::now().timestamp_millis(),
         installer.file_name
     ));
-    let proxy_status = crate::proxy::status();
-    if proxy_status.enabled {
+    let proxy = crate::agents::net::stacker_proxy();
+    if let Some(proxy) = &proxy {
         emit_progress(
             window,
-            format!(
-                "正在通过全局代理 {}:{} 连接官方下载地址…",
-                proxy_status.host, proxy_status.port
-            ),
+            format!("正在通过 Stacker 代理 {proxy} 连接官方下载地址…"),
         );
     }
-    let agent = desktop_download_agent(&proxy_status)?;
+    let agent = desktop_download_agent(proxy.as_deref())?;
     crate::installer::download_file_candidates_with_agent(
         &agent,
         &[installer.url.to_string()],
@@ -68,21 +65,14 @@ pub(crate) fn download_desktop_installer(
     Ok(target)
 }
 
-pub(crate) fn desktop_download_agent(
-    status: &crate::proxy::ProxyStatus,
-) -> Result<ureq::Agent, String> {
+pub(crate) fn desktop_download_agent(proxy: Option<&str>) -> Result<ureq::Agent, String> {
     let mut builder = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(30))
         .timeout_read(Duration::from_secs(30))
         .timeout_write(Duration::from_secs(30));
-    if status.enabled {
-        let address = if status.http.trim().is_empty() {
-            format!("http://{}:{}", status.host, status.port)
-        } else {
-            status.http.clone()
-        };
-        let proxy = ureq::Proxy::new(&address)
-            .map_err(|e| format!("全局代理地址无效（{address}）：{e}"))?;
+    if let Some(address) = proxy {
+        let proxy =
+            ureq::Proxy::new(address).map_err(|e| format!("代理地址无效（{address}）：{e}"))?;
         builder = builder.proxy(proxy);
     }
     Ok(builder.build())
