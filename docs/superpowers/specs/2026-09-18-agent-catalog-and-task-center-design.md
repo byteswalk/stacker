@@ -129,7 +129,7 @@ pub enum Vendor { Claude, Codex, Antigravity, OpenCode, ZCode, Kimi, WorkBuddy, 
 - **WorkBuddy 中国版**（`workbuddy-cn`）：桌面端来源 workbuddy.cn；CLI 引用共享的 `codebuddy`，附说明「与国际版共用 CodeBuddy CLI，登录时选择中国站」。
 - **WorkBuddy 国际版**（`workbuddy-global`）：桌面端来源 workbuddy.ai；CLI 引用 `codebuddy`。Windows 注册名：中国版「WorkBuddy <版本>」（`WorkBuddy.exe`），国际版「WorkBuddy AI <版本>」（`WorkBuddyAI.exe`）。
 - 共享 CLI 在任一卡片上安装或更新后，两张卡片同时刷新状态。一键更新中共享 CLI 只出现一次。
-- **Qoder 国际版 / 中国版**：只保留新 Qoder 桌面端（注册名「Qoder <版本>」「Qoder CN <版本>」）；两版 CLI 由 qoder.com 与 qoder.com.cn 各自的安装脚本提供，保持独立；桌面检测通过同目录 `unins000.exe` 排除 Qoder IDE，并排除 QoderWork / QoderWake。
+- **Qoder 国际版 / 中国版**：只保留新 Qoder 桌面端（注册名「Qoder <版本>」「Qoder CN <版本>」）；两版共用同一个 `qoder` 命令（Stacker 以 npm 包 `@qoder-ai/qodercli` 检测和更新，同一程序只安装、更新一次）；桌面检测通过同目录 `unins000.exe` 排除 Qoder IDE，并排除 QoderWork / QoderWake。
 - **pi**（`pi`）：仅 CLI，npm 包 `@mariozechner/pi-coding-agent`，命令 `pi`，文档 pi.dev。
 
 ## 4. 菜单与删除项

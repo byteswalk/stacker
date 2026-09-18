@@ -36,7 +36,7 @@ type RustupStatus = {
 type GitStatus = { installed: boolean };
 type CheckItem = { id: string; sev: string; title: string; desc: string; page: string; action: string };
 type VibeSurface = { label: string; version?: string | null; latest?: string | null; update_available: boolean };
-type VibeTool = { id: string; name: string; cli: VibeSurface; desktop: VibeSurface };
+type VibeTool = { id: string; name: string; cli_id?: string | null; cli: VibeSurface; desktop: VibeSurface };
 
 export type NotificationPrefs = {
   enabled: boolean;
@@ -371,10 +371,16 @@ async function checkEcosystemUpdates(onlyId?: string): Promise<EcosystemUpdate[]
 
 async function checkAiToolUpdates(): Promise<AiToolUpdate[]> {
   const tools = await invoke<VibeTool[]>("vibe_tools");
+  // A CLI shared by several product cards is one install and one update.
+  const seenCli = new Set<string>();
   return tools.flatMap((tool) => {
     const rows: AiToolUpdate[] = [];
     for (const surface of [tool.cli, tool.desktop]) {
       if (!surface.update_available) continue;
+      if (surface === tool.cli && tool.cli_id) {
+        if (seenCli.has(tool.cli_id)) continue;
+        seenCli.add(tool.cli_id);
+      }
       rows.push({
         page: "agents",
         id: `${tool.id}:${surface.label}`,

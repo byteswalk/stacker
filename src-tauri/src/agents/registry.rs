@@ -371,26 +371,6 @@ pub(crate) static CLIS: &[CliSpec] = &[
         docs_url: "https://docs.qoder.com/en/cli/quick-start",
     },
     CliSpec {
-        id: "qoder-cn",
-        name: "Qoder CLI（中国版）",
-        description: "命令名 qoder，安装与更新优先使用中国站点。",
-        command: "qoder",
-        candidates: &[
-            "qoder.exe",
-            "qoder.cmd",
-            "qoder.bat",
-            "qoder.ps1",
-            "qodercli.exe",
-            "qodercli.cmd",
-            "qodercli.bat",
-            "qodercli.ps1",
-        ],
-        npm_package: Some("@qoder-ai/qodercli"),
-        winget_id: None,
-        install_url: "https://qoder.com.cn/download",
-        docs_url: "https://qoder.com.cn/",
-    },
-    CliSpec {
         id: "traecli",
         name: "TRAE CLI",
         description: "命令名 traecli，可在终端中运行 TRAE 智能体、处理项目任务并管理开发工作流。",
@@ -678,7 +658,7 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
             docs_url: "https://www.workbuddy.cn/docs/workbuddy/Quickstart",
             // Registered as "WorkBuddy <version>"; the global edition is "WorkBuddy AI <version>".
             keywords: &["workbuddy"],
-            excludes: &["workbuddy ai", "switch"],
+            excludes: &["workbuddy ai", "workbuddyai", "switch"],
             install_unavailable_reason: Some("尚未找到可稳定调用的官方 Windows 安装接口，请通过官方下载页安装。"),
             reject_sibling_files: &[],
         }),
@@ -706,7 +686,8 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
             appx_names: &[],
             install_url: "https://www.workbuddy.ai/docs/workbuddy/From-Beginner-to-Expert-Guide/Installation-Win-Guide",
             docs_url: "https://www.workbuddy.ai/docs/workbuddy/Quickstart",
-            keywords: &["workbuddy ai"],
+            // Registered as "WorkBuddy AI <version>"; the executable is WorkBuddyAI.exe.
+            keywords: &["workbuddy ai", "workbuddyai"],
             excludes: &["switch"],
             install_unavailable_reason: Some("尚未找到可稳定调用的官方 Windows 安装接口，请通过官方下载页安装。"),
             reject_sibling_files: &[],
@@ -755,8 +736,8 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
         description: "Qoder 中国版，以编程智能体为核心的新版桌面应用与终端智能体。",
         icon: "qoder.svg",
         docs_url: "https://qoder.com.cn/",
-        cli: CliSlot::Shared("qoder-cn"),
-        cli_note: None,
+        cli: CliSlot::Shared("qoder"),
+        cli_note: Some("与国际版使用同一个 qoder 命令（npm 包 @qoder-ai/qodercli）。"),
         desktop: DesktopSlot::App(DesktopSpec {
             name: "Qoder 桌面端（中国版）",
             description: "以编程智能体为核心的新版 Qoder Windows 桌面应用。",
@@ -1091,6 +1072,8 @@ mod tests {
         assert!(!desktop_matches(&cn.desktop, "WorkBuddy AI 5.5.2"));
         assert!(!desktop_matches(&cn.desktop, "workbuddy-switch"));
         assert!(desktop_matches(&global.desktop, "WorkBuddy AI 5.5.2"));
+        assert!(desktop_matches(&global.desktop, "WorkBuddyAI.exe"));
+        assert!(!desktop_matches(&cn.desktop, "WorkBuddyAI.exe"));
         assert!(!desktop_matches(&global.desktop, "WorkBuddy 5.5.6"));
     }
 
@@ -1098,6 +1081,9 @@ mod tests {
     fn qoder_editions_track_the_new_desktop_line_and_reject_the_ide() {
         let global = spec_by_id("qoder").unwrap();
         let cn = spec_by_id("qoder-cn").unwrap();
+        // Both editions detect and update the same npm-installed `qoder` command.
+        assert_eq!(global.cli_id, Some("qoder"));
+        assert_eq!(cn.cli_id, Some("qoder"));
         assert!(desktop_matches(&global.desktop, "Qoder 0.2.5"));
         assert!(!desktop_matches(&global.desktop, "Qoder CN 0.2.5"));
         assert!(desktop_matches(&cn.desktop, "Qoder CN 0.2.5"));

@@ -30,7 +30,8 @@ button{ font-family:inherit; }
 .a .logo-layer-1{ fill:#ff8422; }
 .a .logo-layer-2{ fill:#33d2c7; }
 .a .logo-layer-3{ fill:#6383ff; }
-.a nav{ display:flex; flex-direction:column; gap:2px; flex:1; }
+.a nav{ display:flex; flex-direction:column; gap:2px; flex:1; min-height:0; overflow-y:auto;
+  margin-right:-6px; padding-right:6px; }
 .a nav .navsep{ height:1px; background:rgba(255,255,255,.09); margin:8px 11px 7px; }
 .a .navlabel{ font-size:10px; color:#5a616d; text-transform:uppercase;
   letter-spacing:.06em; padding:10px 11px 4px; }
@@ -1216,5 +1217,15 @@ button{ font-family:inherit; }
 .proxy-effective-address{max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.proxy-hero-actions{display:flex;align-items:center;gap:10px}.proxy-route-callout{display:flex;align-items:flex-start;gap:10px;margin:0 0 14px;padding:11px 13px;border:1px solid color-mix(in srgb,var(--green) 30%,var(--line));border-radius:8px;background:color-mix(in srgb,var(--green) 7%,var(--panel));font-size:12px;line-height:1.55}.proxy-route-callout i{margin-top:2px;color:var(--green);font-size:16px}.disabled-section{opacity:.68}
 @media(max-width:1120px){.storage-row{grid-template-columns:34px minmax(0,1fr) auto}.storage-size{grid-column:2}.storage-actions{grid-column:3;grid-row:1 / span 2;flex-direction:column;align-items:stretch}.storage-actions button{justify-content:center}}
 
-/* Sectioned sidebar: five-character section titles over four-character items. */
-.a nav .navsection + .navsection{ margin-top:6px; }
+/* Sectioned sidebar: five-character section titles over four-character items.
+   The section list scrolls on short windows so 配置备份 / 偏好设置 stay pinned. */
+.a nav .navsection{ display:flex; flex-direction:column; gap:2px; }
+.a nav .navsection + .navsection{ margin-top:4px; }
+.a nav .navlabel{ padding:8px 11px 3px; }
+.a nav .ni, .a .sidefoot .ni{ padding-top:7px; padding-bottom:7px; }
+.a nav::-webkit-scrollbar{ width:4px; }
+.a nav::-webkit-scrollbar-button{ display:none; height:0; }
+.a nav::-webkit-scrollbar-track{ background:transparent; }
+.a nav::-webkit-scrollbar-thumb{ background:transparent; border-radius:2px; }
+.a nav:hover::-webkit-scrollbar-thumb{ background:rgba(255,255,255,.14); }
+[data-theme="light"] .a nav:hover::-webkit-scrollbar-thumb{ background:rgba(0,0,0,.16); }
