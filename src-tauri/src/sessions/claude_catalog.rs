@@ -13,7 +13,6 @@ const TAIL_BYTES: u64 = 256 * 1024;
 
 #[derive(Clone, Debug, Default)]
 pub struct DesktopEntry {
-    pub cli_session_id: String,
     pub title: String,
     pub archived: bool,
     pub created_ms: u64,
@@ -85,7 +84,6 @@ pub fn read_desktop_index(dir: &Path) -> HashMap<String, DesktopEntry> {
             entries.insert(
                 id.to_string(),
                 DesktopEntry {
-                    cli_session_id: id.to_string(),
                     title: v
                         .get("title")
                         .and_then(Value::as_str)

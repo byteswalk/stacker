@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 pub mod annotations;
 pub mod catalog;
 pub mod claude_catalog;

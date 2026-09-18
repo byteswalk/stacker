@@ -6,7 +6,6 @@ mod catalog;
 mod checkup;
 mod cleanup;
 mod composer;
-mod conversations;
 mod custom;
 mod dpapi;
 mod env;
@@ -154,18 +153,6 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
-            conversations::conversations_list,
-            conversations::conversations_read,
-            conversations::conversations_sources,
-            conversations::conversations_save_settings,
-            conversations::conversations_annotate,
-            conversations::conversations_job,
-            conversations::conversations_cancel,
-            conversations::conversations_start,
-            conversations::conversations_prepare_summary,
-            conversations::conversations_preview,
-            conversations::conversations_execute,
-            conversations::conversations_open,
             sessions::commands::sessions_list,
             sessions::commands::sessions_projects,
             sessions::commands::sessions_read,
