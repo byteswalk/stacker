@@ -1026,25 +1026,65 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
         data_dirs: &[home(".copilot")],
     },
     ProductSpec {
-        id: "mimo",
+        id: "mimo-cn",
         vendor: Vendor::MiMo,
         family: "mimo",
-        edition: Edition::Unified,
-        edition_label: "",
+        edition: Edition::Cn,
+        edition_label: "中国版",
         sort: 150,
-        name: "小米 MiMo Code",
-        description: "小米 MiMo 大模型驱动的终端编程智能体，可读写代码、搜索项目并执行命令。",
+        name: "小米 MiMo 中国版",
+        description: "小米 MiMo 大模型驱动的编程智能体：终端 CLI 可读写代码、搜索项目并执行命令，MiMo Desktop 桌面端处于邀请制内测。",
         icon: "mimo.svg",
         docs_url: "https://mimo.xiaomi.com/coder",
         cli: CliSlot::Shared("mimo"),
-        cli_note: Some("国内与海外账号共用同一个 mimo 命令，登录时按账号所在平台授权。"),
-        desktop: DesktopSlot::Unavailable {
-            name: "MiMo Code 桌面端",
-            description: "官方只提供终端使用方式。",
-            url: "https://mimo.xiaomi.com/coder",
-        },
+        cli_note: Some("与国际版共用同一个 mimo 命令，登录时使用中国区平台账号。"),
+        desktop: DesktopSlot::App(DesktopSpec {
+            name: "MiMo Desktop（中国版）",
+            description: "小米 MiMo Desktop 中国版桌面智能体，邀请制内测中。",
+            winget_id: None,
+            winget_source: None,
+            appx_names: &[],
+            install_url: "https://mimo.xiaomimimo.com/desktop/invite/",
+            docs_url: "https://mimo.mi.com/docs/en-US/news/latest/mimo-desktop",
+            // Not yet verified against a real install (the beta is invite-only).
+            keywords: &["mimo desktop"],
+            excludes: &["global", "international", "intl", "overseas"],
+            install_unavailable_reason: Some("MiMo Desktop 为邀请制内测：在官方页面申请，获批后从申请页下载安装。"),
+            reject_sibling_files: &[],
+        }),
         workbench_command: None,
-        process_pattern: r#"(?i)(^|[\\/\s"])mimo(code)?([\\/\s".]|$)|@mimo-ai[\\/]cli"#,
+        process_pattern: r#"(?i)(^|[\\/\s"])mimo(code)?([\\/\s".]|$)|@mimo-ai[\\/]cli|mimo desktop"#,
+        data_dirs: &[home(".mimocode")],
+    },
+    ProductSpec {
+        id: "mimo-global",
+        vendor: Vendor::MiMo,
+        family: "mimo",
+        edition: Edition::Global,
+        edition_label: "国际版",
+        sort: 151,
+        name: "Xiaomi MiMo 国际版",
+        description: "小米 MiMo 大模型驱动的编程智能体：终端 CLI 可读写代码、搜索项目并执行命令，MiMo Desktop 桌面端处于邀请制内测。",
+        icon: "mimo.svg",
+        docs_url: "https://mimo.xiaomi.com/coder",
+        cli: CliSlot::Shared("mimo"),
+        cli_note: None,
+        desktop: DesktopSlot::App(DesktopSpec {
+            name: "MiMo Desktop（国际版）",
+            description: "Xiaomi MiMo Desktop 国际版桌面智能体，邀请制内测中；电脑操控（Computer Use）仅国际版提供。",
+            winget_id: None,
+            winget_source: None,
+            appx_names: &[],
+            install_url: "https://mimo-ai.xiaomimimo.com/desktop/invite/",
+            docs_url: "https://mimo.mi.com/docs/en-US/news/latest/mimo-desktop",
+            // Not yet verified against a real install (the beta is invite-only).
+            keywords: &["mimo desktop global", "mimo desktop international", "mimo desktop intl", "mimo desktop overseas"],
+            excludes: &[],
+            install_unavailable_reason: Some("MiMo Desktop 为邀请制内测：在官方页面申请，获批后从申请页下载安装。"),
+            reject_sibling_files: &[],
+        }),
+        workbench_command: None,
+        process_pattern: r#"(?i)(^|[\\/\s"])mimo(code)?([\\/\s".]|$)|@mimo-ai[\\/]cli|mimo desktop"#,
         data_dirs: &[home(".mimocode")],
     },
 ];
@@ -1239,10 +1279,23 @@ mod tests {
         assert_eq!(copilot.cli.command, "copilot");
         assert_eq!(copilot.cli.winget_id, Some("GitHub.Copilot"));
         assert_eq!(copilot.desktop.winget_id, Some("GitHub.CopilotApp"));
-        let mimo = spec_by_id("mimo").unwrap();
-        assert_eq!(mimo.cli.command, "mimo");
-        assert_eq!(mimo.edition, Edition::Unified);
-        assert!(!mimo.desktop_available);
+        let cn = spec_by_id("mimo-cn").unwrap();
+        let global = spec_by_id("mimo-global").unwrap();
+        assert_eq!(cn.cli_id, Some("mimo"));
+        assert_eq!(global.cli_id, Some("mimo"));
+        assert_eq!(cn.cli.command, "mimo");
+        assert!(cn.cli_note.unwrap().contains("中国区"));
+        // MiMo Desktop is an invite-only beta: each edition links to its own application page.
+        assert!(cn
+            .desktop
+            .install_url
+            .contains("mimo.xiaomimimo.com/desktop/invite"));
+        assert!(global
+            .desktop
+            .install_url
+            .contains("mimo-ai.xiaomimimo.com/desktop/invite"));
+        assert!(direct_desktop_installer(Vendor::MiMo).is_none());
+        assert!(spec_by_id("mimo").is_none());
     }
 
     fn desktop_matches(spec: &DesktopSpec, name: &str) -> bool {

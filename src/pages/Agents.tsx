@@ -259,7 +259,7 @@ export default function Agents() {
       : surface.can_install
         ? `安装 ${surface.label}`
         : canOpenOfficialDownload
-          ? `打开 ${surface.label} 官方下载页`
+          ? `${surface.install_unavailable_reason ?? "暂不支持自动安装"}（点击打开 ${surface.label} 官方页面）`
           : surface.install_unavailable_reason || `${surface.label} 暂不支持自动安装`;
     const updateTitle = !installed
       ? `尚未安装 ${surface.label}`
@@ -287,7 +287,9 @@ export default function Agents() {
             disabled={busy || installed || (!surface.can_install && !canOpenOfficialDownload)}
             onClick={() => installFromOfficialPage ? openUrl(surface.install_url) : runToolAction(tool, target, "install")}
           >
-            <i className="ti ti-download" /> 安装
+            {installFromOfficialPage && !installed
+              ? <><i className="ti ti-external-link" /> 前往官网</>
+              : <><i className="ti ti-download" /> 安装</>}
           </button>
           <button
             className={surface.update_available ? "pr sm" : "gh sm"}
