@@ -139,6 +139,12 @@ export async function loadCatalog() {
   const previous = new Map(vibeCache.tools.map((tool) => [tool.id, tool]));
   publishVibe({ tools: catalog.map((tool) => {
     const cached = previous.get(tool.id);
-    return cached ? { ...tool, cli: cached.cli, desktop: cached.desktop } : tool;
+    if (!cached) return tool;
+    // Keep a cached detection only while the catalog still offers that surface.
+    return {
+      ...tool,
+      cli: cached.cli.available === tool.cli.available ? cached.cli : tool.cli,
+      desktop: cached.desktop.available === tool.desktop.available ? cached.desktop : tool.desktop,
+    };
   }) });
 }
