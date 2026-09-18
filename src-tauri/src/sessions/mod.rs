@@ -6,6 +6,7 @@ pub mod claude_catalog;
 pub mod codex_catalog;
 pub mod codex_rpc;
 pub mod commands;
+pub mod export;
 pub mod model;
 pub mod project;
 pub mod roots;
