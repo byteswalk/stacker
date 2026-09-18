@@ -14,7 +14,7 @@ let cached = EMPTY_LIST;
 let lastQuery = EMPTY_QUERY;
 let lastTab = "sessions";
 
-export function ConversationManager({ onCleanup, advanced }: { onCleanup: () => void; advanced: React.ReactNode }) {
+export function ConversationManager({ onCleanup }: { onCleanup: () => void }) {
   const { tr: t, locale } = useI18n();
   const toast = useToast();
   const [tab, setTab] = useState(lastTab);
@@ -37,7 +37,6 @@ export function ConversationManager({ onCleanup, advanced }: { onCleanup: () => 
   const [confirm, setConfirm] = useState("");
   const [group, setGroup] = useState("");
   const [groupOpen, setGroupOpen] = useState(false);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [warningsOpen, setWarningsOpen] = useState(false);
   const mounted = useRef(true);
   const request = useRef(0);
@@ -193,8 +192,6 @@ export function ConversationManager({ onCleanup, advanced }: { onCleanup: () => 
       <div className="conversation-space-row"><i className="ti ti-messages" /><b>{t("本机会话索引")}</b><span>{list.indexed} {t("条会话")}</span></div>
       <div className="conversation-space-row"><i className="ti ti-folders" /><b>{t("关联项目")}</b><span>{list.projects.length}</span></div>
       {list.projects.map((project) => <button className="conversation-project" key={project} title={project} onClick={() => { filter({ project }); navigate("sessions"); }}><i className="ti ti-folder" /><span>{project}</span><i className="ti ti-chevron-right" /></button>)}
-      <button className="gh sm" aria-expanded={advancedOpen} onClick={() => setAdvancedOpen(!advancedOpen)}><i className={`ti ${advancedOpen ? "ti-chevron-up" : "ti-chevron-down"}`} />{t("高级：环境约束与空间跟踪记录")}</button>
-      {advancedOpen && advanced}
     </div>}
     {settingsOpen && settings && <SourceSettings settings={settings} onClose={() => setSettingsOpen(false)} onSaved={() => void run(async () => { await loadSettings(); await start("scan", []); })} />}
     {detail && <Modal wide title={detail.conversation.title} onClose={() => { ++detailRequest.current; setDetail(null); }} footer={<>

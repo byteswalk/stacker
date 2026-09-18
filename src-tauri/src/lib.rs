@@ -28,7 +28,6 @@ mod update;
 mod versions;
 mod winadmin;
 mod winenv;
-mod work_session;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -348,8 +347,6 @@ pub fn run() {
             agents::commands::vibe_environment_prompt,
             agents::commands::vibe_tool_action,
             agents::commands::vibe_open_desktop,
-            agents::commands::vibe_agent_activity,
-            agents::commands::vibe_agent_environment,
             agents::commands::agent_task_start,
             agents::commands::agent_task_cancel,
             agents::commands::agent_task_retry,
@@ -357,15 +354,6 @@ pub fn run() {
             agents::commands::agent_task_log,
             agents::commands::agent_update_plan,
             agents::commands::agent_update_all,
-            work_session::work_environment_contract,
-            work_session::work_session_tracking_roots,
-            work_session::work_session_launch,
-            work_session::work_session_desktop_candidates,
-            work_session::work_session_desktop_launch,
-            work_session::work_session_desktop_process_status,
-            work_session::work_session_report_save,
-            work_session::work_session_report_list,
-            work_session::work_session_report_delete,
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application");

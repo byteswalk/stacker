@@ -1,4 +1,4 @@
-use crate::agents::{activity::*, registry::*, *};
+use crate::agents::{registry::*, *};
 
 #[tauri::command]
 pub async fn vibe_tools() -> Vec<VibeTool> {
@@ -63,20 +63,6 @@ pub async fn vibe_tool_action(
 #[tauri::command]
 pub async fn vibe_open_desktop(id: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || open_desktop_tool(&id))
-        .await
-        .map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-pub async fn vibe_agent_activity() -> Result<AgentActivitySnapshot, String> {
-    tauri::async_runtime::spawn_blocking(scan_agent_activity)
-        .await
-        .map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-pub async fn vibe_agent_environment() -> Result<AgentEnvironmentSnapshot, String> {
-    tauri::async_runtime::spawn_blocking(scan_agent_environment)
         .await
         .map_err(|e| e.to_string())?
 }

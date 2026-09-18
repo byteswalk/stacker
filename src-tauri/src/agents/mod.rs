@@ -8,7 +8,7 @@ mod process;
 mod registry;
 pub(crate) mod tasks;
 
-pub(crate) use activity::{desktop_agent_processes, scan_agent_activity, AgentProcess};
+pub(crate) use activity::{scan_agent_activity, AgentProcess};
 pub(crate) use process::command_for_path;
 
 use crate::agents::{detect::*, install::*, process::*, registry::*};
@@ -76,66 +76,6 @@ pub struct VibeTool {
     pub cli_note: Option<String>,
     pub cli: VibeSurface,
     pub desktop: VibeSurface,
-}
-
-#[derive(Serialize, Clone)]
-pub struct AgentEnvironmentSnapshot {
-    pub variable_count: u32,
-    pub fingerprint: String,
-}
-
-pub(crate) struct ManagedCli {
-    pub id: String,
-    pub agent_name: String,
-    pub cli_name: String,
-    pub path: PathBuf,
-}
-
-pub(crate) struct ManagedDesktop {
-    pub id: String,
-    pub agent_name: String,
-    pub desktop_name: String,
-    pub target: Option<String>,
-}
-
-pub(crate) fn managed_agent(id: &str) -> Result<(), String> {
-    spec_by_id(id)
-        .map(|_| ())
-        .ok_or_else(|| "Unknown work agent.".to_string())
-}
-
-pub(crate) fn managed_cli(id: &str) -> Result<ManagedCli, String> {
-    let spec = spec_by_id(id).ok_or_else(|| "Unknown work agent.".to_string())?;
-    if spec.cli.command.is_empty() {
-        return Err(format!("{} does not provide a supported CLI.", spec.name));
-    }
-    let path = resolve_command(spec.cli.candidates)
-        .ok_or_else(|| format!("{} CLI is not installed or cannot be resolved.", spec.name))?;
-    Ok(ManagedCli {
-        id: spec.id.to_string(),
-        agent_name: spec.name.to_string(),
-        cli_name: spec.cli.name.to_string(),
-        path,
-    })
-}
-
-pub(crate) fn managed_desktop(id: &str) -> Result<ManagedDesktop, String> {
-    let spec = spec_by_id(id).ok_or_else(|| "Unknown work agent.".to_string())?;
-    let found = detect_desktop_app(&spec.desktop).ok_or_else(|| {
-        format!(
-            "{} desktop app is not installed or cannot be resolved.",
-            spec.name
-        )
-    })?;
-    let target = found
-        .launch
-        .or_else(|| found.path.map(|path| path.to_string_lossy().into_owned()));
-    Ok(ManagedDesktop {
-        id: spec.id.to_string(),
-        agent_name: spec.name.to_string(),
-        desktop_name: spec.desktop.name.to_string(),
-        target,
-    })
 }
 
 pub(crate) fn scan_vibe_tools(check_latest: bool) -> Vec<VibeTool> {

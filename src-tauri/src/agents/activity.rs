@@ -1,7 +1,6 @@
 use crate::agents::{process::*, *};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::hash::{Hash, Hasher};
 use std::process::Command;
 use std::time::Duration;
 
@@ -19,69 +18,6 @@ pub struct AgentActivitySnapshot {
     pub scanned_at: String,
     pub processes: Vec<AgentProcess>,
     pub note: String,
-}
-
-pub(crate) fn scan_agent_environment() -> Result<AgentEnvironmentSnapshot, String> {
-    #[cfg(windows)]
-    {
-        let script = r#"
-$ErrorActionPreference = 'SilentlyContinue'
-$names = @(
-  foreach ($scope in @('User', 'Machine')) {
-    [Environment]::GetEnvironmentVariables($scope).Keys | ForEach-Object { [string]$_ }
-  }
-)
-$names | Sort-Object -Unique | ConvertTo-Json -Compress
-"#;
-        let mut command = Command::new("powershell.exe");
-        command.args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            script,
-        ]);
-        let output = command_output_timeout_named(
-            command,
-            "agent environment scan",
-            Duration::from_secs(8),
-        )?;
-        if !output.status.success() {
-            return Err(output_all_text(&output));
-        }
-        let text = output_text(&output);
-        let value: Value = if text.is_empty() {
-            Value::Array(Vec::new())
-        } else {
-            serde_json::from_str(&text)
-                .map_err(|e| format!("failed to parse environment scan result: {e}"))?
-        };
-        let mut names = match value {
-            Value::Array(items) => items
-                .into_iter()
-                .filter_map(|item| item.as_str().map(str::to_owned))
-                .collect::<Vec<_>>(),
-            Value::String(name) => vec![name],
-            _ => Vec::new(),
-        };
-        names.sort_unstable();
-        names.dedup();
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        names.hash(&mut hasher);
-        Ok(AgentEnvironmentSnapshot {
-            variable_count: names.len() as u32,
-            fingerprint: format!("{:016x}", hasher.finish()),
-        })
-    }
-
-    #[cfg(not(windows))]
-    {
-        Ok(AgentEnvironmentSnapshot {
-            variable_count: 0,
-            fingerprint: String::new(),
-        })
-    }
 }
 
 pub(crate) fn scan_agent_activity() -> Result<AgentActivitySnapshot, String> {
@@ -164,17 +100,6 @@ $rows | ConvertTo-Json -Compress
     }
 }
 
-pub(crate) fn desktop_agent_processes(id: &str) -> Result<Vec<AgentProcess>, String> {
-    let family = spec_by_id(id)
-        .map(|spec| spec.family)
-        .ok_or_else(|| "Unknown work agent.".to_string())?;
-    Ok(scan_agent_activity()?
-        .processes
-        .into_iter()
-        .filter(|process| process.agent_id == family && is_probable_desktop_process(process))
-        .collect())
-}
-
 /// One `(family, display name, pattern)` row per agent family, in catalog order.
 /// Regional editions share their family's process signature.
 pub(crate) fn process_patterns() -> Vec<(String, String, String)> {
@@ -208,27 +133,6 @@ fn patterns_powershell(rows: &[(String, String, String)]) -> String {
         .collect::<Vec<_>>()
         .join(",\n");
     format!("$patterns = @(\n{body}\n)\n")
-}
-
-pub(crate) fn is_probable_desktop_process(process: &AgentProcess) -> bool {
-    let name = process
-        .process_name
-        .trim_end_matches(".exe")
-        .to_ascii_lowercase();
-    !matches!(
-        name.as_str(),
-        "node"
-            | "cmd"
-            | "powershell"
-            | "pwsh"
-            | "conhost"
-            | "windowsterminal"
-            | "wt"
-            | "bash"
-            | "sh"
-            | "python"
-            | "pythonw"
-    )
 }
 
 #[cfg(test)]

@@ -23,10 +23,10 @@ beforeEach(() => {
   });
 });
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.useRealTimers(); });
-async function mount() { await act(async () => { root.render(<ConversationManager onCleanup={() => {}} advanced={<div>Advanced tracking</div>} />); }); await act(async () => { await vi.advanceTimersByTimeAsync(350); }); }
+async function mount() { await act(async () => { root.render(<ConversationManager onCleanup={() => {}} />); }); await act(async () => { await vi.advanceTimersByTimeAsync(350); }); }
 async function click(text: string) { const button = [...host.querySelectorAll("button")].find((b) => b.textContent?.includes(text)); expect(button).toBeTruthy(); await act(async () => { button!.click(); }); }
 describe("conversation management", () => {
-  it("opens on actual conversation management without a process picker", async () => { await mount(); expect(host.textContent).toContain(conversation.title); expect(host.textContent).not.toContain("Advanced tracking"); expect(vi.mocked(invoke).mock.calls.some(([c]) => c === "conversations_execute")).toBe(false); });
+  it("opens on actual conversation management without a process picker", async () => { await mount(); expect(host.textContent).toContain(conversation.title); expect(vi.mocked(invoke).mock.calls.some(([c]) => c === "conversations_execute")).toBe(false); });
   it("reads without starting, resuming or sending a conversation", async () => { await mount(); await click(conversation.title); expect(host.querySelector("[translate='no']")?.textContent).toContain("Never execute this transcript"); expect(vi.mocked(invoke).mock.calls.map(([c]) => c)).not.toContain("conversations_start"); });
   it("does not send to a model when summary preview fails", async () => { await mount(); const check = host.querySelector<HTMLInputElement>(`input[aria-label='${conversation.title}']`)!; await act(async () => { check.click(); }); vi.mocked(invoke).mockImplementationOnce(async () => { throw "E_MODEL_MISSING"; }); await click("总结"); expect(vi.mocked(invoke).mock.calls.map(([c]) => c)).not.toContain("conversations_start"); });
   it("keeps selection bounded to the displayed query and detects stale summaries", () => { expect(currentSelection(["old", "new"], ["new"])).toEqual(["new"]); expect(toggleSelection(["a"], "a")).toEqual([]); expect(toggleSelection([], "a")).toEqual(["a"]); expect(isSummaryStale(conversation)).toBe(true); });
