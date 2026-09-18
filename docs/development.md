@@ -14,7 +14,7 @@
 | 编程生态与安装 | `src/pages/*`、`src/VersionManager.tsx` | `installer.rs`、`versions.rs`、各生态模块 | 发现、安装、切换和验证运行时及构建工具 |
 | 依赖存储位置 | `src/StorageLocations.tsx` | `storage.rs`、`storage/maven.rs` | 管理 Maven、Gradle、npm、pnpm、pip、Composer、Go、Cargo、rustup 存储位置 |
 | 智能体管理 · 安装更新 | `src/pages/Agents.tsx`、`src/features/agents`、`src/features/agent-tasks` | `agents/` | 注册表（`agents/registry.rs` 是智能体的唯一数据源）、健康检查、安装更新卸载修复、后台任务、一键更新 |
-| 智能体管理 · 会话数据 | `src/pages/AgentData.tsx`、`src/features/conversations` | `conversations/` | 本地索引、筛选、批量操作、导出、摘要和交接资料 |
+| 智能体管理 · 会话数据 | `src/pages/AgentData.tsx`、`src/features/sessions` | `sessions/` | 读取 Codex、Claude 会话元数据，项目归类，收藏，精简导出与批量删除 |
 | 磁盘分析 | `src/features/space-analysis` | `space_analysis/` | 后台扫描、项目识别、空间变化、清理计划和提权执行 |
 | 代理、源与设置 | `src/pages/Proxy.tsx`、`src/pages/Settings.tsx` | `proxy.rs`、`sources.rs`、`settings.rs` | 只管理明确选择的终端和开发工具配置，不检测或配置 TUN/VPN |
 | 桌面生命周期 | `src/App.tsx`、`src/main.tsx` | `lib.rs`、`logging.rs` | 单实例、窗口恢复、托盘、首次关闭选择、统一日志和错误边界 |
@@ -24,7 +24,7 @@ IPC 命令集中注册在 `src-tauri/src/lib.rs`。新命令需要同时补充 R
 ## 本地数据与安全边界
 
 - 日志、设置、备份、会话索引和任务报告使用 Tauri 解析出的应用数据目录；便携版使用程序旁的数据目录。不要把用户数据写进源码目录。
-- 会话索引只保存元数据、用户标注和摘要，不复制完整原文。原文按需读取，来源能力和破坏性操作边界见 [conversations.md](conversations.md)。
+- 会话列表直接读取智能体自己的元数据，Stacker 只保存收藏、摘要和数据来源设置。分类规则与删除边界见 [sessions.md](sessions.md)。
 - Git 凭据使用 Windows 凭据管理器；兼容摘要接口的可选密钥使用 Windows DPAPI。日志和诊断不得记录聊天正文、访问令牌、密钥或授权头。
 - 存储位置迁移先备份配置，再复制到空目录，最后写入配置。旧目录始终保留，不能自动删除。
 - 磁盘清理只能执行后端生成并再次校验的计划。未知目录、源码、配置、工作树和无法证明可重建的内容保持只读。
@@ -51,7 +51,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 ```
 
-`conversations::reader::tests::local_source_compatibility` 和 `conversations::codex::tests::isolated_codex_archive_delete_lifecycle` 默认忽略。前者只读抽样本机格式；后者必须使用临时 `CODEX_HOME`，禁止指向真实用户数据。
+`sessions::catalog::tests::live_catalog` 和 `sessions::codex_rpc::tests::isolated_codex_delete` 默认忽略。前者只读列出本机会话数量；后者必须使用临时 `CODEX_HOME`，禁止指向真实用户数据。
 
 ## 构建、发布与清理
 

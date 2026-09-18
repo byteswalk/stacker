@@ -38,6 +38,7 @@ export function SessionList({ page, query, projects, loading, selected, onSelect
       <Select value={query.project} onChange={(project) => onFilter({ project })} options={[{ value: "", label: t("全部项目") }, ...projects.map((p) => ({ value: p.project.key, label: p.project.name, title: p.project.path }))]} />
       <Select value={query.status} onChange={(status) => onFilter({ status })} options={[{ value: "", label: t("全部状态") }, ...(["active", "archived", "orphaned"] as const).map((value) => ({ value, label: t(STATUS_LABEL[value]) }))]} />
       <Select value={query.client} onChange={(client) => onFilter({ client })} options={[{ value: "", label: t("全部来源") }, ...(["desktop", "terminal", "ide", "automation", "sdk"] as const).map((value) => ({ value, label: t(CLIENT_LABEL[value]) }))]} />
+      <Select value={query.updatedAfter ? String(Math.round((now - query.updatedAfter) / 86400)) : ""} onChange={(days) => onFilter({ updatedAfter: days ? now - Number(days) * 86400 : 0 })} options={[{ value: "", label: t("全部时间") }, ...[7, 30, 90].map((days) => ({ value: String(days), label: `${t("最近")} ${days} ${t("天")}` }))]} />
       <label className="session-check"><input type="checkbox" checked={query.favoritesOnly} onChange={(e) => onFilter({ favoritesOnly: e.target.checked })} />{t("仅收藏")}</label>
       <label className="session-check"><input type="checkbox" checked={query.includeAutomation} onChange={(e) => onFilter({ includeAutomation: e.target.checked })} />{t("包含自动化运行")}</label>
     </div>

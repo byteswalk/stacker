@@ -2376,4 +2376,5 @@ export const GENERATED_EN: Record<string, string> = {
   "- 会话 ID：": "- Session ID: ",
   "- 原始记录：": "- Original record: ",
   "…（已截断）": "… (truncated)",
+  "最近": "Last",
 };
