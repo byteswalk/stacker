@@ -295,6 +295,26 @@ pub(crate) fn install_or_update_pi(
     Ok("pi 已通过 npm 安装最新版本".into())
 }
 
+/// MiMo Code's official installer, served from Xiaomi's CDN into `~/.mimocode/bin`.
+pub(crate) fn install_or_update_mimo_native(
+    window: &Option<tauri::Window>,
+) -> Result<String, String> {
+    emit_progress(window, "正在通过小米官方安装脚本更新 MiMo Code CLI…");
+    run_powershell_streamed(
+        &[
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            "irm https://mimo.xiaomi.com/install.ps1 | iex",
+        ],
+        "MiMo Code Installer",
+        Duration::from_secs(900),
+        window,
+    )?;
+    Ok("MiMo Code CLI 已通过官方安装脚本更新".into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

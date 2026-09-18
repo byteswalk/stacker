@@ -18,6 +18,8 @@ pub(crate) enum Vendor {
     OpenClaw,
     Hermes,
     Pi,
+    Copilot,
+    MiMo,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
@@ -174,10 +176,23 @@ pub(crate) struct ToolSpec {
 }
 
 #[derive(Clone, Copy)]
+pub(crate) enum InstallerSource {
+    Fixed {
+        url: &'static str,
+        file_name: &'static str,
+    },
+    /// An electron-builder GitHub release whose `latest.yml` names the installer and its
+    /// SHA-512; `base_url` is the release's `.../releases/latest/download`.
+    ElectronRelease { base_url: &'static str },
+}
+
+#[derive(Clone, Copy)]
 pub(crate) struct DirectDesktopInstaller {
-    pub(crate) url: &'static str,
-    pub(crate) file_name: &'static str,
+    pub(crate) source: InstallerSource,
     pub(crate) silent_args: &'static [&'static str],
+    /// Authenticode-signed installers are checked by signature; unsigned ones only run
+    /// when they match the SHA-512 their release publishes.
+    pub(crate) signed: bool,
 }
 
 pub(crate) const DEFAULT_DESKTOP_UNAVAILABLE_REASON: &str =
@@ -444,6 +459,28 @@ pub(crate) static CLIS: &[CliSpec] = &[
         winget_id: None,
         install_url: "https://pi.dev/",
         docs_url: "https://pi.dev/",
+    },
+    CliSpec {
+        id: "copilot",
+        name: "Copilot CLI",
+        description: "命令名 copilot，在终端中与 GitHub Copilot 编程智能体协作。",
+        command: "copilot",
+        candidates: &["copilot.cmd", "copilot.exe", "copilot.bat", "copilot.ps1"],
+        npm_package: Some("@github/copilot"),
+        winget_id: Some("GitHub.Copilot"),
+        install_url: "https://docs.github.com/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli",
+        docs_url: "https://docs.github.com/copilot/how-tos/copilot-cli",
+    },
+    CliSpec {
+        id: "mimo",
+        name: "MiMo Code CLI",
+        description: "命令名 mimo，首次运行会引导登录和配置。",
+        command: "mimo",
+        candidates: &["mimo.exe", "mimo.cmd", "mimo.bat", "mimo.ps1"],
+        npm_package: Some("@mimo-ai/cli"),
+        winget_id: None,
+        install_url: "https://mimo.xiaomi.com/coder",
+        docs_url: "https://mimo.xiaomi.com/coder",
     },
 ];
 
@@ -940,33 +977,111 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
         docs_url: "https://pi.dev/",
         cli: CliSlot::Shared("pi"),
         cli_note: None,
+        desktop: DesktopSlot::App(DesktopSpec {
+            name: "PI-Desktop（第三方）",
+            description: "社区开源的 pi 桌面工作台 vastsa/PI-Desktop（LGPL-3.0），内置 pi 运行时。",
+            winget_id: None,
+            winget_source: None,
+            appx_names: &[],
+            install_url: "https://github.com/vastsa/PI-Desktop/releases/latest",
+            docs_url: "https://github.com/vastsa/PI-Desktop",
+            // Registered as "PI-Desktop <version>", executable PI-Desktop.exe.
+            keywords: &["pi-desktop"],
+            excludes: &[],
+            install_unavailable_reason: None,
+            reject_sibling_files: &[],
+        }),
+        workbench_command: None,
+        process_pattern: r#"(?i)@(mariozechner|earendil-works)[\\/]pi-coding-agent|(^|[\\/\s"])pi(\.cmd|\.exe)([\s"]|$)|pi-desktop"#,
+        data_dirs: &[home(".pi")],
+    },
+    ProductSpec {
+        id: "copilot",
+        vendor: Vendor::Copilot,
+        family: "copilot",
+        edition: Edition::Global,
+        edition_label: "",
+        sort: 140,
+        name: "GitHub Copilot",
+        description: "GitHub 的编程智能体，CLI 在终端中理解和修改代码，桌面 App 管理 Copilot 编程会话。",
+        icon: "copilot.svg",
+        docs_url: "https://docs.github.com/copilot/how-tos/copilot-cli",
+        cli: CliSlot::Shared("copilot"),
+        cli_note: None,
+        desktop: DesktopSlot::App(DesktopSpec {
+            name: "GitHub Copilot 桌面端",
+            description: "GitHub Copilot Windows 桌面应用。",
+            winget_id: Some("GitHub.CopilotApp"),
+            winget_source: None,
+            appx_names: &[],
+            install_url: "https://github.com/features/copilot",
+            docs_url: "https://docs.github.com/copilot",
+            keywords: &["github copilot"],
+            excludes: &["copilot cli"],
+            install_unavailable_reason: None,
+            reject_sibling_files: &[],
+        }),
+        workbench_command: None,
+        process_pattern: r#"(?i)(^|[\\/\s"])copilot([\\/\s".]|$)|@github[\\/]copilot"#,
+        data_dirs: &[home(".copilot")],
+    },
+    ProductSpec {
+        id: "mimo",
+        vendor: Vendor::MiMo,
+        family: "mimo",
+        edition: Edition::Unified,
+        edition_label: "",
+        sort: 150,
+        name: "小米 MiMo Code",
+        description: "小米 MiMo 大模型驱动的终端编程智能体，可读写代码、搜索项目并执行命令。",
+        icon: "mimo.svg",
+        docs_url: "https://mimo.xiaomi.com/coder",
+        cli: CliSlot::Shared("mimo"),
+        cli_note: Some("国内与海外账号共用同一个 mimo 命令，登录时按账号所在平台授权。"),
         desktop: DesktopSlot::Unavailable {
-            name: "pi 桌面端",
-            description: "pi 只提供终端使用方式。",
-            url: "https://pi.dev/",
+            name: "MiMo Code 桌面端",
+            description: "官方只提供终端使用方式。",
+            url: "https://mimo.xiaomi.com/coder",
         },
         workbench_command: None,
-        process_pattern: r#"(?i)@mariozechner[\\/]pi-coding-agent|(^|[\\/\s"])pi(\.cmd|\.exe)([\s"]|$)"#,
-        data_dirs: &[home(".pi")],
+        process_pattern: r#"(?i)(^|[\\/\s"])mimo(code)?([\\/\s".]|$)|@mimo-ai[\\/]cli"#,
+        data_dirs: &[home(".mimocode")],
     },
 ];
 
 pub(crate) fn direct_desktop_installer(vendor: Vendor) -> Option<DirectDesktopInstaller> {
     match vendor {
         Vendor::Kimi => Some(DirectDesktopInstaller {
-            url: "https://appsupport.moonshot.cn/api/app/pkg/latest/windows/download",
-            file_name: "Kimi-Work-Setup.exe",
+            source: InstallerSource::Fixed {
+                url: "https://appsupport.moonshot.cn/api/app/pkg/latest/windows/download",
+                file_name: "Kimi-Work-Setup.exe",
+            },
             silent_args: &["/S"],
+            signed: true,
         }),
         Vendor::OpenClaw => Some(DirectDesktopInstaller {
-            url: openclaw_desktop_installer_url(),
-            file_name: "OpenClawCompanion-Setup.exe",
+            source: InstallerSource::Fixed {
+                url: openclaw_desktop_installer_url(),
+                file_name: "OpenClawCompanion-Setup.exe",
+            },
             silent_args: &["/S"],
+            signed: true,
         }),
         Vendor::Hermes => Some(DirectDesktopInstaller {
-            url: "https://hermes-assets.nousresearch.com/Hermes-Setup.exe",
-            file_name: "Hermes-Setup.exe",
+            source: InstallerSource::Fixed {
+                url: "https://hermes-assets.nousresearch.com/Hermes-Setup.exe",
+                file_name: "Hermes-Setup.exe",
+            },
             silent_args: &["/S"],
+            signed: true,
+        }),
+        // Third-party open-source pi desktop app; its Windows installer is not signed.
+        Vendor::Pi => Some(DirectDesktopInstaller {
+            source: InstallerSource::ElectronRelease {
+                base_url: "https://github.com/vastsa/PI-Desktop/releases/latest/download",
+            },
+            silent_args: &["/S"],
+            signed: false,
         }),
         _ => None,
     }
@@ -1104,11 +1219,30 @@ mod tests {
     }
 
     #[test]
-    fn pi_is_an_npm_cli_without_desktop() {
+    fn pi_uses_the_new_package_and_pi_desktop() {
         let pi = spec_by_id("pi").unwrap();
         assert_eq!(pi.cli.command, "pi");
         assert_eq!(pi.cli.npm_package, Some("@earendil-works/pi-coding-agent"));
-        assert!(!pi.desktop_available);
+        assert!(pi.desktop_available);
+        assert!(desktop_matches(&pi.desktop, "PI-Desktop 0.15.0"));
+        let installer = direct_desktop_installer(Vendor::Pi).unwrap();
+        assert!(!installer.signed);
+        assert!(matches!(
+            installer.source,
+            InstallerSource::ElectronRelease { .. }
+        ));
+    }
+
+    #[test]
+    fn copilot_and_mimo_are_registered() {
+        let copilot = spec_by_id("copilot").unwrap();
+        assert_eq!(copilot.cli.command, "copilot");
+        assert_eq!(copilot.cli.winget_id, Some("GitHub.Copilot"));
+        assert_eq!(copilot.desktop.winget_id, Some("GitHub.CopilotApp"));
+        let mimo = spec_by_id("mimo").unwrap();
+        assert_eq!(mimo.cli.command, "mimo");
+        assert_eq!(mimo.edition, Edition::Unified);
+        assert!(!mimo.desktop_available);
     }
 
     fn desktop_matches(spec: &DesktopSpec, name: &str) -> bool {

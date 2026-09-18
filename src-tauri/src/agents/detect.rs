@@ -138,6 +138,7 @@ pub(crate) fn desktop_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurfac
         .map(|p| p.to_string_lossy().into_owned());
     let latest = if check_latest && installed {
         desktop_internal_latest(spec, version.as_deref())
+            .or_else(|| desktop_release_latest(spec))
             .or_else(|| {
                 spec.desktop.winget_id.and_then(|id| {
                     winget_available_update(id, spec.desktop.winget_source)
@@ -218,6 +219,9 @@ pub(crate) fn detect_install_method(spec: &ToolSpec, program: Option<&Path>) -> 
     if spec.vendor == Vendor::Codex
         && (p.contains("\\.codex\\") || p.contains("\\.local\\bin\\codex"))
     {
+        return Some("native".into());
+    }
+    if spec.vendor == Vendor::MiMo && p.contains("\\.mimocode\\bin\\") {
         return Some("native".into());
     }
     if spec.vendor == Vendor::Kimi
@@ -328,6 +332,9 @@ pub(crate) fn latest_for_cli(
     if spec.vendor == Vendor::Trae {
         return trae_cli_latest().map(Some);
     }
+    if method == Some("native") && spec.vendor == Vendor::MiMo {
+        return mimo_latest().map(Some);
+    }
     if method == Some("native") && spec.vendor == Vendor::Claude {
         return Ok(current.map(|s| s.to_string()));
     }
@@ -335,6 +342,33 @@ pub(crate) fn latest_for_cli(
         return npm_latest(pkg).map(Some);
     }
     Ok(current.map(|s| s.to_string()))
+}
+
+/// Latest MiMo Code release published on Xiaomi's CDN (plain text, e.g. `v0.1.14`).
+pub(crate) fn mimo_latest() -> Result<String, String> {
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(4))
+        .timeout_read(Duration::from_secs(8))
+        .build();
+    agent
+        .get("https://mimocode.cnbj1.mi-fds.com/mimocode/mimocode/releases/latest")
+        .call()
+        .map_err(|e| format!("查询最新版本失败：{e}"))?
+        .into_string()
+        .map(|text| text.trim().trim_start_matches('v').to_string())
+        .map_err(|e| format!("查询最新版本失败：{e}"))
+}
+
+/// Latest version of a desktop app installed from a GitHub electron-builder release.
+pub(crate) fn desktop_release_latest(spec: &ToolSpec) -> Option<String> {
+    match direct_desktop_installer(spec.vendor)?.source {
+        InstallerSource::ElectronRelease { base_url } => {
+            super::install::direct::electron_release_latest(base_url)
+                .ok()
+                .map(|release| release.version)
+        }
+        InstallerSource::Fixed { .. } => None,
+    }
 }
 
 pub(crate) fn trae_cli_latest() -> Result<String, String> {
@@ -843,6 +877,10 @@ pub(crate) fn desktop_candidate_paths(spec: &DesktopSpec) -> Vec<PathBuf> {
             add(&local, "Programs\\WorkBuddy\\WorkBuddy.exe");
             add(&local, "WorkBuddy\\WorkBuddy.exe");
             add(&pf, "WorkBuddy\\WorkBuddy.exe");
+        }
+        name if name.contains("PI-Desktop") => {
+            add(&local, "Programs\\PI-Desktop\\PI-Desktop.exe");
+            add(&pf, "PI-Desktop\\PI-Desktop.exe");
         }
         name if name.contains("Qoder") && name.contains("中国版") => {
             add(&local, "Programs\\Qoder CN\\Qoder CN.exe");

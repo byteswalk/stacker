@@ -196,8 +196,21 @@ pub(crate) fn update_cli_tool(
             Ok("Hermes CLI 已更新".into())
         }
         Vendor::Pi => install_or_update_pi(program.as_deref(), window),
+        Vendor::MiMo if method.as_deref() == Some("native") => {
+            install_or_update_mimo_native(window)
+        }
         _ => {
             let program = program.ok_or_else(|| format!("未检测到 {}。", spec.cli.name))?;
+            // Update through the source it was installed with, never a second copy via npm.
+            if let (Some("winget"), Some(id)) = (method.as_deref(), spec.cli.winget_id) {
+                emit_progress(window, format!("正在通过 WinGet 更新 {}…", spec.cli.name));
+                run_winget_owned(
+                    winget_args("upgrade", id, None, true),
+                    Duration::from_secs(900),
+                    window,
+                )?;
+                return Ok(format!("{} 已通过 WinGet 更新", spec.cli.name));
+            }
             update_with_npm_source(spec, &program, window)?;
             Ok(format!("{} 已更新", spec.cli.name))
         }
