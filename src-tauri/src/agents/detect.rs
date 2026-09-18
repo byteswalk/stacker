@@ -83,11 +83,7 @@ pub(crate) fn cli_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurface {
 }
 
 pub(crate) fn desktop_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurface {
-    if spec.id != "deepseek-harness"
-        && spec.desktop.keywords.is_empty()
-        && spec.desktop.winget_id.is_none()
-        && spec.desktop.appx_names.is_empty()
-    {
+    if !spec.desktop_available {
         return unavailable_surface(
             spec.desktop.name,
             "桌面端",
@@ -103,7 +99,7 @@ pub(crate) fn desktop_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurfac
     // briefly keep the previous DisplayVersion, while Kimi.exe is already new.
     // Prefer the executable's file version so we don't advertise a phantom update.
     let version = found.as_ref().and_then(|found| {
-        if spec.id == "kimi" {
+        if spec.vendor == Vendor::Kimi {
             found
                 .path
                 .as_deref()
@@ -135,7 +131,7 @@ pub(crate) fn desktop_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurfac
             .as_deref()
             .zip(latest.as_deref())
             .is_some_and(|(cur, next)| crate::update::ver_lt(cur, next));
-    let has_direct_installer = direct_desktop_installer(spec.id).is_some();
+    let has_direct_installer = direct_desktop_installer(spec.vendor).is_some();
     let can_install = spec.desktop.winget_id.is_some() || has_direct_installer;
     VibeSurface {
         available: true,
@@ -161,13 +157,17 @@ pub(crate) fn desktop_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurfac
         install_url: spec.desktop.install_url.into(),
         docs_url: spec.desktop.docs_url.into(),
         can_install,
-        install_unavailable_reason: (!can_install)
-            .then(|| desktop_install_unavailable_reason(spec).to_string()),
+        install_unavailable_reason: (!can_install).then(|| {
+            spec.desktop
+                .install_unavailable_reason
+                .unwrap_or(DEFAULT_DESKTOP_UNAVAILABLE_REASON)
+                .to_string()
+        }),
         can_update: installed
             && (spec.desktop.winget_id.is_some() || has_direct_installer || update_available),
         // A locally launched DeepSeek Harness workspace is not registered as
         // a conventional Windows app. Never offer an unsafe partial uninstall.
-        can_uninstall: installed && spec.id != "deepseek-harness",
+        can_uninstall: installed && spec.vendor != Vendor::DeepSeekHarness,
         can_open: installed,
     }
 }
@@ -175,37 +175,39 @@ pub(crate) fn desktop_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurfac
 pub(crate) fn detect_install_method(spec: &ToolSpec, program: Option<&Path>) -> Option<String> {
     let program = program?;
     let p = program.to_string_lossy().replace('/', "\\").to_lowercase();
-    if spec.id == "claude"
+    if spec.vendor == Vendor::Claude
         && (p.contains("\\.local\\bin\\claude") || p.contains("\\.local\\share\\claude\\"))
     {
         return Some("native".into());
     }
-    if spec.id == "codex" && (p.contains("\\.codex\\") || p.contains("\\.local\\bin\\codex")) {
+    if spec.vendor == Vendor::Codex
+        && (p.contains("\\.codex\\") || p.contains("\\.local\\bin\\codex"))
+    {
         return Some("native".into());
     }
-    if spec.id == "kimi"
+    if spec.vendor == Vendor::Kimi
         && (p.contains("\\.local\\bin\\kimi")
             || p.contains("\\kimi-code\\bin\\")
             || p.contains("\\appdata\\local\\kimi-code\\"))
     {
         return Some("native".into());
     }
-    if spec.id == "antigravity"
+    if spec.vendor == Vendor::Antigravity
         && (p.contains("\\antigravity\\")
             || p.contains("\\.local\\bin\\agy")
             || p.contains("\\agy\\bin\\agy"))
     {
         return Some("native".into());
     }
-    if spec.id == "trae-work" && p.contains("\\appdata\\local\\trae-cli\\bin\\") {
+    if spec.vendor == Vendor::Trae && p.contains("\\appdata\\local\\trae-cli\\bin\\") {
         return Some("native".into());
     }
-    if spec.id == "hermes"
+    if spec.vendor == Vendor::Hermes
         && (p.contains("\\appdata\\local\\hermes\\") || p.contains("\\.hermes\\"))
     {
         return Some("native".into());
     }
-    if spec.id == "opencode" {
+    if spec.vendor == Vendor::OpenCode {
         if p.contains("\\scoop\\shims\\") || p.contains("\\scoop\\apps\\opencode\\") {
             return Some("scoop".into());
         }
@@ -286,13 +288,13 @@ pub(crate) fn latest_for_cli(
     if let (Some("winget"), Some(id)) = (method, spec.cli.winget_id) {
         return Ok(winget_available_update(id, None)?.or_else(|| current.map(|s| s.to_string())));
     }
-    if spec.id == "antigravity" || spec.id == "hermes" {
+    if spec.vendor == Vendor::Antigravity || spec.vendor == Vendor::Hermes {
         return Ok(current.map(|s| s.to_string()));
     }
-    if spec.id == "trae-work" {
+    if spec.vendor == Vendor::Trae {
         return trae_cli_latest().map(Some);
     }
-    if method == Some("native") && spec.id == "claude" {
+    if method == Some("native") && spec.vendor == Vendor::Claude {
         return Ok(current.map(|s| s.to_string()));
     }
     if let Some(pkg) = spec.cli.npm_package {
@@ -322,9 +324,9 @@ pub(crate) fn trae_cli_latest() -> Result<String, String> {
 }
 
 pub(crate) fn desktop_internal_latest(spec: &ToolSpec, current: Option<&str>) -> Option<String> {
-    match spec.id {
-        "claude" => claude_desktop_ready_update(current),
-        "kimi" => kimi_work_latest().ok(),
+    match spec.vendor {
+        Vendor::Claude => claude_desktop_ready_update(current),
+        Vendor::Kimi => kimi_work_latest().ok(),
         _ => None,
     }
 }

@@ -62,6 +62,9 @@ pub struct VibeTool {
     pub name: String,
     pub description: String,
     pub docs_url: String,
+    pub icon: String,
+    pub cli_id: Option<String>,
+    pub cli_note: Option<String>,
     pub cli: VibeSurface,
     pub desktop: VibeSurface,
 }
@@ -203,21 +206,20 @@ pub(crate) fn scan_vibe_tool(id: &str, check_latest: bool) -> Option<VibeTool> {
 }
 
 pub(crate) fn vibe_catalog_tool(spec: ToolSpec) -> VibeTool {
-    let (family_id, edition, edition_label, sort_order) = tool_metadata(spec.id);
     let cli_available = !spec.cli.command.is_empty();
-    let desktop_available = spec.id == "deepseek-harness"
-        || !spec.desktop.keywords.is_empty()
-        || spec.desktop.winget_id.is_some()
-        || !spec.desktop.appx_names.is_empty();
+    let desktop_available = spec.desktop_available;
     VibeTool {
         id: spec.id.into(),
-        family_id: family_id.into(),
-        edition: edition.into(),
-        edition_label: edition_label.into(),
-        sort_order,
+        family_id: spec.family.into(),
+        edition: spec.edition.as_str().into(),
+        edition_label: spec.edition_label.into(),
+        sort_order: spec.sort,
         name: spec.name.into(),
         description: spec.description.into(),
         docs_url: spec.docs_url.into(),
+        icon: spec.icon.into(),
+        cli_id: spec.cli_id.map(Into::into),
+        cli_note: spec.cli_note.map(Into::into),
         cli: pending_surface(
             spec.cli.name,
             "CLI",
@@ -274,16 +276,18 @@ pub(crate) fn pending_surface(
 }
 
 pub(crate) fn vibe_tool_from_spec(spec: ToolSpec, check_latest: bool) -> VibeTool {
-    let (family_id, edition, edition_label, sort_order) = tool_metadata(spec.id);
     VibeTool {
         id: spec.id.into(),
-        family_id: family_id.into(),
-        edition: edition.into(),
-        edition_label: edition_label.into(),
-        sort_order,
+        family_id: spec.family.into(),
+        edition: spec.edition.as_str().into(),
+        edition_label: spec.edition_label.into(),
+        sort_order: spec.sort,
         name: spec.name.into(),
         description: spec.description.into(),
         docs_url: spec.docs_url.into(),
+        icon: spec.icon.into(),
+        cli_id: spec.cli_id.map(Into::into),
+        cli_note: spec.cli_note.map(Into::into),
         cli: cli_surface(&spec, check_latest),
         desktop: desktop_surface(&spec, check_latest),
     }
@@ -353,7 +357,7 @@ pub(crate) fn run_tool_action(
 
 pub(crate) fn open_desktop_tool(id: &str) -> Result<(), String> {
     let spec = spec_by_id(id).ok_or_else(|| "未知的工作智能体工具".to_string())?;
-    if spec.id == "deepseek-harness" {
+    if spec.vendor == Vendor::DeepSeekHarness {
         return open_deepseek_harness_workbench();
     }
     if let Some(found) = detect_desktop_app(&spec.desktop) {
@@ -364,7 +368,7 @@ pub(crate) fn open_desktop_tool(id: &str) -> Result<(), String> {
             return open_external_target(&path.to_string_lossy());
         }
     }
-    if spec.id == "codex" {
+    if spec.vendor == Vendor::Codex {
         if let Some(program) = resolve_command(spec.cli.candidates) {
             let mut cmd = command_for_path(&program, &["app"]);
             #[cfg(windows)]

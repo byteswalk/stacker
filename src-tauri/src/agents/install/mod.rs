@@ -16,9 +16,9 @@ pub(crate) fn install_cli_tool(
     window: &Option<tauri::Window>,
 ) -> Result<String, String> {
     emit_progress(window, format!("正在安装 {}…", spec.cli.name));
-    match spec.id {
-        "claude" => install_or_update_claude(None, None, window),
-        "codex" => run_codex_installer(window).or_else(|installer_error| {
+    match spec.vendor {
+        Vendor::Claude => install_or_update_claude(None, None, window),
+        Vendor::Codex => run_codex_installer(window).or_else(|installer_error| {
             if let Some(pkg) = spec.cli.npm_package {
                 emit_progress(
                     window,
@@ -30,8 +30,8 @@ pub(crate) fn install_cli_tool(
                 Err("Codex CLI 安装失败".into())
             }
         }),
-        "kimi" => install_or_update_kimi_cli(None, None, window, "安装"),
-        "antigravity" => {
+        Vendor::Kimi => install_or_update_kimi_cli(None, None, window, "安装"),
+        Vendor::Antigravity => {
             if let Some(id) = spec.cli.winget_id {
                 if winget_command().is_some() {
                     emit_progress(window, "正在通过 WinGet 安装 Antigravity CLI…");
@@ -54,10 +54,10 @@ pub(crate) fn install_cli_tool(
             }
             install_or_update_antigravity_cli(window, "安装")
         }
-        "opencode" => install_opencode(window),
-        "trae-work" => install_or_update_trae_cli(window, "安装"),
-        "openclaw" => install_openclaw(window),
-        "hermes" => install_hermes(window),
+        Vendor::OpenCode => install_opencode(window),
+        Vendor::Trae => install_or_update_trae_cli(window, "安装"),
+        Vendor::OpenClaw => install_openclaw(window),
+        Vendor::Hermes => install_hermes(window),
         _ => {
             if let Some(pkg) = spec.cli.npm_package {
                 npm_install_latest(pkg, None, window)?;
@@ -76,9 +76,9 @@ pub(crate) fn update_cli_tool(
     emit_progress(window, "正在检测当前安装来源…");
     let program = resolve_command(spec.cli.candidates);
     let method = detect_install_method(spec, program.as_deref());
-    match spec.id {
-        "claude" => install_or_update_claude(program.as_deref(), method.as_deref(), window),
-        "codex" => match (program.as_deref(), method.as_deref()) {
+    match spec.vendor {
+        Vendor::Claude => install_or_update_claude(program.as_deref(), method.as_deref(), window),
+        Vendor::Codex => match (program.as_deref(), method.as_deref()) {
             (Some(program), Some("npm")) => {
                 update_with_npm_source(spec, program, window)?;
                 Ok("Codex CLI 已通过 npm 更新".into())
@@ -100,8 +100,10 @@ pub(crate) fn update_cli_tool(
             }
             (None, _) => install_cli_tool(spec, window),
         },
-        "kimi" => install_or_update_kimi_cli(program.as_deref(), method.as_deref(), window, "更新"),
-        "antigravity" => {
+        Vendor::Kimi => {
+            install_or_update_kimi_cli(program.as_deref(), method.as_deref(), window, "更新")
+        }
+        Vendor::Antigravity => {
             if method.as_deref() == Some("winget") {
                 let id = spec
                     .cli
@@ -132,7 +134,7 @@ pub(crate) fn update_cli_tool(
             }
             install_or_update_antigravity_cli(window, "更新")
         }
-        "opencode" => match (program.as_deref(), method.as_deref()) {
+        Vendor::OpenCode => match (program.as_deref(), method.as_deref()) {
             (Some(program), Some("npm")) => {
                 update_with_npm_source(spec, program, window)?;
                 Ok("OpenCode CLI 已通过 npm 更新".into())
@@ -163,7 +165,7 @@ pub(crate) fn update_cli_tool(
             ),
             (None, _) => install_cli_tool(spec, window),
         },
-        "trae-work" => {
+        Vendor::Trae => {
             if let Some(program) = program {
                 emit_progress(window, "正在执行 traecli update…");
                 match run_command_text(
@@ -181,7 +183,7 @@ pub(crate) fn update_cli_tool(
             }
             install_or_update_trae_cli(window, "更新")
         }
-        "hermes" => {
+        Vendor::Hermes => {
             let program = program.ok_or_else(|| "未检测到 Hermes CLI。".to_string())?;
             emit_progress(window, "正在执行 hermes update…");
             run_command_text(
@@ -207,7 +209,7 @@ pub(crate) fn uninstall_cli_tool(
     emit_progress(window, "正在检测当前安装来源…");
     let program = resolve_command(spec.cli.candidates);
     let method = detect_install_method(spec, program.as_deref());
-    if spec.id == "hermes" {
+    if spec.vendor == Vendor::Hermes {
         let program = program.ok_or_else(|| "未检测到 Hermes CLI。".to_string())?;
         emit_progress(window, "正在运行 Hermes 官方卸载程序…");
         run_command_text(
@@ -218,7 +220,7 @@ pub(crate) fn uninstall_cli_tool(
         )?;
         return Ok("Hermes CLI 已卸载，用户配置和会话数据已保留".into());
     }
-    if spec.id == "openclaw" {
+    if spec.vendor == Vendor::OpenClaw {
         let program = program.ok_or_else(|| "未检测到 OpenClaw CLI。".to_string())?;
         emit_progress(window, "正在移除 OpenClaw 网关服务…");
         let _ = run_command_text(
@@ -232,7 +234,7 @@ pub(crate) fn uninstall_cli_tool(
         npm_uninstall(pkg, Some(&program), window)?;
         return Ok("OpenClaw CLI 与网关服务已卸载，配置和工作区已保留".into());
     }
-    if spec.id == "trae-work" {
+    if spec.vendor == Vendor::Trae {
         return uninstall_trae_cli(window);
     }
     match method.as_deref() {
@@ -336,7 +338,7 @@ pub(crate) fn install_desktop_tool(
             spec.desktop.name
         ));
     }
-    if let Some(installer) = direct_desktop_installer(spec.id) {
+    if let Some(installer) = direct_desktop_installer(spec.vendor) {
         return match install_desktop_from_official_package(spec, installer, window) {
             Ok(message) => Ok(message),
             Err(err) if err.contains("已取消") => Err(err),
@@ -352,7 +354,9 @@ pub(crate) fn install_desktop_tool(
     Err(format!(
         "{} 无法自动安装：{}",
         spec.desktop.name,
-        desktop_install_unavailable_reason(spec)
+        spec.desktop
+            .install_unavailable_reason
+            .unwrap_or(DEFAULT_DESKTOP_UNAVAILABLE_REASON)
     ))
 }
 
@@ -415,7 +419,7 @@ pub(crate) fn update_desktop_tool(
         )?;
         return Ok(format!("{} 已通过 WinGet 更新", spec.desktop.name));
     }
-    if let Some(installer) = direct_desktop_installer(spec.id) {
+    if let Some(installer) = direct_desktop_installer(spec.vendor) {
         return install_desktop_from_official_package(spec, installer, window)
             .map(|_| format!("{} 已更新", spec.desktop.name));
     }
