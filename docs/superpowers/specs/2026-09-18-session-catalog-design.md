@@ -74,7 +74,7 @@ pub struct Session {
 
 分类规则：
 
-- Codex：`thread_source = user` 且 `source` 不是 `exec` → 普通会话；`source = exec` → `Automation`；`thread_source` 为 `subagent` / `guardian_review` → 挂到父线程的 `children`。找不到父线程的子线程作为普通会话显示并标记「父会话已不存在」。
+- Codex：`thread_source = user` 且 `source` 不是 `exec` → 普通会话；`source = exec` → `Automation`；`thread_source` 为 `subagent` / `guardian_review` → 挂到父线程的 `children`。找不到父线程的子线程与审查线程归为 `Automation`（默认隐藏），并标记「父会话已不存在」。
 - Codex 客户端标签：`originator = Codex Desktop` → Desktop；`source = vscode` 且非桌面 → Ide；`source = cli` → Terminal；`exec` → Automation。
 - Claude：`entrypoint = claude-desktop` → Desktop；`cli` → Terminal；`sdk-cli` / `sdk-*` → Sdk（按自动化运行处理）。`subagents/` 下的记录只作为 `children`。
 - 标题优先级：客户端标题（Claude 桌面端索引 `title`，Codex `name` 再 `title`）→ `custom-title` → `summary` → 首条用户消息（截取 80 字）。
@@ -120,7 +120,7 @@ pub struct Session {
 
 - 预览有效 10 分钟、只能执行一次；执行前重新计算影响范围与文件指纹，变化即停止。
 - **Codex**：要求 Codex 桌面端与 CLI 已完全退出；通过 Codex App Server 官方接口删除，子线程先于父线程。
-- **Claude**：只允许删除不在桌面端侧栏中的会话——孤儿、`cli` 与 `sdk` 创建的会话。桌面端索引中仍存在的会话显示为被阻止，原因「请先在 Claude 桌面端删除该会话」。删除范围：`projects/<slug>/<id>.jsonl`、`projects/<slug>/<id>/`、`file-history/<id>/`、`session-env/<id>`。存在正在运行的 `claude` 进程且其工作目录为该会话项目时阻止。
+- **Claude**：只允许删除不在桌面端侧栏中的会话——孤儿、`cli` 与 `sdk` 创建的会话。桌面端索引中仍存在的会话显示为被阻止，原因「请先在 Claude 桌面端删除该会话」。删除范围：`projects/<slug>/<id>.jsonl`、`projects/<slug>/<id>/`、`file-history/<id>/`、`session-env/<id>`。会话记录在最近 120 秒内有写入时视为正在使用并阻止（Windows 无法可靠读取其他进程的工作目录）。
 - 删除不跟随链接或目录联接；所有路径必须位于对应根目录内。
 - 结果以后台任务报告，逐项列出成功、跳过和失败。
 
