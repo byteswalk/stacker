@@ -2296,4 +2296,7 @@ export const GENERATED_EN: Record<string, string> = {
   "Xiaomi MiMo Desktop 国际版桌面智能体，邀请制内测中；电脑操控（Computer Use）仅国际版提供。": "Xiaomi MiMo Desktop (International), in invite-only beta; computer use is international-only.",
   "MiMo Desktop 为邀请制内测：在官方页面申请，获批后从申请页下载安装。": "MiMo Desktop is an invite-only beta: apply on the official page and download after approval.",
   "中国区": "China region",
+  "{} 正在运行。静默更新需要替换程序文件，请先退出应用后重试。": "{} is running. A silent update replaces its program files; quit the app and try again.",
+  "正在静默更新 {}…": "Silently updating {}…",
+  "{} 已静默更新": "{} updated silently",
 };

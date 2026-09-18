@@ -115,10 +115,16 @@ impl TaskRunner for ProductionRunner {
         );
         match (result, verified) {
             (Ok(message), Ok(())) => Ok(message),
-            // Desktop auto-updaters (Kimi Work, Claude) download the new version and apply
-            // it on restart; the action already told the user what to do.
+            // Claude's own updater downloads the new version and applies it on restart;
+            // the action already told the user what to do. Silent installers must change it.
             (Ok(message), Err(reason))
-                if request.surface == Surface::Desktop && reason == VERSION_UNCHANGED =>
+                if request.surface == Surface::Desktop
+                    && reason == VERSION_UNCHANGED
+                    && crate::agents::install::desktop_staged_update(
+                        &spec_by_id(&request.product_id).ok_or("未知的智能体")?,
+                        None,
+                    )
+                    .is_some() =>
             {
                 crate::installer::task_log("新版本将在应用重启后生效");
                 Ok(message)

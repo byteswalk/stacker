@@ -417,7 +417,7 @@ pub(crate) fn update_desktop_tool(
 ) -> Result<String, String> {
     let found = detect_desktop_app(&spec.desktop);
     let current = found.as_ref().and_then(|f| f.version.as_deref());
-    if let Some(next) = desktop_internal_latest(spec, current) {
+    if let Some(next) = desktop_staged_update(spec, current) {
         emit_progress(
             window,
             format!("{} 已下载 {next}，需要重启应用完成更新…", spec.desktop.name),
@@ -441,8 +441,23 @@ pub(crate) fn update_desktop_tool(
         return Ok(format!("{} 已通过 WinGet 更新", spec.desktop.name));
     }
     if let Some(installer) = direct_desktop_installer(spec.vendor) {
+        // A silent installer replaces the program files; never close the user's app for them.
+        if let Some(image) = found
+            .as_ref()
+            .and_then(|f| f.path.as_deref())
+            .and_then(Path::file_name)
+            .and_then(|name| name.to_str())
+        {
+            if image_is_running(image) {
+                return Err(format!(
+                    "{} 正在运行。静默更新需要替换程序文件，请先退出应用后重试。",
+                    spec.desktop.name
+                ));
+            }
+        }
+        emit_progress(window, format!("正在静默更新 {}…", spec.desktop.name));
         return install_desktop_from_official_package(spec, installer, window)
-            .map(|_| format!("{} 已更新", spec.desktop.name));
+            .map(|_| format!("{} 已静默更新", spec.desktop.name));
     }
     Err(format!(
         "{} 暂无可自动执行的 Windows 更新源，已取消操作。",
@@ -571,4 +586,61 @@ pub(crate) fn repair_cli_tool(
     );
     uninstall_cli_tool(spec, window)?;
     Ok(format!("{} 已修复，当前使用健康的安装", spec.cli.name))
+}
+
+/// An update the app's own updater already downloaded and applies on relaunch. Only
+/// Claude reports this (in its log); other vendors only publish an online version.
+pub(crate) fn desktop_staged_update(spec: &ToolSpec, current: Option<&str>) -> Option<String> {
+    match spec.vendor {
+        Vendor::Claude => claude_desktop_ready_update(current),
+        _ => None,
+    }
+}
+
+pub(crate) fn tasklist_has_image(csv: &str, image: &str) -> bool {
+    csv.lines().any(|line| {
+        line.split(',')
+            .next()
+            .map(|column| column.trim().trim_matches('"'))
+            .is_some_and(|name| name.eq_ignore_ascii_case(image))
+    })
+}
+
+fn image_is_running(image: &str) -> bool {
+    let mut command = Command::new("tasklist.exe");
+    command.args(["/FI", &format!("IMAGENAME eq {image}"), "/FO", "CSV", "/NH"]);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    command
+        .output()
+        .map(|output| tasklist_has_image(&String::from_utf8_lossy(&output.stdout), image))
+        .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_apps_with_a_downloaded_update_wait_for_a_relaunch() {
+        // Kimi Work only publishes its latest version online; nothing is downloaded, so
+        // it must update with its signed silent installer instead of opening the app.
+        let kimi = spec_by_id("kimi").unwrap();
+        assert!(desktop_staged_update(&kimi, Some("3.2.9")).is_none());
+        assert!(direct_desktop_installer(kimi.vendor).is_some_and(|installer| installer.signed));
+    }
+
+    #[test]
+    fn running_image_names_come_from_tasklist_csv() {
+        let csv = "\"Kimi.exe\",\"1234\",\"Console\",\"1\",\"120,000 K\"
+";
+        assert!(tasklist_has_image(csv, "Kimi.exe"));
+        assert!(!tasklist_has_image(
+            "INFO: No tasks are running which match the specified criteria.",
+            "Kimi.exe"
+        ));
+    }
 }
