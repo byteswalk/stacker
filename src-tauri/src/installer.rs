@@ -36,11 +36,57 @@ pub(crate) fn diagnostic_excerpt(text: &str) -> String {
 fn process_log_line(msg: impl AsRef<str>) {
     log::debug!(target: "stacker::installer", "{}", msg.as_ref());
 }
+/// Cancel flag and log sink of a background agent task running on the current thread.
+#[derive(Clone)]
+pub struct TaskContext {
+    pub cancel: std::sync::Arc<AtomicBool>,
+    pub log: std::sync::Arc<dyn Fn(&str) + Send + Sync>,
+}
+
+thread_local! {
+    static TASK_CONTEXT: std::cell::RefCell<Option<TaskContext>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Runs `work` with a task-scoped cancel flag and log sink. Installer helpers called inside
+/// it report to this task instead of the single global operation.
+pub fn with_task_context<R>(context: TaskContext, work: impl FnOnce() -> R) -> R {
+    struct Restore(Option<TaskContext>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            let previous = self.0.take();
+            TASK_CONTEXT.with(|slot| *slot.borrow_mut() = previous);
+        }
+    }
+    let previous = TASK_CONTEXT.with(|slot| slot.borrow_mut().replace(context));
+    let _restore = Restore(previous);
+    work()
+}
+
+pub fn current_task_context() -> Option<TaskContext> {
+    TASK_CONTEXT.with(|slot| slot.borrow().clone())
+}
+
+/// Sends a progress line to the current task; returns false outside a task.
+pub fn task_log(line: &str) -> bool {
+    match current_task_context() {
+        Some(context) => {
+            (context.log)(line);
+            true
+        }
+        None => false,
+    }
+}
+
 pub fn op_reset() {
-    OP_CANCEL.store(false, Ordering::SeqCst);
+    if current_task_context().is_none() {
+        OP_CANCEL.store(false, Ordering::SeqCst);
+    }
 }
 pub fn op_cancelled() -> bool {
-    OP_CANCEL.load(Ordering::SeqCst)
+    match current_task_context() {
+        Some(context) => context.cancel.load(Ordering::SeqCst),
+        None => OP_CANCEL.load(Ordering::SeqCst),
+    }
 }
 
 /// 取消当前下载 / 安装。
@@ -1513,6 +1559,33 @@ mod tests {
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::time::Duration;
+
+    #[test]
+    fn task_context_isolates_cancellation_and_logs() {
+        use super::{op_cancel, op_cancelled, task_log, with_task_context, TaskContext};
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::{Arc, Mutex};
+
+        let cancel = Arc::new(AtomicBool::new(false));
+        let lines = Arc::new(Mutex::new(Vec::<String>::new()));
+        let sink = lines.clone();
+        let context = TaskContext {
+            cancel: cancel.clone(),
+            log: Arc::new(move |line: &str| sink.lock().unwrap().push(line.to_string())),
+        };
+        op_cancel();
+        let observed = with_task_context(context, || {
+            assert!(!op_cancelled(), "global cancel must not leak into a task");
+            assert!(task_log("hello"));
+            cancel.store(true, Ordering::SeqCst);
+            op_cancelled()
+        });
+        assert!(observed);
+        assert_eq!(*lines.lock().unwrap(), vec!["hello".to_string()]);
+        assert!(op_cancelled(), "outside the task the global flag applies");
+        assert!(!task_log("ignored"));
+        op_reset();
+    }
 
     fn download_test_server(bodies: Vec<&'static [u8]>, declared_length: usize) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();

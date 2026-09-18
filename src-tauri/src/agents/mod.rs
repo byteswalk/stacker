@@ -509,6 +509,9 @@ pub(crate) fn open_external_target(target: &str) -> Result<(), String> {
 }
 
 pub(crate) fn emit_progress<S: AsRef<str>>(window: &Option<tauri::Window>, msg: S) {
+    if crate::installer::task_log(msg.as_ref()) {
+        return;
+    }
     if let Some(window) = window {
         let _ = window.emit(VIBE_PROGRESS_EVENT, msg.as_ref().to_string());
     }

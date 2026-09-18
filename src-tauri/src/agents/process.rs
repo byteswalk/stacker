@@ -75,33 +75,42 @@ pub(crate) fn run_command_streamed(
     let last_activity = Arc::new(AtomicU64::new(0));
     let output = Arc::new(Mutex::new(Vec::<u8>::new()));
 
+    // Reader threads report into the same task as the caller.
+    let task = crate::installer::current_task_context();
     let spawn_reader = |mut reader: Box<dyn Read + Send>, win: Option<tauri::Window>| {
         let activity = last_activity.clone();
         let captured = output.clone();
+        let task = task.clone();
         std::thread::spawn(move || {
-            let mut chunk = [0u8; 1024];
-            let mut line = Vec::new();
-            while let Ok(n) = reader.read(&mut chunk) {
-                if n == 0 {
-                    break;
-                }
-                activity.store(
-                    started.elapsed().as_millis().max(1) as u64,
-                    Ordering::Relaxed,
-                );
-                if let Ok(mut all) = captured.lock() {
-                    all.extend_from_slice(&chunk[..n]);
-                }
-                for &byte in &chunk[..n] {
-                    if byte == b'\r' || byte == b'\n' {
-                        emit_command_progress(&win, &line);
-                        line.clear();
-                    } else {
-                        line.push(byte);
+            let mut read = move || {
+                let mut chunk = [0u8; 1024];
+                let mut line = Vec::new();
+                while let Ok(n) = reader.read(&mut chunk) {
+                    if n == 0 {
+                        break;
+                    }
+                    activity.store(
+                        started.elapsed().as_millis().max(1) as u64,
+                        Ordering::Relaxed,
+                    );
+                    if let Ok(mut all) = captured.lock() {
+                        all.extend_from_slice(&chunk[..n]);
+                    }
+                    for &byte in &chunk[..n] {
+                        if byte == b'\r' || byte == b'\n' {
+                            emit_command_progress(&win, &line);
+                            line.clear();
+                        } else {
+                            line.push(byte);
+                        }
                     }
                 }
+                emit_command_progress(&win, &line);
+            };
+            match task {
+                Some(context) => crate::installer::with_task_context(context, read),
+                None => read(),
             }
-            emit_command_progress(&win, &line);
         })
     };
 
