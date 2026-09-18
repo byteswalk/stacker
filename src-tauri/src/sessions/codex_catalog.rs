@@ -208,6 +208,7 @@ pub fn sessions_from_db(conn: &Connection) -> Result<Vec<Session>, String> {
                     kind: row.thread_source.clone(),
                     title: child_title(row),
                     bytes: file_size(&row.rollout),
+                    path: row.rollout.trim_start_matches(r"\\?\").to_string(),
                 });
                 continue;
             }

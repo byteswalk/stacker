@@ -266,6 +266,7 @@ fn children_of(side_dir: &Path, session_id: &str) -> Vec<ChildSummary> {
                 p.file_stem().unwrap_or_default().to_string_lossy()
             ),
             kind: "subagent".into(),
+            path: p.to_string_lossy().into_owned(),
             title: read_head(&p)
                 .ok()
                 .and_then(|h| h.first_user_message)

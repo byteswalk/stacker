@@ -197,3 +197,26 @@ pub async fn sessions_open(id: String, target: String) -> Result<(), String> {
     })
     .await
 }
+
+#[tauri::command]
+pub async fn sessions_delete_preview(
+    ids: Vec<String>,
+    mode: super::delete::Mode,
+) -> Result<super::delete::Preview, String> {
+    blocking(move || super::delete::preview(ids, mode)).await
+}
+
+#[tauri::command]
+pub async fn sessions_delete_execute(token: String) -> Result<super::delete::JobState, String> {
+    blocking(move || super::delete::execute(token)).await
+}
+
+#[tauri::command]
+pub fn sessions_job() -> Option<super::delete::JobState> {
+    super::delete::job()
+}
+
+#[tauri::command]
+pub fn sessions_cancel() {
+    super::delete::cancel()
+}

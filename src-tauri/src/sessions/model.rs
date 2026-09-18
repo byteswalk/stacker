@@ -60,6 +60,7 @@ pub struct ChildSummary {
     pub kind: String,
     pub title: String,
     pub bytes: u64,
+    pub path: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
