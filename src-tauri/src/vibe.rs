@@ -298,19 +298,21 @@ pub(crate) fn scan_agent_activity() -> Result<AgentActivitySnapshot, String> {
         // raw command lines never cross the IPC boundary because they may contain secrets.
         let script = r#"
 $ErrorActionPreference = 'SilentlyContinue'
+# Short vendor names must be a whole path segment or executable name, so workspace
+# paths such as D:\hermes-demo or .codex data folders are not attributed to an agent.
 $patterns = @(
-  @{ Id = 'claude'; Name = 'Claude Code'; Pattern = '(?i)claude|@anthropic-ai[\\/]claude-code' },
-  @{ Id = 'codex'; Name = 'Codex'; Pattern = '(?i)codex' },
+  @{ Id = 'claude'; Name = 'Claude Code'; Pattern = '(?i)(^|[\\/\s"])claude([\\/\s".]|$)|@anthropic-ai[\\/]claude-code' },
+  @{ Id = 'codex'; Name = 'Codex'; Pattern = '(?i)(^|[\\/\s"])codex([\\/\s".]|$)|@openai[\\/]codex' },
   @{ Id = 'antigravity'; Name = 'Antigravity'; Pattern = '(?i)antigravity|(^|[\\/])agy(\\.cmd|\\.exe)?' },
   @{ Id = 'opencode'; Name = 'OpenCode'; Pattern = '(?i)opencode' },
   @{ Id = 'zcode'; Name = 'ZCode'; Pattern = '(?i)zcode|z\.ai' },
-  @{ Id = 'kimi'; Name = 'Kimi Code'; Pattern = '(?i)kimi' },
+  @{ Id = 'kimi'; Name = 'Kimi Code'; Pattern = '(?i)(^|[\\/\s"])kimi(-cli|-code)?([\\/\s".]|$)' },
   @{ Id = 'workbuddy'; Name = 'WorkBuddy'; Pattern = '(?i)workbuddy' },
-  @{ Id = 'qoder'; Name = 'Qoder'; Pattern = '(?i)qoder' },
-  @{ Id = 'trae-work'; Name = 'TRAE Work'; Pattern = '(?i)trae' },
+  @{ Id = 'qoder'; Name = 'Qoder'; Pattern = '(?i)(^|[\\/\s"])qoder([\\/\s".]|$)' },
+  @{ Id = 'trae-work'; Name = 'TRAE Work'; Pattern = '(?i)(^|[\\/\s"])trae([\\/\s".]|$)' },
   @{ Id = 'deepseek-harness'; Name = 'DeepSeek Harness'; Pattern = '(?i)deepseek-harness|@deepseek-ai[\\/]dsh|(^|[\\/])dsh(\.cmd|\.exe)?' },
   @{ Id = 'openclaw'; Name = 'OpenClaw'; Pattern = '(?i)openclaw' },
-  @{ Id = 'hermes'; Name = 'Hermes'; Pattern = '(?i)hermes' }
+  @{ Id = 'hermes'; Name = 'Hermes'; Pattern = '(?i)(^|[\\/\s"])hermes(-agent)?([\\/\s".]|$)' }
 )
 $rows = @(
   foreach ($p in (Get-CimInstance Win32_Process)) {
@@ -875,11 +877,21 @@ pub(crate) fn managed_desktop(id: &str) -> Result<ManagedDesktop, String> {
 
 pub(crate) fn desktop_agent_processes(id: &str) -> Result<Vec<AgentProcess>, String> {
     managed_agent(id)?;
+    let family = activity_family(id);
     Ok(scan_agent_activity()?
         .processes
         .into_iter()
-        .filter(|process| process.agent_id == id && is_probable_desktop_process(process))
+        .filter(|process| process.agent_id == family && is_probable_desktop_process(process))
         .collect())
+}
+
+/// The process scan reports one id per vendor; regional product variants share it.
+fn activity_family(id: &str) -> &str {
+    match id {
+        "qoder-cn" => "qoder",
+        "trae-global" => "trae-work",
+        other => other,
+    }
 }
 
 fn is_probable_desktop_process(process: &AgentProcess) -> bool {

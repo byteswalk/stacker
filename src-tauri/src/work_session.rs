@@ -924,9 +924,11 @@ fn process_is_running(pid: u32) -> bool {
     #[cfg(windows)]
     {
         let filter = format!("PID eq {pid}");
-        let output = Command::new("tasklist.exe")
-            .args(["/FI", &filter, "/FO", "CSV", "/NH"])
-            .output();
+        let mut command = Command::new("tasklist.exe");
+        command.args(["/FI", &filter, "/FO", "CSV", "/NH"]);
+        // Polled every few seconds; never flash a console window.
+        std::os::windows::process::CommandExt::creation_flags(&mut command, 0x08000000);
+        let output = command.output();
         let Ok(output) = output else {
             return false;
         };
@@ -1031,15 +1033,38 @@ fn run_with_timeout(
     mut command: std::process::Command,
     timeout: Duration,
 ) -> Result<std::process::Output, String> {
+    use std::io::Read;
     use std::process::Stdio;
     use std::thread;
     use std::time::Instant;
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = command.spawn().map_err(|error| error.to_string())?;
+    // Drain both pipes concurrently so a chatty child cannot block on a full pipe.
+    let drain = |pipe: Option<Box<dyn Read + Send>>| {
+        thread::spawn(move || {
+            let mut buffer = Vec::new();
+            if let Some(mut pipe) = pipe {
+                let _ = pipe.read_to_end(&mut buffer);
+            }
+            buffer
+        })
+    };
+    let stdout = drain(
+        child
+            .stdout
+            .take()
+            .map(|pipe| Box::new(pipe) as Box<dyn Read + Send>),
+    );
+    let stderr = drain(
+        child
+            .stderr
+            .take()
+            .map(|pipe| Box::new(pipe) as Box<dyn Read + Send>),
+    );
     let started = Instant::now();
-    loop {
+    let status = loop {
         match child.try_wait().map_err(|error| error.to_string())? {
-            Some(_) => return child.wait_with_output().map_err(|error| error.to_string()),
+            Some(status) => break status,
             None if started.elapsed() >= timeout => {
                 let _ = child.kill();
                 let _ = child.wait();
@@ -1047,7 +1072,12 @@ fn run_with_timeout(
             }
             None => thread::sleep(Duration::from_millis(40)),
         }
-    }
+    };
+    Ok(std::process::Output {
+        status,
+        stdout: stdout.join().unwrap_or_default(),
+        stderr: stderr.join().unwrap_or_default(),
+    })
 }
 
 fn ancestor(path: &Path, levels: usize) -> Option<&Path> {

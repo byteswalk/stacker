@@ -145,7 +145,7 @@ impl Rpc {
             rx,
             next: 0,
         };
-        rpc.call("initialize",json!({"clientInfo":{"name":"stacker_session_manager","version":"0.3.3"},"capabilities":{"experimentalApi":true}}))?;
+        rpc.call("initialize",json!({"clientInfo":{"name":"stacker_session_manager","version":env!("CARGO_PKG_VERSION")},"capabilities":{"experimentalApi":true}}))?;
         writeln!(rpc.input, "{}", json!({"method":"initialized"})).map_err(err)?;
         Ok(rpc)
     }

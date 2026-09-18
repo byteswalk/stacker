@@ -953,33 +953,37 @@ fn ensure_ps_execution_policy() {}
 
 /// 注入 shell 集成。shells 取 "powershell" / "gitbash" / "cmd"。返回已写入的。
 #[tauri::command]
-pub fn fnm_write_integration(shells: Vec<String>) -> Result<Vec<String>, String> {
-    let mut done = Vec::new();
-    for sh in &shells {
-        match sh.as_str() {
-            "powershell" => {
-                ensure_ps_execution_policy(); // 否则 Restricted 下 profile 跑不了
-                                              // 同时写 PS 5.1 与 PS 7 的 profile（用户用哪个都生效），不存在则创建
-                for p in ps_profiles() {
-                    write_block(&p, PS_BLOCK)?;
+pub async fn fnm_write_integration(shells: Vec<String>) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut done = Vec::new();
+        for sh in &shells {
+            match sh.as_str() {
+                "powershell" => {
+                    ensure_ps_execution_policy(); // 否则 Restricted 下 profile 跑不了
+                                                  // 同时写 PS 5.1 与 PS 7 的 profile（用户用哪个都生效），不存在则创建
+                    for p in ps_profiles() {
+                        write_block(&p, PS_BLOCK)?;
+                    }
+                    done.push("powershell".to_string());
                 }
-                done.push("powershell".to_string());
-            }
-            "gitbash" => {
-                // 本机没装 Git Bash 就别写 .bashrc（界面上它是灰的，集成时也跳过）
-                if crate::installer::git_bash().is_some() {
-                    write_block(&bashrc(), BASH_BLOCK)?;
-                    done.push("gitbash".to_string());
+                "gitbash" => {
+                    // 本机没装 Git Bash 就别写 .bashrc（界面上它是灰的，集成时也跳过）
+                    if crate::installer::git_bash().is_some() {
+                        write_block(&bashrc(), BASH_BLOCK)?;
+                        done.push("gitbash".to_string());
+                    }
                 }
+                "cmd" => {
+                    write_cmd_autorun()?;
+                    done.push("cmd".to_string());
+                }
+                _ => {}
             }
-            "cmd" => {
-                write_cmd_autorun()?;
-                done.push("cmd".to_string());
-            }
-            _ => {}
         }
-    }
-    Ok(done)
+        Ok(done)
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 // fnm 装到稳定的应用数据目录，避免开发模式落入 Cargo target。

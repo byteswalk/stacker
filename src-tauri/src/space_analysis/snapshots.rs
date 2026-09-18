@@ -81,8 +81,10 @@ fn snapshot_path(id: &str) -> Result<PathBuf, String> {
         .ok_or_else(|| "Invalid snapshot id.".to_string())?;
     if fingerprint.len() != 16
         || !fingerprint.bytes().all(|byte| byte.is_ascii_hexdigit())
-        || file.contains('/')
-        || file.contains('\\')
+        // Generated names are timestamps; drive prefixes such as `C:x.json` would escape the root.
+        || !file
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'.')
         || !file.ends_with(".json")
     {
         return Err("Invalid snapshot id.".into());
@@ -296,6 +298,15 @@ pub fn clear() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn snapshot_ids_cannot_escape_the_snapshot_root() {
+        let fingerprint = "0123456789abcdef";
+        assert!(snapshot_path(&format!("{fingerprint}/20260101T000000000Z.json")).is_ok());
+        for file in ["C:x.json", "a b.json", "x.txt", "a\\b.json"] {
+            let id = format!("{fingerprint}/{file}");
+            assert!(snapshot_path(&id).is_err(), "{id}");
+        }
+    }
     #[test]
     fn fingerprint_is_order_independent() {
         assert_eq!(

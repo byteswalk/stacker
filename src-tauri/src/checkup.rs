@@ -1205,7 +1205,7 @@ fn agent_readiness_impl() -> AgentReadiness {
 }
 
 fn cleanup_check_items() -> Vec<CheckItem> {
-    let caches = crate::cleanup::cleanup_scan();
+    let caches = crate::cleanup::cleanup_scan_blocking();
     let managed: u64 = caches
         .iter()
         .filter(|item| item.category == "safe" || item.category == "cautious")

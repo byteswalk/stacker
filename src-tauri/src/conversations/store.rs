@@ -57,6 +57,34 @@ pub fn set_meta<T: Serialize>(db: &Connection, key: &str, value: &T) -> Result<(
     Ok(())
 }
 
+/// Drops single-use `prefix` rows (previews, summary consents) created before `cutoff`.
+/// Each row carries a full request payload, so abandoned ones must not accumulate.
+pub fn prune_tokens(db: &Connection, prefix: &str, cutoff: u64) -> Result<(), String> {
+    #[derive(serde::Deserialize)]
+    struct Created {
+        created: u64,
+    }
+    let mut stmt = db
+        .prepare("SELECT key, value FROM meta WHERE key LIKE ?")
+        .map_err(err)?;
+    let stale = stmt
+        .query_map([format!("{prefix}%")], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })
+        .map_err(err)?
+        .filter_map(Result::ok)
+        .filter(|(_, value)| {
+            serde_json::from_str::<Created>(value).map_or(true, |row| row.created < cutoff)
+        })
+        .map(|(key, _)| key)
+        .collect::<Vec<_>>();
+    for key in stale {
+        db.execute("DELETE FROM meta WHERE key=?", [key])
+            .map_err(err)?;
+    }
+    Ok(())
+}
+
 pub fn upsert(db: &Connection, c: &Conversation) -> Result<(), String> {
     db.execute("INSERT INTO conversations(id,source,path,fingerprint,data,present) VALUES(?1,?2,?3,?4,?5,1)
         ON CONFLICT(id) DO UPDATE SET source=excluded.source,path=excluded.path,fingerprint=excluded.fingerprint,data=excluded.data,present=1",
@@ -144,4 +172,28 @@ pub fn atomic_json<T: Serialize>(path: &Path, data: &T) -> Result<(), String> {
     tmp.as_file().sync_all().map_err(err)?;
     tmp.persist(path).map_err(err)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn prune_tokens_removes_only_stale_rows_with_the_prefix() {
+        let temp = tempfile::tempdir().unwrap();
+        let db = connect_at(temp.path()).unwrap();
+        set_meta(&db, "preview:old", &serde_json::json!({"created": 10})).unwrap();
+        set_meta(&db, "preview:new", &serde_json::json!({"created": 100})).unwrap();
+        set_meta(&db, "model", &serde_json::json!({"created": 1})).unwrap();
+
+        prune_tokens(&db, "preview:", 50).unwrap();
+
+        assert!(meta::<serde_json::Value>(&db, "preview:old")
+            .unwrap()
+            .is_none());
+        assert!(meta::<serde_json::Value>(&db, "preview:new")
+            .unwrap()
+            .is_some());
+        assert!(meta::<serde_json::Value>(&db, "model").unwrap().is_some());
+    }
 }

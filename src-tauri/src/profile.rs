@@ -123,46 +123,50 @@ pub fn profile_delete(name: String) -> Result<(), String> {
 /// 套用命名方案：逐工具切源（仅已安装、与当前不同的才动），再按记录开/关代理。
 /// 返回实际改动的工具数。
 #[tauri::command]
-pub fn profile_apply(name: String) -> Result<ApplyResult, String> {
-    let prof = load()
-        .into_iter()
-        .find(|p| p.name == name)
-        .ok_or("方案不存在")?;
-    let tools = sources::tools();
-    let mut changed = 0usize;
-    for sel in &prof.sources {
-        let Some(tool) = tools.iter().find(|t| t.id == sel.tool) else {
-            continue;
-        };
-        // 当前已是目标源就跳过
-        if sources::detect(tool).as_deref() == Some(sel.mirror.as_str()) {
-            continue;
+pub async fn profile_apply(name: String) -> Result<ApplyResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let prof = load()
+            .into_iter()
+            .find(|p| p.name == name)
+            .ok_or("方案不存在")?;
+        let tools = sources::tools();
+        let mut changed = 0usize;
+        for sel in &prof.sources {
+            let Some(tool) = tools.iter().find(|t| t.id == sel.tool) else {
+                continue;
+            };
+            // 当前已是目标源就跳过
+            if sources::detect(tool).as_deref() == Some(sel.mirror.as_str()) {
+                continue;
+            }
+            let Some(mirror) = tool.mirrors.iter().find(|m| m.id == sel.mirror) else {
+                continue;
+            };
+            sources::apply(tool, mirror)?;
+            if mirror.id.starts_with("custom:") {
+                crate::custom::apply_auth(&tool.handler, mirror)?;
+            }
+            changed += 1;
         }
-        let Some(mirror) = tool.mirrors.iter().find(|m| m.id == sel.mirror) else {
-            continue;
-        };
-        sources::apply(tool, mirror)?;
-        if mirror.id.starts_with("custom:") {
-            crate::custom::apply_auth(&tool.handler, mirror)?;
+        // 代理对齐
+        let ps = proxy::status();
+        if prof.proxy && !ps.enabled {
+            let port = if ps.port > 0 {
+                ps.port
+            } else {
+                ps.detected_port.unwrap_or(7890)
+            };
+            proxy::enable(&ps.host, port, false, vec![])?;
+        } else if !prof.proxy && ps.enabled {
+            proxy::disable(false)?;
         }
-        changed += 1;
-    }
-    // 代理对齐
-    let ps = proxy::status();
-    if prof.proxy && !ps.enabled {
-        let port = if ps.port > 0 {
-            ps.port
-        } else {
-            ps.detected_port.unwrap_or(7890)
-        };
-        proxy::enable(&ps.host, port, false, vec![])?;
-    } else if !prof.proxy && ps.enabled {
-        proxy::disable(false)?;
-    }
-    Ok(ApplyResult {
-        changed,
-        frontend_settings: prof.frontend_settings,
+        Ok(ApplyResult {
+            changed,
+            frontend_settings: prof.frontend_settings,
+        })
     })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[cfg(test)]

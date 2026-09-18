@@ -485,9 +485,13 @@ pub async fn rustup_install(
 }
 
 #[tauri::command]
-pub fn rustup_uninstall(name: String) -> Result<(), String> {
-    let exe = rustup_exe();
-    run(&exe, &["toolchain", "uninstall", &name]).map(|_| ())
+pub async fn rustup_uninstall(name: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let exe = rustup_exe();
+        run(&exe, &["toolchain", "uninstall", &name]).map(|_| ())
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 fn explain_rustup_update_error(err: String) -> String {

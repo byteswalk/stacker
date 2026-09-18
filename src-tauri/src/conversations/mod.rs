@@ -438,6 +438,7 @@ pub async fn conversations_prepare_summary(
             consent.ids.push(id.clone());
             items.push(json!({"id":id,"title":c.title,"chars":chars,"text":serde_json::to_string_pretty(&messages).map_err(err)?}));
         }
+        store::prune_tokens(&db,"consent:",now().saturating_sub(24*3600))?;
         store::set_meta(&db,&format!("consent:{}",consent.token),&consent)?;
         Ok(json!({"token":consent.token,"endpoint":consent.endpoint,"model":consent.model,"items":items}))
     }).await.map_err(err)?
@@ -741,6 +742,8 @@ fn preview(ids: Vec<String>, action: String) -> Result<Preview, String> {
             }),
         }
     }
+    // Previews expire after ten minutes; keep an hour of slack for clock changes.
+    store::prune_tokens(&db, "preview:", now().saturating_sub(3600))?;
     store::set_meta(&db, &format!("preview:{}", plan.token), &plan)?;
     Ok(plan)
 }

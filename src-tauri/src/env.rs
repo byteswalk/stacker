@@ -765,7 +765,9 @@ fn save_scan_cache(c: &HashMap<String, Vec<PathBuf>>) {
     }
 }
 fn cache_scan(homes: &Homes, kinds: &std::collections::HashSet<String>) {
-    let mut c = scanned().lock().unwrap();
+    let mut c = scanned()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let all = kinds.is_empty();
     if all || kinds.contains("java") {
         c.insert("java".into(), homes.java.clone());
@@ -1149,8 +1151,16 @@ fn clear_user_shadow_for_system(kind: &str, siblings: &[String]) -> Result<(), S
 
 // ── Tauri 命令 ──
 #[tauri::command]
-pub fn env_state() -> Vec<SdkGroup> {
-    let mut cache = scanned().lock().unwrap();
+pub async fn env_state() -> Vec<SdkGroup> {
+    tauri::async_runtime::spawn_blocking(env_state_blocking)
+        .await
+        .expect("blocking command worker panicked")
+}
+
+pub(crate) fn env_state_blocking() -> Vec<SdkGroup> {
+    let mut cache = scanned()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let mut cache_changed = false;
     for homes in cache.values_mut() {
         let before = homes.len();
@@ -1221,71 +1231,75 @@ pub fn env_register_install(kind: String, path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn env_remove_managed(kind: String, path: String) -> Result<(), String> {
-    if !matches!(kind.as_str(), "java" | "go" | "maven" | "gradle") {
-        return Err("该生态不支持通过此操作删除。".into());
-    }
-    let target = PathBuf::from(path.trim());
-    if !target.is_absolute() || !target.is_dir() {
-        return Err("目标安装目录不存在。请刷新状态后重试。".into());
-    }
-    if !is_managed_install(&kind, &target) {
-        return Err(
-            "该版本不是由 Stacker 安装，无法确认目录内是否包含其他文件。请使用原安装程序卸载。"
-                .into(),
-        );
-    }
-    if target.components().count() < 3 {
-        return Err("为保护磁盘数据，拒绝删除过短的目录路径。".into());
-    }
-
-    let siblings = scanned()
-        .lock()
-        .map_err(|_| "安装目录缓存暂时不可用。")?
-        .get(&kind)
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .map(|item| item.to_string_lossy().into_owned())
-        .collect::<Vec<_>>();
-    let current = current_home(&kind).is_some_and(|value| {
-        value
-            .trim_end_matches(['\\', '/'])
-            .eq_ignore_ascii_case(target.to_string_lossy().trim_end_matches(['\\', '/']))
-    });
-    if current {
-        clear_default(winenv::Hive::User, &kind, &siblings)?;
-        if env_system_info().get(&kind).copied().unwrap_or(false) {
-            crate::winadmin::clear_default_system(&kind, siblings.clone())?;
+pub async fn env_remove_managed(kind: String, path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if !matches!(kind.as_str(), "java" | "go" | "maven" | "gradle") {
+            return Err("该生态不支持通过此操作删除。".into());
         }
-    }
-
-    std::fs::remove_dir_all(&target).map_err(|error| format!("无法删除安装目录：{error}"))?;
-    {
-        let mut cache = scanned().lock().map_err(|_| "安装目录缓存暂时不可用。")?;
-        if let Some(paths) = cache.get_mut(&kind) {
-            paths.retain(|item| {
-                !item
-                    .to_string_lossy()
-                    .eq_ignore_ascii_case(&target.to_string_lossy())
-            });
+        let target = PathBuf::from(path.trim());
+        if !target.is_absolute() || !target.is_dir() {
+            return Err("目标安装目录不存在。请刷新状态后重试。".into());
         }
-        save_scan_cache(&cache);
-    }
-    {
-        let mut managed = managed_installs()
+        if !is_managed_install(&kind, &target) {
+            return Err(
+                "该版本不是由 Stacker 安装，无法确认目录内是否包含其他文件。请使用原安装程序卸载。"
+                    .into(),
+            );
+        }
+        if target.components().count() < 3 {
+            return Err("为保护磁盘数据，拒绝删除过短的目录路径。".into());
+        }
+
+        let siblings = scanned()
             .lock()
-            .map_err(|_| "受管安装目录暂时不可用。")?;
-        if let Some(paths) = managed.get_mut(&kind) {
-            paths.retain(|item| {
-                !item
-                    .to_string_lossy()
-                    .eq_ignore_ascii_case(&target.to_string_lossy())
-            });
+            .map_err(|_| "安装目录缓存暂时不可用。")?
+            .get(&kind)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|item| item.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        let current = current_home(&kind).is_some_and(|value| {
+            value
+                .trim_end_matches(['\\', '/'])
+                .eq_ignore_ascii_case(target.to_string_lossy().trim_end_matches(['\\', '/']))
+        });
+        if current {
+            clear_default(winenv::Hive::User, &kind, &siblings)?;
+            if env_system_info().get(&kind).copied().unwrap_or(false) {
+                crate::winadmin::clear_default_system(&kind, siblings.clone())?;
+            }
         }
-        save_path_map(&managed_installs_path(), &managed);
-    }
-    Ok(())
+
+        std::fs::remove_dir_all(&target).map_err(|error| format!("无法删除安装目录：{error}"))?;
+        {
+            let mut cache = scanned().lock().map_err(|_| "安装目录缓存暂时不可用。")?;
+            if let Some(paths) = cache.get_mut(&kind) {
+                paths.retain(|item| {
+                    !item
+                        .to_string_lossy()
+                        .eq_ignore_ascii_case(&target.to_string_lossy())
+                });
+            }
+            save_scan_cache(&cache);
+        }
+        {
+            let mut managed = managed_installs()
+                .lock()
+                .map_err(|_| "受管安装目录暂时不可用。")?;
+            if let Some(paths) = managed.get_mut(&kind) {
+                paths.retain(|item| {
+                    !item
+                        .to_string_lossy()
+                        .eq_ignore_ascii_case(&target.to_string_lossy())
+                });
+            }
+            save_path_map(&managed_installs_path(), &managed);
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 // 异步：写注册表后 broadcast_change 有最多 5s 的 SendMessageTimeout，放后台线程免得卡界面。
@@ -1307,17 +1321,21 @@ pub async fn env_set_default(
 
 /// 系统级切换：写请求文件 → 提权重启自身写 HKLM → 等待。
 #[tauri::command]
-pub fn env_set_default_system(
+pub async fn env_set_default_system(
     kind: String,
     path: String,
     siblings: Vec<String>,
 ) -> Result<(), String> {
-    if !Path::new(&path).exists() {
-        return Err("该路径已不存在（可能被删除/移动），请重新扫描后再设默认".into());
-    }
-    crate::winadmin::set_default_system(&kind, &path, siblings.clone())?;
-    clear_user_shadow_for_system(&kind, &siblings)?;
-    Ok(())
+    tauri::async_runtime::spawn_blocking(move || {
+        if !Path::new(&path).exists() {
+            return Err("该路径已不存在（可能被删除/移动），请重新扫描后再设默认".into());
+        }
+        crate::winadmin::set_default_system(&kind, &path, siblings.clone())?;
+        clear_user_shadow_for_system(&kind, &siblings)?;
+        Ok(())
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 /// 每个 SDK 是否存在系统级配置（用来提示需用系统级切换）。

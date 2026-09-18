@@ -506,8 +506,12 @@ fn cleanup_expired_logs(retention_days: u16) -> Result<LogCleanupResult, String>
 }
 
 #[tauri::command]
-pub fn settings_clear_old_logs() -> Result<LogCleanupResult, String> {
-    cleanup_logs_before(chrono::Local::now().date_naive())
+pub async fn settings_clear_old_logs() -> Result<LogCleanupResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        cleanup_logs_before(chrono::Local::now().date_naive())
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -573,42 +577,46 @@ pub fn settings_open_logs_dir() -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn settings_read_log(offset: u64) -> Result<LogChunk, String> {
-    const MAX_CHUNK: u64 = 256 * 1024;
-    let path = current_log_path();
-    let path_text = path.to_string_lossy().to_string();
-    if !path.exists() {
-        return Ok(LogChunk {
+pub async fn settings_read_log(offset: u64) -> Result<LogChunk, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        const MAX_CHUNK: u64 = 256 * 1024;
+        let path = current_log_path();
+        let path_text = path.to_string_lossy().to_string();
+        if !path.exists() {
+            return Ok(LogChunk {
+                path: path_text,
+                content: String::new(),
+                offset: 0,
+                truncated: false,
+            });
+        }
+
+        let mut file = std::fs::File::open(&path).map_err(|e| format!("读取日志失败：{e}"))?;
+        let len = file
+            .metadata()
+            .map_err(|e| format!("读取日志信息失败：{e}"))?
+            .len();
+        let requested = offset.min(len);
+        let start = if len.saturating_sub(requested) > MAX_CHUNK {
+            len.saturating_sub(MAX_CHUNK)
+        } else {
+            requested
+        };
+        file.seek(SeekFrom::Start(start))
+            .map_err(|e| format!("定位日志内容失败：{e}"))?;
+        let mut bytes = Vec::with_capacity((len - start) as usize);
+        file.read_to_end(&mut bytes)
+            .map_err(|e| format!("读取日志内容失败：{e}"))?;
+
+        Ok(LogChunk {
             path: path_text,
-            content: String::new(),
-            offset: 0,
-            truncated: false,
-        });
-    }
-
-    let mut file = std::fs::File::open(&path).map_err(|e| format!("读取日志失败：{e}"))?;
-    let len = file
-        .metadata()
-        .map_err(|e| format!("读取日志信息失败：{e}"))?
-        .len();
-    let requested = offset.min(len);
-    let start = if len.saturating_sub(requested) > MAX_CHUNK {
-        len.saturating_sub(MAX_CHUNK)
-    } else {
-        requested
-    };
-    file.seek(SeekFrom::Start(start))
-        .map_err(|e| format!("定位日志内容失败：{e}"))?;
-    let mut bytes = Vec::with_capacity((len - start) as usize);
-    file.read_to_end(&mut bytes)
-        .map_err(|e| format!("读取日志内容失败：{e}"))?;
-
-    Ok(LogChunk {
-        path: path_text,
-        content: String::from_utf8_lossy(&bytes).into_owned(),
-        offset: len,
-        truncated: start > requested,
+            content: String::from_utf8_lossy(&bytes).into_owned(),
+            offset: len,
+            truncated: start > requested,
+        })
     })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 pub fn proxy_addr() -> (String, u16) {
