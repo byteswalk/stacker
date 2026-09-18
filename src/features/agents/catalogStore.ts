@@ -40,6 +40,7 @@ export type VibeTool = {
   description: string;
   docs_url: string;
   icon?: string;
+  workbench_command?: string | null;
   cli_id?: string | null;
   cli_note?: string | null;
   cli: VibeSurface;

@@ -2252,4 +2252,10 @@ export const GENERATED_EN: Record<string, string> = {
   "npm 源未返回版本号": "The npm registry returned no version",
   "读取 npm 源": "Read npm registry",
   "最新版本查询失败": "latest version lookup failed",
+  "已在 PowerShell 中运行": "Running in PowerShell:",
+  "打开 Web 工作台": "Open Web Workbench",
+  "，启动本地 Web 工作台": " to start the local web workbench",
+  "在终端运行": "Run in terminal:",
+  "官方不提供独立桌面端；本地 Web 工作台随 CLI 提供，用「打开 Web 工作台」启动。": "There is no separate desktop app; the local web workbench ships with the CLI. Start it with Open Web Workbench.",
+  "DeepSeek Harness 桌面端": "DeepSeek Harness desktop",
 };

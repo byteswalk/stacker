@@ -13,8 +13,6 @@ pub(crate) use process::command_for_path;
 
 use crate::agents::{detect::*, install::*, process::*, registry::*};
 use serde::Serialize;
-use std::path::PathBuf;
-use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -74,6 +72,8 @@ pub struct VibeTool {
     pub description: String,
     pub docs_url: String,
     pub icon: String,
+    /// Shell command that opens the agent's local UI, run in a terminal.
+    pub workbench_command: Option<String>,
     pub cli_id: Option<String>,
     pub cli_note: Option<String>,
     pub cli: VibeSurface,
@@ -169,6 +169,7 @@ pub(crate) fn vibe_catalog_tool(spec: ToolSpec) -> VibeTool {
         description: spec.description.into(),
         docs_url: spec.docs_url.into(),
         icon: spec.icon.into(),
+        workbench_command: spec.workbench_command.map(Into::into),
         cli_id: spec.cli_id.map(Into::into),
         cli_note: spec.cli_note.map(Into::into),
         cli: pending_surface(
@@ -242,6 +243,7 @@ pub(crate) fn vibe_tool_from_spec(spec: ToolSpec, check_latest: bool) -> VibeToo
         description: spec.description.into(),
         docs_url: spec.docs_url.into(),
         icon: spec.icon.into(),
+        workbench_command: spec.workbench_command.map(Into::into),
         cli_id: spec.cli_id.map(Into::into),
         cli_note: spec.cli_note.map(Into::into),
         cli: cli_surface(&spec, check_latest),
@@ -319,9 +321,6 @@ pub(crate) fn run_tool_action(
 
 pub(crate) fn open_desktop_tool(id: &str) -> Result<(), String> {
     let spec = spec_by_id(id).ok_or_else(|| "未知的工作智能体工具".to_string())?;
-    if spec.vendor == Vendor::DeepSeekHarness {
-        return open_deepseek_harness_workbench();
-    }
     if let Some(found) = detect_desktop_app(&spec.desktop) {
         if let Some(launch) = found.launch {
             return open_external_target(&launch);
@@ -348,31 +347,6 @@ pub(crate) fn open_desktop_tool(id: &str) -> Result<(), String> {
         "未检测到 {}。请先安装桌面端，或查看官方文档。",
         spec.desktop.name
     ))
-}
-
-pub(crate) fn open_deepseek_harness_workbench() -> Result<(), String> {
-    let launcher = deepseek_harness_launcher().ok_or_else(|| {
-        "未检测到可用的 DeepSeek Harness 本地工作台。请确认启动脚本及其项目目录仍存在。".to_string()
-    })?;
-    let program = resolve_command_including_windowsapps(&["powershell.exe", "powershell.cmd"])
-        .unwrap_or_else(|| PathBuf::from("powershell.exe"));
-    let mut command = Command::new(program);
-    command.args([
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        &launcher.to_string_lossy(),
-    ]);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x08000000);
-    }
-    command
-        .spawn()
-        .map_err(|e| format!("启动 DeepSeek Harness 本地工作台失败：{e}"))?;
-    Ok(())
 }
 
 pub(crate) fn build_environment_prompt() -> Result<String, String> {
@@ -493,6 +467,7 @@ pub(crate) fn test_tool(id: &str) -> VibeTool {
         description: String::new(),
         docs_url: String::new(),
         icon: String::new(),
+        workbench_command: None,
         cli_id: None,
         cli_note: None,
         cli: test_surface(),

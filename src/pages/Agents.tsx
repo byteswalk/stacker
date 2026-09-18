@@ -182,12 +182,11 @@ export default function Agents() {
     }
   }
 
-  async function openTerminal(tool: VibeTool) {
-    if (!tool.cli.path || !tool.cli.command) return toast("未检测到命令，安装后再打开终端使用。", "info");
+  async function openTerminal(tool: VibeTool, command = tool.cli.command) {
+    if (!tool.cli.path || !command) return toast("未检测到命令，安装后再打开终端使用。", "info");
     try {
-      const command = tool.id === "deepseek-harness" ? `${tool.cli.command} web` : tool.cli.command;
       await invoke("open_shell", { kind: "powershell", cwd: null, command });
-      toast(`已在 PowerShell 中启动 ${tool.cli.label}`, "ok");
+      toast(`已在 PowerShell 中运行 ${command}`, "ok");
     } catch (e) {
       toast("打开终端失败：" + e, "err");
     }
@@ -311,7 +310,14 @@ export default function Agents() {
             </button>
           )}
           {target === "cli"
-            ? <button className="gh sm" title={tool.cli.path ? `在 PowerShell 中启动 ${surface.label}` : `尚未安装 ${surface.label}`} disabled={!tool.cli.path} onClick={() => openTerminal(tool)}><i className="ti ti-terminal-2" /> 打开终端</button>
+            ? <>
+              <button className="gh sm" title={tool.cli.path ? `在 PowerShell 中启动 ${surface.label}` : `尚未安装 ${surface.label}`} disabled={!tool.cli.path} onClick={() => openTerminal(tool)}><i className="ti ti-terminal-2" /> 打开终端</button>
+              {tool.workbench_command && (
+                <button className="gh sm" title={`在终端运行 ${tool.workbench_command}，启动本地 Web 工作台`} disabled={!tool.cli.path} onClick={() => openTerminal(tool, tool.workbench_command ?? undefined)}>
+                  <i className="ti ti-world-www" /> 打开 Web 工作台
+                </button>
+              )}
+            </>
             : <button className="gh sm" title={surface.can_open ? `打开 ${surface.label}` : `尚未安装 ${surface.label}`} disabled={!surface.can_open} onClick={() => openDesktop(tool)}><i className="ti ti-app-window" /> 打开桌面端</button>}
         </div>
       </div>

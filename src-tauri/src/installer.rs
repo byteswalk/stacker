@@ -1137,10 +1137,14 @@ fn validate_shell_launch_command(command: &str) -> Result<String, String> {
     if command.len() > 80 {
         return Err("启动命令过长".into());
     }
-    if command
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
-    {
+    // Plain words separated by single spaces, e.g. `dsh web`; no shell syntax.
+    let plain_word = |word: &str| {
+        !word.is_empty()
+            && word
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    };
+    if command.split(' ').all(plain_word) {
         Ok(command.to_string())
     } else {
         Err("启动命令包含不支持的字符".into())
@@ -1480,6 +1484,23 @@ mod tests {
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::time::Duration;
+
+    #[test]
+    fn shell_launch_commands_allow_plain_subcommands_only() {
+        use super::validate_shell_launch_command;
+        assert_eq!(validate_shell_launch_command("dsh web").unwrap(), "dsh web");
+        assert!(validate_shell_launch_command("claude").is_ok());
+        for bad in [
+            "dsh  web",
+            " dsh",
+            "dsh web;calc",
+            "a && b",
+            "x | y",
+            "$(calc)",
+        ] {
+            assert!(validate_shell_launch_command(bad).is_err(), "{bad}");
+        }
+    }
 
     #[test]
     fn task_context_isolates_cancellation_and_logs() {

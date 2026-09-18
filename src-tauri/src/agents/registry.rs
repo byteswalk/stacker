@@ -142,6 +142,8 @@ pub(crate) struct ProductSpec {
     pub(crate) cli: CliSlot,
     pub(crate) cli_note: Option<&'static str>,
     pub(crate) desktop: DesktopSlot,
+    /// A CLI subcommand that opens the agent's own local UI, e.g. `dsh web`.
+    pub(crate) workbench_command: Option<&'static str>,
     /// PowerShell regex matched against "<process name> <command line>". Short vendor
     /// names must be anchored to a path segment or executable name.
     pub(crate) process_pattern: &'static str,
@@ -166,6 +168,7 @@ pub(crate) struct ToolSpec {
     pub(crate) cli: CliSpec,
     pub(crate) desktop: DesktopSpec,
     pub(crate) desktop_available: bool,
+    pub(crate) workbench_command: Option<&'static str>,
     #[allow(dead_code)]
     pub(crate) data_dirs: &'static [DataDir],
 }
@@ -250,6 +253,7 @@ fn resolve(product: &'static ProductSpec) -> ToolSpec {
         cli,
         desktop,
         desktop_available,
+        workbench_command: product.workbench_command,
         data_dirs: product.data_dirs,
     }
 }
@@ -473,6 +477,7 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
 
             reject_sibling_files: &[],
         }),
+        workbench_command: None,
         process_pattern: r#"(?i)(^|[\\/\s"])claude([\\/\s".]|$)|@anthropic-ai[\\/]claude-code"#,
         data_dirs: &[DataDir { base: DataBase::Home, relative: ".claude", env_override: Some("CLAUDE_CONFIG_DIR") }, DataDir { base: DataBase::Roaming, relative: "Claude", env_override: None }],
     },
@@ -504,6 +509,7 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
 
             reject_sibling_files: &[],
         }),
+        workbench_command: None,
         process_pattern: r#"(?i)(^|[\\/\s"])codex([\\/\s".]|$)|@openai[\\/]codex"#,
         data_dirs: &[DataDir { base: DataBase::Home, relative: ".codex", env_override: Some("CODEX_HOME") }, DataDir { base: DataBase::Roaming, relative: "Codex", env_override: None }],
     },
@@ -535,6 +541,7 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
 
             reject_sibling_files: &[],
         }),
+        workbench_command: None,
         process_pattern: r#"(?i)antigravity|(^|[\\/])agy(\\.cmd|\\.exe)?"#,
         data_dirs: &[home(".antigravity"), roaming("Antigravity")],
     },
@@ -566,6 +573,7 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
 
             reject_sibling_files: &[],
         }),
+        workbench_command: None,
         process_pattern: r#"(?i)opencode"#,
         data_dirs: &[home(".config/opencode"), local("opencode")],
     },
@@ -601,6 +609,7 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
 
             reject_sibling_files: &[],
         }),
+        workbench_command: None,
         process_pattern: r#"(?i)zcode|z\.ai"#,
         data_dirs: &[home(".zcode"), roaming("ZCode")],
     },
@@ -632,6 +641,7 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
 
             reject_sibling_files: &[],
         }),
+        workbench_command: None,
         process_pattern: r#"(?i)(^|[\\/\s"])kimi(-cli|-code)?([\\/\s".]|$)"#,
         data_dirs: &[home(".kimi"), roaming("Kimi")],
     },
@@ -662,6 +672,7 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
             install_unavailable_reason: Some("尚未找到可稳定调用的官方 Windows 安装接口，请通过官方下载页安装。"),
             reject_sibling_files: &[],
         }),
+        workbench_command: None,
         process_pattern: r#"(?i)workbuddy"#,
         data_dirs: &[home(".workbuddy"), roaming("WorkBuddy"), home(".codebuddy")],
     },
@@ -692,6 +703,7 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
             install_unavailable_reason: Some("尚未找到可稳定调用的官方 Windows 安装接口，请通过官方下载页安装。"),
             reject_sibling_files: &[],
         }),
+        workbench_command: None,
         process_pattern: r#"(?i)workbuddy"#,
         data_dirs: &[home(".workbuddy-ai"), roaming("WorkBuddy AI"), home(".codebuddy")],
     },
@@ -722,6 +734,7 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
             // The Qoder IDE ships the same Qoder.exe name but uses an Inno Setup uninstaller.
             reject_sibling_files: &["unins000.exe"],
         }),
+        workbench_command: None,
         process_pattern: r#"(?i)(^|[\\/\s"])qoder([\\/\s".]|$)"#,
         data_dirs: &[home(".qoder"), roaming("Qoder")],
     },
@@ -752,6 +765,7 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
             // The Qoder IDE ships the same Qoder.exe name but uses an Inno Setup uninstaller.
             reject_sibling_files: &["unins000.exe"],
         }),
+        workbench_command: None,
         process_pattern: r#"(?i)(^|[\\/\s"])qoder([\\/\s".]|$)"#,
         data_dirs: &[home(".qoder-cn"), roaming("QoderCN")],
     },
@@ -785,6 +799,7 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
 
             reject_sibling_files: &[],
         }),
+        workbench_command: None,
         process_pattern: r#"(?i)(^|[\\/\s"])trae([\\/\s".]|$)"#,
         data_dirs: &[home(".trae"), roaming("Trae")],
     },
@@ -822,6 +837,7 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
 
             reject_sibling_files: &[],
         }),
+        workbench_command: None,
         process_pattern: r#"(?i)(^|[\\/\s"])trae([\\/\s".]|$)"#,
         data_dirs: &[home(".trae"), roaming("Trae")],
     },
@@ -838,21 +854,12 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
         docs_url: "https://www.deepseek.com/harness/",
         cli: CliSlot::Shared("dsh"),
         cli_note: None,
-        desktop: DesktopSlot::App(DesktopSpec {
-                name: "DeepSeek Harness Web",
-                description: "Harness 通过本地 Web 工作台运行，不提供独立 Windows 桌面安装包。",
-                winget_id: None,
-                winget_source: None,
-                appx_names: &[],
-                install_url: "https://www.deepseek.com/harness/",
-                docs_url: "https://github.com/deepseek-ai/deepseek-harness",
-                keywords: &[],
-                excludes: &[],
-
-            install_unavailable_reason: Some("DeepSeek Harness 需要按官方文档在本地工作目录中安装；完成后 Stacker 会识别本地工作台启动器。"),
-
-            reject_sibling_files: &[],
-        }),
+        desktop: DesktopSlot::Unavailable {
+            name: "DeepSeek Harness 桌面端",
+            description: "官方不提供独立桌面端；本地 Web 工作台随 CLI 提供，用「打开 Web 工作台」启动。",
+            url: "https://www.deepseek.com/harness/",
+        },
+        workbench_command: Some("dsh web"),
         process_pattern: r#"(?i)deepseek-harness|@deepseek-ai[\\/]dsh|(^|[\\/])dsh(\.cmd|\.exe)?"#,
         data_dirs: &[home(".deepseek"), roaming("DeepSeek Harness")],
     },
@@ -884,6 +891,7 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
 
             reject_sibling_files: &[],
         }),
+        workbench_command: None,
         process_pattern: r#"(?i)openclaw"#,
         data_dirs: &[home(".openclaw"), roaming("OpenClaw")],
     },
@@ -915,6 +923,7 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
 
             reject_sibling_files: &[],
         }),
+        workbench_command: None,
         process_pattern: r#"(?i)(^|[\\/\s"])hermes(-agent)?([\\/\s".]|$)"#,
         data_dirs: &[home(".hermes"), roaming("Hermes")],
     },
@@ -936,6 +945,7 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
             description: "pi 只提供终端使用方式。",
             url: "https://pi.dev/",
         },
+        workbench_command: None,
         process_pattern: r#"(?i)@mariozechner[\\/]pi-coding-agent|(^|[\\/\s"])pi(\.cmd|\.exe)([\s"]|$)"#,
         data_dirs: &[home(".pi")],
     },

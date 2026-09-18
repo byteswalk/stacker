@@ -190,9 +190,7 @@ pub(crate) fn desktop_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurfac
         }),
         can_update: installed
             && (spec.desktop.winget_id.is_some() || has_direct_installer || update_available),
-        // A locally launched DeepSeek Harness workspace is not registered as
-        // a conventional Windows app. Never offer an unsafe partial uninstall.
-        can_uninstall: installed && spec.vendor != Vendor::DeepSeekHarness,
+        can_uninstall: installed,
         can_open: installed,
         health: if broken_reason.is_some() {
             "broken"
@@ -287,7 +285,6 @@ pub(crate) fn install_method_label(method: &str) -> Option<String> {
         "shortcut" => Some("快捷方式".into()),
         "registry" => Some("安装程序版".into()),
         "app" => Some("本地应用".into()),
-        "local-workbench" => Some("本地工作台".into()),
         "download" => Some("官方下载".into()),
         _ => None,
     }
@@ -430,15 +427,6 @@ pub(crate) fn parse_claude_ready_update_version(line: &str) -> Option<String> {
 }
 
 pub(crate) fn detect_desktop_app(spec: &DesktopSpec) -> Option<DesktopFound> {
-    if spec.name.contains("DeepSeek Harness") {
-        return deepseek_harness_launcher().map(|path| DesktopFound {
-            path: Some(path),
-            version: None,
-            method: Some("local-workbench".into()),
-            uninstall: None,
-            launch: None,
-        });
-    }
     let accept = |found: DesktopFound| (!is_rejected_sibling(spec, &found)).then_some(found);
     desktop_appx_package(spec)
         .and_then(accept)
@@ -466,17 +454,6 @@ fn is_rejected_sibling(spec: &DesktopSpec, found: &DesktopFound) -> bool {
     spec.reject_sibling_files
         .iter()
         .any(|name| dir.join(name).is_file())
-}
-
-pub(crate) fn deepseek_harness_launcher() -> Option<PathBuf> {
-    let local = std::env::var_os("LOCALAPPDATA").map(PathBuf::from)?;
-    let launcher = local.join("DeepSeekHarness\\start-deepseek-harness.ps1");
-    let content = std::fs::read_to_string(&launcher).ok()?;
-    let workspace = content.lines().find_map(|line| {
-        let value = line.trim().strip_prefix("$repo = '")?;
-        value.strip_suffix('\'').map(PathBuf::from)
-    })?;
-    workspace.is_dir().then_some(launcher)
 }
 
 #[cfg(windows)]
