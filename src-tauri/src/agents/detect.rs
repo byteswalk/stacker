@@ -402,10 +402,12 @@ pub(crate) fn detect_desktop_app(spec: &DesktopSpec) -> Option<DesktopFound> {
             launch: None,
         });
     }
+    let accept = |found: DesktopFound| (!is_rejected_sibling(spec, &found)).then_some(found);
     desktop_appx_package(spec)
-        .or_else(|| desktop_registry(spec))
-        .or_else(|| desktop_start_menu_shortcut(spec))
-        .or_else(|| desktop_exe_candidate(spec))
+        .and_then(accept)
+        .or_else(|| desktop_registry(spec).and_then(accept))
+        .or_else(|| desktop_start_menu_shortcut(spec).and_then(accept))
+        .or_else(|| desktop_exe_candidate(spec).and_then(accept))
         .or_else(|| {
             spec.winget_id.and_then(|id| {
                 winget_package_installed(id).then(|| DesktopFound {
@@ -417,6 +419,16 @@ pub(crate) fn detect_desktop_app(spec: &DesktopSpec) -> Option<DesktopFound> {
                 })
             })
         })
+}
+
+/// A look-alike product (e.g. the Qoder IDE) installed with the same executable name.
+fn is_rejected_sibling(spec: &DesktopSpec, found: &DesktopFound) -> bool {
+    let Some(dir) = found.path.as_deref().and_then(Path::parent) else {
+        return false;
+    };
+    spec.reject_sibling_files
+        .iter()
+        .any(|name| dir.join(name).is_file())
 }
 
 pub(crate) fn deepseek_harness_launcher() -> Option<PathBuf> {
@@ -808,10 +820,19 @@ pub(crate) fn desktop_candidate_paths(spec: &DesktopSpec) -> Vec<PathBuf> {
             add(&pf, "Kimi\\Kimi.exe");
             add(&pf, "Kimi Work\\Kimi Work.exe");
         }
+        name if name.contains("WorkBuddy") && name.contains("国际版") => {
+            add(&local, "Programs\\WorkBuddy AI\\WorkBuddyAI.exe");
+            add(&local, "WorkBuddyAI\\WorkBuddyAI.exe");
+            add(&pf, "WorkBuddy AI\\WorkBuddyAI.exe");
+        }
         name if name.contains("WorkBuddy") => {
             add(&local, "Programs\\WorkBuddy\\WorkBuddy.exe");
             add(&local, "WorkBuddy\\WorkBuddy.exe");
             add(&pf, "WorkBuddy\\WorkBuddy.exe");
+        }
+        name if name.contains("Qoder") && name.contains("中国版") => {
+            add(&local, "Programs\\Qoder CN\\Qoder CN.exe");
+            add(&pf, "Qoder CN\\Qoder CN.exe");
         }
         name if name.contains("Qoder") => {
             add(&local, "Programs\\Qoder\\Qoder.exe");

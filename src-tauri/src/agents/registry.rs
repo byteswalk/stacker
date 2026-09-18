@@ -17,7 +17,6 @@ pub(crate) enum Vendor {
     DeepSeekHarness,
     OpenClaw,
     Hermes,
-    #[allow(dead_code)] // Registered in the next catalog change.
     Pi,
 }
 
@@ -106,6 +105,9 @@ pub(crate) struct DesktopSpec {
     pub(crate) keywords: &'static [&'static str],
     pub(crate) excludes: &'static [&'static str],
     pub(crate) install_unavailable_reason: Option<&'static str>,
+    /// A matched executable is ignored when its directory contains one of these files.
+    /// Used to tell look-alike products apart, e.g. the Qoder IDE from the new Qoder app.
+    pub(crate) reject_sibling_files: &'static [&'static str],
 }
 
 pub(crate) enum CliSlot {
@@ -119,7 +121,6 @@ pub(crate) enum CliSlot {
 
 pub(crate) enum DesktopSlot {
     App(DesktopSpec),
-    #[allow(dead_code)] // First used by CLI-only products in the next catalog change.
     Unavailable {
         name: &'static str,
         description: &'static str,
@@ -231,6 +232,7 @@ fn resolve(product: &'static ProductSpec) -> ToolSpec {
                 keywords: &[],
                 excludes: &[],
                 install_unavailable_reason: None,
+                reject_sibling_files: &[],
             },
         ),
     };
@@ -451,6 +453,17 @@ pub(crate) static CLIS: &[CliSpec] = &[
         install_url: "https://hermes-agent.nousresearch.com/docs/getting-started/installation",
         docs_url: "https://hermes-agent.nousresearch.com/docs/",
     },
+    CliSpec {
+        id: "pi",
+        name: "pi",
+        description: "Mario Zechner 的极简终端编程智能体，命令名 pi。",
+        command: "pi",
+        candidates: &["pi.cmd", "pi.exe", "pi.bat", "pi.ps1"],
+        npm_package: Some("@mariozechner/pi-coding-agent"),
+        winget_id: None,
+        install_url: "https://pi.dev/",
+        docs_url: "https://pi.dev/",
+    },
 ];
 
 pub(crate) static PRODUCTS: &[ProductSpec] = &[
@@ -480,6 +493,8 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
                 excludes: &["claude code", "claudecode"],
 
             install_unavailable_reason: None,
+
+            reject_sibling_files: &[],
         }),
         process_pattern: r#"(?i)(^|[\\/\s"])claude([\\/\s".]|$)|@anthropic-ai[\\/]claude-code"#,
         data_dirs: &[DataDir { base: DataBase::Home, relative: ".claude", env_override: Some("CLAUDE_CONFIG_DIR") }, DataDir { base: DataBase::Roaming, relative: "Claude", env_override: None }],
@@ -509,6 +524,8 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
                 excludes: &["cli"],
 
             install_unavailable_reason: None,
+
+            reject_sibling_files: &[],
         }),
         process_pattern: r#"(?i)(^|[\\/\s"])codex([\\/\s".]|$)|@openai[\\/]codex"#,
         data_dirs: &[DataDir { base: DataBase::Home, relative: ".codex", env_override: Some("CODEX_HOME") }, DataDir { base: DataBase::Roaming, relative: "Codex", env_override: None }],
@@ -538,6 +555,8 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
                 excludes: &["cli"],
 
             install_unavailable_reason: None,
+
+            reject_sibling_files: &[],
         }),
         process_pattern: r#"(?i)antigravity|(^|[\\/])agy(\\.cmd|\\.exe)?"#,
         data_dirs: &[home(".antigravity"), roaming("Antigravity")],
@@ -567,6 +586,8 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
                 excludes: &["cli"],
 
             install_unavailable_reason: None,
+
+            reject_sibling_files: &[],
         }),
         process_pattern: r#"(?i)opencode"#,
         data_dirs: &[home(".config/opencode"), local("opencode")],
@@ -600,6 +621,8 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
                 excludes: &[],
 
             install_unavailable_reason: Some("尚未找到可稳定调用的官方 Windows 安装接口，请通过官方文档安装。"),
+
+            reject_sibling_files: &[],
         }),
         process_pattern: r#"(?i)zcode|z\.ai"#,
         data_dirs: &[home(".zcode"), roaming("ZCode")],
@@ -629,38 +652,70 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
                 excludes: &["kimi code", "kimi-code"],
 
             install_unavailable_reason: None,
+
+            reject_sibling_files: &[],
         }),
         process_pattern: r#"(?i)(^|[\\/\s"])kimi(-cli|-code)?([\\/\s".]|$)"#,
         data_dirs: &[home(".kimi"), roaming("Kimi")],
     },
     ProductSpec {
-        id: "workbuddy",
+        id: "workbuddy-cn",
         vendor: Vendor::WorkBuddy,
         family: "workbuddy",
-        edition: Edition::Unified,
-        edition_label: "",
+        edition: Edition::Cn,
+        edition_label: "中国版",
         sort: 70,
-        name: "WorkBuddy",
-        description: "腾讯 WorkBuddy 提供桌面工作智能体和 CodeBuddy CLI，支持本地任务、项目开发与终端自动化。",
+        name: "WorkBuddy 中国版",
+        description: "腾讯 WorkBuddy 中国站桌面工作智能体，配套 CodeBuddy CLI，支持本地任务、项目开发与终端自动化。",
         icon: "workbuddy.svg",
-        docs_url: "https://www.workbuddy.ai/cli",
+        docs_url: "https://www.workbuddy.cn/docs/workbuddy/Quickstart",
+        cli: CliSlot::Shared("codebuddy"),
+        cli_note: Some("与国际版共用 CodeBuddy CLI，登录时选择中国站。"),
+        desktop: DesktopSlot::App(DesktopSpec {
+            name: "WorkBuddy 桌面端（中国版）",
+            description: "腾讯 WorkBuddy 中国站 Windows 桌面应用。",
+            winget_id: None,
+            winget_source: None,
+            appx_names: &[],
+            install_url: "https://www.workbuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Installation-Win-Guide",
+            docs_url: "https://www.workbuddy.cn/docs/workbuddy/Quickstart",
+            // Registered as "WorkBuddy <version>"; the global edition is "WorkBuddy AI <version>".
+            keywords: &["workbuddy"],
+            excludes: &["workbuddy ai", "switch"],
+            install_unavailable_reason: Some("尚未找到可稳定调用的官方 Windows 安装接口，请通过官方下载页安装。"),
+            reject_sibling_files: &[],
+        }),
+        process_pattern: r#"(?i)workbuddy"#,
+        data_dirs: &[home(".workbuddy"), roaming("WorkBuddy"), home(".codebuddy")],
+    },
+    ProductSpec {
+        id: "workbuddy-global",
+        vendor: Vendor::WorkBuddy,
+        family: "workbuddy",
+        edition: Edition::Global,
+        edition_label: "国际版",
+        sort: 71,
+        name: "WorkBuddy 国际版",
+        description: "腾讯 WorkBuddy 国际站桌面工作智能体，配套 CodeBuddy CLI，支持本地任务、项目开发与终端自动化。",
+        icon: "workbuddy.svg",
+        docs_url: "https://www.workbuddy.ai/docs/workbuddy/Quickstart",
         cli: CliSlot::Shared("codebuddy"),
         cli_note: None,
         desktop: DesktopSlot::App(DesktopSpec {
-                name: "WorkBuddy 桌面端",
-                description: "腾讯 WorkBuddy Windows 桌面应用。",
-                winget_id: None,
-                winget_source: None,
-                appx_names: &[],
-                install_url: "https://www.workbuddy.ai/docs/workbuddy/From-Beginner-to-Expert-Guide/Installation-Win-Guide",
-                docs_url: "https://www.workbuddy.ai/docs/workbuddy/Quickstart",
-                keywords: &["workbuddy", "work buddy"],
-                excludes: &[],
-
-            install_unavailable_reason: Some("尚未找到可稳定调用的官方 Windows 安装接口，请通过官方文档安装。"),
+            name: "WorkBuddy 桌面端（国际版）",
+            description: "腾讯 WorkBuddy 国际站 Windows 桌面应用。",
+            winget_id: None,
+            winget_source: None,
+            appx_names: &[],
+            install_url: "https://www.workbuddy.ai/docs/workbuddy/From-Beginner-to-Expert-Guide/Installation-Win-Guide",
+            docs_url: "https://www.workbuddy.ai/docs/workbuddy/Quickstart",
+            keywords: &["workbuddy ai"],
+            excludes: &["switch"],
+            install_unavailable_reason: Some("尚未找到可稳定调用的官方 Windows 安装接口，请通过官方下载页安装。"),
+            reject_sibling_files: &[],
         }),
         process_pattern: r#"(?i)workbuddy"#,
-        data_dirs: &[home(".workbuddy"), roaming("WorkBuddy")],
+        data_dirs: &[home(".workbuddy-ai"), roaming("WorkBuddy AI"), home(".codebuddy")],
     },
     ProductSpec {
         id: "qoder",
@@ -670,23 +725,24 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
         edition_label: "国际版",
         sort: 80,
         name: "Qoder 国际版",
-        description: "Qoder 国际版，提供终端智能体与桌面 IDE。",
+        description: "Qoder 国际版，以编程智能体为核心的新版桌面应用与终端智能体。",
         icon: "qoder.svg",
         docs_url: "https://docs.qoder.com/",
         cli: CliSlot::Shared("qoder"),
         cli_note: None,
         desktop: DesktopSlot::App(DesktopSpec {
-                name: "Qoder 桌面端",
-                description: "Qoder IDE Windows 桌面应用。",
-                winget_id: None,
-                winget_source: None,
-                appx_names: &[],
-                install_url: "https://qoder.com/download",
-                docs_url: "https://docs.qoder.com/quick-start",
-                keywords: &["qoder"],
-                excludes: &["cli"],
-
-            install_unavailable_reason: Some("尚未找到可稳定调用的官方 Windows 安装接口，请通过官方文档安装。"),
+            name: "Qoder 桌面端",
+            description: "以编程智能体为核心的新版 Qoder Windows 桌面应用。",
+            winget_id: None,
+            winget_source: None,
+            appx_names: &[],
+            install_url: "https://qoder.com/en/download",
+            docs_url: "https://docs.qoder.com/",
+            keywords: &["qoder"],
+            excludes: &["qoder cn", "cli", "ide", "qoderwork", "qoderwake"],
+            install_unavailable_reason: Some("尚未找到可稳定调用的官方 Windows 安装接口，请通过官方下载页安装。"),
+            // The Qoder IDE ships the same Qoder.exe name but uses an Inno Setup uninstaller.
+            reject_sibling_files: &["unins000.exe"],
         }),
         process_pattern: r#"(?i)(^|[\\/\s"])qoder([\\/\s".]|$)"#,
         data_dirs: &[home(".qoder"), roaming("Qoder")],
@@ -699,26 +755,27 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
         edition_label: "中国版",
         sort: 81,
         name: "Qoder 中国版",
-        description: "Qoder 中国版，使用中国站点提供终端智能体与桌面 IDE。",
+        description: "Qoder 中国版，以编程智能体为核心的新版桌面应用与终端智能体。",
         icon: "qoder.svg",
         docs_url: "https://qoder.com.cn/",
         cli: CliSlot::Shared("qoder-cn"),
         cli_note: None,
         desktop: DesktopSlot::App(DesktopSpec {
-                name: "Qoder 桌面端（中国版）",
-                description: "Qoder 中国版 Windows 桌面 IDE。",
-                winget_id: None,
-                winget_source: None,
-                appx_names: &[],
-                install_url: "https://qoder.com.cn/download",
-                docs_url: "https://qoder.com.cn/",
-                keywords: &["qoder"],
-                excludes: &["cli"],
-
-            install_unavailable_reason: None,
+            name: "Qoder 桌面端（中国版）",
+            description: "以编程智能体为核心的新版 Qoder Windows 桌面应用。",
+            winget_id: None,
+            winget_source: None,
+            appx_names: &[],
+            install_url: "https://qoder.com.cn/download",
+            docs_url: "https://qoder.com.cn/",
+            keywords: &["qoder cn"],
+            excludes: &["cli", "ide", "qoderwork", "qoderwake"],
+            install_unavailable_reason: Some("尚未找到可稳定调用的官方 Windows 安装接口，请通过官方下载页安装。"),
+            // The Qoder IDE ships the same Qoder.exe name but uses an Inno Setup uninstaller.
+            reject_sibling_files: &["unins000.exe"],
         }),
         process_pattern: r#"(?i)(^|[\\/\s"])qoder([\\/\s".]|$)"#,
-        data_dirs: &[home(".qoder"), roaming("Qoder")],
+        data_dirs: &[home(".qoder-cn"), roaming("QoderCN")],
     },
     ProductSpec {
         id: "trae-work",
@@ -747,6 +804,8 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
                 excludes: &["trae ide"],
 
             install_unavailable_reason: Some("TRAE Work 官网动态下发安装地址，当前无法可靠自动下载安装，请通过官方文档安装。"),
+
+            reject_sibling_files: &[],
         }),
         process_pattern: r#"(?i)(^|[\\/\s"])trae([\\/\s".]|$)"#,
         data_dirs: &[home(".trae"), roaming("Trae")],
@@ -782,6 +841,8 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
                 excludes: &["traework cn", "trae solo cn", "trae cli"],
 
             install_unavailable_reason: None,
+
+            reject_sibling_files: &[],
         }),
         process_pattern: r#"(?i)(^|[\\/\s"])trae([\\/\s".]|$)"#,
         data_dirs: &[home(".trae"), roaming("Trae")],
@@ -811,6 +872,8 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
                 excludes: &[],
 
             install_unavailable_reason: Some("DeepSeek Harness 需要按官方文档在本地工作目录中安装；完成后 Stacker 会识别本地工作台启动器。"),
+
+            reject_sibling_files: &[],
         }),
         process_pattern: r#"(?i)deepseek-harness|@deepseek-ai[\\/]dsh|(^|[\\/])dsh(\.cmd|\.exe)?"#,
         data_dirs: &[home(".deepseek"), roaming("DeepSeek Harness")],
@@ -840,6 +903,8 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
                 excludes: &["cli"],
 
             install_unavailable_reason: None,
+
+            reject_sibling_files: &[],
         }),
         process_pattern: r#"(?i)openclaw"#,
         data_dirs: &[home(".openclaw"), roaming("OpenClaw")],
@@ -869,9 +934,32 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
                 excludes: &["hermes browser"],
 
             install_unavailable_reason: None,
+
+            reject_sibling_files: &[],
         }),
         process_pattern: r#"(?i)(^|[\\/\s"])hermes(-agent)?([\\/\s".]|$)"#,
         data_dirs: &[home(".hermes"), roaming("Hermes")],
+    },
+    ProductSpec {
+        id: "pi",
+        vendor: Vendor::Pi,
+        family: "pi",
+        edition: Edition::Global,
+        edition_label: "",
+        sort: 130,
+        name: "pi",
+        description: "极简开源终端编程智能体，内置读、写、编辑、命令四种工具，可通过扩展和技能定制。",
+        icon: "pi.svg",
+        docs_url: "https://pi.dev/",
+        cli: CliSlot::Shared("pi"),
+        cli_note: None,
+        desktop: DesktopSlot::Unavailable {
+            name: "pi 桌面端",
+            description: "pi 只提供终端使用方式。",
+            url: "https://pi.dev/",
+        },
+        process_pattern: r#"(?i)@mariozechner[\\/]pi-coding-agent|(^|[\\/\s"])pi(\.cmd|\.exe)([\s"]|$)"#,
+        data_dirs: &[home(".pi")],
     },
 ];
 
@@ -990,5 +1078,49 @@ mod tests {
         assert_eq!(spec.cli.command, "codex");
         assert_eq!(spec.cli_id, Some("codex"));
         assert_eq!(spec.icon, "codex.png");
+    }
+    #[test]
+    fn workbuddy_editions_share_the_codebuddy_cli() {
+        let cn = spec_by_id("workbuddy-cn").unwrap();
+        let global = spec_by_id("workbuddy-global").unwrap();
+        assert_eq!(cn.cli_id, Some("codebuddy"));
+        assert_eq!(global.cli_id, Some("codebuddy"));
+        assert_eq!(cn.edition, Edition::Cn);
+        assert_eq!(global.edition, Edition::Global);
+        assert!(cn.cli_note.unwrap().contains("中国站"));
+        assert!(spec_by_id("workbuddy").is_none());
+        // Registered names on Windows: "WorkBuddy 5.5.6" and "WorkBuddy AI 5.5.2".
+        assert!(desktop_matches(&cn.desktop, "WorkBuddy 5.5.6"));
+        assert!(!desktop_matches(&cn.desktop, "WorkBuddy AI 5.5.2"));
+        assert!(!desktop_matches(&cn.desktop, "workbuddy-switch"));
+        assert!(desktop_matches(&global.desktop, "WorkBuddy AI 5.5.2"));
+        assert!(!desktop_matches(&global.desktop, "WorkBuddy 5.5.6"));
+    }
+
+    #[test]
+    fn qoder_editions_track_the_new_desktop_line_and_reject_the_ide() {
+        let global = spec_by_id("qoder").unwrap();
+        let cn = spec_by_id("qoder-cn").unwrap();
+        assert!(desktop_matches(&global.desktop, "Qoder 0.2.5"));
+        assert!(!desktop_matches(&global.desktop, "Qoder CN 0.2.5"));
+        assert!(desktop_matches(&cn.desktop, "Qoder CN 0.2.5"));
+        for spec in [&global, &cn] {
+            assert!(spec.desktop.reject_sibling_files.contains(&"unins000.exe"));
+            assert!(!desktop_matches(&spec.desktop, "QoderWork 1.0"));
+        }
+    }
+
+    #[test]
+    fn pi_is_an_npm_cli_without_desktop() {
+        let pi = spec_by_id("pi").unwrap();
+        assert_eq!(pi.cli.command, "pi");
+        assert_eq!(pi.cli.npm_package, Some("@mariozechner/pi-coding-agent"));
+        assert!(!pi.desktop_available);
+    }
+
+    fn desktop_matches(spec: &DesktopSpec, name: &str) -> bool {
+        let lower = name.to_lowercase();
+        spec.keywords.iter().any(|k| lower.contains(k))
+            && !spec.excludes.iter().any(|k| lower.contains(k))
     }
 }
