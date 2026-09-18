@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { invoke } from "./invoke";
 import { ecosystemUpdateFromInfo, type VersionUpdateInfo } from "./updateHelpers";
+import { runVibeCheck, subscribeVibe, vibeSnapshot } from "./features/agents/catalogStore";
 
 type UpdateInfo = {
   current: string;
@@ -369,8 +370,8 @@ async function checkEcosystemUpdates(onlyId?: string): Promise<EcosystemUpdate[]
   return updates;
 }
 
-async function checkAiToolUpdates(): Promise<AiToolUpdate[]> {
-  const tools = await invoke<VibeTool[]>("vibe_tools");
+/** Agent update notices, derived from the same catalog the 安装更新 cards show. */
+export function aiToolUpdatesFrom(tools: VibeTool[]): AiToolUpdate[] {
   // A CLI shared by several product cards is one install and one update.
   const seenCli = new Set<string>();
   return tools.flatMap((tool) => {
@@ -391,6 +392,11 @@ async function checkAiToolUpdates(): Promise<AiToolUpdate[]> {
     }
     return rows;
   });
+}
+
+async function checkAiToolUpdates(): Promise<AiToolUpdate[]> {
+  await runVibeCheck();
+  return aiToolUpdatesFrom(vibeSnapshot().tools);
 }
 
 function ecosystemIssueItems(items: CheckItem[]) {
@@ -437,8 +443,14 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   const [sourceUpdate, setSourceUpdate] = useState<MirrorsUpdateCheck | null>(null);
   const [cleanupBytes, setCleanupBytes] = useState(0);
   const [ecosystemUpdates, setEcosystemUpdates] = useState<EcosystemUpdate[]>([]);
-  const [aiToolUpdates, setAiToolUpdates] = useState<AiToolUpdate[]>([]);
+  const [aiToolUpdates, setAiToolUpdates] = useState<AiToolUpdate[]>(() =>
+    vibeSnapshot().checked ? aiToolUpdatesFrom(vibeSnapshot().tools) : []);
   const [environmentIssues, setEnvironmentIssues] = useState<CheckItem[]>([]);
+  // Agent notices follow every catalog change, e.g. a card refreshed after an update task.
+  useEffect(() => subscribeVibe((catalog) => {
+    if (!prefs.ecosystemUpdate) setAiToolUpdates([]);
+    else if (catalog.checked) setAiToolUpdates(aiToolUpdatesFrom(catalog.tools));
+  }), [prefs.ecosystemUpdate]);
   const runRef = useRef<Promise<void> | null>(null);
   const queuedReasonsRef = useRef<string[]>([]);
   const checkNowRef = useRef<(reason?: string) => Promise<void>>(async () => {});
