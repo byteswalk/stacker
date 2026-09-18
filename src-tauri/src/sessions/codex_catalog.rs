@@ -338,7 +338,7 @@ mod tests {
             path.to_string_lossy().into_owned()
         };
         let cwd = project.to_string_lossy().into_owned();
-        conn.execute("INSERT INTO projects VALUES ('p1','我的应用')", [])
+        conn.execute("INSERT INTO projects VALUES ('p1','My app')", [])
             .unwrap();
         conn.execute("INSERT INTO project_roots VALUES ('p1',0,?1)", [&cwd])
             .unwrap();
@@ -347,8 +347,8 @@ mod tests {
             "main",
             rollout("main.jsonl", 100),
             "vscode",
-            Some("短标题"),
-            "很长的第一条消息\n第二行",
+            Some("Short title"),
+            "A long first message\nsecond line",
             0,
             Some("Codex Desktop"),
             "user",
@@ -437,11 +437,11 @@ mod tests {
         assert_eq!(ids.len(), 4, "children fold into main: {ids:?}");
 
         let main = sessions.iter().find(|s| s.native_id == "main").unwrap();
-        assert_eq!(main.title, "短标题");
+        assert_eq!(main.title, "Short title");
         assert_eq!(main.title_source, TitleSource::Client);
         assert_eq!(main.client, ClientTag::Desktop);
         assert!(main.pinned);
-        assert_eq!(main.project.name, "我的应用");
+        assert_eq!(main.project.name, "My app");
         assert_eq!(main.children.len(), 2);
         assert!(main.children.iter().any(|c| c.title == "Ohm：sub"));
         assert_eq!(main.bytes, 111);

@@ -418,7 +418,7 @@ mod tests {
         .unwrap();
         fs::write(
             slug.join("s-desktop").join("custom-title.json"),
-            r#"{"customTitle":"自定义"}"#,
+            r#"{"customTitle":"Custom"}"#,
         )
         .unwrap();
         fs::write(
@@ -431,7 +431,7 @@ mod tests {
             format!(
                 "{}{}",
                 user("s-cli", "cli", "first question"),
-                line(serde_json::json!({"type":"custom-title","customTitle":"CLI 标题","sessionId":"s-cli"}))
+                line(serde_json::json!({"type":"custom-title","customTitle":"CLI title","sessionId":"s-cli"}))
             ),
         )
         .unwrap();
@@ -446,7 +446,7 @@ mod tests {
         fs::create_dir_all(&index).unwrap();
         fs::write(
             index.join("local_1.json"),
-            serde_json::json!({"cliSessionId":"s-desktop","title":"桌面标题","isArchived":true,"createdAt":1_000_000u64,"lastActivityAt":2_000_000u64}).to_string(),
+            serde_json::json!({"cliSessionId":"s-desktop","title":"Desktop title","isArchived":true,"createdAt":1_000_000u64,"lastActivityAt":2_000_000u64}).to_string(),
         )
         .unwrap();
 
@@ -457,7 +457,7 @@ mod tests {
             .iter()
             .find(|s| s.native_id == "s-desktop")
             .unwrap();
-        assert_eq!(desktop.title, "桌面标题");
+        assert_eq!(desktop.title, "Desktop title");
         assert_eq!(desktop.title_source, TitleSource::Client);
         assert_eq!(desktop.client, ClientTag::Desktop);
         assert!(desktop.in_desktop_index);
@@ -470,7 +470,7 @@ mod tests {
         assert!(!orphan.in_desktop_index);
 
         let cli = sessions.iter().find(|s| s.native_id == "s-cli").unwrap();
-        assert_eq!(cli.title, "CLI 标题");
+        assert_eq!(cli.title, "CLI title");
         assert_eq!(cli.title_source, TitleSource::Custom);
         assert_eq!(cli.client, ClientTag::Terminal);
         assert_eq!(cli.status, SessionStatus::Active);
@@ -490,12 +490,15 @@ mod tests {
             format!(
                 "{}{}",
                 line(serde_json::json!({"type":"user","sessionId":"s","message":{"content":"<environment_context>x</environment_context>"}})),
-                line(serde_json::json!({"type":"user","sessionId":"s","message":{"content":[{"type":"text","text":"真正的问题\n第二行"}]}}))
+                line(serde_json::json!({"type":"user","sessionId":"s","message":{"content":[{"type":"text","text":"The real question\nsecond line"}]}}))
             ),
         )
         .unwrap();
         let head = read_head(&path).unwrap();
-        assert_eq!(head.first_user_message.as_deref(), Some("真正的问题"));
+        assert_eq!(
+            head.first_user_message.as_deref(),
+            Some("The real question")
+        );
     }
 
     #[test]
@@ -525,12 +528,12 @@ mod tests {
             text.push_str(&filler);
         }
         text.push_str(&line(
-            serde_json::json!({"type":"custom-title","customTitle":"后改的名字","sessionId":"b"}),
+            serde_json::json!({"type":"custom-title","customTitle":"Renamed later","sessionId":"b"}),
         ));
         fs::write(&path, text).unwrap();
         assert_eq!(
             read_head(&path).unwrap().custom_title.as_deref(),
-            Some("后改的名字")
+            Some("Renamed later")
         );
     }
 }

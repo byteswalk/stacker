@@ -93,8 +93,8 @@ mod tests {
             &path,
             format!(
                 "{}\n{}\n",
-                serde_json::json!({"type":"user","sessionId":"s","message":{"content":[{"type":"text","text":"问题"},{"type":"image","source":{"data":image}}]}}),
-                serde_json::json!({"type":"assistant","sessionId":"s","message":{"content":[{"type":"text","text":"回答"}]}})
+                serde_json::json!({"type":"user","sessionId":"s","message":{"content":[{"type":"text","text":"question"},{"type":"image","source":{"data":image}}]}}),
+                serde_json::json!({"type":"assistant","sessionId":"s","message":{"content":[{"type":"text","text":"answer"}]}})
             ),
         )
         .unwrap();
@@ -105,7 +105,7 @@ mod tests {
         session.path = path.to_string_lossy().into_owned();
         let out = write_slim(&session, &dir.path().join("exports")).unwrap();
         let text = std::fs::read_to_string(&out).unwrap();
-        assert!(text.contains("问题") && text.contains("回答"));
+        assert!(text.contains("question") && text.contains("answer"));
         assert!(text.contains("[image attachment]"));
         assert!(text.len() < 2_000, "image data must not be exported");
         assert!(out
