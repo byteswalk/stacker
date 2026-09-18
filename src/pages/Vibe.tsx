@@ -1,11 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { invoke } from "../invoke";
 import { ConfirmModal, useBusy, useToast } from "../ui";
 import { useNotifications } from "../notifications";
 import { translateText, useI18n } from "../i18n";
-import { AgentActivity } from "../features/agent-workspace/AgentActivity";
-import { ManagedWorkSession } from "../features/agent-workspace/ManagedWorkSession";
-import type { Page } from "../App";
+import { Select } from "../Select";
 
 export type VibeSurface = {
   available: boolean;
@@ -13,7 +11,7 @@ export type VibeSurface = {
   kind: string;
   description: string;
   installed: boolean;
-  status: "installed" | "update" | "missing" | "unknown";
+  status: "installed" | "update" | "missing" | "unknown" | "pending";
   version?: string | null;
   probe_error?: string | null;
   latest?: string | null;
@@ -32,12 +30,33 @@ export type VibeSurface = {
 };
 export type VibeTool = {
   id: string;
+  family_id: string;
+  edition: "unified" | "cn" | "global";
+  edition_label: string;
+  sort_order: number;
   name: string;
   description: string;
   docs_url: string;
   cli: VibeSurface;
   desktop: VibeSurface;
 };
+
+export function UnavailableSurface({ target, surface }: { target: "cli" | "desktop"; surface: VibeSurface }) {
+  return (
+    <div className="vtool-surface unavailable">
+      <span className={"surface-kind " + target}>{target === "cli" ? "CLI" : "桌面端"}</span>
+      <div className="surface-main">
+        <div className="surface-title">
+          <i className="ti ti-circle-off" aria-hidden="true" />
+          <span>{surface.label || (target === "cli" ? "CLI" : "桌面端")}</span>
+          <span className="bd n">暂不可用</span>
+        </div>
+        <div className="surface-desc">{surface.description || "Stacker 暂未接入此使用方式。"}</div>
+        <div className="surface-meta">支持情况请参阅该智能体的官方文档。</div>
+      </div>
+    </div>
+  );
+}
 
 const TOOL_BRAND_ICONS: Record<string, string> = {
   claude: "/brands/claude.png",
@@ -48,19 +67,23 @@ const TOOL_BRAND_ICONS: Record<string, string> = {
   kimi: "/brands/kimi.ico",
   workbuddy: "/brands/workbuddy.svg",
   qoder: "/brands/qoder.svg",
+  "qoder-cn": "/brands/qoder.svg",
   "trae-work": "/brands/trae-work.png",
+  "trae-global": "/brands/trae-work.png",
+  "deepseek-harness": "/brands/deepseek.svg",
   openclaw: "/brands/openclaw.svg",
   hermes: "/brands/hermes.png",
 };
 
 function surfaceBadge(surface: VibeSurface) {
+  if (surface.status === "pending") return <span className="bd n">待检测</span>;
   if (surface.status === "update") return <span className="bd w">可更新</span>;
   if (surface.status === "installed") return <span className="bd g">已安装</span>;
   if (surface.status === "unknown") return <span className="bd b">已检测</span>;
   return <span className="bd n">未安装</span>;
 }
 
-function surfaceDetected(surface: VibeSurface) {
+export function surfaceDetected(surface: VibeSurface) {
   return surface.installed || !!surface.path;
 }
 
@@ -89,6 +112,7 @@ function installMethodHint(surface: VibeSurface) {
 }
 
 function surfaceStatusText(surface: VibeSurface) {
+  if (surface.status === "pending") return surface.kind === "CLI" ? "命令入口待检测" : "桌面端待检测";
   if (surface.version) return `当前版本：${surface.version}`;
   if (surfaceDetected(surface)) {
     return surface.kind === "CLI" ? "命令入口已检测到，暂未获取版本信息" : "桌面端入口已检测到";
@@ -96,37 +120,63 @@ function surfaceStatusText(surface: VibeSurface) {
   return surface.kind === "CLI" ? "未检测到命令入口" : "未检测到桌面端";
 }
 
-type VibeCache = {
+export type VibeCache = {
   tools: VibeTool[];
   loading: boolean;
   checked: boolean;
+  checkedAt: string | null;
 };
-const VIBE_INITIAL: VibeCache = {
-  tools: [],
-  loading: false,
-  checked: false,
-};
+const VIBE_CACHE_KEY = "stacker.vibe.status.v2";
+
+function restoreVibeCache(): VibeCache {
+  try {
+    const stored = JSON.parse(localStorage.getItem(VIBE_CACHE_KEY) || "null") as Partial<VibeCache> | null;
+    if (Array.isArray(stored?.tools) && stored.tools.length > 0) {
+      return { tools: stored.tools, loading: false, checked: Boolean(stored.checked), checkedAt: stored.checkedAt || null };
+    }
+  } catch {
+    // Invalid or outdated cache is ignored; the lightweight catalog will replace it.
+  }
+  return { tools: [], loading: false, checked: false, checkedAt: null };
+}
+
+const VIBE_INITIAL: VibeCache = restoreVibeCache();
 let vibeCache: VibeCache = VIBE_INITIAL;
 let vibeRun: Promise<void> | null = null;
 const vibeListeners = new Set<(s: VibeCache) => void>();
 
 function publishVibe(next: Partial<VibeCache>) {
   vibeCache = { ...vibeCache, ...next };
+  if (vibeCache.tools.length > 0) {
+    try {
+      localStorage.setItem(VIBE_CACHE_KEY, JSON.stringify({
+        tools: vibeCache.tools,
+        checked: vibeCache.checked,
+        checkedAt: vibeCache.checkedAt,
+      }));
+    } catch {
+      // A storage failure must not block environment management.
+    }
+  }
   vibeListeners.forEach((fn) => fn(vibeCache));
 }
 
-function subscribeVibe(fn: (s: VibeCache) => void) {
+export function vibeSnapshot() {
+  return vibeCache;
+}
+
+export function subscribeVibe(fn: (s: VibeCache) => void) {
   vibeListeners.add(fn);
   return () => { vibeListeners.delete(fn); };
 }
 
-function runVibeCheck() {
+export function runVibeCheck(force = false) {
   if (vibeRun) return vibeRun;
   publishVibe({ loading: true });
   vibeRun = (async () => {
     try {
-      const tools = await invoke<VibeTool[]>("vibe_tools");
-      publishVibe({ tools, checked: true });
+      const tools = await invoke<VibeTool[]>(force ? "vibe_tools_refresh" : "vibe_tools");
+      publishVibe({ tools, checked: true, checkedAt: new Date().toISOString() });
     } finally {
       publishVibe({ loading: false });
       vibeRun = null;
@@ -143,51 +193,57 @@ async function refreshOneTool(id: string) {
     tools: exists
       ? current.map((tool) => tool.id === id ? next : tool)
       : [...current, next],
+    checkedAt: new Date().toISOString(),
   });
   return next;
 }
 
-export default function Vibe({ goto }: { goto?: (page: Page) => void }) {
+export default function Vibe() {
   const { locale } = useI18n();
-  const en = locale === "en-US";
   const toast = useToast();
   const runBusy = useBusy();
   const notices = useNotifications();
   const [tools, setTools] = useState<VibeTool[]>(vibeCache.tools);
   const [loading, setLoading] = useState(vibeCache.loading);
   const [checked, setChecked] = useState(vibeCache.checked);
+  const [checkedAt, setCheckedAt] = useState(vibeCache.checkedAt);
   const [promptBusy, setPromptBusy] = useState(false);
   const [checkingTool, setCheckingTool] = useState("");
+  const [query, setQuery] = useState("");
+  const [edition, setEdition] = useState("all");
+  const [status, setStatus] = useState("all");
   const [uninstall, setUninstall] = useState<{ tool: VibeTool; target: "cli" | "desktop"; surface: VibeSurface } | null>(null);
-  const [workspaceView, setWorkspaceView] = useState<"agents" | "session" | "activity">("agents");
 
   useEffect(() => subscribeVibe((s) => {
     setTools(s.tools);
     setLoading(s.loading);
     setChecked(s.checked);
+    setCheckedAt(s.checkedAt);
   }), []);
 
-  async function load() {
-    return runVibeCheck();
+  useEffect(() => {
+    invoke<VibeTool[]>("vibe_catalog")
+      .then((catalog) => {
+        const previous = new Map(vibeCache.tools.map((tool) => [tool.id, tool]));
+        publishVibe({ tools: catalog.map((tool) => {
+          const cached = previous.get(tool.id);
+          return cached ? { ...tool, cli: cached.cli, desktop: cached.desktop } : tool;
+        }) });
+      })
+      .catch(() => undefined);
+  }, []);
+
+  async function load(force = false) {
+    return runVibeCheck(force);
   }
 
   async function refreshAgents() {
     try {
-      await load();
+      await load(true);
       notices.checkNow("vibe").catch(() => undefined);
       toast("智能体状态已刷新", "ok");
     } catch (e) {
       toast("刷新智能体状态失败：" + e, "err");
-    }
-  }
-
-  async function openWorkSession() {
-    setWorkspaceView("session");
-    if (vibeCache.checked || vibeCache.loading) return;
-    try {
-      await load();
-    } catch (e) {
-      toast("读取已安装智能体失败：" + e, "err");
     }
   }
 
@@ -214,7 +270,8 @@ export default function Vibe({ goto }: { goto?: (page: Page) => void }) {
   async function openTerminal(tool: VibeTool) {
     if (!tool.cli.path || !tool.cli.command) return toast("未检测到命令，安装后再打开终端使用。", "info");
     try {
-      await invoke("open_shell", { kind: "powershell", cwd: null, command: tool.cli.command });
+      const command = tool.id === "deepseek-harness" ? `${tool.cli.command} web` : tool.cli.command;
+      await invoke("open_shell", { kind: "powershell", cwd: null, command });
       toast(`已在 PowerShell 中启动 ${tool.cli.label}`, "ok");
     } catch (e) {
       toast("打开终端失败：" + e, "err");
@@ -296,9 +353,22 @@ export default function Vibe({ goto }: { goto?: (page: Page) => void }) {
   const cliInstalled = tools.filter((t) => t.cli.available && surfaceDetected(t.cli)).length;
   const desktopInstalled = tools.filter((t) => t.desktop.available && surfaceDetected(t.desktop)).length;
   const updates = tools.filter((t) => t.cli.update_available || t.desktop.update_available).length;
+  const visibleTools = useMemo(() => {
+    const keyword = query.trim().toLocaleLowerCase();
+    return [...tools]
+      .filter((tool) => edition === "all" || tool.edition === edition)
+      .filter((tool) => {
+        if (status === "installed") return surfaceDetected(tool.cli) || surfaceDetected(tool.desktop);
+        if (status === "missing") return !surfaceDetected(tool.cli) && !surfaceDetected(tool.desktop);
+        if (status === "update") return tool.cli.update_available || tool.desktop.update_available;
+        return true;
+      })
+      .filter((tool) => !keyword || `${tool.name} ${tool.description} ${tool.edition_label}`.toLocaleLowerCase().includes(keyword))
+      .sort((a, b) => (a.sort_order || 999) - (b.sort_order || 999) || a.name.localeCompare(b.name));
+  }, [edition, query, status, tools]);
 
   function SurfaceRow({ tool, target, surface }: { tool: VibeTool; target: "cli" | "desktop"; surface: VibeSurface }) {
-    if (!surface.available) return null;
+    if (!surface.available) return <UnavailableSurface target={target} surface={surface} />;
     const installed = surfaceDetected(surface);
     const canOpenOfficialDownload = target === "desktop" && Boolean(surface.install_url);
     const installFromOfficialPage = !surface.can_install && canOpenOfficialDownload;
@@ -364,30 +434,17 @@ export default function Vibe({ goto }: { goto?: (page: Page) => void }) {
 
   return (
     <>
-      <div className="agent-workspace-tabs" role="tablist" aria-label={en ? "Work agent workspace" : "智能体工作区"}>
-        <button className={workspaceView === "agents" ? "active" : ""} onClick={() => setWorkspaceView("agents")}>
-          <i className="ti ti-sparkles" /> {en ? "Work Agents" : "工作智能体"}
-        </button>
-        <button className={workspaceView === "session" ? "active" : ""} onClick={() => void openWorkSession()}>
-          <i className="ti ti-terminal-2" /> {en ? "Work Session" : "工作会话"}
-        </button>
-        <button className={workspaceView === "activity" ? "active" : ""} onClick={() => setWorkspaceView("activity")}>
-          <i className="ti ti-activity-heartbeat" /> {en ? "Local Activity" : "本机活动"}
-        </button>
-      </div>
-
-      {workspaceView === "agents" ? (
-      <>
       <div className={"checkup agent" + (loading ? " checking" : "")}>
         {loading && <span className="border-runner" aria-hidden="true" />}
-        <span className="av" style={{ width: 52, height: 52 }}><i className={"ti " + (loading ? "ti-loader spin" : "ti-sparkles")} /></span>
+        <span className="av agent-hero-icon"><i className={"ti " + (loading ? "ti-loader spin" : "ti-sparkles")} /></span>
         <div className="ct">
-          <div className="t1">工作智能体生态</div>
+          <div className="t1">AI办公智能体</div>
           <div className="t2">{loading
             ? "正在检测各智能体的 CLI、桌面端、版本与安装来源…"
             : checked
               ? `CLI 已安装 ${cliInstalled} / ${cliTotal} · 桌面端已安装 ${desktopInstalled} / ${desktopTotal} · 可更新 ${updates} 项`
-              : "尚未检测。刷新后可查看各智能体的安装状态、版本和可用操作。"}</div>
+              : "已列出支持的智能体。点击“状态刷新”读取本机安装状态、版本和可用操作。"}</div>
+          {!loading && checked && checkedAt && <div className="agent-last-check"><i className="ti ti-history" /> 最近检测：{new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(new Date(checkedAt))}</div>}
         </div>
         <div className="cacts">
           <button className="gh sm" disabled={promptBusy} onClick={() => generatePrompt(true)}>
@@ -399,23 +456,35 @@ export default function Vibe({ goto }: { goto?: (page: Page) => void }) {
         </div>
       </div>
 
-      {!checked && (
-        <div className="banner gray"><i className="ti ti-sparkles lead" /><div className="bt"><b>智能体状态尚未读取。</b><br />点击“状态刷新”检测已安装的 CLI 和桌面端，并检查可用更新。</div></div>
-      )}
-
-      {checked && (
+      {tools.length > 0 && (
         <>
-          <div className="seclabel">
-            <i className="ti ti-sparkles" /> 工作智能体生态
-            <span className="cnt">共 {tools.length} 项 · 可更新 {updates} 项</span>
+          <div className="agent-catalog-toolbar">
+            <div className="seclabel">
+              <i className="ti ti-sparkles" /> 智能体列表
+              <span className="cnt">显示 {visibleTools.length} / {tools.length} 项 · 可更新 {updates} 项</span>
+            </div>
+            <div className="agent-catalog-filters">
+              <label className="agent-search"><i className="ti ti-search" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索智能体" /></label>
+              <Select value={edition} width={126} onChange={setEdition} options={[
+                { value: "all", label: "全部版本" },
+                { value: "cn", label: "中国版" },
+                { value: "global", label: "国际版" },
+                { value: "unified", label: "通用版" },
+              ]} />
+              <Select value={status} width={126} onChange={setStatus} options={[
+                { value: "all", label: "全部状态" },
+                { value: "installed", label: "已安装" },
+                { value: "missing", label: "未安装" },
+                { value: "update", label: "可更新" },
+              ]} />
+            </div>
           </div>
-          {tools.map((tool) => {
-            const surfaceCount = Number(tool.cli.available) + Number(tool.desktop.available);
+          <div className="agent-catalog-grid">
+          {visibleTools.map((tool) => {
             return (
             <div className={"vtool eco "
               + (tool.cli.update_available || tool.desktop.update_available ? "update " : "")
               + (checkingTool === tool.id ? "trace-card" : "")}
-              style={{ minHeight: 64 + surfaceCount * 84 }}
               key={tool.id}>
               {checkingTool === tool.id && <span className="border-runner" aria-hidden="true" />}
               <div className="vtool-head">
@@ -423,7 +492,7 @@ export default function Vibe({ goto }: { goto?: (page: Page) => void }) {
                   {TOOL_BRAND_ICONS[tool.id] ? <img src={TOOL_BRAND_ICONS[tool.id]} alt="" /> : <i className="ti ti-sparkles" />}
                 </span>
                 <div className="mt">
-                  <div className="t">{tool.name}</div>
+                  <div className="t">{tool.name}{tool.edition_label && <span className={"bd " + (tool.edition === "cn" ? "w" : tool.edition === "global" ? "b" : "n")}>{tool.edition_label}</span>}</div>
                   <div className="s dim" title={tool.description}>{tool.description}</div>
                 </div>
                 <div className="ghr">
@@ -440,7 +509,8 @@ export default function Vibe({ goto }: { goto?: (page: Page) => void }) {
             </div>
             );
           })}
-
+          {visibleTools.length === 0 && <div className="agent-catalog-empty"><i className="ti ti-search-off" /><b>没有符合条件的智能体</b><span>请调整名称、版本或安装状态筛选条件。</span></div>}
+          </div>
         </>
       )}
 
@@ -455,21 +525,6 @@ export default function Vibe({ goto }: { goto?: (page: Page) => void }) {
           onConfirm={() => runToolAction(uninstall.tool, uninstall.target, "uninstall")}
         />
       )}
-      </>
-      ) : workspaceView === "session" ? (
-        <ManagedWorkSession
-          agents={tools.map((tool) => ({
-            id: tool.id,
-            name: tool.name,
-            cliInstalled: surfaceDetected(tool.cli),
-            cliPath: tool.cli.path ?? null,
-            desktopInstalled: surfaceDetected(tool.desktop),
-            desktopPath: tool.desktop.path ?? null,
-            desktopName: tool.desktop.label,
-          }))}
-          onOpenCleanup={goto ? () => goto("cleanup") : undefined}
-        />
-      ) : <AgentActivity />}
     </>
   );
 }

@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
-import { invoke } from "./invoke";
+import { invoke, reportFrontendError, reportFrontendWarning } from "./invoke";
 import { collectFrontendSettings, restoreFrontendSettings, type FrontendSettings } from "./frontendSettings";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { getVersion } from "@tauri-apps/api/app";
@@ -9,14 +9,17 @@ import { ToastProvider, ToastHost, useToast, Modal, ConfirmModal, BusyProvider, 
 import { Select } from "./Select";
 import { useI18n, type MessageKey } from "./i18n";
 import { NotificationProvider, useNotifications, formatBytes } from "./notifications";
+import { readLastPage, saveLastPage, type Page } from "./pageState";
 
 const Overview = lazy(() => import("./pages/Overview"));
 const Vibe = lazy(() => import("./pages/Vibe"));
+const AgentSpace = lazy(() => import("./pages/AgentSpace"));
 const Git = lazy(() => import("./pages/Git"));
 const Proxy = lazy(() => import("./pages/Proxy"));
 const History = lazy(() => import("./pages/History"));
 const Java = lazy(() => import("./pages/Java"));
 const Python = lazy(() => import("./pages/Python"));
+const PHP = lazy(() => import("./pages/PHP"));
 const Maven = lazy(() => import("./pages/Maven"));
 const Gradle = lazy(() => import("./pages/Gradle"));
 const Rust = lazy(() => import("./pages/Rust"));
@@ -25,9 +28,7 @@ const Cleanup = lazy(() => import("./pages/Cleanup"));
 const Node = lazy(() => import("./pages/Node"));
 const Settings = lazy(() => import("./pages/Settings"));
 
-export type Page =
-  | "overview" | "vibe" | "git" | "python" | "node" | "java" | "maven" | "gradle" | "go" | "rust"
-  | "proxy" | "cleanup" | "history" | "settings";
+export type { Page } from "./pageState";
 
 type NavItem = { id: Page; icon: string; labelKey: MessageKey };
 
@@ -35,8 +36,10 @@ type NavItem = { id: Page; icon: string; labelKey: MessageKey };
 const NAV_TOP: NavItem[] = [
   { id: "overview", icon: "ti-layout-dashboard", labelKey: "nav.overview" },
   { id: "vibe", icon: "ti-sparkles", labelKey: "nav.vibe" },
+  { id: "agent-space", icon: "ti-box-multiple", labelKey: "nav.agentSpace" },
   { id: "git", icon: "ti-brand-git", labelKey: "nav.git" },
   { id: "python", icon: "ti-brand-python", labelKey: "nav.python" },
+  { id: "php", icon: "ti-brand-php", labelKey: "nav.php" },
   { id: "node", icon: "ti-brand-nodejs", labelKey: "nav.node" },
   { id: "java", icon: "ti-coffee", labelKey: "nav.java" },
   { id: "maven", icon: "ti-feather", labelKey: "nav.maven" },
@@ -64,9 +67,9 @@ function NavBtn({ item, page, set }: { item: NavItem; page: Page; set: (p: Page)
       : notices.pageNoticeCounts[item.id] ?? 0;
   const noticeTitle = noticeTip(item.id, notices);
   return (
-    <button className={"ni" + (page === item.id ? " on" : "")} onClick={() => set(item.id)}>
-      <i className={"ti " + item.icon} /> {t(item.labelKey)}
-      {noticeCount > 0 && <span className="navdot" title={noticeTitle}>{noticeCount > 9 ? "9+" : noticeCount}</span>}
+    <button className={"ni" + (page === item.id ? " on" : "")} aria-current={page === item.id ? "page" : undefined} onClick={() => set(item.id)}>
+      <i className={"ti " + item.icon} aria-hidden="true" /> {t(item.labelKey)}
+      {noticeCount > 0 && <span className="navdot" title={noticeTitle} aria-label={noticeTitle}>{noticeCount > 9 ? "9+" : noticeCount}</span>}
     </button>
   );
 }
@@ -134,7 +137,7 @@ function Shell() {
   const { t, tr } = useI18n();
   const toast = useToast();
   const notices = useNotifications();
-  const [page, setPage] = useState<Page>("overview");
+  const [page, setPage] = useState<Page>(readLastPage);
   const [profile, setProfile] = useState("");
   const [applying, setApplying] = useState(false);
   const [saved, setSaved] = useState<SavedProfile[]>([]);
@@ -163,14 +166,16 @@ function Shell() {
         setSaved(list);
         setProfile((cur) => list.some((p) => p.name === cur) ? cur : (list[0]?.name ?? ""));
       })
-      .catch(() => {});
+      .catch((error) => reportFrontendWarning("Unable to load saved profiles.", error));
   }
   useEffect(() => {
     refreshProfiles();
-    void getVersion().then(setAppVersion).catch(() => undefined);
+    void getVersion().then(setAppVersion).catch((error) => reportFrontendWarning("Unable to read the application version.", error));
     invoke<{ name: string; build: number; supported: boolean }>("os_info")
-      .then((o) => { if (!o.supported) setOsWarn({ name: o.name, build: o.build }); }).catch(() => {});
+      .then((o) => { if (!o.supported) setOsWarn({ name: o.name, build: o.build }); })
+      .catch((error) => reportFrontendWarning("Unable to read operating-system information.", error));
   }, []);
+  useEffect(() => saveLastPage(page), [page]);
   useEffect(() => {
     let unlisten: UnlistenFn | undefined;
     let disposed = false;
@@ -179,9 +184,7 @@ function Shell() {
         if (disposed) dispose();
         else unlisten = dispose;
       })
-      .catch((error) => {
-        console.error("failed to listen for close behavior choice", error);
-      });
+      .catch((error) => reportFrontendError("Failed to listen for the close-behavior choice.", error));
     return () => {
       disposed = true;
       unlisten?.();
@@ -294,7 +297,7 @@ function Shell() {
             <span className="ttl">
               {page !== "overview" && <span className="eco av st"><i className={"ti " + cur.icon} /></span>}
               {t(cur.labelKey)}
-              {currentNoticeCount > 0 && <span className="navdot title-dot" title={currentNoticeTitle}>{currentNoticeCount > 9 ? "9+" : currentNoticeCount}</span>}
+              {currentNoticeCount > 0 && <span className="navdot title-dot" title={currentNoticeTitle} aria-label={currentNoticeTitle}>{currentNoticeCount > 9 ? "9+" : currentNoticeCount}</span>}
             </span>
           </div>
           {page === "overview" && (
@@ -303,10 +306,10 @@ function Shell() {
                 <i className="ti ti-bookmark" style={{ fontSize: 14 }} />
                 <Select className="psel" value={profile} disabled={applying} width={196} onChange={setProfile}
                   options={saved.length > 0 ? saved.map((p) => ({ value: p.name, label: p.name })) : [{ value: "", label: "暂无方案", disabled: true }]} />
-                <button className="pbtn" title="应用方案" disabled={applying || !profile} onClick={applyProfile}><i className={"ti " + (applying ? "ti-loader" : "ti-check")} /></button>
-                <button className="pbtn" title="保存当前源选择与代理状态" disabled={applying} onClick={() => { setSaveName(""); setSaveOpen(true); }}><i className="ti ti-device-floppy" /></button>
-                <button className="pbtn" title="导入配置方案" disabled={applying} onClick={importProfiles}><i className="ti ti-download" /></button>
-                <button className="pbtn" title="导出配置方案" disabled={applying} onClick={exportProfiles}><i className="ti ti-upload" /></button>
+                <button className="pbtn" title="应用方案" aria-label="应用方案" disabled={applying || !profile} onClick={applyProfile}><i className={"ti " + (applying ? "ti-loader" : "ti-check")} /></button>
+                <button className="pbtn" title="保存当前源选择与代理状态" aria-label="保存当前源选择与代理状态" disabled={applying} onClick={() => { setSaveName(""); setSaveOpen(true); }}><i className="ti ti-device-floppy" /></button>
+                <button className="pbtn" title="导入配置方案" aria-label="导入配置方案" disabled={applying} onClick={importProfiles}><i className="ti ti-download" /></button>
+                <button className="pbtn" title="导出配置方案" aria-label="导出配置方案" disabled={applying} onClick={exportProfiles}><i className="ti ti-upload" /></button>
               </div>
             </div>
           )}
@@ -323,13 +326,15 @@ function Shell() {
           )}
           <Suspense fallback={<PageFallback />}>
             {page === "overview" ? <Overview key={configEpoch} goto={setPage} />
-              : page === "vibe" ? <Vibe key={configEpoch} goto={setPage} />
+              : page === "vibe" ? <Vibe key={configEpoch} />
+              : page === "agent-space" ? <AgentSpace key={configEpoch} goto={setPage} />
               : page === "git" ? <Git key={configEpoch} />
               : page === "node" ? <Node key={configEpoch} />
               : page === "proxy" ? <Proxy key={configEpoch} />
               : page === "history" ? <History key={configEpoch} />
               : page === "java" ? <Java key={configEpoch} />
               : page === "python" ? <Python key={configEpoch} />
+              : page === "php" ? <PHP key={configEpoch} />
               : page === "maven" ? <Maven key={configEpoch} />
               : page === "gradle" ? <Gradle key={configEpoch} />
               : page === "rust" ? <Rust key={configEpoch} />

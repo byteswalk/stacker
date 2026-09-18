@@ -1,11 +1,11 @@
 use super::classifier::{
-    classify_node, detect_project_kind, detect_projects, is_project_marker_file_name,
+    classify_node, detect_project_kinds, detect_projects, is_project_marker_file_name,
     Classification, DetectedProjects,
 };
 use super::known::CleanupKind;
 use super::model::{
-    AnalysisSummary, DirectoryNode, LargeFileRow, Paged, ProjectKind, ScanErrorSummary,
-    SkippedPathEntry,
+    AnalysisSummary, DevelopmentProject, DirectoryNode, LargeFileRow, Paged, ProjectKind,
+    ScanErrorSummary, SkippedPathEntry,
 };
 use super::windows_fs::{allocated_size, display_path, file_identity, FileIdentity};
 use chrono::{DateTime, Utc};
@@ -88,6 +88,10 @@ struct NodeRecord {
     direct_logical_bytes: u64,
     child_ids: Vec<NodeId>,
     direct_file_names: HashSet<String>,
+    #[serde(default)]
+    direct_signal_names: HashSet<String>,
+    #[serde(default)]
+    latest_modified_at: Option<String>,
     #[serde(skip, default = "default_classification")]
     classification: Classification,
 }
@@ -176,8 +180,7 @@ impl IndexedScanResult {
                 classification: &record.classification,
                 identity: record.identity,
                 project_root_path: project_record.map(|project| project.node.path.as_str()),
-                project_kind: project_record
-                    .and_then(|project| detect_project_kind(&project.direct_file_names)),
+                project_kind: record.classification.project_kind,
                 project_evidence: project_record.map(|project| &project.direct_file_names),
             }
         })
@@ -221,6 +224,72 @@ impl IndexedScanResult {
                 .then(|| classification.cleanup_kind.as_str().to_string());
             record.classification = classification;
         }
+        self.summary.projects = self.development_projects(&projects);
+    }
+
+    fn development_projects(&self, projects: &DetectedProjects) -> Vec<DevelopmentProject> {
+        let mut artifact_stats = HashMap::<&str, (u64, u32)>::new();
+        for record in self.nodes.values() {
+            if record.classification.cleanup_kind == CleanupKind::None {
+                continue;
+            }
+            if let Some(project_id) = record.classification.project_id.as_deref() {
+                let stats = artifact_stats.entry(project_id).or_default();
+                stats.0 = stats.0.saturating_add(record.node.allocated_bytes);
+                stats.1 = stats.1.saturating_add(1);
+            }
+        }
+
+        let mut summaries = projects
+            .roots()
+            .iter()
+            .filter_map(|project| {
+                let root = self.nodes.get(&project.node_id)?;
+                let mut agent_traces = detect_agent_traces(root);
+                for child_id in &root.child_ids {
+                    if let Some(child) = self.nodes.get(child_id) {
+                        if let Some(trace) = agent_trace_for_directory(&child.node.name) {
+                            agent_traces.insert(trace.to_string());
+                        }
+                        agent_traces.extend(detect_agent_traces(child));
+                    }
+                }
+                let (reclaimable_bytes, artifact_count) = artifact_stats
+                    .get(project.project_id.as_str())
+                    .copied()
+                    .unwrap_or_default();
+                Some(DevelopmentProject {
+                    project_id: project.project_id.clone(),
+                    node_id: project.node_id.clone(),
+                    name: root.node.name.clone(),
+                    path: root.node.path.clone(),
+                    kinds: detect_project_kinds(&root.direct_file_names),
+                    allocated_bytes: root.node.allocated_bytes,
+                    reclaimable_bytes,
+                    artifact_count,
+                    agent_traces: {
+                        let mut values = agent_traces.into_iter().collect::<Vec<_>>();
+                        values.sort();
+                        values
+                    },
+                    has_git_metadata: root.direct_signal_names.contains(".git")
+                        || root.child_ids.iter().any(|child_id| {
+                            self.nodes
+                                .get(child_id)
+                                .is_some_and(|child| child.node.name.eq_ignore_ascii_case(".git"))
+                        }),
+                    last_modified_at: root.latest_modified_at.clone(),
+                })
+            })
+            .collect::<Vec<_>>();
+        summaries.sort_by(|left, right| {
+            right
+                .reclaimable_bytes
+                .cmp(&left.reclaimable_bytes)
+                .then_with(|| right.allocated_bytes.cmp(&left.allocated_bytes))
+                .then_with(|| left.path.to_lowercase().cmp(&right.path.to_lowercase()))
+        });
+        summaries
     }
 
     pub(crate) fn children(
@@ -526,6 +595,7 @@ impl IndexBuilder {
             skipped_path_entries,
             unlisted_skipped_paths: skipped_paths.saturating_sub(listed_skipped_paths),
             root_nodes,
+            projects: Vec::new(),
         };
 
         let mut result = IndexedScanResult {
@@ -579,6 +649,8 @@ impl WalkVisitor for IndexBuilder {
             direct_logical_bytes: 0,
             child_ids: Vec::new(),
             direct_file_names: HashSet::new(),
+            direct_signal_names: HashSet::new(),
+            latest_modified_at: None,
             classification: Classification::view_only(None),
         };
 
@@ -610,6 +682,17 @@ impl WalkVisitor for IndexBuilder {
                 if is_project_marker_file_name(&file_name) {
                     parent.direct_file_names.insert(file_name.to_lowercase());
                 }
+                if is_agent_trace_file_name(&file_name) || file_name.eq_ignore_ascii_case(".git") {
+                    parent.direct_signal_names.insert(file_name.to_lowercase());
+                }
+            }
+            let modified_at = metadata
+                .modified()
+                .ok()
+                .map(DateTime::<Utc>::from)
+                .map(|timestamp| timestamp.to_rfc3339());
+            if modified_at > parent.latest_modified_at {
+                parent.latest_modified_at = modified_at;
             }
         }
 
@@ -660,11 +743,15 @@ fn aggregate_directories(root_ids: &[NodeId], nodes: &mut HashMap<NodeId, NodeRe
 
         let mut allocated_bytes = record.direct_allocated_bytes;
         let mut logical_bytes = record.direct_logical_bytes;
+        let mut latest_modified_at = record.latest_modified_at.clone();
         let child_ids = record.child_ids.clone();
         for child_id in &child_ids {
             if let Some(child) = nodes.get(child_id) {
                 allocated_bytes = allocated_bytes.saturating_add(child.node.allocated_bytes);
                 logical_bytes = logical_bytes.saturating_add(child.node.logical_bytes);
+                if child.latest_modified_at > latest_modified_at {
+                    latest_modified_at = child.latest_modified_at.clone();
+                }
             }
         }
 
@@ -672,7 +759,49 @@ fn aggregate_directories(root_ids: &[NodeId], nodes: &mut HashMap<NodeId, NodeRe
             record.node.allocated_bytes = allocated_bytes;
             record.node.logical_bytes = logical_bytes;
             record.node.child_count = child_ids.len().min(u32::MAX as usize) as u32;
+            record.latest_modified_at = latest_modified_at;
         }
+    }
+}
+
+fn is_agent_trace_file_name(file_name: &str) -> bool {
+    matches!(
+        file_name.to_ascii_lowercase().as_str(),
+        "agents.md"
+            | "claude.md"
+            | "gemini.md"
+            | ".cursorrules"
+            | "opencode.json"
+            | "opencode.jsonc"
+            | "copilot-instructions.md"
+    )
+}
+
+fn detect_agent_traces(root: &NodeRecord) -> HashSet<String> {
+    root.direct_signal_names
+        .iter()
+        .filter_map(|name| match name.as_str() {
+            "agents.md" => Some("agents"),
+            "claude.md" => Some("claude"),
+            "gemini.md" => Some("gemini"),
+            ".cursorrules" => Some("cursor"),
+            "opencode.json" | "opencode.jsonc" => Some("opencode"),
+            "copilot-instructions.md" => Some("copilot"),
+            _ => None,
+        })
+        .map(str::to_string)
+        .collect()
+}
+
+fn agent_trace_for_directory(name: &str) -> Option<&'static str> {
+    match name.to_ascii_lowercase().as_str() {
+        ".codex" => Some("codex"),
+        ".claude" => Some("claude"),
+        ".cursor" => Some("cursor"),
+        ".gemini" => Some("gemini"),
+        ".qoder" => Some("qoder"),
+        ".trae" => Some("trae"),
+        _ => None,
     }
 }
 
@@ -863,6 +992,55 @@ mod tests {
     }
 
     #[test]
+    fn summary_groups_verified_artifacts_and_configuration_traces_by_project() {
+        let fixture = tempfile::tempdir().unwrap();
+        std::fs::write(fixture.path().join("package.json"), b"{}").unwrap();
+        std::fs::write(fixture.path().join("Cargo.toml"), b"[package]").unwrap();
+        std::fs::write(fixture.path().join("AGENTS.md"), b"instructions").unwrap();
+        std::fs::create_dir(fixture.path().join(".git")).unwrap();
+        std::fs::create_dir(fixture.path().join(".github")).unwrap();
+        std::fs::write(
+            fixture
+                .path()
+                .join(".github")
+                .join("copilot-instructions.md"),
+            b"instructions",
+        )
+        .unwrap();
+        std::fs::create_dir(fixture.path().join("node_modules")).unwrap();
+        std::fs::write(
+            fixture.path().join("node_modules").join("dependency.bin"),
+            vec![0u8; 64],
+        )
+        .unwrap();
+        std::fs::create_dir(fixture.path().join("target")).unwrap();
+        std::fs::write(
+            fixture.path().join("target").join("artifact.bin"),
+            vec![0u8; 128],
+        )
+        .unwrap();
+
+        let result = build_indexed_result(
+            &[fixture.path().to_path_buf()],
+            &CancellationToken::default(),
+            |_| {},
+        )
+        .unwrap();
+        let projects = &result.summary().projects;
+
+        assert_eq!(projects.len(), 1);
+        assert_eq!(
+            projects[0].kinds,
+            vec![ProjectKind::Node, ProjectKind::Rust]
+        );
+        assert_eq!(projects[0].artifact_count, 2);
+        assert!(projects[0].reclaimable_bytes > 0);
+        assert!(projects[0].has_git_metadata);
+        assert_eq!(projects[0].agent_traces, vec!["agents", "copilot"]);
+        assert!(projects[0].last_modified_at.is_some());
+    }
+
+    #[test]
     fn paging_is_bounded_and_large_files_are_sorted() {
         let fixture = tempfile::tempdir().unwrap();
         for index in 0..205 {
@@ -955,6 +1133,8 @@ mod tests {
                     direct_logical_bytes: 2,
                     child_ids,
                     direct_file_names: HashSet::new(),
+                    direct_signal_names: HashSet::new(),
+                    latest_modified_at: None,
                     classification: Classification::view_only(None),
                 },
             );

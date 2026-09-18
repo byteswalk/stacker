@@ -291,6 +291,88 @@ pub async fn go_versions(
     .map_err(|e| e.to_string())?
 }
 
+fn php_release_artifacts(body: &str) -> Vec<(String, String)> {
+    let mut artifacts = Vec::new();
+    for href in hrefs(body) {
+        let filename = href.rsplit('/').next().unwrap_or(&href);
+        if !filename.starts_with("php-")
+            || !filename.ends_with("-x64.zip")
+            || !filename.contains("-nts-Win32-")
+        {
+            continue;
+        }
+        let Some(rest) = filename.strip_prefix("php-") else {
+            continue;
+        };
+        let Some((version, _)) = rest.split_once("-nts-Win32-") else {
+            continue;
+        };
+        if version.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+            artifacts.push((version.to_string(), filename.to_string()));
+        }
+    }
+    artifacts
+}
+
+/// PHP for Windows stable x64 NTS releases exposed by the selected source.
+#[tauri::command]
+pub async fn php_versions(
+    source: Option<String>,
+    source_url: Option<String>,
+) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let source = source.unwrap_or_else(|| "official".into());
+        let base = source_base(
+            &source,
+            source_url,
+            &[("official", "https://windows.php.net/downloads/releases")],
+        )
+        .ok_or("PHP download source address is invalid")?;
+        let body = fetch(&format!("{base}/"))?;
+        let mut versions: Vec<String> = php_release_artifacts(&body)
+            .into_iter()
+            .map(|(version, _)| version)
+            .collect();
+        versions.sort_by(|a, b| version_cmp_desc(a, b));
+        versions.dedup();
+        if versions.is_empty() {
+            Err("The selected source does not provide stable Windows x64 NTS PHP packages".into())
+        } else {
+            Ok(versions)
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Resolve the exact compiler-tagged PHP zip name instead of guessing VS/VC versions.
+#[tauri::command]
+pub async fn php_download_url(
+    version: String,
+    source: Option<String>,
+    source_url: Option<String>,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let source = source.unwrap_or_else(|| "official".into());
+        let base = source_base(
+            &source,
+            source_url,
+            &[("official", "https://windows.php.net/downloads/releases")],
+        )
+        .ok_or("PHP download source address is invalid")?;
+        let body = fetch(&format!("{base}/"))?;
+        let filename = php_release_artifacts(&body)
+            .into_iter()
+            .find_map(|(candidate, filename)| (candidate == version).then_some(filename))
+            .ok_or_else(|| {
+                format!("PHP {version} Windows x64 NTS package is not available from this source")
+            })?;
+        Ok(format!("{base}/{filename}"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -336,6 +418,19 @@ mod tests {
         assert_eq!(
             base.as_deref(),
             Some("https://archive.apache.org/dist/maven")
+        );
+    }
+
+    #[test]
+    fn parses_only_php_windows_x64_nts_zip_artifacts() {
+        let body = r#"
+          <a href="php-8.4.13-nts-Win32-vs17-x64.zip">nts</a>
+          <a href="php-8.4.13-Win32-vs17-x64.zip">ts</a>
+          <a href="php-8.4.13-nts-Win32-vs17-x86.zip">x86</a>
+        "#;
+        assert_eq!(
+            php_release_artifacts(body),
+            vec![("8.4.13".into(), "php-8.4.13-nts-Win32-vs17-x64.zip".into())]
         );
     }
 }

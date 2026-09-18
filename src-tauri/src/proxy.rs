@@ -11,6 +11,9 @@ pub struct ProxyStatus {
     pub http: String,
     pub host: String,
     pub port: u16,
+    pub mode: String,
+    pub endpoint_available: bool,
+    pub route_only: bool,
     pub detected_port: Option<u16>,
     pub no_proxy_auto: Vec<String>, // localhost + 当前镜像源域名（只读展示）
     pub no_proxy_manual: Vec<String>, // 用户追加的（NO_PROXY 里非自动项）
@@ -84,6 +87,8 @@ pub fn status() -> ProxyStatus {
 
     let detected = detect_clash_port();
     let (host, port) = crate::settings::proxy_addr();
+    let mode = crate::settings::proxy_mode();
+    let endpoint_available = !host.trim().is_empty() && port > 0;
 
     let auto = auto_no_proxy();
     let current_np: Vec<String> = winenv::get_user_raw("NO_PROXY")
@@ -106,6 +111,9 @@ pub fn status() -> ProxyStatus {
         http,
         host,
         port,
+        route_only: mode == "system" && !endpoint_available,
+        endpoint_available,
+        mode,
         detected_port: detected,
         no_proxy_auto: auto,
         no_proxy_manual: manual,
@@ -122,6 +130,12 @@ fn jvm_has_proxy() -> bool {
 
 // ── 开 / 关 ──
 pub fn enable(host: &str, port: u16, also_jvm: bool, manual: Vec<String>) -> Result<(), String> {
+    if host.trim().is_empty() || port == 0 {
+        return Err(
+            "当前未检测到可写入终端的代理地址。终端将使用 Windows 当前网络路由，无需开启显式代理。"
+                .into(),
+        );
+    }
     backup::backup_env(
         winenv::Hive::User,
         "proxy",
@@ -138,6 +152,9 @@ pub fn enable(host: &str, port: u16, also_jvm: bool, manual: Vec<String>) -> Res
     winenv::set_user("HTTP_PROXY", &http)?;
     winenv::set_user("HTTPS_PROXY", &http)?;
     winenv::set_user("ALL_PROXY", &socks)?;
+    std::env::set_var("HTTP_PROXY", &http);
+    std::env::set_var("HTTPS_PROXY", &http);
+    std::env::set_var("ALL_PROXY", &socks);
 
     let manual = crate::settings::save_proxy_manual(&manual)?;
     let mut list = auto_no_proxy();
@@ -148,6 +165,7 @@ pub fn enable(host: &str, port: u16, also_jvm: bool, manual: Vec<String>) -> Res
         }
     }
     winenv::set_user("NO_PROXY", &list.join(","))?;
+    std::env::set_var("NO_PROXY", list.join(","));
 
     if also_jvm {
         gradle_set_proxy(host, port, &list)?;
@@ -168,7 +186,10 @@ pub(crate) fn sync_manual(manual: &[String]) -> Result<(), String> {
             list.push(value);
         }
     }
-    winenv::set_user("NO_PROXY", &list.join(","))
+    let value = list.join(",");
+    winenv::set_user("NO_PROXY", &value)?;
+    std::env::set_var("NO_PROXY", value);
+    Ok(())
 }
 
 pub fn disable(also_jvm: bool) -> Result<(), String> {
@@ -187,6 +208,10 @@ pub fn disable(also_jvm: bool) -> Result<(), String> {
     winenv::remove_user("HTTPS_PROXY")?;
     winenv::remove_user("ALL_PROXY")?;
     winenv::remove_user("NO_PROXY")?;
+    std::env::remove_var("HTTP_PROXY");
+    std::env::remove_var("HTTPS_PROXY");
+    std::env::remove_var("ALL_PROXY");
+    std::env::remove_var("NO_PROXY");
     if also_jvm {
         gradle_clear_proxy()?;
         maven_clear_proxy()?;
@@ -302,6 +327,50 @@ fn maven_clear_proxy() -> Result<(), String> {
     } else {
         winenv::set_user("MAVEN_OPTS", &toks.join(" "))
     }
+}
+
+fn maven_has_proxy() -> bool {
+    let user = winenv::get_user_raw("MAVEN_OPTS").unwrap_or_default();
+    let process = std::env::var("MAVEN_OPTS").unwrap_or_default();
+    MAVEN_PROXY_FLAGS
+        .iter()
+        .any(|flag| user.contains(flag) || process.contains(flag))
+}
+
+/// 将已经启用过的显式代理同步到当前端点。Windows 没有提供端点时，
+/// 会清除 Stacker 管理的旧代理，但不会更改镜像源和缓存位置。
+pub(crate) fn sync_existing_explicit_proxies(
+    host: Option<&str>,
+    port: u16,
+) -> Result<Vec<String>, String> {
+    let host = host
+        .map(str::trim)
+        .filter(|host| !host.is_empty() && port > 0);
+    let mut changed = crate::sources::sync_existing_tool_proxies(host, port)?;
+
+    if crate::git::sync_existing_proxy(host, port)? {
+        changed.push("Git".into());
+    }
+
+    let no_proxy = auto_no_proxy();
+    if gradle_has_proxy() {
+        if let Some(host) = host {
+            gradle_set_proxy(host, port, &no_proxy)?;
+        } else {
+            gradle_clear_proxy()?;
+        }
+        changed.push("Gradle JVM".into());
+    }
+    if maven_has_proxy() {
+        if let Some(host) = host {
+            maven_set_proxy(host, port, &no_proxy)?;
+        } else {
+            maven_clear_proxy()?;
+        }
+        changed.push("Maven JVM".into());
+    }
+
+    Ok(changed)
 }
 
 // ── Tauri 命令 ──

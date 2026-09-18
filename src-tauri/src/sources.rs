@@ -69,6 +69,7 @@ pub fn tools() -> Vec<Tool> {
 pub fn tools_builtin_ids() -> Vec<&'static str> {
     vec![
         "python-runtime",
+        "php-runtime",
         "node-runtime",
         "git-runtime",
         "maven-runtime",
@@ -76,6 +77,7 @@ pub fn tools_builtin_ids() -> Vec<&'static str> {
         "go-runtime",
         "rust-runtime",
         "pip",
+        "composer",
         "npm",
         "yarn",
         "go",
@@ -87,6 +89,7 @@ pub fn tools_builtin_ids() -> Vec<&'static str> {
 }
 
 pub const PYTHON_RUNTIME_TOOL_ID: &str = "python-runtime";
+pub const PHP_RUNTIME_TOOL_ID: &str = "php-runtime";
 pub const NODE_RUNTIME_TOOL_ID: &str = "node-runtime";
 pub const GIT_RUNTIME_TOOL_ID: &str = "git-runtime";
 pub const MAVEN_RUNTIME_TOOL_ID: &str = "maven-runtime";
@@ -375,6 +378,19 @@ pub fn hardcoded() -> Vec<Tool> {
             python_runtime_mirrors_builtin(),
         ),
         mk(
+            PHP_RUNTIME_TOOL_ID,
+            "PHP 下载源",
+            "php",
+            "runtime_download",
+            "",
+            vec![m(
+                "official",
+                "官方 PHP for Windows",
+                "https://windows.php.net/downloads/releases/",
+                "windows.php.net",
+            )],
+        ),
+        mk(
             NODE_RUNTIME_TOOL_ID,
             "Node 下载源",
             "npm",
@@ -485,6 +501,27 @@ pub fn hardcoded() -> Vec<Tool> {
                     "腾讯云",
                     "https://mirrors.cloud.tencent.com/npm/",
                     "mirrors.cloud.tencent.com",
+                ),
+            ],
+        ),
+        mk(
+            "composer",
+            "Composer",
+            "php",
+            "composer_config",
+            "composer",
+            vec![
+                m(
+                    "official",
+                    "官方 Packagist",
+                    "https://repo.packagist.org",
+                    "repo.packagist.org",
+                ),
+                m(
+                    "aliyun",
+                    "阿里云",
+                    "https://mirrors.aliyun.com/composer/",
+                    "mirrors.aliyun.com",
                 ),
             ],
         ),
@@ -682,6 +719,16 @@ pub fn pip_path() -> PathBuf {
 pub fn npmrc_path() -> PathBuf {
     home().join(".npmrc")
 }
+pub fn composer_path() -> PathBuf {
+    let composer_home = winenv::get_raw_in(winenv::Hive::User, "COMPOSER_HOME")
+        .or_else(|| winenv::get_raw_in(winenv::Hive::System, "COMPOSER_HOME"))
+        .or_else(|| std::env::var("COMPOSER_HOME").ok())
+        .map(|value| value.trim().trim_matches('"').to_string())
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| appdata().join("Composer"));
+    composer_home.join("config.json")
+}
 pub fn yarnrc_path() -> PathBuf {
     home().join(".yarnrc")
 }
@@ -702,13 +749,21 @@ pub fn maven_path() -> PathBuf {
     home().join(".m2").join("settings.xml")
 }
 pub fn gradle_path() -> PathBuf {
-    home().join(".gradle").join("init.gradle")
+    let gradle_home = winenv::get_raw_in(winenv::Hive::User, "GRADLE_USER_HOME")
+        .or_else(|| winenv::get_raw_in(winenv::Hive::System, "GRADLE_USER_HOME"))
+        .or_else(|| std::env::var("GRADLE_USER_HOME").ok())
+        .map(|s| s.trim().trim_matches('"').to_string())
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home().join(".gradle"));
+    gradle_home.join("init.gradle")
 }
 
 fn config_display(handler: &str) -> String {
     match handler {
         "pip_ini" => pip_path().to_string_lossy().into(),
         "npmrc" => npmrc_path().to_string_lossy().into(),
+        "composer_config" => composer_path().to_string_lossy().into(),
         "yarnrc" => yarnrc_path().to_string_lossy().into(),
         "go_env" => "环境变量 GOPROXY".into(),
         "condarc" => condarc_path().to_string_lossy().into(),
@@ -839,6 +894,43 @@ fn write_line_key(p: &Path, key: &str, value: &str, quoted: bool) -> Result<(), 
     write_text(p, &out)
 }
 
+fn sync_line_proxy_keys(path: &Path, quoted: bool, endpoint: Option<&str>) -> Result<bool, String> {
+    let existing = read_text(path).unwrap_or_default();
+    let keys = ["proxy", "https-proxy"];
+    let has_managed_proxy = existing.lines().any(|line| {
+        let line = line.trim_start();
+        keys.iter()
+            .any(|key| line.starts_with(&format!("{key}=")) || line.starts_with(&format!("{key} ")))
+    });
+    if !has_managed_proxy {
+        return Ok(false);
+    }
+
+    backup::backup_file(path);
+    let mut out = String::new();
+    for line in existing.lines() {
+        let trimmed = line.trim_start();
+        let is_proxy = keys.iter().any(|key| {
+            trimmed.starts_with(&format!("{key}=")) || trimmed.starts_with(&format!("{key} "))
+        });
+        if !is_proxy {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    if let Some(endpoint) = endpoint {
+        for key in keys {
+            if quoted {
+                out.push_str(&format!("{key} \"{endpoint}\"\n"));
+            } else {
+                out.push_str(&format!("{key}={endpoint}\n"));
+            }
+        }
+    }
+    write_text(path, &out)?;
+    Ok(true)
+}
+
 // ── 模板 ──
 fn cargo_template(url: &str) -> String {
     format!(
@@ -923,8 +1015,23 @@ fn no_proxy_hosts(mirror: &Mirror) -> String {
     hosts.join("|")
 }
 
-fn maven_settings_template(mirror: &Mirror, proxy: Option<&ToolProxy>) -> String {
+fn maven_local_repository(path: &Path) -> Option<String> {
+    let raw = read_text(path)?;
+    let start = raw.find("<localRepository>")? + "<localRepository>".len();
+    let end = raw[start..].find("</localRepository>")? + start;
+    let value = raw[start..end].trim();
+    (!value.is_empty()).then(|| value.to_string())
+}
+
+fn maven_settings_template(
+    mirror: &Mirror,
+    proxy: Option<&ToolProxy>,
+    local_repository: Option<&str>,
+) -> String {
     let mut out = String::from("<settings>\n");
+    if let Some(path) = local_repository {
+        out.push_str(&format!("  <localRepository>{path}</localRepository>\n"));
+    }
     if mirror.id != "official" && !mirror.url.trim().is_empty() {
         out.push_str(&format!(
             "  <mirrors>\n    <mirror>\n      <id>stacker-mirror</id>\n      <mirrorOf>central</mirrorOf>\n      <name>{}</name>\n      <url>{}</url>\n    </mirror>\n  </mirrors>\n",
@@ -1004,14 +1111,23 @@ fn maven_apply(
     _proxy_requested: bool,
 ) -> Result<(), String> {
     clear_maven_legacy_proxy_opts()?;
+    let local_repository = maven_local_repository(&path);
     backup::backup_file(&path);
     if mirror.id == "official" && proxy.is_none() {
-        if path.exists() {
+        if let Some(local_repository) = local_repository.as_deref() {
+            write_text(
+                &path,
+                &maven_settings_template(mirror, proxy, Some(local_repository)),
+            )?;
+        } else if path.exists() {
             std::fs::remove_file(&path).map_err(|e| e.to_string())?;
         }
         return Ok(());
     }
-    write_text(&path, &maven_settings_template(mirror, proxy))
+    write_text(
+        &path,
+        &maven_settings_template(mirror, proxy, local_repository.as_deref()),
+    )
 }
 
 fn maven_proxy_has_at(path: &Path) -> bool {
@@ -1019,6 +1135,15 @@ fn maven_proxy_has_at(path: &Path) -> bool {
         .map(|text| {
             let low = text.to_lowercase();
             low.contains("<proxies>") && low.contains("<active>true</active>")
+        })
+        .unwrap_or(false)
+}
+
+fn maven_stacker_proxy_has_at(path: &Path) -> bool {
+    read_text(path)
+        .map(|text| {
+            let low = text.to_lowercase();
+            low.contains("<id>stacker-http</id>") || low.contains("<id>stacker-https</id>")
         })
         .unwrap_or(false)
 }
@@ -1099,6 +1224,67 @@ fn parse_proxy(
     })
 }
 
+fn configured_mirror(tool_id: &str, path: &Path) -> Option<Mirror> {
+    let tools = tools();
+    let tool = tools.iter().find(|tool| tool.id == tool_id)?;
+    let current = managed_detect_contains(tool, path, false).unwrap_or_else(|| "official".into());
+    tool.mirrors
+        .iter()
+        .find(|mirror| mirror.id == current)
+        .or_else(|| tool.mirrors.iter().find(|mirror| mirror.id == "official"))
+        .cloned()
+}
+
+/// 同步已经存在的、由 Stacker 管理的工具代理。没有显式端点时会移除旧代理，
+/// 但保留 registry、镜像仓库和本地缓存目录等其他配置。
+pub(crate) fn sync_existing_tool_proxies(
+    host: Option<&str>,
+    port: u16,
+) -> Result<Vec<String>, String> {
+    let endpoint = host
+        .map(str::trim)
+        .filter(|host| !host.is_empty() && port > 0)
+        .map(|host| format!("http://{host}:{port}"));
+    let mut changed = Vec::new();
+
+    if sync_line_proxy_keys(&npmrc_path(), false, endpoint.as_deref())? {
+        changed.push("npm / pnpm".into());
+    }
+    if sync_line_proxy_keys(&yarnrc_path(), true, endpoint.as_deref())? {
+        changed.push("Yarn".into());
+    }
+
+    let maven = maven_path();
+    if maven_stacker_proxy_has_at(&maven) {
+        if let Some(mirror) = configured_mirror("maven", &maven) {
+            let proxy = endpoint.as_ref().and_then(|_| {
+                host.map(|host| ToolProxy {
+                    host: host.to_string(),
+                    port,
+                })
+            });
+            maven_apply(maven, &mirror, proxy.as_ref(), true)?;
+            changed.push("Maven".into());
+        }
+    }
+
+    let gradle = gradle_path();
+    if gradle_proxy_has_at(&gradle) {
+        if let Some(mirror) = configured_mirror("gradle", &gradle) {
+            let proxy = endpoint.as_ref().and_then(|_| {
+                host.map(|host| ToolProxy {
+                    host: host.to_string(),
+                    port,
+                })
+            });
+            gradle_apply(gradle, &mirror, proxy.as_ref(), true)?;
+            changed.push("Gradle".into());
+        }
+    }
+
+    Ok(changed)
+}
+
 fn match_url(tool: &Tool, cur: &str) -> Option<String> {
     if cur.trim().is_empty() {
         return tool
@@ -1144,6 +1330,25 @@ pub fn detect(tool: &Tool) -> Option<String> {
             tool,
             &read_line_key(&npmrc_path(), "registry", false).unwrap_or_default(),
         ),
+        "composer_config" => {
+            let path = composer_path();
+            if !path.exists() {
+                return Some("official".into());
+            }
+            let value: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
+            let url = value
+                .get("repositories")
+                .and_then(|value| value.get("packagist.org"))
+                .and_then(|value| value.get("url"))
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("");
+            if url.is_empty() {
+                Some("official".into())
+            } else {
+                match_url(tool, url)
+            }
+        }
         "yarnrc" => match_url(
             tool,
             &read_line_key(&yarnrc_path(), "registry", true).unwrap_or_default(),
@@ -1245,6 +1450,48 @@ pub fn apply(tool: &Tool, mirror: &Mirror) -> Result<(), String> {
             let p = npmrc_path();
             backup::backup_file(&p);
             write_line_key(&p, "registry", &mirror.url, false)
+        }
+        "composer_config" => {
+            let path = composer_path();
+            backup::backup_file(&path);
+            let mut root: serde_json::Value = std::fs::read_to_string(&path)
+                .ok()
+                .and_then(|raw| serde_json::from_str(&raw).ok())
+                .unwrap_or_else(|| serde_json::json!({}));
+            if !root.is_object() {
+                root = serde_json::json!({});
+            }
+            let object = root.as_object_mut().expect("composer config object");
+            if mirror.id == "official" || mirror.url.trim().is_empty() {
+                if let Some(repositories) = object
+                    .get_mut("repositories")
+                    .and_then(serde_json::Value::as_object_mut)
+                {
+                    repositories.remove("packagist.org");
+                    if repositories.is_empty() {
+                        object.remove("repositories");
+                    }
+                }
+            } else {
+                let repositories = object
+                    .entry("repositories".to_string())
+                    .or_insert_with(|| serde_json::json!({}));
+                if !repositories.is_object() {
+                    *repositories = serde_json::json!({});
+                }
+                repositories
+                    .as_object_mut()
+                    .expect("composer repositories object")
+                    .insert(
+                        "packagist.org".into(),
+                        serde_json::json!({ "type": "composer", "url": mirror.url }),
+                    );
+            }
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+            }
+            let encoded = serde_json::to_string_pretty(&root).map_err(|error| error.to_string())?;
+            std::fs::write(path, encoded + "\n").map_err(|error| error.to_string())
         }
         "yarnrc" => {
             let p = yarnrc_path();

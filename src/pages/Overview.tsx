@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { invoke } from "../invoke";
-import type { Page } from "../App";
+import type { Page } from "../pageState";
 import { useBusy, useToast } from "../ui";
 import { useNotifications } from "../notifications";
 
@@ -459,6 +459,7 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
 const ECO_META: Record<string, { av: string; icon: string; label: string }> = {
   git: { av: "st", icon: "ti-brand-git", label: "Git" },
   python: { av: "py", icon: "ti-brand-python", label: "Python" },
+  php: { av: "php", icon: "ti-brand-php", label: "PHP" },
   node: { av: "npm", icon: "ti-brand-nodejs", label: "Node.js" },
   java: { av: "jv", icon: "ti-coffee", label: "Java" },
   go: { av: "go", icon: "ti-brand-golang", label: "Go" },

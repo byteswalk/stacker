@@ -3,6 +3,7 @@ import { invoke } from "../invoke";
 import { open } from "@tauri-apps/plugin-dialog";
 import { SourcesPanel } from "../SourcesPanel";
 import { VersionManager } from "../VersionManager";
+import { StorageLocations } from "../StorageLocations";
 import { Select } from "../Select";
 import { useBusy, useToast } from "../ui";
 
@@ -263,6 +264,8 @@ export default function Gradle() {
           versionsCmd: "gradle_versions",
           staticVersions: ["8.12", "8.10", "7.6.4"],
         }} />
+
+      <StorageLocations ecosystem="gradle" />
 
       <GradleWrapperPanel />
 

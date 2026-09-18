@@ -4,6 +4,7 @@ import { useToast, Loading, ErrorState } from "../ui";
 
 type ProxyStatus = {
   enabled: boolean; http: string; host: string; port: number;
+  mode: "system" | "manual" | "off"; endpoint_available: boolean; route_only: boolean;
   detected_port: number | null; no_proxy_auto: string[]; no_proxy_manual: string[];
 };
 
@@ -18,6 +19,20 @@ export default function Proxy() {
   const [loadErr, setLoadErr] = useState(false);
 
   async function refresh() { setSt(await invoke<ProxyStatus>("proxy_status")); }
+  async function syncSystemProxy() {
+    setBusy(true);
+    try {
+      await invoke("settings_sync_system_proxy");
+      const next = await invoke<ProxyStatus>("proxy_status");
+      setSt(next);
+      setManual(next.no_proxy_manual);
+      toast(next.endpoint_available ? `已同步系统代理 ${next.host}:${next.port}` : "Windows 未提供显式代理地址，已清除旧代理配置", "ok");
+    } catch (e) {
+      toast("同步系统代理失败：" + e, "err");
+    } finally {
+      setBusy(false);
+    }
+  }
   const loadProxy = useCallback(async () => {
     const s = await invoke<ProxyStatus>("proxy_status");
     setSt(s);
@@ -33,7 +48,13 @@ export default function Proxy() {
         if (manualDirty) await invoke("settings_set_proxy_manual", { manual });
         await invoke("proxy_disable", { alsoJvm: false });
       }
-      else await invoke("proxy_enable", { host: st?.host || "127.0.0.1", port: st?.port || 7890, alsoJvm: false, manual });
+      else {
+        if (!st?.endpoint_available) {
+          toast("当前没有显式代理地址，无需开启终端代理；网络请求将使用 Windows 当前路由。", "info");
+          return;
+        }
+        await invoke("proxy_enable", { host: st.host, port: st.port, alsoJvm: false, manual });
+      }
       const next = await invoke<ProxyStatus>("proxy_status");
       setSt(next);
       setManual(next.no_proxy_manual);
@@ -69,15 +90,18 @@ export default function Proxy() {
   const proxyState: ProxyStatus = st ?? {
     enabled: false,
     http: "",
-    host: "127.0.0.1",
-    port: 7890,
+    host: "",
+    port: 0,
+    mode: "system",
+    endpoint_available: false,
+    route_only: true,
     detected_port: null,
     no_proxy_auto: [],
     no_proxy_manual: [],
   };
-  const host = proxyState.host || "127.0.0.1";
+  const host = proxyState.host;
   const manualDirty = manual.join("\u0000") !== proxyState.no_proxy_manual.join("\u0000");
-  const pn = proxyState.port || proxyState.detected_port || 7890;
+  const pn = proxyState.port;
   const httpUrl = `http://${host}:${pn}`, socks = `socks5://${host}:${pn}`;
   const noProxy = [...proxyState.no_proxy_auto, ...manual].join(",");
   // 三种 shell 的「立即生效 / 撤销」片段（随地址、白名单实时变）
@@ -109,10 +133,18 @@ export default function Proxy() {
             {proxyLoading ? "正在读取当前用户的终端代理环境变量…" : proxyState.enabled ? "已设 HTTP_PROXY / HTTPS_PROXY / ALL_PROXY，仅对新开终端生效" : "开启后设置终端代理环境变量，对新开终端生效"}
           </div>
         </div>
-        <label className="sw lg"><input type="checkbox" checked={proxyState.enabled} disabled={busy || proxyLoading} onChange={toggle} /><span className="tk" /></label>
+        <div className="proxy-hero-actions">
+          {proxyState.mode === "system" && <button className="gh sm" disabled={busy || proxyLoading} onClick={syncSystemProxy}><i className="ti ti-refresh" /> 同步系统</button>}
+          <label className="sw lg" title={!proxyState.endpoint_available ? "未检测到显式代理地址，无需开启终端代理" : undefined}><input type="checkbox" checked={proxyState.enabled} disabled={busy || proxyLoading || !proxyState.endpoint_available} onChange={toggle} /><span className="tk" /></label>
+        </div>
       </div>
 
-      <div className="pxcard">
+      {!proxyLoading && proxyState.route_only && <div className="callout proxy-route-callout">
+        <i className="ti ti-route" />
+        <div><b>未配置显式系统代理</b> 终端和开发工具无需写入 HTTP_PROXY，网络请求将使用 Windows 当前路由。若之前使用过旧代理端口，点击「同步系统」可清除旧配置。</div>
+      </div>}
+
+      <div className={"pxcard" + (!proxyState.endpoint_available ? " disabled-section" : "")}>
         <div className="pxsec"><i className="ti ti-route-off" /> 直连白名单 NO_PROXY <span className="pxhint">名单内主机直连，不经过终端代理</span></div>
         {proxyLoading && <Loading text="正在读取直连白名单…" />}
         {!proxyLoading && (
@@ -141,16 +173,16 @@ export default function Proxy() {
             <button key={k} className={shell === k ? "on" : ""} onClick={() => setShell(k)}>{label}</button>
           ))}
         </div>
-        <div className="console" style={{ marginBottom: 11, userSelect: "text" }}>{cur.on}</div>
+        <div className="console" style={{ marginBottom: 11, userSelect: "text" }}>{proxyState.endpoint_available ? cur.on : "当前没有显式代理地址，无需执行终端代理启用命令。"}</div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button className="gh sm" onClick={() => copy(cur.on, "on")}><i className="ti ti-copy" /> {copied === "on" ? "已复制启用命令" : "复制启用命令"}</button>
+          <button className="gh sm" disabled={!proxyState.endpoint_available} onClick={() => copy(cur.on, "on")}><i className="ti ti-copy" /> {copied === "on" ? "已复制启用命令" : "复制启用命令"}</button>
           <button className="gh sm" onClick={() => copy(cur.off, "off")}><i className="ti ti-copy" /> {copied === "off" ? "已复制停用命令" : "复制停用命令"}</button>
         </div>
       </div>
 
       <div className="callout">
         <i className="ti ti-shield-half" />
-        <div><b>终端代理的作用范围</b> Stacker 只写入当前用户的代理环境变量，不修改 Windows 网络设置。需要所有应用统一使用代理时，请在代理客户端中启用系统代理或 TUN 模式。</div>
+        <div><b>终端代理的作用范围</b> Stacker 只读取 Windows 明确提供的代理地址，并管理当前用户的代理环境变量，不检测或配置 TUN、VPN。未提供显式代理地址时，网络请求直接使用 Windows 当前路由。</div>
       </div>
     </>
   );

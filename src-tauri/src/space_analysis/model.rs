@@ -35,6 +35,7 @@ impl SafetyClass {
 pub enum ProjectKind {
     Node,
     Rust,
+    Python,
     Maven,
     Gradle,
     Go,
@@ -48,6 +49,22 @@ pub struct ProjectRoot {
     pub node_id: String,
     pub path: String,
     pub kind: ProjectKind,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DevelopmentProject {
+    pub project_id: String,
+    pub node_id: String,
+    pub name: String,
+    pub path: String,
+    pub kinds: Vec<ProjectKind>,
+    pub allocated_bytes: u64,
+    pub reclaimable_bytes: u64,
+    pub artifact_count: u32,
+    pub agent_traces: Vec<String>,
+    pub has_git_metadata: bool,
+    pub last_modified_at: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -242,6 +259,8 @@ pub struct AnalysisSummary {
     #[serde(default)]
     pub unlisted_skipped_paths: u64,
     pub root_nodes: Vec<DirectoryNode>,
+    #[serde(default)]
+    pub projects: Vec<DevelopmentProject>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

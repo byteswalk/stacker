@@ -9,6 +9,7 @@ import { CacheDownloads } from "./CacheDownloads";
 import { CleanupPlanModal } from "./CleanupPlanModal";
 import { CleanupResultModal } from "./CleanupResultModal";
 import { DevelopmentArtifacts, formatSpaceBytes } from "./DevelopmentArtifacts";
+import { DevelopmentProjects } from "./DevelopmentProjects";
 import { DirectoryRanking } from "./DirectoryRanking";
 import { LargeFiles } from "./LargeFiles";
 import { SkippedPaths } from "./SkippedPaths";
@@ -16,7 +17,7 @@ import { SpaceOverview } from "./SpaceOverview";
 import { SpaceChanges } from "./SpaceChanges";
 import { SpaceMonitorModal } from "./SpaceMonitorModal";
 
-export const ANALYSIS_TABS = ["overview", "directories", "large-files", "development-artifacts", "cache-downloads", "skipped-paths", "changes"] as const;
+export const ANALYSIS_TABS = ["overview", "projects", "directories", "large-files", "development-artifacts", "cache-downloads", "skipped-paths", "changes"] as const;
 type AnalysisTab = (typeof ANALYSIS_TABS)[number];
 
 type SpaceAnalysisSettings = { large_file_threshold_bytes: number };
@@ -36,7 +37,7 @@ export function matchedFreeBytes(request: ScanRequest, volumes: readonly VolumeI
 }
 
 export function AnalysisTabs({ taskId, request }: { taskId: string; request: ScanRequest }) {
-  const { tr } = useI18n();
+  const { t, tr } = useI18n();
   const toast = useToast();
   const cleanup = useCleanupStore();
   const [activeTab, setActiveTab] = useState<AnalysisTab>("overview");
@@ -86,6 +87,7 @@ export function AnalysisTabs({ taskId, request }: { taskId: string; request: Sca
   if (error || !summary) return <div className="space-analysis-state error" role="alert"><i className="ti ti-alert-triangle" /><span>{error ?? tr("本次空间分析结果不可用，请重新扫描。")}</span></div>;
 
   const labels: Record<AnalysisTab, string> = {
+    projects: t("space.projects.tab"),
     overview: tr("空间概览"), directories: tr("目录排行"), "large-files": tr("大文件"),
     "development-artifacts": tr("开发产物"), "cache-downloads": tr("缓存与下载"),
     "skipped-paths": tr("已跳过路径"),
@@ -95,7 +97,7 @@ export function AnalysisTabs({ taskId, request }: { taskId: string; request: Sca
   const cacheNodes = cleanup.candidates.filter((node) => cacheImpactKeys.has(node.impactKey ?? ""));
   const artifactNodes = cleanup.candidates.filter((node) => !cacheImpactKeys.has(node.impactKey ?? ""));
   const selectedBytes = cleanup.candidates.filter((node) => cleanup.selected.has(node.nodeId)).reduce((sum, node) => sum + node.allocatedBytes, 0);
-  const cleanupTabActive = activeTab === "development-artifacts" || activeTab === "cache-downloads";
+  const cleanupTabActive = activeTab === "projects" || activeTab === "development-artifacts" || activeTab === "cache-downloads";
 
   function rescanAffected(paths: string[]) {
     const targets = [...new Set(paths.map((path) => path.replace(/[\\/][^\\/]+[\\/]?$/, "")).filter(Boolean))];
@@ -124,6 +126,7 @@ export function AnalysisTabs({ taskId, request }: { taskId: string; request: Sca
     </div>
     <div className="space-analysis-tab-panel" role="tabpanel">
       {activeTab === "overview" && <SpaceOverview taskId={taskId} summary={summary} freeBytes={freeBytes} />}
+      {activeTab === "projects" && <DevelopmentProjects projects={summary.projects} candidates={cleanup.candidates} />}
       {activeTab === "directories" && <DirectoryRanking taskId={taskId} roots={summary.rootNodes} />}
       {activeTab === "large-files" && <LargeFiles taskId={taskId} thresholdBytes={largeFileThreshold} />}
       {activeTab === "development-artifacts" && <DevelopmentArtifacts nodes={artifactNodes} />}

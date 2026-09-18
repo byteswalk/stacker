@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "version": "202607141100",
-  "updated_at": "2026-07-14T11:00:00+08:00",
+  "version": "202608301100",
+  "updated_at": "2026-08-30T11:00:00-07:00",
   "tools": [
     {
       "id": "python-runtime",
@@ -75,6 +75,12 @@
       ]
     },
     {
+      "id": "php-runtime",
+      "mirrors": [
+        { "id": "official", "name": "官方 PHP for Windows", "url": "https://windows.php.net/downloads/releases", "host": "windows.php.net" }
+      ]
+    },
+    {
       "id": "pip",
       "mirrors": [
         { "id": "official", "name": "官方 PyPI", "url": "https://pypi.org/simple", "host": "pypi.org" },
@@ -144,6 +150,13 @@
         { "id": "rsproxy", "name": "rsproxy.cn", "url": "sparse+https://rsproxy.cn/index/", "host": "rsproxy.cn" },
         { "id": "ustc", "name": "中科大", "url": "sparse+https://mirrors.ustc.edu.cn/crates.io-index/", "host": "mirrors.ustc.edu.cn" },
         { "id": "tuna", "name": "清华大学", "url": "sparse+https://mirrors.tuna.tsinghua.edu.cn/crates.io-index/", "host": "mirrors.tuna.tsinghua.edu.cn" }
+      ]
+    },
+    {
+      "id": "composer",
+      "mirrors": [
+        { "id": "official", "name": "官方 Packagist", "url": "https://repo.packagist.org", "host": "repo.packagist.org" },
+        { "id": "aliyun", "name": "阿里云", "url": "https://mirrors.aliyun.com/composer/", "host": "mirrors.aliyun.com" }
       ]
     }
   ]

@@ -2,7 +2,7 @@
 
 # Stacker
 
-**A local-first Windows developer workstation manager for runtimes, AI work agents, Git identities, network sources, and developer disk space.**
+**A local-first Windows developer workstation manager for runtimes, AI coding agents, Git identities, package storage, network sources, and developer disk space.**
 
 Stacker gives Windows developers one control surface for the infrastructure behind modern software work. Inspect the environment that is actually active, manage toolchains and work agents, keep Git accounts isolated, tune download sources, and find the build output and caches consuming local disks.
 
@@ -20,10 +20,12 @@ Stacker manages that local layer without requiring a model connection or uploadi
 
 - **Environment visibility** — verify the effective Git, Python, Node.js, Java, Maven, Gradle, Go, Rust, package-manager, proxy, and cache state.
 - **Runtime lifecycle** — discover, install, switch, verify, and remove local toolchain versions.
-- **AI work-agent lifecycle** — inspect supported CLI and desktop agents, refresh one agent independently, and copy an installed-agent summary for AI use.
+- **AI agent lifecycle** — inspect supported CLI and desktop products, distinguish regional editions, install or update supported surfaces, and copy an installed-agent summary for AI use.
+- **Local conversation workspace** — index supported Codex and Claude records, search and group conversations, export readable archives and handoff notes, and perform guarded native operations where the installed client exposes a verified interface.
 - **Git account isolation** — use separate terminal contexts and repository-level commit identities for GitHub, Gitee, GitLab, Gitea, Forgejo, Codeup, enterprise, and generic HTTPS Git services.
 - **Source and network control** — test latency, select download and repository sources, manage terminal proxy settings, and preserve local custom sources.
-- **Developer disk intelligence** — scan selected folders or disks, drill into directory usage, locate large files, filter cleanup candidates by path, and remove classified rebuildable data with confirmation.
+- **Package storage placement** — move or reset Maven, Gradle, npm, pnpm, pip, Composer, Go, Cargo, and rustup download or build stores without deleting the old location automatically.
+- **Developer disk intelligence** — scan selected folders or disks, recognize development projects and agent traces, locate large files, review rebuildable artifacts by project, and remove only classified targets after confirmation.
 - **Recoverable changes** — back up supported configuration before writing and restore it from local history.
 
 ## Product Tour
@@ -34,11 +36,15 @@ Run an on-demand check of the commands, runtimes, package managers, build tools,
 
 ![Stacker programming ecosystem check](assets/screenshots/environment-check.png)
 
-### AI Work Agents
+### AI Agent Catalog
 
-Review supported AI coding and work-agent CLI or desktop installations from one page. Agent checks and lifecycle actions refresh only the affected card, so unrelated work stays responsive.
+Review supported AI coding-agent CLI and desktop installations from one page. The catalog currently covers Claude Code, Codex, Antigravity, OpenCode, ZCode, Kimi, WorkBuddy, Qoder regional editions, TRAE regional editions, DeepSeek Harness, OpenClaw, and Hermes Agent. Availability and automated lifecycle actions vary by vendor surface.
 
 ![Stacker AI work agents](assets/screenshots/work-agents.png)
+
+### Conversation And Project Workspace
+
+Build a local index of supported Codex and Claude records without copying the full transcript into the database. Filter, search, group, export, summarize with an explicitly configured compatible endpoint, and review the project paths associated with each conversation. Source-changing operations are capability-gated, previewed, and backed up before execution.
 
 ### Git Account Environments
 
@@ -46,7 +52,7 @@ Keep multiple Git service accounts available without changing a machine-wide def
 
 ### Developer Disk Analysis
 
-Quick Scan checks known developer caches. Deep analysis accepts multiple folders or fixed disks, continues in the background, reports live progress, and supports directory drill-down and Explorer access. Cleanup is available only for classified **Development Artifacts** and **Caches & Downloads**; every run requires confirmation and revalidates its targets.
+Quick Scan checks known developer caches. Deep analysis accepts multiple folders or fixed disks, continues in the background, reports live progress, and supports directory drill-down and Explorer access. Project analysis recognizes common stacks, agent traces, dependencies, build output, and dedicated agent build directories. Cleanup is available only for classified **Development Artifacts** and **Caches & Downloads**; every run requires confirmation and revalidates its targets.
 
 ![Stacker developer disk analysis](assets/screenshots/space-analysis.png)
 
@@ -56,6 +62,7 @@ Quick Scan checks known developer caches. Deep analysis accepts multiple folders
 | --- | --- |
 | Git | Git for Windows detection and updates, isolated account terminals, project initialization, repository migration |
 | Python | pyenv-win, runtime discovery and installation, default version, pip sources, terminal integration |
+| PHP | PHP for Windows discovery and installation, default runtime, Composer lifecycle and sources |
 | Node.js | fnm, runtime discovery and installation, npm/pnpm/yarn sources, large-download mirrors |
 | Java | JDK discovery and installation, user or system `JAVA_HOME` and `PATH` |
 | Maven | Version discovery, installation, repository mirrors, proxy configuration, `settings.xml` |
@@ -63,9 +70,12 @@ Quick Scan checks known developer caches. Deep analysis accepts multiple folders
 | Go | SDK discovery and installation, user or system `GOROOT` and `GOPROXY` |
 | Rust | rustup toolchains, channels and pinned versions, components, targets, Cargo sources |
 
+Storage-location controls are available where the ecosystem provides a stable user-level setting. Existing data can be copied to an empty destination, but Stacker deliberately preserves the old directory until the user verifies the new location.
+
 ## Security and Privacy
 
 - Project files, machine summaries, and Git access tokens are not uploaded by Stacker.
+- Conversation indexing stays local. Summaries leave the machine only after the configured destination and payload preview are approved.
 - Git tokens are stored through Windows Credential Manager.
 - System-level environment changes and protected-directory scans require explicit Windows UAC approval.
 - Uncertain disk items remain view-only; cleanup is limited to classified targets and requires confirmation.
@@ -97,7 +107,7 @@ Download the latest build from [GitHub Releases](https://github.com/byteswalk/st
 Install Node.js, Rust stable, MSVC Build Tools, and the WebView2 development runtime.
 
 ```powershell
-npm install
+npm ci
 npm run tauri dev
 ```
 
@@ -116,6 +126,11 @@ Build the Windows installer, portable package, and checksum file:
 ```powershell
 npm run release:windows
 ```
+
+## Project Documentation
+
+- [Conversation workspace behavior and safety boundaries](docs/conversations.md)
+- [Development, verification, cleanup, and maintainer handoff](docs/development.md)
 
 ## License
 

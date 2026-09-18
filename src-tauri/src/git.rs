@@ -649,6 +649,12 @@ pub async fn git_apply_proxy() -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(|| {
         ensure_git()?;
         let (host, port) = crate::settings::proxy_addr();
+        if host.trim().is_empty() || port == 0 {
+            return Err(
+                "当前未配置显式代理地址。Git 将使用 Windows 当前网络路由，无需单独设置代理。"
+                    .into(),
+            );
+        }
         let http = format!("http://{host}:{port}");
         git_config_set("http.proxy", &http)?;
         git_config_set("https.proxy", &http)?;
@@ -668,6 +674,29 @@ pub async fn git_clear_proxy() -> Result<(), String> {
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+pub(crate) fn sync_existing_proxy(host: Option<&str>, port: u16) -> Result<bool, String> {
+    if crate::env::resolve_fresh("git.exe").is_none() {
+        return Ok(false);
+    }
+    let has_proxy =
+        git_config_get("http.proxy").is_some() || git_config_get("https.proxy").is_some();
+    if !has_proxy {
+        return Ok(false);
+    }
+    if let Some(host) = host
+        .map(str::trim)
+        .filter(|host| !host.is_empty() && port > 0)
+    {
+        let endpoint = format!("http://{host}:{port}");
+        git_config_set("http.proxy", &endpoint)?;
+        git_config_set("https.proxy", &endpoint)?;
+    } else {
+        git_config_unset("http.proxy")?;
+        git_config_unset("https.proxy")?;
+    }
+    Ok(true)
 }
 
 pub(crate) fn status_snapshot() -> GitStatus {
@@ -2526,69 +2555,21 @@ fn download_git_installer(
         "stacker-git-{safe_version}-{}-setup.exe",
         chrono::Local::now().timestamp_millis()
     ));
-    let result = (|| {
-        let agent = ureq::AgentBuilder::new()
-            .timeout_connect(Duration::from_secs(30))
-            .timeout_read(Duration::from_secs(30))
-            .timeout_write(Duration::from_secs(30))
-            .build();
-        let response = agent
-            .get(&release.installer_url)
-            .set("User-Agent", "Stacker")
-            .set("Accept", "application/octet-stream")
-            .call()
-            .map_err(|e| format!("连接 Git for Windows 下载源失败：{e}"))?;
-        let total = response
-            .header("Content-Length")
-            .and_then(|value| value.parse::<u64>().ok())
-            .unwrap_or(0);
-        let mut reader = response.into_reader();
-        let mut output = std::fs::File::create(&target)
-            .map_err(|e| format!("创建 Git 安装程序临时文件失败：{e}"))?;
-        let mut buffer = vec![0u8; 64 * 1024];
-        let mut received = 0u64;
-        let mut last_reported = 0u64;
-        loop {
-            if crate::installer::op_cancelled() {
-                return Err("已取消 Git 下载".into());
-            }
-            let count = reader
-                .read(&mut buffer)
-                .map_err(|e| format!("下载 Git for Windows 时连接中断：{e}"))?;
-            if count == 0 {
-                break;
-            }
-            output
-                .write_all(&buffer[..count])
-                .map_err(|e| format!("写入 Git 安装程序失败：{e}"))?;
-            received += count as u64;
-            if received.saturating_sub(last_reported) >= 512 * 1024 {
-                last_reported = received;
-                let progress = if total > 0 {
-                    format!(
-                        "下载 {:.0}% · {:.1}/{:.1} MB",
-                        received as f64 * 100.0 / total as f64,
-                        received as f64 / 1_048_576.0,
-                        total as f64 / 1_048_576.0
-                    )
-                } else {
-                    format!("已下载 {:.1} MB", received as f64 / 1_048_576.0)
-                };
-                let _ = window.emit("install-progress", progress);
-            }
-        }
-        output
-            .flush()
-            .map_err(|e| format!("保存 Git 安装程序失败：{e}"))?;
-        if received < 1_048_576 {
-            return Err("下载到的 Git 安装程序不完整，已停止安装".into());
-        }
-        Ok(target.clone())
-    })();
-    if result.is_err() {
-        let _ = std::fs::remove_file(&target);
-    }
-    result
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(30))
+        .timeout_read(Duration::from_secs(30))
+        .timeout_write(Duration::from_secs(30))
+        .build();
+    crate::installer::download_file_candidates_with_agent(
+        &agent,
+        std::slice::from_ref(&release.installer_url),
+        &target,
+        1_048_576,
+        |message| {
+            let _ = window.emit("install-progress", message);
+        },
+    )?;
+    Ok(target)
 }
 
 fn verify_authenticode_signature(path: &Path) -> Result<String, String> {

@@ -30,6 +30,8 @@ type DlConfig = {
   urlFor: (source: DlSource, version: string) => string;
   note?: string;
   versionsCmd?: string;
+  resolveUrlCmd?: string;
+  stripTop?: boolean;
   staticVersions?: string[];
   defaultSource?: string;
 };
@@ -149,9 +151,20 @@ export function VersionManager({ kind, icon, cmd, envvar, download, onChanged, o
   }
   const root = installRoot.trim() || defaultInstallRoot();
   const destFor = (v: string) => `${root}\\${download.folderName(v)}`;
-  const urlFor = (v: string) => {
+  const selectedSource = () => {
     const source = downloadSources.find((item) => item.id === downloadSource) ?? downloadSources[0];
     if (!source) throw new Error("当前没有可用的下载源");
+    return source;
+  };
+  const urlFor = async (v: string) => {
+    const source = selectedSource();
+    if (download.resolveUrlCmd) {
+      return invoke<string>(download.resolveUrlCmd, {
+        version: v,
+        source: source.id,
+        sourceUrl: source.url,
+      });
+    }
     return download.urlFor(source, v);
   };
 
@@ -160,6 +173,8 @@ export function VersionManager({ kind, icon, cmd, envvar, download, onChanged, o
   const rawUpdateHint = notices.ecosystemUpdates.find((item) => item.id === kind);
   const updateHint = rawUpdateHint && current && cmpVer(current.version, rawUpdateHint.latest) >= 0 ? undefined : rawUpdateHint;
   const label = download.title.replace(/^下载\s*/, "");
+  const environmentSetting = envvar ? `${envvar} 与 PATH` : "PATH";
+  const environmentPathLabel = envvar || `${label} 目录`;
   const versionSectionLabel = kind === "maven" || kind === "gradle" ? "构建工具版本" : "运行时版本";
   const updateTitle = updateHint ? `发现新版本：当前 ${updateHint.current}，最新 ${updateHint.latest}，下载源 ${sourceName(updateHint.source)}` : undefined;
   const summary = [
@@ -167,14 +182,14 @@ export function VersionManager({ kind, icon, cmd, envvar, download, onChanged, o
     "",
     summaryLine("命令", cmd),
     summaryLine("默认版本", current?.version ?? "未配置"),
-    summaryLine(envvar, current?.path ?? "未配置"),
+    summaryLine(environmentPathLabel, current?.path ?? "未配置"),
     summaryLine("下载源", sourceName(downloadSource)),
     summaryLine("已安装版本", versions.map((v) => v.version).join(", ") || "无"),
     summaryLine("配置范围", sysConfigured ? "包含系统级配置" : "当前用户配置"),
     "",
     "## 给 AI 的使用说明",
     `- 使用 ${cmd} 前，先执行版本检查命令确认当前终端可用。`,
-    `- 如需切换默认版本，请通过本页设置 ${envvar} 与 PATH，不要直接修改系统级配置。`,
+    `- 如需切换默认版本，请通过本页设置 ${environmentSetting}，不要直接修改系统级配置。`,
   ].join("\n");
 
   function refreshNoticeState(reason: string) {
@@ -314,7 +329,7 @@ export function VersionManager({ kind, icon, cmd, envvar, download, onChanged, o
       await runBusy({
         title: `删除 ${label} ${target.version}`,
         message: target.current
-          ? `正在删除安装目录并清除指向该版本的 ${envvar} 与 PATH；如包含系统级配置，Windows 将请求管理员授权。`
+          ? `正在删除安装目录并清除指向该版本的 ${environmentSetting}；如包含系统级配置，Windows 将请求管理员授权。`
           : "正在删除由 Stacker 安装的版本目录。",
       }, async () => {
         await invoke("env_remove_managed", { kind, path: target.path });
@@ -339,7 +354,7 @@ export function VersionManager({ kind, icon, cmd, envvar, download, onChanged, o
       const c = scope === "system" ? "env_set_default_system" : "env_set_default";
       await runBusy({
         title: `设置默认${download.title.replace(/^下载\s*/, "")}版本`,
-        message: `正在写入${scope === "system" ? "系统级" : "当前用户"} ${envvar} 与 PATH，并验证新配置。`,
+        message: `正在写入${scope === "system" ? "系统级" : "当前用户"} ${environmentSetting}，并验证新配置。`,
       }, async () => {
         await invoke(c, { kind, path: picked.path, siblings: versions.map((v) => v.path) });
         await load();
@@ -368,7 +383,8 @@ export function VersionManager({ kind, icon, cmd, envvar, download, onChanged, o
           },
         },
       }, async () => {
-        await invoke("installer_download", { url: urlFor(v), destDir: dest, stripTop: true });
+        const url = await urlFor(v);
+        await invoke("installer_download", { url, destDir: dest, stripTop: download.stripTop ?? true });
         await invoke("env_register_install", { kind, path: dest });
         if (installSetDefault) {
           const c = installScope === "system" ? "env_set_default_system" : "env_set_default";
@@ -431,7 +447,7 @@ export function VersionManager({ kind, icon, cmd, envvar, download, onChanged, o
         <TerminalBar
           avail={shells}
           ecosystem={kind as EcosystemId}
-          tip={`${label} 命令通过 ${envvar} 与 PATH 生效。可打开终端验证当前版本，或复制摘要给 AI。`}
+          tip={`${label} 命令通过 ${environmentSetting} 生效。可打开终端验证当前版本，或复制摘要给 AI。`}
           action={<EcoActions ecosystem={kind as EcosystemId} shells={shells} summary={summary} />}
         />
       )}
@@ -470,7 +486,7 @@ export function VersionManager({ kind, icon, cmd, envvar, download, onChanged, o
         <div className="effrow"><span className="ek"><i className="ti ti-terminal-2" /> 命令 {cmd}</span>
           <span className="ev">{grpLoading ? "检测中…" : current ? <>版本 <b>{current.version}</b></> : "未配置默认"}</span>
           {current && <span className="bd g">生效中</span>}</div>
-        <div className="effrow"><span className="ek"><i className="ti ti-variable" /> {envvar}</span>
+        <div className="effrow"><span className="ek"><i className="ti ti-variable" /> {environmentPathLabel}</span>
           <span className="ev"><span className="mono">{grpLoading ? "检测中…" : current?.path ?? "—"}</span></span>
           {sysConfigured && <span className="bd w">含系统级</span>}</div>
       </div>
@@ -490,7 +506,7 @@ export function VersionManager({ kind, icon, cmd, envvar, download, onChanged, o
             {v.origin === "project" && <span className="bd n">项目自带</span>}
             {v.current && <span className="live"><i className="ti ti-circle-check" /> 生效中</span>}
             {v.current
-              ? <button className="gh xs" title={`重新写入 ${envvar} / PATH 并刷新`} onClick={() => { setScope(sysConfigured ? "system" : "user"); setDlg(v); }}><i className="ti ti-refresh" /> 重新应用</button>
+              ? <button className="gh xs" title={`重新写入 ${environmentSetting} 并刷新`} onClick={() => { setScope(sysConfigured ? "system" : "user"); setDlg(v); }}><i className="ti ti-refresh" /> 重新应用</button>
               : <button className="pr sm" onClick={() => { setScope(sysConfigured ? "system" : "user"); setDlg(v); }}>设为默认</button>}
             {v.can_delete && <button className="gh xs danger" title="删除此版本" onClick={() => setRemoveDlg(v)}><i className="ti ti-trash" /></button>}
           </div>
@@ -499,7 +515,7 @@ export function VersionManager({ kind, icon, cmd, envvar, download, onChanged, o
 
       {dlg && (
         <Modal wide title={`设置默认版本 ${dlg.version}`} icon={icon} onClose={() => !busy && setDlg(null)}
-          sub={<b style={{ color: "var(--tx)" }}>{envvar} 和 PATH 始终一起改、同级同步</b>}
+          sub={<b style={{ color: "var(--tx)" }}>{environmentSetting} 同级同步</b>}
           footer={<>
             <button className="gh sm" onClick={() => setDlg(null)} disabled={busy}>取消</button>
             <button className="pr" style={{ background: "#d97a1f" }} onClick={applyDefault} disabled={busy}>
@@ -508,12 +524,12 @@ export function VersionManager({ kind, icon, cmd, envvar, download, onChanged, o
           <div className="field"><label>作用范围</label>
             <div className={"opt" + (scope === "user" ? " sel" : "")} onClick={() => setScope("user")}><span className="rd" />
               <div><div className="ot">仅当前用户 <span className="bd n" style={{ fontSize: 10 }}>免管理员</span></div>
-                <div className="od">写 HKCU：用户级 {envvar} + 用户 PATH。无需 UAC 提权。</div></div></div>
+                <div className="od">写 HKCU：用户级 {environmentSetting}。无需 UAC 提权。</div></div></div>
             <div className={"opt" + (scope === "system" ? " sel" : "")} onClick={() => setScope("system")}><span className="rd" />
               <div><div className="ot"><i className="ti ti-shield-lock" style={{ color: "#f5a45a" }} /> 系统全局 <span className="bd w" style={{ fontSize: 10 }}>需管理员 · 需 UAC 提权</span></div>
                 <div className="od">写 HKLM：所有用户生效。命令被系统 PATH 覆盖时选它。</div></div></div>
           </div>
-          <div className="banner gray" style={{ margin: 0 }}><i className="ti ti-history lead" /><div className="bt">改动前自动备份 {envvar} 与 PATH，可在「历史」还原。</div></div>
+          <div className="banner gray" style={{ margin: 0 }}><i className="ti ti-history lead" /><div className="bt">改动前自动备份 {environmentSetting}，可在「历史」还原。</div></div>
         </Modal>
       )}
 
@@ -525,7 +541,7 @@ export function VersionManager({ kind, icon, cmd, envvar, download, onChanged, o
           </>}>
           <div className="banner red" style={{ margin: 0 }}>
             <i className="ti ti-alert-triangle lead" />
-            <div className="bt">将永久删除 <span className="mono">{removeDlg.path}</span>。{removeDlg.current ? `该版本当前生效，相关 ${envvar} 与 PATH 配置也会一并清除。` : "此操作不可撤销。"}</div>
+            <div className="bt">将永久删除 <span className="mono">{removeDlg.path}</span>。{removeDlg.current ? `该版本当前生效，相关 ${environmentSetting} 配置也会一并清除。` : "此操作不可撤销。"}</div>
           </div>
         </Modal>
       )}
@@ -549,10 +565,10 @@ export function VersionManager({ kind, icon, cmd, envvar, download, onChanged, o
             <div className="field"><label>默认范围</label>
               <div className={"opt" + (installScope === "user" ? " sel" : "")} onClick={() => setInstallScope("user")}><span className="rd" />
                 <div><div className="ot">仅当前用户 <span className="bd n" style={{ fontSize: 10 }}>免管理员</span></div>
-                  <div className="od">安装后写入当前用户的 {envvar} 和 PATH。</div></div></div>
+                  <div className="od">安装后写入当前用户的 {environmentSetting}。</div></div></div>
               <div className={"opt" + (installScope === "system" ? " sel" : "")} onClick={() => setInstallScope("system")}><span className="rd" />
                 <div><div className="ot"><i className="ti ti-shield-lock" style={{ color: "#f5a45a" }} /> 系统全局 <span className="bd w" style={{ fontSize: 10 }}>需管理员 · 需 UAC 提权</span></div>
-                  <div className="od">安装后写入系统级 {envvar} 和 PATH。</div></div></div>
+                  <div className="od">安装后写入系统级 {environmentSetting}。</div></div></div>
             </div>
           )}
           {!visibleDlVersions ? <div style={{ color: "var(--mut)", fontSize: 13 }}>获取版本列表…</div>

@@ -868,6 +868,7 @@ fn coding_ecosystem_check_impl() -> CodingEcosystemCheck {
                 "未检测到可用的 Python 或 Conda".into()
             },
         },
+        command_row("php", "PHP", "运行时"),
         EcosystemSnapshot {
             id: "node".into(),
             label: "Node.js".into(),
@@ -904,12 +905,13 @@ fn coding_ecosystem_check_impl() -> CodingEcosystemCheck {
     ecosystems.sort_by_key(|item| match item.id.as_str() {
         "git" => 0,
         "python" => 1,
-        "node" => 2,
-        "java" => 3,
-        "maven" => 4,
-        "gradle" => 5,
-        "go" => 6,
-        "rust" => 7,
+        "php" => 2,
+        "node" => 3,
+        "java" => 4,
+        "maven" => 5,
+        "gradle" => 6,
+        "go" => 7,
+        "rust" => 8,
         _ => 99,
     });
 
@@ -985,6 +987,18 @@ fn agent_readiness_impl() -> AgentReadiness {
             }),
             scope.spawn(move || python_agent_check(python_path.as_ref())),
             scope.spawn(move || pip_agent_check(pip_path.as_ref())),
+            scope.spawn(|| {
+                agent_check(
+                    "php",
+                    "PHP",
+                    "运行时",
+                    false,
+                    &["php.exe", "php.cmd", "php.bat"],
+                    &["--version"],
+                    Some("php"),
+                    Some("配置 PHP"),
+                )
+            }),
             scope.spawn(|| {
                 agent_check(
                     "java",

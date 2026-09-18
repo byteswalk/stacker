@@ -1,5 +1,6 @@
 use super::model::{KnownSpaceItem, QuickScanResult, SafetyClass, ScanErrorSummary};
 use super::walker::{measure_path, CancellationToken, ScanWalkError, WalkStats};
+use crate::storage;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -146,6 +147,7 @@ fn known_cache_rules() -> Vec<KnownRule> {
     let home = home();
     let local = local_app_data();
     let go_module_cache = [
+        storage::effective_path("go-module-cache"),
         environment_path("GOMODCACHE"),
         environment_path("GOPATH").map(|path| path.join("pkg").join("mod")),
         Some(home.join("go").join("pkg").join("mod")),
@@ -154,6 +156,7 @@ fn known_cache_rules() -> Vec<KnownRule> {
     .flatten()
     .collect();
     let cargo_registry_cache = [
+        storage::effective_path("cargo-home").map(|path| path.join("registry").join("cache")),
         environment_path("CARGO_HOME").map(|path| path.join("registry").join("cache")),
         Some(home.join(".cargo").join("registry").join("cache")),
     ]
@@ -167,7 +170,9 @@ fn known_cache_rules() -> Vec<KnownRule> {
             name_key: "spaceAnalysis.known.gradle",
             ecosystem: "gradle",
             safety: SafetyClass::Safe,
-            candidates: vec![home.join(".gradle").join("caches")],
+            candidates: vec![storage::effective_path("gradle-user-home")
+                .unwrap_or_else(|| home.join(".gradle"))
+                .join("caches")],
         },
         KnownRule {
             id: "gomod",
@@ -181,14 +186,21 @@ fn known_cache_rules() -> Vec<KnownRule> {
             name_key: "spaceAnalysis.known.pnpm",
             ecosystem: "node",
             safety: SafetyClass::Safe,
-            candidates: vec![local.join("pnpm").join("store"), home.join(".pnpm-store")],
+            candidates: vec![
+                storage::effective_path("pnpm-store")
+                    .unwrap_or_else(|| local.join("pnpm").join("store")),
+                home.join(".pnpm-store"),
+            ],
         },
         KnownRule {
             id: "npm",
             name_key: "spaceAnalysis.known.npm",
             ecosystem: "node",
             safety: SafetyClass::Safe,
-            candidates: vec![local.join("npm-cache"), home.join(".npm").join("_cacache")],
+            candidates: vec![
+                storage::effective_path("npm-cache").unwrap_or_else(|| local.join("npm-cache")),
+                home.join(".npm").join("_cacache"),
+            ],
         },
         KnownRule {
             id: "cargo",
@@ -202,7 +214,8 @@ fn known_cache_rules() -> Vec<KnownRule> {
             name_key: "spaceAnalysis.known.pip",
             ecosystem: "python",
             safety: SafetyClass::Safe,
-            candidates: vec![local.join("pip").join("Cache")],
+            candidates: vec![storage::effective_path("pip-cache")
+                .unwrap_or_else(|| local.join("pip").join("Cache"))],
         },
         KnownRule {
             id: "electron",
@@ -230,7 +243,8 @@ fn known_cache_rules() -> Vec<KnownRule> {
             name_key: "spaceAnalysis.known.mavenRepository",
             ecosystem: "maven",
             safety: SafetyClass::NeedsConfirmation,
-            candidates: vec![home.join(".m2").join("repository")],
+            candidates: vec![storage::effective_path("maven-local-repository")
+                .unwrap_or_else(|| home.join(".m2").join("repository"))],
         },
     ]
 }

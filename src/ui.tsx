@@ -1,5 +1,7 @@
 import { createContext, useContext, useState, useCallback, useEffect, useId, useRef, type ReactNode } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { useModalFocus } from "./modalFocus";
+import { reportFrontendWarning } from "./invoke";
 
 /* ───────────── Toast ───────────── */
 type ToastKind = "ok" | "err" | "info";
@@ -26,15 +28,33 @@ function normalizeToastMessage(value: string) {
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<ToastItem[]>([]);
+  const currentItems = useRef<ToastItem[]>([]);
+  const timers = useRef(new Map<number, number>());
+  useEffect(() => {
+    const activeTimers = timers.current;
+    return () => { activeTimers.forEach(clearTimeout); activeTimers.clear(); };
+  }, []);
   const dismiss = useCallback((id: number) => {
-    setItems((items) => items.filter((item) => item.id !== id));
+    clearTimeout(timers.current.get(id));
+    timers.current.delete(id);
+    currentItems.current = currentItems.current.filter((item) => item.id !== id);
+    setItems(currentItems.current);
   }, []);
   const push = useCallback((msg: string, kind: ToastKind = "ok") => {
-    const id = ++_tid;
     const normalized = normalizeToastMessage(msg);
-    setItems((items) => [...items, { id, ...normalized, kind }]);
+    const existing = currentItems.current.find((item) => item.kind === kind && item.full === normalized.full);
+    const id = existing?.id ?? ++_tid;
+    clearTimeout(timers.current.get(id));
+    const next = [...currentItems.current.filter((item) => item.id !== id), { id, ...normalized, kind }];
+    while (next.length > 3) {
+      const removed = next.shift()!;
+      clearTimeout(timers.current.get(removed.id));
+      timers.current.delete(removed.id);
+    }
+    currentItems.current = next;
+    setItems(next);
     const duration = kind === "err" ? 9000 : kind === "info" ? 5500 : 3500;
-    window.setTimeout(() => dismiss(id), duration);
+    timers.current.set(id, window.setTimeout(() => dismiss(id), duration));
   }, [dismiss]);
   return <ToastCtx.Provider value={{ push, dismiss, items }}>{children}</ToastCtx.Provider>;
 }
@@ -51,7 +71,7 @@ export function ToastHost() {
   return (
     <div style={{ position: "fixed", left: "50%", bottom: 18, transform: "translateX(-50%)", zIndex: 100, display: "flex", flexDirection: "column", gap: 8, alignItems: "center", pointerEvents: "none" }}>
       {items.map((t) => (
-        <div key={t.id} className={"toast " + t.kind} title={t.full !== t.msg ? t.full : undefined}
+        <div key={t.id} role={t.kind === "err" ? "alert" : "status"} className={"toast " + t.kind} title={t.full !== t.msg ? t.full : undefined}
           style={{ position: "static", transform: "none", pointerEvents: "auto" }}>
           <i className={"ti " + TOAST_ICON[t.kind]} />
           <span className="toast-text">{t.msg}</span>
@@ -100,12 +120,20 @@ export function BusyProvider({ children }: { children: ReactNode }) {
           const now = Date.now();
           if (!isDone && now - last < 120) return;
           last = now;
-          setState((s) => (s ? { ...s, progress: isDone ? "完成" : e.payload } : s));
+          setState((s) => (s && !s.cancelRequested ? { ...s, progress: isDone ? "完成" : e.payload } : s));
         });
       }
       return await task();
     }
-    finally { un?.(); activeRef.current = false; setState(null); }
+    finally {
+      activeRef.current = false;
+      setState(null);
+      try {
+        void Promise.resolve(un?.()).catch((cause) => reportFrontendWarning("Progress listener cleanup failed", cause));
+      } catch (cause) {
+        reportFrontendWarning("Progress listener cleanup failed", cause);
+      }
+    }
   }, []);
   return <BusyCtx.Provider value={{ state, run, hide, requestCancel }}>{children}</BusyCtx.Provider>;
 }
@@ -115,10 +143,16 @@ export function useBusy() { return useContext(BusyCtx).run; }
 export function BusyHost() {
   const { state, requestCancel } = useContext(BusyCtx);
   if (!state) return null;
+  return <BusyDialog state={state} requestCancel={requestCancel} />;
+}
+
+function BusyDialog({ state, requestCancel }: { state: NonNullable<BusyState>; requestCancel: () => void }) {
+  const modalRef = useModalFocus(undefined, 200);
+  const titleId = useId();
   return (
     <div className="modalmask" style={{ zIndex: 200 }}>
-      <div className="modal" style={{ minWidth: 380, maxWidth: 470 }}>
-        <div className="modalhd"><span><i className="ti ti-loader spin" /> {state.title}</span></div>
+      <div ref={modalRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby={titleId} aria-busy="true" className="modal" style={{ maxWidth: 470 }}>
+        <div className="modalhd"><span id={titleId}><i className="ti ti-loader spin" /> {state.title}</span></div>
         <div className="modalbody">
           {state.message && <div style={{ fontSize: 13, color: "var(--tx)", lineHeight: 1.7 }}>{state.message}</div>}
           {(state.progress || state.progressEvent) && (
@@ -188,48 +222,11 @@ export function Modal({ title, icon, sub, wide, children, footer, onClose }: {
   title: ReactNode; icon?: string; sub?: ReactNode; wide?: boolean;
   children?: ReactNode; footer?: ReactNode; onClose?: () => void;
 }) {
-  const modalRef = useRef<HTMLDivElement>(null);
-  const onCloseRef = useRef(onClose);
+  const modalRef = useModalFocus(onClose);
   const titleId = useId();
-  useEffect(() => {
-    onCloseRef.current = onClose;
-  }, [onClose]);
-  useEffect(() => {
-    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const frame = window.requestAnimationFrame(() => {
-      const target = modalRef.current?.querySelector<HTMLElement>("[autofocus]")
-        ?? modalRef.current?.querySelector<HTMLElement>("button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex='-1'])");
-      target?.focus();
-    });
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && onCloseRef.current) {
-        event.preventDefault();
-        onCloseRef.current();
-        return;
-      }
-      if (event.key !== "Tab" || !modalRef.current) return;
-      const focusable = [...modalRef.current.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex='-1'])")];
-      if (!focusable.length) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.cancelAnimationFrame(frame);
-      document.removeEventListener("keydown", onKeyDown);
-      previous?.focus();
-    };
-  }, []);
   return (
     <div className="modalmask">
-      <div ref={modalRef} role="dialog" aria-modal="true" aria-labelledby={titleId} className={"modal" + (wide ? " wide" : "")}>
+      <div ref={modalRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby={titleId} className={"modal" + (wide ? " wide" : "")}>
         <div className="modalhd">
           <span id={titleId}>{icon && <i className={"ti " + icon} />} {title}</span>
           {onClose && <button className="ic" aria-label="关闭" title="关闭" onClick={onClose}><i className="ti ti-x" /></button>}
@@ -248,7 +245,7 @@ export function ConfirmModal({ title, icon, message, confirmLabel = "确认", da
   danger?: boolean; busy?: boolean; onConfirm: () => void; onClose: () => void;
 }) {
   return (
-    <Modal title={title} icon={icon ?? (danger ? "ti-alert-triangle" : "ti-help-circle")} onClose={onClose}
+    <Modal title={title} icon={icon ?? (danger ? "ti-alert-triangle" : "ti-help-circle")} onClose={busy ? undefined : onClose}
       footer={<>
         <button className="gh sm" onClick={onClose} disabled={busy}>取消</button>
         <button className={"pr sm" + (danger ? " danger-solid" : "")} style={danger ? { background: "#d6463d" } : undefined}

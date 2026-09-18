@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { SourcesPanel } from "../SourcesPanel";
+import { StorageLocations } from "../StorageLocations";
 import { VersionManager } from "../VersionManager";
 
 const mavenTrack = (v: string) => v.startsWith("4.") ? "maven-4" : v.startsWith("2.") ? "maven-2" : "maven-3";
@@ -29,6 +30,8 @@ export default function Maven() {
           versionsCmd: "maven_versions",
           staticVersions: ["3.9.9", "3.8.8", "3.6.3"],
         }} />
+
+      <StorageLocations ecosystem="maven" />
 
       <div className="grouphd" style={{ marginTop: 18 }}>
         <span className="gt"><i className="ti ti-world-download" /> 仓库镜像 <span className="cnt">settings.xml &lt;mirrors&gt;</span></span>

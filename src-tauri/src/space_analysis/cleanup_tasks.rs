@@ -1,4 +1,4 @@
-use super::classifier::{detect_project_kind, is_project_marker_file_name, matches_artifact_rule};
+use super::classifier::{detect_project_kinds, is_project_marker_file_name, matches_artifact_rule};
 use super::cleanup_plan::{PlanValidation, StoredCleanupPlan, ValidationSource};
 use super::known::{known_candidates, CleanupKind};
 use super::model::{
@@ -459,7 +459,7 @@ fn revalidate(
             }
             let current_evidence = project_marker_evidence(&canonical_root)?;
             if !project_evidence.is_subset(&current_evidence)
-                || detect_project_kind(&current_evidence) != Some(*project_kind)
+                || !detect_project_kinds(&current_evidence).contains(project_kind)
             {
                 return Err(REASON_CLASSIFICATION_CHANGED);
             }

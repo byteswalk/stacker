@@ -5,6 +5,7 @@ use std::fs;
 use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 
 use tauri::Emitter;
 
@@ -12,6 +13,7 @@ use tauri::Emitter;
 static OP_CANCEL: AtomicBool = AtomicBool::new(false);
 const DOWNLOAD_STALL_TIMEOUT_SECS: u64 = 30;
 const PROCESS_LONG_HINT_SECS: u64 = 180;
+const DOWNLOAD_ATTEMPTS_PER_SOURCE: usize = 2;
 
 pub(crate) fn diagnostic_excerpt(text: &str) -> String {
     const MAX_CHARS: usize = 128 * 1024;
@@ -824,6 +826,16 @@ fn verification_command(kind: &str, ecosystem: &str) -> Result<String, String> {
                 "where pip",
             ],
         ),
+        "php" => (
+            "PHP",
+            &[
+                "php -v",
+                "php --ini",
+                "composer --version",
+                "where php",
+                "where composer",
+            ],
+        ),
         "node" => ("Node.js", &["node -v", "npm -v", "where node", "where npm"]),
         "java" => (
             "Java",
@@ -955,6 +967,11 @@ fn verification_step_label(command: &str) -> &'static str {
         "pip --version" => "pip",
         "where python" => "Python path",
         "where pip" => "pip path",
+        "php -v" => "PHP",
+        "php --ini" => "PHP configuration",
+        "composer --version" => "Composer",
+        "where php" => "PHP path",
+        "where composer" => "Composer path",
         "node -v" => "Node.js",
         "npm -v" => "npm",
         "where node" => "Node.js path",
@@ -1199,6 +1216,189 @@ fn host_of(u: &str) -> String {
     u.split('/').nth(2).unwrap_or(u).to_string()
 }
 
+fn retryable_request_error(error: &ureq::Error) -> bool {
+    match error {
+        ureq::Error::Transport(_) => true,
+        ureq::Error::Status(code, _) => *code == 408 || *code == 429 || *code >= 500,
+    }
+}
+
+/// Download a file without imposing a total-duration limit. Each configured source is retried
+/// once for transient connection/read failures, then the next source is tried. Partial files are
+/// always removed after cancellation or a final failure.
+pub(crate) fn download_file_candidates_with_agent<F>(
+    agent: &ureq::Agent,
+    candidates: &[String],
+    target: &Path,
+    minimum_size: u64,
+    mut progress: F,
+) -> Result<String, String>
+where
+    F: FnMut(String),
+{
+    let mut last_error = String::new();
+    let _ = fs::remove_file(target);
+
+    for (source_index, url) in candidates.iter().enumerate() {
+        let host = host_of(url);
+        for attempt in 1..=DOWNLOAD_ATTEMPTS_PER_SOURCE {
+            if op_cancelled() {
+                let _ = fs::remove_file(target);
+                return Err("下载已取消".into());
+            }
+
+            progress(format!(
+                "正在连接 {host}（源 {}/{}, 第 {attempt} 次）…",
+                source_index + 1,
+                candidates.len()
+            ));
+            log::debug!(
+                target: "stacker::download",
+                "request start host={host} source_index={} attempt={attempt} target={}",
+                source_index + 1,
+                target.display()
+            );
+
+            let response = match agent
+                .get(url)
+                .set("User-Agent", "Stacker")
+                .set("Accept", "application/octet-stream")
+                .call()
+            {
+                Ok(response) => response,
+                Err(error) => {
+                    let retryable = retryable_request_error(&error);
+                    last_error = error.to_string();
+                    log::warn!(
+                        target: "stacker::download",
+                        "request failed host={host} attempt={attempt} retryable={retryable} error={error}"
+                    );
+                    if retryable && attempt < DOWNLOAD_ATTEMPTS_PER_SOURCE {
+                        progress(format!("连接 {host} 失败，正在重试…"));
+                        std::thread::sleep(Duration::from_millis(800));
+                        continue;
+                    }
+                    break;
+                }
+            };
+
+            let total = response
+                .header("Content-Length")
+                .and_then(|value| value.parse::<u64>().ok())
+                .unwrap_or(0);
+            let mut reader = response.into_reader();
+            let mut output = match fs::File::create(target) {
+                Ok(file) => file,
+                Err(error) => return Err(format!("无法创建下载临时文件：{error}")),
+            };
+            let mut buffer = vec![0u8; 64 * 1024];
+            let mut received = 0u64;
+            let mut last_reported_bytes = 0u64;
+            let mut last_reported_at = Instant::now();
+            let started_at = Instant::now();
+            let mut transfer_error = None;
+
+            loop {
+                if op_cancelled() {
+                    drop(output);
+                    let _ = fs::remove_file(target);
+                    return Err("下载已取消".into());
+                }
+                let count = match reader.read(&mut buffer) {
+                    Ok(count) => count,
+                    Err(error) => {
+                        transfer_error = Some(format!("连接中断：{error}"));
+                        break;
+                    }
+                };
+                if count == 0 {
+                    break;
+                }
+                if let Err(error) = output.write_all(&buffer[..count]) {
+                    drop(output);
+                    let _ = fs::remove_file(target);
+                    return Err(format!("写入下载文件失败：{error}"));
+                }
+                received += count as u64;
+                if received.saturating_sub(last_reported_bytes) >= 512 * 1024
+                    || last_reported_at.elapsed() >= Duration::from_secs(1)
+                {
+                    last_reported_bytes = received;
+                    last_reported_at = Instant::now();
+                    let elapsed = started_at.elapsed().as_secs();
+                    let message = if total > 0 {
+                        format!(
+                            "正在下载 {:.0}% · {:.1}/{:.1} MB · 已 {elapsed}s",
+                            received as f64 * 100.0 / total as f64,
+                            received as f64 / 1_048_576.0,
+                            total as f64 / 1_048_576.0
+                        )
+                    } else {
+                        format!(
+                            "正在下载 {:.1} MB · 已 {elapsed}s",
+                            received as f64 / 1_048_576.0
+                        )
+                    };
+                    progress(message);
+                }
+            }
+
+            if let Err(error) = output.flush() {
+                drop(output);
+                let _ = fs::remove_file(target);
+                return Err(format!("保存下载文件失败：{error}"));
+            }
+            drop(output);
+
+            if transfer_error.is_none() && total > 0 && received != total {
+                transfer_error = Some(format!(
+                    "文件不完整：应下载 {total} 字节，实际收到 {received} 字节"
+                ));
+            }
+            if transfer_error.is_none() && received < minimum_size {
+                transfer_error = Some(format!("文件大小异常：仅收到 {received} 字节"));
+            }
+
+            if let Some(error) = transfer_error {
+                last_error = error;
+                let _ = fs::remove_file(target);
+                log::warn!(
+                    target: "stacker::download",
+                    "transfer failed host={host} attempt={attempt} received_bytes={received} error={last_error}"
+                );
+                if attempt < DOWNLOAD_ATTEMPTS_PER_SOURCE {
+                    progress(format!("从 {host} 下载中断，正在重试…"));
+                    std::thread::sleep(Duration::from_millis(800));
+                    continue;
+                }
+                break;
+            }
+
+            progress(format!(
+                "下载完成 · {:.1} MB",
+                received as f64 / 1_048_576.0
+            ));
+            log::info!(
+                target: "stacker::download",
+                "download complete host={host} bytes={received} target={}",
+                target.display()
+            );
+            return Ok(host);
+        }
+
+        if source_index + 1 < candidates.len() {
+            progress(format!("{host} 下载失败，正在切换备用源…"));
+        }
+    }
+
+    let _ = fs::remove_file(target);
+    Err(if last_error.is_empty() {
+        "没有可用的下载地址".into()
+    } else {
+        format!("所有下载地址均失败：{last_error}")
+    })
+}
+
 /// 下载 url 的 zip 到 dest_dir 并解压。进度走 "install-progress" 事件（百分比 / __done__）。
 /// 异步包装：放后台线程，避免阻塞主线程导致界面"未响应"。
 #[tauri::command]
@@ -1230,7 +1430,6 @@ pub fn download_impl_candidates(
     dest_dir: String,
     strip_top: bool,
 ) -> Result<String, String> {
-    use std::time::Duration;
     op_reset();
     let source_hosts = candidates
         .iter()
@@ -1239,109 +1438,35 @@ pub fn download_impl_candidates(
     log::info!(
         "runtime download started: sources={source_hosts:?} destination={dest_dir} strip_top={strip_top}"
     );
-    // 连接/无进度超过 30s 失败；总下载时长不限制，避免大文件在正常下载中被误杀。
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(DOWNLOAD_STALL_TIMEOUT_SECS))
         .timeout_read(Duration::from_secs(DOWNLOAD_STALL_TIMEOUT_SECS))
         .timeout_write(Duration::from_secs(DOWNLOAD_STALL_TIMEOUT_SECS))
         .build();
-    let mut resp = None;
-    let mut last = String::new();
-    for (i, u) in candidates.iter().enumerate() {
-        if op_cancelled() {
-            return Err("已取消".into());
-        }
-        let _ = window.emit(
-            "install-progress",
-            format!(
-                "连接下载源 {}（{}/{}）…",
-                host_of(u),
-                i + 1,
-                candidates.len()
-            ),
-        );
-        match agent.get(u).call() {
-            Ok(r) => {
-                resp = Some(r);
-                break;
-            }
-            Err(e) => {
-                last = e.to_string();
-                log::warn!(
-                    "runtime download source failed: host={} error={e}",
-                    host_of(u)
-                );
-                let _ = window.emit(
-                    "install-progress",
-                    format!("{} 连不上，换下一个…", host_of(u)),
-                );
-            }
-        }
-    }
-    let resp = resp.ok_or_else(|| {
-        let error = format!("所有下载源都连不上：{last}");
+    let archive = std::env::temp_dir().join(format!(
+        "stacker_download_{}_{}.zip",
+        std::process::id(),
+        chrono::Local::now().timestamp_millis()
+    ));
+    download_file_candidates_with_agent(&agent, &candidates, &archive, 1, |message| {
+        let _ = window.emit("install-progress", message);
+    })
+    .map_err(|error| {
         log::error!(
             "runtime download failed: sources={source_hosts:?} destination={dest_dir} error={error}"
         );
         error
     })?;
-    let total: u64 = resp
-        .header("Content-Length")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
-    let tmp = std::env::temp_dir().join(format!(
-        "stacker_download_{}_{}.zip",
-        std::process::id(),
-        chrono::Local::now().timestamp_millis()
-    ));
-    {
-        let mut reader = resp.into_reader();
-        let mut out = fs::File::create(&tmp).map_err(|e| e.to_string())?;
-        let mut buf = vec![0u8; 1 << 16];
-        let (mut got, mut last) = (0u64, 0u64);
-        loop {
-            if op_cancelled() {
-                drop(out);
-                let _ = fs::remove_file(&tmp);
-                return Err("已取消下载".into());
-            }
-            let n = reader.read(&mut buf).map_err(|e| {
-                let error = format!("下载连接中断：{e}");
-                log::error!(
-                    "runtime download interrupted: sources={source_hosts:?} destination={dest_dir} received_bytes={got} error={error}"
-                );
-                error
-            })?;
-            if n == 0 {
-                break;
-            }
-            out.write_all(&buf[..n]).map_err(|e| e.to_string())?;
-            got += n as u64;
-            if got - last > (1 << 20) {
-                last = got;
-                let msg = if total > 0 {
-                    format!(
-                        "下载 {:.0}% · {:.1}/{:.1} MB",
-                        got as f64 * 100.0 / total as f64,
-                        got as f64 / 1048576.0,
-                        total as f64 / 1048576.0
-                    )
-                } else {
-                    format!("下载 {:.1} MB", got as f64 / 1048576.0)
-                };
-                let _ = window.emit("install-progress", msg);
-            }
-        }
-    }
-    let _ = window.emit("install-progress", "解压中…".to_string());
-    extract_zip(&tmp, Path::new(&dest_dir), strip_top).map_err(|e| {
-        let error = format!("解压失败：{e}");
+
+    let _ = window.emit("install-progress", "正在解压…".to_string());
+    let extraction = extract_zip(&archive, Path::new(&dest_dir), strip_top).map_err(|error| {
         log::error!(
             "runtime extraction failed: sources={source_hosts:?} destination={dest_dir} error={error}"
         );
-        error
-    })?;
-    let _ = fs::remove_file(&tmp);
+        format!("解压失败：{error}")
+    });
+    let _ = fs::remove_file(&archive);
+    extraction?;
     let _ = window.emit("install-progress", "__done__".to_string());
     log::info!("runtime download completed: sources={source_hosts:?} destination={dest_dir}");
     Ok(dest_dir)
@@ -1382,7 +1507,32 @@ pub fn extract_embedded_zip(
 
 #[cfg(test)]
 mod tests {
-    use super::{diagnostic_excerpt, managed_storage_root_for};
+    use super::{
+        diagnostic_excerpt, download_file_candidates_with_agent, managed_storage_root_for, op_reset,
+    };
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::time::Duration;
+
+    fn download_test_server(bodies: Vec<&'static [u8]>, declared_length: usize) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            for body in bodies {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = [0u8; 2048];
+                let _ = stream.read(&mut request);
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {declared_length}\r\nConnection: close\r\n\r\n"
+                )
+                .unwrap();
+                stream.write_all(body).unwrap();
+                stream.flush().unwrap();
+            }
+        });
+        format!("http://{address}/download")
+    }
 
     #[test]
     fn diagnostic_excerpt_keeps_short_output() {
@@ -1427,5 +1577,28 @@ mod tests {
         );
 
         assert_eq!(root, executable.path().join("data"));
+    }
+
+    #[test]
+    fn file_download_retries_truncated_transfers_and_removes_final_partial_file() {
+        op_reset();
+        let agent = ureq::AgentBuilder::new()
+            .timeout_connect(Duration::from_secs(2))
+            .timeout_read(Duration::from_secs(2))
+            .build();
+        let directory = tempfile::tempdir().unwrap();
+        let recovered = directory.path().join("recovered.bin");
+        let recovery_url = download_test_server(vec![b"bad", b"0123456789"], 10);
+
+        download_file_candidates_with_agent(&agent, &[recovery_url], &recovered, 1, |_| {})
+            .expect("the second transfer should recover the download");
+        assert_eq!(std::fs::read(&recovered).unwrap(), b"0123456789");
+
+        let failed = directory.path().join("failed.bin");
+        let failure_url = download_test_server(vec![b"bad", b"bad"], 10);
+        let error = download_file_candidates_with_agent(&agent, &[failure_url], &failed, 1, |_| {})
+            .expect_err("two truncated transfers should fail");
+        assert!(error.contains("文件不完整") || error.contains("连接中断"));
+        assert!(!failed.exists());
     }
 }

@@ -818,9 +818,8 @@ fn preseed_python(
     source: &str,
     log: &InstallLog,
 ) -> Result<PythonInstallerDownload, String> {
-    use std::io::{Read, Write};
-    const STALL_TIMEOUT_SECS: u64 = 30;
-    let root = pyenv_root().ok_or("未找到 pyenv（未安装或 PATH 未刷新）")?;
+    use tauri::Emitter;
+    let root = pyenv_root().ok_or("未找到 pyenv；请先安装或刷新环境后重试")?;
     let artifact = resolve_python_installer(version, source)?;
     log.line(format!(
         "preseed full installer resolved filename={} url={} kind={}",
@@ -831,121 +830,63 @@ fn preseed_python(
             PythonInstallerKind::Msi => "msi",
         }
     ));
-    let fname = artifact.filename;
-    let cache = std::path::Path::new(&root).join("install_cache");
-    let dest = cache.join(&fname);
-    if dest.is_file() {
+    let cache = Path::new(&root).join("install_cache");
+    std::fs::create_dir_all(&cache).map_err(|error| error.to_string())?;
+    let destination = cache.join(&artifact.filename);
+    if destination.is_file() {
         log.line(format!(
             "preseed full installer cache hit path={} size={}",
-            dest.display(),
-            dest.metadata().map(|m| m.len()).unwrap_or(0)
+            destination.display(),
+            destination
+                .metadata()
+                .map(|metadata| metadata.len())
+                .unwrap_or(0)
         ));
         let _ = window.emit("install-progress", "安装文件已就绪".to_string());
         return Ok(PythonInstallerDownload {
-            path: dest,
+            path: destination,
             kind: artifact.kind,
         });
-    } // 已缓存
-    std::fs::create_dir_all(&cache).map_err(|e| e.to_string())?;
-    let url = artifact.url;
-    let label = python_source_label(source);
-    let _ = window.emit(
-        "install-progress",
-        format!("正在通过「{label}」下载安装文件…"),
-    );
+    }
+
     let agent = ureq::AgentBuilder::new()
-        .timeout_connect(Duration::from_secs(STALL_TIMEOUT_SECS))
-        .timeout_read(Duration::from_secs(STALL_TIMEOUT_SECS))
-        .timeout_write(Duration::from_secs(STALL_TIMEOUT_SECS))
+        .timeout_connect(Duration::from_secs(30))
+        .timeout_read(Duration::from_secs(30))
+        .timeout_write(Duration::from_secs(30))
         .build();
-    let _ = window.emit("install-progress", "正在连接下载源…".to_string());
-    let probe = ureq::AgentBuilder::new()
-        .timeout_connect(Duration::from_secs(STALL_TIMEOUT_SECS))
-        .timeout_read(Duration::from_secs(STALL_TIMEOUT_SECS))
-        .timeout_write(Duration::from_secs(STALL_TIMEOUT_SECS))
-        .timeout(Duration::from_secs(STALL_TIMEOUT_SECS))
-        .build();
-    let probe_result = match probe.head(&url).call() {
-        Ok(response) => Ok(response),
-        Err(e) => {
-            log.line(format!("preseed HEAD failed err={e}; trying range GET"));
-            probe.get(&url).set("Range", "bytes=0-0").call()
-        }
-    };
-    match probe_result {
-        Ok(resp) => log.line(format!(
-            "preseed probe ok status={} content_length={}",
-            resp.status(),
-            resp.header("Content-Length").unwrap_or("")
-        )),
-        Err(e) => {
-            log.line(format!("preseed probe failed err={e}"));
-            return Err(format!(
-                "连接「{}」下载源失败：{}。请切换下载源后重试",
-                label, e
-            ));
-        }
+    let partial = destination.with_extension("part");
+    let download = crate::installer::download_file_candidates_with_agent(
+        &agent,
+        &[artifact.url],
+        &partial,
+        1,
+        |message| {
+            let _ = window.emit("install-progress", message);
+        },
+    );
+    if let Err(error) = download {
+        log.line(format!("preseed download failed err={error}"));
+        return Err(format!(
+            "通过{}下载安装文件失败：{error}",
+            python_source_label(source)
+        ));
     }
-    let resp = agent.get(&url).call().map_err(|e| {
-        log.line(format!("preseed GET failed err={e}"));
-        format!("连接「{}」下载源失败：{}。请切换下载源后重试", label, e)
+    std::fs::rename(&partial, &destination).map_err(|error| {
+        let _ = std::fs::remove_file(&partial);
+        format!("保存 Python 安装文件失败：{error}")
     })?;
-    let total: u64 = resp
-        .header("Content-Length")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
-    let tmp = dest.with_extension("part");
-    let result = (|| -> Result<(), String> {
-        let mut reader = resp.into_reader();
-        let mut out = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
-        let mut buf = vec![0u8; 1 << 16];
-        let (mut got, mut last) = (0u64, 0u64);
-        loop {
-            if crate::installer::op_cancelled() {
-                return Err("已取消".into());
-            }
-            let n = reader.read(&mut buf).map_err(|e| e.to_string())?;
-            if n == 0 {
-                break;
-            }
-            out.write_all(&buf[..n]).map_err(|e| e.to_string())?;
-            got += n as u64;
-            if got - last > 2_000_000 {
-                last = got;
-                let msg = if total > 0 {
-                    format!(
-                        "下载安装文件 {:.0}% · {:.1}/{:.1} MB",
-                        got as f64 * 100.0 / total as f64,
-                        got as f64 / 1048576.0,
-                        total as f64 / 1048576.0
-                    )
-                } else {
-                    format!("下载安装文件 {:.1} MB", got as f64 / 1048576.0)
-                };
-                let _ = window.emit("install-progress", msg);
-            }
-        }
-        Ok(())
-    })();
-    match result {
-        Ok(()) => {
-            std::fs::rename(&tmp, &dest).map_err(|e| e.to_string())?;
-            log.line(format!(
-                "preseed download complete path={} size={}",
-                dest.display(),
-                dest.metadata().map(|m| m.len()).unwrap_or(0)
-            ));
-            Ok(PythonInstallerDownload {
-                path: dest,
-                kind: artifact.kind,
-            })
-        }
-        Err(e) => {
-            let _ = std::fs::remove_file(&tmp);
-            log.line(format!("preseed download failed err={e}"));
-            Err(e)
-        }
-    }
+    log.line(format!(
+        "preseed download complete path={} size={}",
+        destination.display(),
+        destination
+            .metadata()
+            .map(|metadata| metadata.len())
+            .unwrap_or(0)
+    ));
+    Ok(PythonInstallerDownload {
+        path: destination,
+        kind: artifact.kind,
+    })
 }
 
 fn download_file_to_cache(
@@ -955,8 +896,7 @@ fn download_file_to_cache(
     label: &str,
     log: &InstallLog,
 ) -> Result<(), String> {
-    use std::io::{Read, Write};
-    const STALL_TIMEOUT_SECS: u64 = 30;
+    use tauri::Emitter;
     log.line(format!(
         "download request label={label} url={url} dest={}",
         dest.display()
@@ -965,104 +905,43 @@ fn download_file_to_cache(
         log.line(format!(
             "download cache hit label={label} dest={} size={}",
             dest.display(),
-            dest.metadata().map(|m| m.len()).unwrap_or(0)
+            dest.metadata().map(|metadata| metadata.len()).unwrap_or(0)
         ));
         let _ = window.emit("install-progress", "安装文件已就绪".to_string());
         return Ok(());
     }
     if let Some(parent) = dest.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
-    let _ = window.emit("install-progress", "正在下载安装文件…".to_string());
-    let probe = ureq::AgentBuilder::new()
-        .timeout_connect(Duration::from_secs(STALL_TIMEOUT_SECS))
-        .timeout_read(Duration::from_secs(STALL_TIMEOUT_SECS))
-        .timeout_write(Duration::from_secs(STALL_TIMEOUT_SECS))
-        .timeout(Duration::from_secs(STALL_TIMEOUT_SECS))
-        .build();
-    let probe_result = match probe.head(url).call() {
-        Ok(response) => Ok(response),
-        Err(e) => {
-            log.line(format!(
-                "download HEAD failed label={label} err={e}; trying range GET"
-            ));
-            probe.get(url).set("Range", "bytes=0-0").call()
-        }
-    };
-    match probe_result {
-        Ok(resp) => log.line(format!(
-            "download probe ok label={label} status={} content_length={}",
-            resp.status(),
-            resp.header("Content-Length").unwrap_or("")
-        )),
-        Err(e) => {
-            log.line(format!("download probe failed label={label} err={e}"));
-            return Err(format!("连接下载源失败：{e}"));
-        }
-    }
-
+    let partial = dest.with_extension("part");
     let agent = ureq::AgentBuilder::new()
-        .timeout_connect(Duration::from_secs(STALL_TIMEOUT_SECS))
-        .timeout_read(Duration::from_secs(STALL_TIMEOUT_SECS))
-        .timeout_write(Duration::from_secs(STALL_TIMEOUT_SECS))
+        .timeout_connect(Duration::from_secs(30))
+        .timeout_read(Duration::from_secs(30))
+        .timeout_write(Duration::from_secs(30))
         .build();
-    let resp = agent.get(url).call().map_err(|e| {
-        log.line(format!("download GET failed label={label} err={e}"));
-        format!("下载安装文件失败：{e}")
+    crate::installer::download_file_candidates_with_agent(
+        &agent,
+        &[url.to_string()],
+        &partial,
+        1,
+        |message| {
+            let _ = window.emit("install-progress", message);
+        },
+    )
+    .map_err(|error| {
+        log.line(format!("download failed label={label} err={error}"));
+        error
     })?;
-    let total: u64 = resp
-        .header("Content-Length")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
-    let tmp = dest.with_extension("part");
-    let result = (|| -> Result<(), String> {
-        let mut reader = resp.into_reader();
-        let mut out = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
-        let mut buf = vec![0u8; 1 << 16];
-        let (mut got, mut last) = (0u64, 0u64);
-        loop {
-            if crate::installer::op_cancelled() {
-                return Err("已取消".into());
-            }
-            let n = reader.read(&mut buf).map_err(|e| e.to_string())?;
-            if n == 0 {
-                break;
-            }
-            out.write_all(&buf[..n]).map_err(|e| e.to_string())?;
-            got += n as u64;
-            if got - last > 1_000_000 {
-                last = got;
-                let msg = if total > 0 {
-                    format!(
-                        "下载安装文件 {:.0}% · {:.1}/{:.1} MB",
-                        got as f64 * 100.0 / total as f64,
-                        got as f64 / 1048576.0,
-                        total as f64 / 1048576.0
-                    )
-                } else {
-                    format!("下载安装文件 {:.1} MB", got as f64 / 1048576.0)
-                };
-                let _ = window.emit("install-progress", msg);
-            }
-        }
-        Ok(())
-    })();
-    match result {
-        Ok(()) => {
-            std::fs::rename(&tmp, dest).map_err(|e| e.to_string())?;
-            log.line(format!(
-                "download complete label={label} dest={} size={}",
-                dest.display(),
-                dest.metadata().map(|m| m.len()).unwrap_or(0)
-            ));
-            Ok(())
-        }
-        Err(e) => {
-            let _ = std::fs::remove_file(&tmp);
-            log.line(format!("download failed label={label} err={e}"));
-            Err(e)
-        }
-    }
+    std::fs::rename(&partial, dest).map_err(|error| {
+        let _ = std::fs::remove_file(&partial);
+        format!("保存安装文件失败：{error}")
+    })?;
+    log.line(format!(
+        "download complete label={label} dest={} size={}",
+        dest.display(),
+        dest.metadata().map(|metadata| metadata.len()).unwrap_or(0)
+    ));
+    Ok(())
 }
 
 fn installed_python_ready(version_dir: &std::path::Path, version: &str) -> bool {

@@ -640,60 +640,30 @@ pub async fn rustup_install_self(
         .map_err(|e| e.to_string())?
 }
 fn install_self_impl(window: &tauri::Window, source_url: Option<String>) -> Result<String, String> {
-    use std::io::{Read, Write};
     use std::time::Duration;
     use tauri::Emitter;
     const STALL_TIMEOUT_SECS: u64 = 30;
     crate::installer::op_reset();
-    let tmp = std::env::temp_dir().join("rustup-init.exe");
+    let tmp = std::env::temp_dir().join(format!(
+        "stacker-rustup-init-{}.exe",
+        chrono::Local::now().timestamp_millis()
+    ));
+    let url = rustup_init_url(source_url.clone());
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(STALL_TIMEOUT_SECS))
         .timeout_read(Duration::from_secs(STALL_TIMEOUT_SECS))
         .timeout_write(Duration::from_secs(STALL_TIMEOUT_SECS))
         .build();
-    let url = rustup_init_url(source_url.clone());
-    let mut last = String::new();
-    let mut ok = false;
-    for url in [url.as_str()] {
-        let host = url.split('/').nth(2).unwrap_or(url);
-        let _ = window.emit("install-progress", format!("下载 rustup-init（{host}）…"));
-        match agent.get(url).call() {
-            Ok(resp) => {
-                let mut reader = resp.into_reader();
-                let mut out = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
-                let mut buf = vec![0u8; 1 << 16];
-                loop {
-                    if crate::installer::op_cancelled() {
-                        let _ = std::fs::remove_file(&tmp);
-                        return Err("已取消".into());
-                    }
-                    let n = match reader.read(&mut buf) {
-                        Ok(n) => n,
-                        Err(e) => {
-                            last = e.to_string();
-                            break;
-                        }
-                    };
-                    if n == 0 {
-                        ok = true;
-                        break;
-                    }
-                    out.write_all(&buf[..n]).map_err(|e| e.to_string())?;
-                }
-                if ok {
-                    break;
-                }
-            }
-            Err(e) => {
-                last = e.to_string();
-                let _ = window.emit("install-progress", format!("{host} 连不上，换下一个…"));
-            }
-        }
-    }
-    if !ok {
-        return Err(format!("下载 rustup-init 失败：{last}"));
-    }
-    run_rustup_download_from_source(
+    crate::installer::download_file_candidates_with_agent(
+        &agent,
+        &[url],
+        &tmp,
+        512 * 1024,
+        |message| {
+            let _ = window.emit("install-progress", message);
+        },
+    )?;
+    let install_result = run_rustup_download_from_source(
         window,
         &tmp.to_string_lossy(),
         &[
@@ -706,18 +676,18 @@ fn install_self_impl(window: &tauri::Window, source_url: Option<String>) -> Resu
         ],
         &None,
         source_url,
-        "安装 rustup + stable 工具链中",
-    )?;
-    // rustup-init 默认会改 PATH，但 --no-modify-path 时我们自己加 ~/.cargo/bin（保证可控）
+        "安装 rustup 与 stable 工具链",
+    );
+    let _ = std::fs::remove_file(&tmp);
+    install_result?;
     if let Some(home) = dirs::home_dir() {
         let cargo_bin = home.join(".cargo").join("bin");
         crate::winenv::prepend_path_in(crate::winenv::Hive::User, &cargo_bin.to_string_lossy())?;
     }
-    let _ = std::fs::remove_file(&tmp);
     if crate::env::resolve_fresh("rustup.exe").is_some() {
         Ok("rustup 与 stable 工具链已安装".into())
     } else {
-        Err("rustup 已安装但 PATH 未即时刷新，请重启应用后重试".into())
+        Err("rustup 已安装，但 PATH 尚未刷新；请重启 Stacker 后重试".into())
     }
 }
 

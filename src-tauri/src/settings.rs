@@ -34,6 +34,10 @@ pub struct AppSettings {
     pub minimize_to_tray: bool,
     #[serde(default = "default_theme")]
     pub theme: String, // "dark" | "light" | "system"
+    /// "system" | "manual" | "off"。旧版配置缺少此字段时按 system 迁移，
+    /// 避免继续使用代理软件已经废弃的本地端口。
+    #[serde(default = "default_proxy_mode")]
+    pub proxy_mode: String,
     #[serde(default = "default_proxy_host")]
     pub proxy_host: String,
     #[serde(default = "default_proxy_port")]
@@ -92,6 +96,7 @@ impl Default for AppSettings {
             close_behavior: "ask".into(),
             minimize_to_tray: false,
             theme: default_theme(),
+            proxy_mode: default_proxy_mode(),
             proxy_host: default_proxy_host(),
             proxy_port: default_proxy_port(),
             no_proxy_manual: Vec::new(),
@@ -106,6 +111,9 @@ impl Default for AppSettings {
             common_scan_directories: Vec::new(),
         }
     }
+}
+fn default_proxy_mode() -> String {
+    "system".into()
 }
 fn parse_proxy_addr(raw: &str) -> Option<(String, u16)> {
     let rest = raw
@@ -145,37 +153,20 @@ fn windows_system_proxy_addr() -> Option<(String, u16)> {
     }
     None
 }
-fn detected_proxy_addr() -> (String, u16) {
+fn detected_proxy_addr() -> Option<(String, u16)> {
     #[cfg(windows)]
     {
-        for (hive, name) in [
-            (crate::winenv::Hive::User, "HTTP_PROXY"),
-            (crate::winenv::Hive::User, "HTTPS_PROXY"),
-            (crate::winenv::Hive::User, "ALL_PROXY"),
-            (crate::winenv::Hive::System, "HTTP_PROXY"),
-            (crate::winenv::Hive::System, "HTTPS_PROXY"),
-            (crate::winenv::Hive::System, "ALL_PROXY"),
-        ] {
-            if let Some(raw) = crate::winenv::get_raw_in(hive, name) {
-                if let Some(addr) = parse_proxy_addr(&raw) {
-                    return addr;
-                }
-            }
-        }
         if let Some(addr) = windows_system_proxy_addr() {
-            return addr;
+            return Some(addr);
         }
     }
-    (
-        "127.0.0.1".into(),
-        crate::proxy::detect_clash_port().unwrap_or(7890),
-    )
+    None
 }
 fn default_proxy_host() -> String {
-    detected_proxy_addr().0
+    String::new()
 }
 fn default_proxy_port() -> u16 {
-    detected_proxy_addr().1
+    0
 }
 fn normalize(mut s: AppSettings) -> AppSettings {
     s.close_behavior = normalize_close_behavior(&s.close_behavior, s.minimize_to_tray).into();
@@ -183,14 +174,22 @@ fn normalize(mut s: AppSettings) -> AppSettings {
     if s.theme.trim().is_empty() {
         s.theme = default_theme();
     }
-    if s.proxy_host.trim().is_empty() || s.proxy_port == 0 {
-        let (host, port) = detected_proxy_addr();
-        if s.proxy_host.trim().is_empty() {
+    s.proxy_mode = match s.proxy_mode.trim().to_ascii_lowercase().as_str() {
+        "manual" => "manual".into(),
+        "off" => "off".into(),
+        _ => "system".into(),
+    };
+    if s.proxy_mode == "system" {
+        if let Some((host, port)) = detected_proxy_addr() {
             s.proxy_host = host;
-        }
-        if s.proxy_port == 0 {
             s.proxy_port = port;
+        } else {
+            s.proxy_host.clear();
+            s.proxy_port = 0;
         }
+    } else if s.proxy_mode == "off" {
+        s.proxy_host.clear();
+        s.proxy_port = 0;
     }
     s.log_level = normalize_log_level(&s.log_level).to_string();
     if s.log_retention_days == 0 {
@@ -262,6 +261,7 @@ pub fn load() -> AppSettings {
             close_behavior: "ask".into(),
             minimize_to_tray: false,
             theme: default_theme(),
+            proxy_mode: default_proxy_mode(),
             proxy_host: default_proxy_host(),
             proxy_port: default_proxy_port(),
             no_proxy_manual: Vec::new(),
@@ -616,6 +616,10 @@ pub fn proxy_addr() -> (String, u16) {
     (s.proxy_host, s.proxy_port)
 }
 
+pub fn proxy_mode() -> String {
+    load().proxy_mode
+}
+
 pub fn proxy_manual() -> Vec<String> {
     load().no_proxy_manual
 }
@@ -652,6 +656,7 @@ pub fn settings_set_proxy_addr(host: String, port: u16) -> Result<(), String> {
     }
     let current_proxy = crate::proxy::status();
     let mut s = load();
+    s.proxy_mode = "manual".into();
     s.proxy_host = host;
     s.proxy_port = port;
     save(&s)?;
@@ -663,7 +668,64 @@ pub fn settings_set_proxy_addr(host: String, port: u16) -> Result<(), String> {
             current_proxy.no_proxy_manual,
         )?;
     }
+    crate::proxy::sync_existing_explicit_proxies(Some(&s.proxy_host), s.proxy_port)?;
     Ok(())
+}
+
+#[tauri::command]
+pub fn settings_set_proxy_mode(mode: String) -> Result<AppSettings, String> {
+    let mode = match mode.trim().to_ascii_lowercase().as_str() {
+        "system" => "system",
+        "manual" => "manual",
+        "off" => "off",
+        _ => return Err("无效的代理模式".into()),
+    };
+    let current = crate::proxy::status();
+    let mut settings = load();
+    settings.proxy_mode = mode.into();
+
+    match mode {
+        "system" => {
+            if let Some((host, port)) = detected_proxy_addr() {
+                settings.proxy_host = host;
+                settings.proxy_port = port;
+            } else {
+                settings.proxy_host.clear();
+                settings.proxy_port = 0;
+            }
+        }
+        "off" => {
+            settings.proxy_host.clear();
+            settings.proxy_port = 0;
+        }
+        _ => {}
+    }
+    save(&settings)?;
+
+    if current.enabled {
+        if settings.proxy_mode == "off"
+            || settings.proxy_host.is_empty()
+            || settings.proxy_port == 0
+        {
+            crate::proxy::disable(false)?;
+        } else {
+            crate::proxy::enable(
+                &settings.proxy_host,
+                settings.proxy_port,
+                false,
+                current.no_proxy_manual,
+            )?;
+        }
+    }
+    let host = (!settings.proxy_host.trim().is_empty() && settings.proxy_port > 0)
+        .then_some(settings.proxy_host.as_str());
+    crate::proxy::sync_existing_explicit_proxies(host, settings.proxy_port)?;
+    Ok(load())
+}
+
+#[tauri::command]
+pub fn settings_sync_system_proxy() -> Result<AppSettings, String> {
+    settings_set_proxy_mode("system".into())
 }
 
 #[derive(Serialize)]

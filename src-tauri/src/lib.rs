@@ -4,6 +4,8 @@ mod bundle;
 mod catalog;
 mod checkup;
 mod cleanup;
+mod composer;
+mod conversations;
 mod custom;
 mod dpapi;
 mod env;
@@ -20,6 +22,7 @@ mod rustup;
 mod settings;
 mod sources;
 mod space_analysis;
+mod storage;
 mod update;
 mod versions;
 mod vibe;
@@ -95,6 +98,12 @@ pub fn run() {
             );
             settings::init();
             settings::start_log_retention_worker();
+            if let Err(error) = settings::settings_set_proxy_mode(app_settings.proxy_mode.clone()) {
+                log::warn!(
+                    target: "stacker::proxy",
+                    "failed to reconcile persisted proxy settings during startup: {error}"
+                );
+            }
             binary::migrate_legacy_envs();
             build_tray(app.handle())?;
             Ok(())
@@ -129,6 +138,18 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            conversations::conversations_list,
+            conversations::conversations_read,
+            conversations::conversations_sources,
+            conversations::conversations_save_settings,
+            conversations::conversations_annotate,
+            conversations::conversations_job,
+            conversations::conversations_cancel,
+            conversations::conversations_start,
+            conversations::conversations_prepare_summary,
+            conversations::conversations_preview,
+            conversations::conversations_execute,
+            conversations::conversations_open,
             sources::list_sources,
             sources::apply_source,
             sources::apply_source_scoped,
@@ -140,6 +161,12 @@ pub fn run() {
             sources::pip_apply_source,
             sources::pip_clear_source,
             sources::speedtest_hosts,
+            storage::storage_locations,
+            storage::storage_apply,
+            storage::storage_reset,
+            composer::composer_status,
+            composer::composer_install,
+            composer::composer_clear,
             sources::list_backups,
             sources::restore_backup,
             sources::backup_detail,
@@ -265,6 +292,8 @@ pub fn run() {
             versions::maven_versions,
             versions::gradle_versions,
             versions::go_versions,
+            versions::php_versions,
+            versions::php_download_url,
             profile::profile_save,
             profile::profile_list,
             profile::profile_apply,
@@ -292,9 +321,13 @@ pub fn run() {
             settings::settings_read_log,
             settings::settings_clear_old_logs,
             settings::settings_set_proxy_addr,
+            settings::settings_set_proxy_mode,
+            settings::settings_sync_system_proxy,
             settings::settings_set_proxy_manual,
             settings::os_info,
+            vibe::vibe_catalog,
             vibe::vibe_tools,
+            vibe::vibe_tools_refresh,
             vibe::vibe_tool,
             vibe::vibe_environment_prompt,
             vibe::vibe_tool_action,

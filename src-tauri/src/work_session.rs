@@ -445,8 +445,9 @@ fn agent_data_roots(agent_id: &str) -> Vec<PathBuf> {
         "zcode" => vec![home.join(".zcode"), roaming.join("ZCode")],
         "kimi" => vec![home.join(".kimi"), roaming.join("Kimi")],
         "workbuddy" => vec![home.join(".workbuddy"), roaming.join("WorkBuddy")],
-        "qoder" => vec![home.join(".qoder"), roaming.join("Qoder")],
-        "trae-work" => vec![home.join(".trae"), roaming.join("Trae")],
+        "qoder" | "qoder-cn" => vec![home.join(".qoder"), roaming.join("Qoder")],
+        "trae-work" | "trae-global" => vec![home.join(".trae"), roaming.join("Trae")],
+        "deepseek-harness" => vec![home.join(".deepseek"), roaming.join("DeepSeek Harness")],
         "openclaw" => vec![home.join(".openclaw"), roaming.join("OpenClaw")],
         "hermes" => vec![home.join(".hermes"), roaming.join("Hermes")],
         _ => Vec::new(),
@@ -471,7 +472,8 @@ fn cache_roots(enabled: &HashSet<String>) -> Vec<CacheRoot> {
             (
                 "cache:npm",
                 "npm package cache",
-                local.join("npm-cache"),
+                crate::storage::effective_path("npm-cache")
+                    .unwrap_or_else(|| local.join("npm-cache")),
                 "rebuildable",
                 true,
                 "Downloaded npm packages can be fetched again.",
@@ -479,7 +481,8 @@ fn cache_roots(enabled: &HashSet<String>) -> Vec<CacheRoot> {
             (
                 "cache:pnpm",
                 "pnpm package store",
-                local.join("pnpm").join("store"),
+                crate::storage::effective_path("pnpm-store")
+                    .unwrap_or_else(|| local.join("pnpm").join("store")),
                 "rebuildable",
                 true,
                 "The pnpm content-addressed store can be rebuilt by package installs.",
@@ -490,7 +493,8 @@ fn cache_roots(enabled: &HashSet<String>) -> Vec<CacheRoot> {
         roots.push((
             "cache:pip",
             "pip download cache",
-            local.join("pip").join("Cache"),
+            crate::storage::effective_path("pip-cache")
+                .unwrap_or_else(|| local.join("pip").join("Cache")),
             "rebuildable",
             true,
             "Downloaded Python packages can be fetched again.",
@@ -500,7 +504,8 @@ fn cache_roots(enabled: &HashSet<String>) -> Vec<CacheRoot> {
         roots.push((
             "cache:maven",
             "Maven local repository",
-            home.join(".m2").join("repository"),
+            crate::storage::effective_path("maven-local-repository")
+                .unwrap_or_else(|| home.join(".m2").join("repository")),
             "review",
             true,
             "Dependencies can usually be downloaded again, but offline or private artifacts require review.",
@@ -510,15 +515,17 @@ fn cache_roots(enabled: &HashSet<String>) -> Vec<CacheRoot> {
         roots.push((
             "cache:gradle",
             "Gradle caches",
-            home.join(".gradle").join("caches"),
+            crate::storage::effective_path("gradle-user-home")
+                .unwrap_or_else(|| home.join(".gradle"))
+                .join("caches"),
             "rebuildable",
             true,
             "Gradle can rebuild these dependency and transform caches.",
         ));
     }
     if enabled.contains("go") {
-        let go_cache = std::env::var_os("GOMODCACHE")
-            .map(PathBuf::from)
+        let go_cache = crate::storage::effective_path("go-module-cache")
+            .or_else(|| std::env::var_os("GOMODCACHE").map(PathBuf::from))
             .unwrap_or_else(|| home.join("go").join("pkg").join("mod"));
         roots.push((
             "cache:go",
@@ -530,8 +537,8 @@ fn cache_roots(enabled: &HashSet<String>) -> Vec<CacheRoot> {
         ));
     }
     if enabled.contains("rust") || enabled.contains("cargo") {
-        let cargo_home = std::env::var_os("CARGO_HOME")
-            .map(PathBuf::from)
+        let cargo_home = crate::storage::effective_path("cargo-home")
+            .or_else(|| std::env::var_os("CARGO_HOME").map(PathBuf::from))
             .unwrap_or_else(|| home.join(".cargo"));
         roots.extend([
             (

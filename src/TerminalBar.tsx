@@ -4,7 +4,7 @@ import { translateText } from "./i18n";
 import { Modal, useToast } from "./ui";
 
 type Shells = { powershell: boolean; gitbash: boolean; cmd: boolean };
-type EcosystemId = "python" | "node" | "java" | "maven" | "gradle" | "go" | "rust" | "git";
+type EcosystemId = "python" | "php" | "node" | "java" | "maven" | "gradle" | "go" | "rust" | "git";
 type ActivationCommands = { powershell: string; gitbash: string; cmd: string };
 
 export function TerminalBar({

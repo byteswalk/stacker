@@ -13,6 +13,7 @@ export function formatSpaceBytes(bytes: number) {
 }
 
 const impactLabels: Record<string, string> = {
+  "spaceAnalysis.impact.pythonVirtualEnvironment": "Python 虚拟环境，清理后需要重新创建并安装依赖",
   "spaceAnalysis.impact.nodeDependencies": "Node.js 依赖目录，清理后需要重新安装依赖",
   "spaceAnalysis.impact.rustBuildOutput": "Rust 构建产物，清理后首次构建会重新编译",
   "spaceAnalysis.impact.mavenBuildOutput": "Maven 构建产物，清理后首次构建会重新生成",

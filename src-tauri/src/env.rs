@@ -38,6 +38,7 @@ pub struct ScanResult {
     pub go: Vec<SdkVersion>,
     pub maven: Vec<SdkVersion>,
     pub gradle: Vec<SdkVersion>,
+    pub php: Vec<SdkVersion>,
 }
 
 #[derive(Serialize)]
@@ -54,6 +55,7 @@ fn label_for(kind: &str) -> String {
         "go" => "Go",
         "maven" => "Maven",
         "gradle" => "Gradle",
+        "php" => "PHP",
         _ => kind,
     }
     .to_string()
@@ -66,6 +68,7 @@ fn version_desc(kind: &str, v: &SdkVersion) -> String {
         "go" => format!("Go {}", v.version),
         "maven" => format!("Maven {}", v.version),
         "gradle" => format!("Gradle {}", v.version),
+        "php" => format!("PHP {}", v.version),
         _ => v.version.clone(),
     }
 }
@@ -190,6 +193,10 @@ fn make_version(kind: &str, home: &Path, current: Option<&str>) -> SdkVersion {
                 String::new(),
             )
         }
+        "php" => (
+            php_info(home).unwrap_or_else(|| extract_version(&path).unwrap_or_else(|| "?".into())),
+            String::new(),
+        ),
         _ => (
             extract_version(&path).unwrap_or_else(|| "?".into()),
             String::new(),
@@ -297,6 +304,7 @@ fn current_home(kind: &str) -> Option<String> {
                     .map(|p| p.to_string_lossy().to_string())
             })
         }),
+        "php" => first_real("php.exe", ""),
         _ => None,
     }
 }
@@ -515,6 +523,31 @@ fn bin_parent(exe: &Path) -> Option<PathBuf> {
     None
 }
 
+fn php_home(exe: &Path) -> Option<PathBuf> {
+    let dir = exe.parent()?;
+    let low = dir.to_string_lossy().to_ascii_lowercase();
+    if low.contains("\\vendor\\") || low.contains("\\node_modules\\") {
+        return None;
+    }
+    Some(dir.to_path_buf())
+}
+
+fn php_info(home: &Path) -> Option<String> {
+    let mut command = std::process::Command::new(home.join("php.exe"));
+    command.args(["-r", "echo PHP_VERSION;"]);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    let output = command.output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    (!value.is_empty()).then_some(value)
+}
+
 #[derive(Default)]
 struct Homes {
     java: Vec<PathBuf>,
@@ -523,6 +556,7 @@ struct Homes {
     go: Vec<PathBuf>,
     maven: Vec<PathBuf>,
     gradle: Vec<PathBuf>,
+    php: Vec<PathBuf>,
 }
 
 fn build(kind: &str, mut homes: Vec<PathBuf>) -> Vec<SdkVersion> {
@@ -620,6 +654,7 @@ fn legacy_managed_root(kind: &str) -> Option<PathBuf> {
         "maven" => "maven",
         "gradle" => "gradle",
         "go" => "go",
+        "php" => "php",
         _ => return None,
     };
     let base = PathBuf::from(crate::installer::app_dir());
@@ -632,6 +667,7 @@ fn has_runtime_marker(kind: &str, path: &Path) -> bool {
         "maven" => path.join(r"bin\mvn.cmd").is_file(),
         "gradle" => path.join(r"bin\gradle.bat").is_file(),
         "go" => path.join(r"bin\go.exe").is_file(),
+        "php" => path.join("php.exe").is_file(),
         _ => false,
     }
 }
@@ -748,6 +784,9 @@ fn cache_scan(homes: &Homes, kinds: &std::collections::HashSet<String>) {
     }
     if all || kinds.contains("gradle") {
         c.insert("gradle".into(), homes.gradle.clone());
+    }
+    if all || kinds.contains("php") {
+        c.insert("php".into(), homes.php.clone());
     }
     save_scan_cache(&c);
 }
@@ -883,6 +922,11 @@ fn scan_impl(
                         homes.gradle.push(h);
                     }
                 }
+                "php.exe" if wants("php") && !(exclude_tool_bundled && is_tool_bundled(&path)) => {
+                    if let Some(h) = php_home(&path) {
+                        homes.php.push(h);
+                    }
+                }
                 _ => {}
             }
         }
@@ -902,6 +946,7 @@ fn scan_impl(
         go: build("go", homes.go),
         maven: build("maven", homes.maven),
         gradle: build("gradle", homes.gradle),
+        php: build("php", homes.php),
     }
 }
 
@@ -950,6 +995,10 @@ fn is_related_path(kind: &str, entry: &str, siblings: &[String]) -> bool {
             let base = trim(s).replace('/', "\\").to_lowercase();
             low.eq_ignore_ascii_case(&base)
         }),
+        "php" => siblings.iter().any(|s| {
+            let base = trim(s).replace('/', "\\").to_lowercase();
+            low.eq_ignore_ascii_case(&base)
+        }),
         _ => false,
     }
 }
@@ -980,7 +1029,7 @@ pub fn set_default(
     let home = trim(path);
     let vars: &[&str] = match kind {
         "java" => &["JAVA_HOME"],
-        "python" | "node" => &[],
+        "python" | "node" | "php" => &[],
         "go" => &["GOROOT"],
         "maven" => &["MAVEN_HOME", "M2_HOME"],
         "gradle" => &["GRADLE_HOME"],
@@ -1008,6 +1057,13 @@ pub fn set_default(
             winenv::prepend_path_in(hive, home)?;
         }
         "node" => {
+            remove_related_path_entries(hive, kind, &siblings)?;
+            for s in &siblings {
+                winenv::remove_path_in(hive, trim(s))?;
+            }
+            winenv::prepend_path_in(hive, home)?;
+        }
+        "php" => {
             remove_related_path_entries(hive, kind, &siblings)?;
             for s in &siblings {
                 winenv::remove_path_in(hive, trim(s))?;
@@ -1059,7 +1115,7 @@ pub fn clear_default(hive: winenv::Hive, kind: &str, siblings: &[String]) -> Res
 fn vars_for_kind(kind: &str) -> Result<&'static [&'static str], String> {
     match kind {
         "java" => Ok(&["JAVA_HOME"]),
-        "python" | "node" => Ok(&[]),
+        "python" | "node" | "php" => Ok(&[]),
         "go" => Ok(&["GOROOT"]),
         "maven" => Ok(&["MAVEN_HOME", "M2_HOME"]),
         "gradle" => Ok(&["GRADLE_HOME"]),
@@ -1104,7 +1160,7 @@ pub fn env_state() -> Vec<SdkGroup> {
     if cache_changed {
         save_scan_cache(&cache);
     }
-    ["java", "python", "node", "go", "maven", "gradle"]
+    ["java", "python", "node", "php", "go", "maven", "gradle"]
         .iter()
         .map(|k| {
             // 合并「上次扫描缓存的安装根」+ 当前默认；build 会补当前默认、剔失效、标生效中
@@ -1286,6 +1342,7 @@ pub fn env_system_info() -> std::collections::HashMap<String, bool> {
     );
     m.insert("python".into(), has(&["python"]));
     m.insert("node".into(), has(&["nodejs", "\\node\\"]));
+    m.insert("php".into(), has(&["\\php", "%php_home%"]));
     m.insert(
         "maven".into(),
         winenv::get_raw_in(System, "MAVEN_HOME").is_some()

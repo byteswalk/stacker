@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { SourcesPanel } from "../SourcesPanel";
 import { VersionManager } from "../VersionManager";
+import { StorageLocations } from "../StorageLocations";
 
 export default function Go() {
   const [srcKey, setSrcKey] = useState(0);
@@ -21,6 +22,8 @@ export default function Go() {
           note: "版本列表按当前下载源实际提供的 Windows 64 位发行包生成。",
           versionsCmd: "go_versions",
         }} />
+
+      <StorageLocations ecosystem="go" />
 
       <div className="grouphd" style={{ marginTop: 18 }}>
         <span className="gt"><i className="ti ti-world-download" /> 模块代理 <span className="cnt">GOPROXY</span></span>

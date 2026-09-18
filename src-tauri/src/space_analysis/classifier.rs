@@ -20,6 +20,7 @@ pub(crate) struct Classification {
     pub(crate) project_id: Option<String>,
     pub(crate) cleanup_kind: CleanupKind,
     pub(crate) impact_key: Option<&'static str>,
+    pub(crate) project_kind: Option<ProjectKind>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -53,6 +54,22 @@ const ARTIFACT_RULES: &[ArtifactRule] = &[
         cleanup_kind: CleanupKind::WholeDirectory,
         impact_key: "spaceAnalysis.impact.nodeDependencies",
         safety: SafetyClass::Rebuildable,
+        required_root_evidence: &[],
+    },
+    ArtifactRule {
+        project_kind: ProjectKind::Python,
+        relative_path: ".venv",
+        cleanup_kind: CleanupKind::WholeDirectory,
+        impact_key: "spaceAnalysis.impact.pythonVirtualEnvironment",
+        safety: SafetyClass::NeedsConfirmation,
+        required_root_evidence: &[],
+    },
+    ArtifactRule {
+        project_kind: ProjectKind::Python,
+        relative_path: "venv",
+        cleanup_kind: CleanupKind::WholeDirectory,
+        impact_key: "spaceAnalysis.impact.pythonVirtualEnvironment",
+        safety: SafetyClass::NeedsConfirmation,
         required_root_evidence: &[],
     },
     ArtifactRule {
@@ -162,7 +179,7 @@ pub(crate) fn classify_node(
     let evidence = root_evidence.get(&project.node_id);
 
     if let Some(rule) = ARTIFACT_RULES.iter().find(|rule| {
-        rule.project_kind == project.kind
+        evidence.is_some_and(|files| detect_project_kinds(files).contains(&rule.project_kind))
             && rule.relative_path == relative_path
             && (rule.required_root_evidence.is_empty()
                 || rule
@@ -175,6 +192,7 @@ pub(crate) fn classify_node(
             project_id,
             cleanup_kind: rule.cleanup_kind,
             impact_key: Some(rule.impact_key),
+            project_kind: Some(rule.project_kind),
         };
     }
 
@@ -218,6 +236,7 @@ impl Classification {
             project_id,
             cleanup_kind: CleanupKind::None,
             impact_key: None,
+            project_kind: None,
         }
     }
 }
@@ -259,29 +278,45 @@ fn is_tool_or_dependency_managed_project_root(path: &Path) -> bool {
 }
 
 pub(crate) fn detect_project_kind(file_names: &HashSet<String>) -> Option<ProjectKind> {
+    detect_project_kinds(file_names).into_iter().next()
+}
+
+pub(crate) fn detect_project_kinds(file_names: &HashSet<String>) -> Vec<ProjectKind> {
+    let mut kinds = Vec::new();
     if file_names.contains("package.json") {
-        Some(ProjectKind::Node)
-    } else if file_names.contains("cargo.toml") {
-        Some(ProjectKind::Rust)
-    } else if file_names.contains("pom.xml") {
-        Some(ProjectKind::Maven)
-    } else if file_names.iter().any(|name| {
+        kinds.push(ProjectKind::Node);
+    }
+    if file_names.contains("cargo.toml") {
+        kinds.push(ProjectKind::Rust);
+    }
+    if file_names.contains("pyproject.toml")
+        || file_names.contains("requirements.txt")
+        || file_names.contains("setup.py")
+        || file_names.contains("setup.cfg")
+    {
+        kinds.push(ProjectKind::Python);
+    }
+    if file_names.contains("pom.xml") {
+        kinds.push(ProjectKind::Maven);
+    }
+    if file_names.iter().any(|name| {
         matches!(
             name.as_str(),
             "build.gradle" | "build.gradle.kts" | "settings.gradle" | "settings.gradle.kts"
         )
     }) {
-        Some(ProjectKind::Gradle)
-    } else if file_names.contains("go.mod") {
-        Some(ProjectKind::Go)
-    } else if file_names
+        kinds.push(ProjectKind::Gradle);
+    }
+    if file_names.contains("go.mod") {
+        kinds.push(ProjectKind::Go);
+    }
+    if file_names
         .iter()
         .any(|name| name.ends_with(".sln") || name.ends_with(".csproj"))
     {
-        Some(ProjectKind::DotNet)
-    } else {
-        None
+        kinds.push(ProjectKind::DotNet);
     }
+    kinds
 }
 
 pub(crate) fn is_project_marker_file_name(file_name: &str) -> bool {
@@ -296,6 +331,10 @@ pub(crate) fn is_project_marker_file_name(file_name: &str) -> bool {
             | "settings.gradle"
             | "settings.gradle.kts"
             | "go.mod"
+            | "pyproject.toml"
+            | "requirements.txt"
+            | "setup.py"
+            | "setup.cfg"
             | ".goreleaser.yml"
             | ".goreleaser.yaml"
     ) || file_name.ends_with(".sln")
@@ -330,6 +369,7 @@ mod tests {
         let expected = [
             ("node", "package.json", ProjectKind::Node),
             ("rust", "Cargo.toml", ProjectKind::Rust),
+            ("python", "pyproject.toml", ProjectKind::Python),
             ("maven", "pom.xml", ProjectKind::Maven),
             ("gradle", "settings.gradle.kts", ProjectKind::Gradle),
             ("go", "go.mod", ProjectKind::Go),
@@ -461,6 +501,36 @@ mod tests {
             assert!(classification.project_id.is_some());
             assert!(classification.impact_key.is_some());
         }
+    }
+
+    #[test]
+    fn python_virtual_environments_require_confirmation() {
+        let temp = tempfile::tempdir().unwrap();
+        let project = create_project(temp.path(), "python", "pyproject.toml");
+        let environment = project.join(".venv");
+        fs::create_dir_all(environment.join("Lib").join("site-packages")).unwrap();
+
+        let classification = classify_fixture(&project, &environment);
+        assert_eq!(classification.safety, SafetyClass::NeedsConfirmation);
+        assert_eq!(classification.cleanup_kind, CleanupKind::WholeDirectory);
+        assert_eq!(classification.project_kind, Some(ProjectKind::Python));
+    }
+
+    #[test]
+    fn polyglot_roots_classify_artifacts_for_each_detected_stack() {
+        let temp = tempfile::tempdir().unwrap();
+        let project = temp.path().join("polyglot");
+        fs::create_dir_all(project.join("node_modules")).unwrap();
+        fs::create_dir_all(project.join("target")).unwrap();
+        fs::write(project.join("package.json"), b"{}").unwrap();
+        fs::write(project.join("Cargo.toml"), b"[package]").unwrap();
+
+        let node = classify_fixture(&project, &project.join("node_modules"));
+        let rust = classify_fixture(&project, &project.join("target"));
+
+        assert_eq!(node.project_kind, Some(ProjectKind::Node));
+        assert_eq!(rust.project_kind, Some(ProjectKind::Rust));
+        assert_eq!(node.project_id, rust.project_id);
     }
 
     #[test]

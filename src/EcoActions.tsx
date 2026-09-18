@@ -2,7 +2,7 @@ import { useToast } from "./ui";
 import { translateText } from "./i18n";
 
 export type Shells = { powershell: boolean; gitbash: boolean; cmd: boolean };
-export type EcosystemId = "python" | "node" | "java" | "maven" | "gradle" | "go" | "rust";
+export type EcosystemId = "python" | "php" | "node" | "java" | "maven" | "gradle" | "go" | "rust";
 
 export function EcoActions({
   summary,

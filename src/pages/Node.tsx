@@ -3,6 +3,7 @@ import { invoke } from "../invoke";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useToast, Modal, ConfirmModal, useBusy, Loading, ErrorState, operationWasCancelled } from "../ui";
 import { SourcesPanel } from "../SourcesPanel";
+import { StorageLocations } from "../StorageLocations";
 import { TerminalBar } from "../TerminalBar";
 import { Select } from "../Select";
 import { summaryLine } from "../EcoActions";
@@ -546,6 +547,8 @@ export default function Node() {
           ))}
         </>
       )}
+
+      <StorageLocations ecosystem="node" />
 
       <div className="grouphd" style={{ marginTop: 18 }}>
         <span className="gt"><i className="ti ti-package" /> 包源 / 镜像</span>

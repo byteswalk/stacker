@@ -10,7 +10,6 @@ import {
   loadWorkEnvironmentContract,
   loadWorkSessionReports,
   loadWorkSessionTrackingRoots,
-  loadDesktopSessionProcesses,
   managedWorkSessionSnapshot,
   openWorkSessionPath,
   prepareWorkSessionCleanup,
@@ -24,7 +23,6 @@ import {
   type WorkSessionProfile,
   type WorkSessionReport,
   type WorkSessionTrackingRoot,
-  type WorkSessionDesktopProcess,
 } from "./managedWorkSessionStore";
 
 export interface ManagedAgentOption {
@@ -102,8 +100,6 @@ export function ManagedWorkSession({ agents, onOpenCleanup }: {
   const [session, setSession] = useState<ManagedWorkSessionState>(managedWorkSessionSnapshot());
   const [detail, setDetail] = useState<WorkSessionReport | null>(null);
   const [removeReport, setRemoveReport] = useState<WorkSessionReport | null>(null);
-  const [desktopProcesses, setDesktopProcesses] = useState<WorkSessionDesktopProcess[]>([]);
-  const [desktopProcessesLoading, setDesktopProcessesLoading] = useState(false);
   const contractAutoLoadAttempted = useRef(false);
   const installedAgents = useMemo(() => agents.filter((agent) => session.profile.mode === "desktop" ? agent.desktopInstalled : agent.cliInstalled && agent.cliPath), [agents, session.profile.mode]);
   const busy = session.phase === "baseline" || session.phase === "launching" || session.phase === "stopping";
@@ -113,7 +109,7 @@ export function ManagedWorkSession({ agents, onOpenCleanup }: {
     notice: "CLI sessions control the approved command environment. Desktop sessions observe the selected app and folders without changing the app environment.",
     title: "Managed work session", subtitle: "Run or observe an agent and keep an evidence-based record of its disk impact.",
     project: "Project folder", choose: "Choose folder", open: "Open folder", agent: "Work agent", shell: "Terminal", mode: "Session type", cliMode: "CLI", desktopMode: "Desktop app",
-    noAgents: "No installed agent is available for this session type. Refresh agent status and install one first.", desktopAction: "Desktop action", launchDesktop: "Launch app", attachDesktop: "Attach running app", process: "Running process", refreshProcesses: "Refresh processes", noProcesses: "No matching desktop process is running.",
+    noAgents: "No installed agent is available for this session type. Refresh agent status and install one first.", desktopLaunch: "Stacker opens or activates the selected desktop app, then tracks changes in the selected folders. You do not need to choose a process.",
     contract: "Approved environment", contractDesc: "Checked commands are added to this session PATH. Other development tools stay outside the managed terminal.",
     refresh: "Refresh environment", save: "Save profile", saved: "Work profile saved.", copy: "Copy summary for AI",
     start: "Start session", stop: "Finish session", baseline: "Measuring the selected folders before the agent starts...",
@@ -127,7 +123,7 @@ export function ManagedWorkSession({ agents, onOpenCleanup }: {
     baselineFiles: "Files measured", baselineDirectories: "Folders measured", measured: "Space measured", skipped: "Skipped paths",
     directories: "Largest directory changes", recent: "Recent file changes", cleanup: "Review cache cleanup",
     attribution: "Stacker records changes inside the selected folders. Process names are supporting context, not unsupported file-level attribution.",
-    selectProject: "Select a project folder first.", selectAgent: "Select an installed agent first.", selectProcess: "Select a running desktop process first.", copied: "Environment summary copied for AI.", desktopLimit: "Desktop observation cannot replace the environment inherited by an already running app. Ending observation does not close the app.",
+    selectProject: "Select a project folder first.", selectAgent: "Select an installed agent first.", copied: "Environment summary copied for AI.", desktopLimit: "Desktop observation records folder changes only. It does not alter the app environment or close the app when tracking ends.",
     history: "Session reports", historyDesc: "Finished and interrupted sessions are retained locally for review.", noHistory: "No work session report yet.",
     view: "View report", remove: "Delete report", deleteTitle: "Delete session report", deleteMessage: "This deletes only the local report. It does not delete project files, agent data or caches.",
     report: "Work session report", status: "Status", duration: "Duration", ended: "Ended", tracked: "Tracked folders", environment: "Approved commands", processes: "Observed processes",
@@ -138,7 +134,7 @@ export function ManagedWorkSession({ agents, onOpenCleanup }: {
     notice: "CLI 会话使用已确认命令环境；桌面会话只观察所选应用和目录，不会改写桌面应用的运行环境。",
     title: "受控工作会话", subtitle: "启动或观察工作智能体，并持续记录本次工作的磁盘影响。",
     project: "项目目录", choose: "选择目录", open: "打开目录", agent: "工作智能体", shell: "终端", mode: "会话类型", cliMode: "CLI", desktopMode: "桌面端",
-    noAgents: "当前会话类型没有可用的智能体，请先刷新状态并完成安装。", desktopAction: "桌面操作", launchDesktop: "启动应用", attachDesktop: "关联运行中应用", process: "运行中进程", refreshProcesses: "刷新进程", noProcesses: "没有检测到匹配的桌面进程。",
+    noAgents: "当前会话类型没有可用的智能体，请先刷新状态并完成安装。", desktopLaunch: "Stacker 会打开或唤醒所选桌面智能体，并跟踪选定目录的变化，无需选择具体进程。",
     contract: "已确认环境", contractDesc: "勾选的命令会加入本次会话 PATH，其他开发工具不会进入受控终端。",
     refresh: "刷新环境", save: "保存配置", saved: "工作配置已保存。", copy: "复制摘要给 AI",
     start: "开始会话", stop: "结束会话", baseline: "正在统计所选目录，完成后再启动智能体…",
@@ -152,7 +148,7 @@ export function ManagedWorkSession({ agents, onOpenCleanup }: {
     baselineFiles: "已统计文件", baselineDirectories: "已统计目录", measured: "已统计空间", skipped: "已跳过路径",
     directories: "空间变化集中目录", recent: "最近文件变化", cleanup: "复核缓存清理",
     attribution: "Stacker 记录所选目录内的变化。进程名称只提供运行上下文，不会在缺少证据时强行归因到具体文件。",
-    selectProject: "请先选择项目目录。", selectAgent: "请先选择已安装的智能体。", selectProcess: "请先选择一个正在运行的桌面进程。", copied: "环境摘要已复制，可交给 AI 使用。", desktopLimit: "桌面观察不能替换应用已经继承的环境；结束观察也不会关闭桌面应用。",
+    selectProject: "请先选择项目目录。", selectAgent: "请先选择已安装的智能体。", copied: "环境摘要已复制，可交给 AI 使用。", desktopLimit: "桌面观察只记录目录变化，不会改变应用环境；结束跟踪也不会关闭桌面应用。",
     history: "会话报告", historyDesc: "已完成和意外中断的会话会保存在本机，供后续复盘。", noHistory: "还没有工作会话报告。",
     view: "查看报告", remove: "删除报告", deleteTitle: "删除会话报告", deleteMessage: "只删除本机报告，不会删除项目文件、智能体数据或缓存。",
     report: "工作会话报告", status: "状态", duration: "持续时间", ended: "结束时间", tracked: "跟踪目录", environment: "已确认命令", processes: "观察到的进程",
@@ -182,22 +178,6 @@ export function ManagedWorkSession({ agents, onOpenCleanup }: {
     if (!session.profile.agentId && installedAgents[0]) updateManagedWorkSessionProfile({ agentId: installedAgents[0].id });
   }, [installedAgents, session.profile.agentId]);
   useEffect(() => {
-    if (active || session.profile.mode !== "desktop" || session.profile.desktopAction !== "attach" || !session.profile.agentId) {
-      setDesktopProcesses([]);
-      return;
-    }
-    setDesktopProcessesLoading(true);
-    void loadDesktopSessionProcesses(session.profile.agentId)
-      .then((processes) => {
-        setDesktopProcesses(processes);
-        if (session.profile.desktopPid && !processes.some((process) => process.pid === session.profile.desktopPid)) {
-          patchProfile({ desktopPid: null });
-        }
-      })
-      .catch((error) => toast(workSessionErrorText(error, en), "err"))
-      .finally(() => setDesktopProcessesLoading(false));
-  }, [active, session.profile.mode, session.profile.desktopAction, session.profile.agentId]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => {
     if (!active && session.profile.workspace && session.profile.agentId) {
       void loadWorkSessionTrackingRoots().catch((error) => toast(workSessionErrorText(error, en), "err"));
     }
@@ -215,7 +195,7 @@ export function ManagedWorkSession({ agents, onOpenCleanup }: {
   async function start() {
     if (!session.profile.workspace) return toast(copy.selectProject, "info");
     if (!session.profile.agentId) return toast(copy.selectAgent, "info");
-    if (session.profile.mode === "desktop" && session.profile.desktopAction === "attach" && !session.profile.desktopPid) return toast(copy.selectProcess, "info");
+    if (session.profile.mode === "desktop" && session.profile.desktopAction !== "launch") patchProfile({ desktopAction: "launch", desktopPid: null });
     try {
       await startManagedWorkSession();
       toast(en ? "Managed work session started." : "受控工作会话已启动。", "ok");
@@ -237,14 +217,11 @@ export function ManagedWorkSession({ agents, onOpenCleanup }: {
     const selectedAgent = installedAgents.find((agent) => agent.id === session.profile.agentId);
     const selected = (session.contract?.items ?? []).filter((item) => item.available && session.profile.enabledItems.includes(item.id));
     const roots = session.trackingRoots.filter((root) => session.profile.trackingRootIds.includes(root.id));
-    const selectedProcess = session.launch?.process
-      ?? desktopProcesses.find((process) => process.pid === session.profile.desktopPid);
+    const selectedProcess = session.launch?.process;
     const safetyText = (root: WorkSessionTrackingRoot) => en
       ? root.safety
       : root.safety === "protected" ? "只观察" : root.safety === "review" ? "清理前复核" : "可重新生成";
-    const desktopMethod = en
-      ? session.profile.desktopAction === "attach" ? "Attach to a running desktop process" : "Launch the desktop application"
-      : session.profile.desktopAction === "attach" ? "关联运行中的桌面进程" : "启动桌面应用";
+    const desktopMethod = en ? "Open or activate the desktop application" : "打开或唤醒桌面应用";
     const lines = en ? [
       "# Local Work Environment",
       `- Project: ${session.profile.workspace || "Not selected"}`,
@@ -333,12 +310,9 @@ export function ManagedWorkSession({ agents, onOpenCleanup }: {
         <button className="space-icon-button" title={copy.open} disabled={!session.profile.workspace} onClick={() => void openWorkSessionPath(session.profile.workspace).catch(() => toast(copy.selectProject, "err"))}><i className="ti ti-folder-open" /></button>
       </div>
       <div className="managed-session-choice">
-        <div><span>{copy.mode}</span><div className="managed-shell-switch"><button disabled={active} className={session.profile.mode === "cli" ? "active" : ""} onClick={() => patchProfile({ mode: "cli", agentId: "", desktopPid: null, trackingRootIds: [], trackingRootsConfigured: false })}><i className="ti ti-terminal-2" /> {copy.cliMode}</button><button disabled={active} className={session.profile.mode === "desktop" ? "active" : ""} onClick={() => patchProfile({ mode: "desktop", agentId: "", desktopPid: null, trackingRootIds: [], trackingRootsConfigured: false })}><i className="ti ti-app-window" /> {copy.desktopMode}</button></div></div>
+        <div><span>{copy.mode}</span><div className="managed-shell-switch"><button disabled={active} className={session.profile.mode === "cli" ? "active" : ""} onClick={() => patchProfile({ mode: "cli", agentId: "", desktopAction: "launch", desktopPid: null, trackingRootIds: [], trackingRootsConfigured: false })}><i className="ti ti-terminal-2" /> {copy.cliMode}</button><button disabled={active} className={session.profile.mode === "desktop" ? "active" : ""} onClick={() => patchProfile({ mode: "desktop", agentId: "", desktopAction: "launch", desktopPid: null, trackingRootIds: [], trackingRootsConfigured: false })}><i className="ti ti-app-window" /> {copy.desktopMode}</button></div></div>
         <label><span>{copy.agent}</span><Select value={session.profile.agentId} disabled={active || installedAgents.length === 0} onChange={(agentId) => patchProfile({ agentId, desktopPid: null, trackingRootIds: [], trackingRootsConfigured: false })} placeholder={copy.noAgents} options={installedAgents.map((agent) => ({ value: agent.id, label: agent.name, title: (session.profile.mode === "desktop" ? agent.desktopPath : agent.cliPath) || agent.name }))} /></label>
-        {session.profile.mode === "cli" ? <div><span>{copy.shell}</span><div className="managed-shell-switch">{(["powershell", "gitbash", "cmd"] as const).map((shell) => <button key={shell} disabled={active} className={session.profile.shell === shell ? "active" : ""} onClick={() => patchProfile({ shell })}>{shell === "powershell" ? "PowerShell" : shell === "gitbash" ? "Git Bash" : "cmd"}</button>)}</div></div> : <>
-          <div><span>{copy.desktopAction}</span><div className="managed-shell-switch"><button disabled={active} className={session.profile.desktopAction === "launch" ? "active" : ""} onClick={() => patchProfile({ desktopAction: "launch", desktopPid: null })}><i className="ti ti-player-play" /> {copy.launchDesktop}</button><button disabled={active} className={session.profile.desktopAction === "attach" ? "active" : ""} onClick={() => patchProfile({ desktopAction: "attach" })}><i className="ti ti-link" /> {copy.attachDesktop}</button></div></div>
-          {session.profile.desktopAction === "attach" && <label><span>{copy.process}</span><div className="managed-process-choice"><Select value={session.profile.desktopPid?.toString() || ""} disabled={active || desktopProcessesLoading} onChange={(pid) => patchProfile({ desktopPid: Number(pid) || null })} placeholder={desktopProcessesLoading ? copy.refreshProcesses : copy.noProcesses} options={desktopProcesses.map((process) => ({ value: process.pid.toString(), label: `${process.processName} · PID ${process.pid}`, title: `${process.desktopName} · PID ${process.pid}` }))} /><button className="space-icon-button" disabled={active || desktopProcessesLoading || !session.profile.agentId} title={copy.refreshProcesses} onClick={() => { setDesktopProcessesLoading(true); void loadDesktopSessionProcesses().then(setDesktopProcesses).catch((error) => toast(String(error), "err")).finally(() => setDesktopProcessesLoading(false)); }}><i className={`ti ${desktopProcessesLoading ? "ti-loader spin" : "ti-refresh"}`} /></button></div></label>}
-        </>}
+        {session.profile.mode === "cli" ? <div><span>{copy.shell}</span><div className="managed-shell-switch">{(["powershell", "gitbash", "cmd"] as const).map((shell) => <button key={shell} disabled={active} className={session.profile.shell === shell ? "active" : ""} onClick={() => patchProfile({ shell })}>{shell === "powershell" ? "PowerShell" : shell === "gitbash" ? "Git Bash" : "cmd"}</button>)}</div></div> : <div className="agent-scope-note managed-desktop-launch"><i className="ti ti-app-window" /><span>{copy.desktopLaunch}</span></div>}
       </div>
       {installedAgents.length === 0 && <div className="agent-scope-note"><i className="ti ti-info-circle" /><span>{copy.noAgents}</span></div>}
       {session.profile.mode === "desktop" && <div className="agent-scope-note"><i className="ti ti-eye" /><span>{copy.desktopLimit}</span></div>}

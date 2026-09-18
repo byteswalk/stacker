@@ -101,6 +101,7 @@ const DEFAULT_PREFS: NotificationPrefs = {
 
 const SOURCE_KEYS: Record<string, string> = {
   python: "stacker.python.downloadSource",
+  php: "stacker.php.downloadSource",
   node: "stacker.node.downloadSource",
   maven: "stacker.maven.downloadSource",
   gradle: "stacker.gradle.downloadSource",
@@ -117,6 +118,10 @@ const FILTER_KEYS = {
     ltsOnly: "stacker.node.install.ltsOnly",
     latestOnly: "stacker.node.install.latestOnly",
   },
+  php: {
+    onlyStable: "stacker.php.install.onlyStable",
+    latestOnly: "stacker.php.install.latestOnly",
+  },
   rust: {
     onlyStable: "stacker.rust.install.onlyStable",
     latestOnly: "stacker.rust.install.latestOnly",
@@ -128,8 +133,9 @@ const RUNTIME_TOOL_IDS: Record<string, string> = {
   gradle: "gradle-runtime",
   go: "go-runtime",
   rust: "rust-runtime",
+  php: "php-runtime",
 };
-const ECOSYSTEM_PAGES = new Set(["git", "python", "node", "java", "maven", "gradle", "go", "rust"]);
+const ECOSYSTEM_PAGES = new Set(["git", "python", "php", "node", "java", "maven", "gradle", "go", "rust"]);
 
 function readPrefs(): NotificationPrefs {
   try {
@@ -305,7 +311,7 @@ async function checkEcosystemUpdates(onlyId?: string): Promise<EcosystemUpdate[]
     await pushIfNewer("node", "Node.js", currentVersion(node.versions.map((v) => v.version)), latestByFilter(rows, { onlyStable: true, latestOnly, groupParts: 1 }), nodeSource);
   }
 
-  const needsSdkGroups = !onlyId || ["java", "maven", "gradle", "go"].includes(onlyId);
+  const needsSdkGroups = !onlyId || ["java", "php", "maven", "gradle", "go"].includes(onlyId);
   const groups = needsSdkGroups ? await invoke<SdkGroup[]>("env_state").catch(() => [] as SdkGroup[]) : [];
   const javaCurrent = groups.find((g) => g.kind === "java")?.versions.find((v) => v.current);
   if ((!onlyId || onlyId === "java") && javaCurrent?.version) {
@@ -321,7 +327,7 @@ async function checkEcosystemUpdates(onlyId?: string): Promise<EcosystemUpdate[]
     }
   }
 
-  for (const kind of ["maven", "gradle", "go"] as const) {
+  for (const kind of ["php", "maven", "gradle", "go"] as const) {
     if (onlyId && onlyId !== kind) continue;
     const group = groups.find((g) => g.kind === kind);
     const cur = group?.versions.find((v) => v.current)?.version ?? currentVersion(group?.versions.map((v) => v.version) ?? []);
@@ -333,7 +339,13 @@ async function checkEcosystemUpdates(onlyId?: string): Promise<EcosystemUpdate[]
     }), [], kind);
     const onlyStable = boolFromStorage(`stacker.${kind}.install.onlyStable`, true);
     const latestOnly = boolFromStorage(`stacker.${kind}.install.latestOnly`, true);
-    await pushIfNewer(kind, kind === "go" ? "Go" : kind === "maven" ? "Maven" : "Gradle", cur, latestByFilter(rows, { onlyStable, latestOnly }), source);
+    await pushIfNewer(
+      kind,
+      kind === "php" ? "PHP" : kind === "go" ? "Go" : kind === "maven" ? "Maven" : "Gradle",
+      cur,
+      latestByFilter(rows, { onlyStable, latestOnly }),
+      source,
+    );
   }
 
   const rustSource = sourceFromStorage("rust");
@@ -515,7 +527,9 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   }, [checkNow]);
 
   useEffect(() => {
-    const start = window.setTimeout(() => { checkNow("background").catch(() => undefined); }, 2500);
+    // Let the first page render and accept input before starting the broader
+    // update/environment sweep. The check still runs once per app session.
+    const start = window.setTimeout(() => { checkNow("background").catch(() => undefined); }, 10_000);
     return () => window.clearTimeout(start);
   }, [checkNow]);
 

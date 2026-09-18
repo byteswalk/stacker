@@ -2,7 +2,7 @@
 //! raw.githubusercontent.com 在部分网络环境下不可达，自动追加 jsDelivr 兜底。
 //! 本地缓存 %APPDATA%\stacker\mirrors.json；地址存 config.json（运行时可配，不写死仓库）。
 
-use std::io::{Read, Write};
+use std::io::Read;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -183,23 +183,25 @@ pub fn overlay(tools: &mut [sources::Tool]) {
         if let Some(mirrors) = by_tool.remove(&t.id) {
             t.mirrors = mirrors;
             patch_legacy_catalog_mirrors(&mut t.mirrors, &t.id, &list_version);
-        } else if t.id == sources::GIT_RUNTIME_TOOL_ID && list_version.as_str() < "202607111317" {
-            // 兼容新增 Git 下载源之前保存的旧清单；新版本清单仍保持全量替换语义。
-            continue;
-        } else if matches!(
-            t.id.as_str(),
-            sources::MAVEN_RUNTIME_TOOL_ID
-                | sources::GRADLE_RUNTIME_TOOL_ID
-                | sources::GO_RUNTIME_TOOL_ID
-                | sources::RUST_RUNTIME_TOOL_ID
-        ) && list_version.as_str() < "202607131700"
-        {
-            // 兼容新增三类运行时下载源之前保存的旧清单。
+        } else if keep_builtin_for_legacy_manifest(&t.id, &list_version) {
             continue;
         } else {
             t.mirrors.clear();
         }
     }
+}
+
+fn keep_builtin_for_legacy_manifest(tool_id: &str, list_version: &str) -> bool {
+    (tool_id == sources::GIT_RUNTIME_TOOL_ID && list_version < "202607111317")
+        || (matches!(
+            tool_id,
+            sources::MAVEN_RUNTIME_TOOL_ID
+                | sources::GRADLE_RUNTIME_TOOL_ID
+                | sources::GO_RUNTIME_TOOL_ID
+                | sources::RUST_RUNTIME_TOOL_ID
+        ) && list_version < "202607131700")
+        || (matches!(tool_id, sources::PHP_RUNTIME_TOOL_ID | "composer")
+            && list_version < "202608301100")
 }
 
 fn patch_legacy_catalog_mirrors(mirrors: &mut Vec<Mirror>, tool_id: &str, list_version: &str) {
@@ -361,6 +363,7 @@ pub async fn app_download_update(
     if !url.trim().starts_with("https://") {
         return Err("更新包必须使用 HTTPS 地址".into());
     }
+    crate::installer::op_reset();
     let target = std::env::temp_dir().join(format!(
         "stacker-update-{}.exe",
         version
@@ -369,52 +372,23 @@ pub async fn app_download_update(
             .collect::<String>()
     ));
     let download_window = window.clone();
-    let download_url = url.clone();
+    let download_url = url.trim().to_string();
     let download_target = target.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let agent = ureq::AgentBuilder::new()
             .timeout_connect(Duration::from_secs(30))
+            .timeout_read(Duration::from_secs(30))
+            .timeout_write(Duration::from_secs(30))
             .build();
-        let response = agent
-            .get(download_url.trim())
-            .set("User-Agent", "Stacker")
-            .call()
-            .map_err(|error| format!("更新包下载失败：{error}"))?;
-        let total = response
-            .header("Content-Length")
-            .and_then(|value| value.parse::<u64>().ok());
-        let mut reader = response.into_reader();
-        let mut file = std::fs::File::create(&download_target)
-            .map_err(|error| format!("无法创建更新文件：{error}"))?;
-        let mut downloaded = 0u64;
-        let mut buffer = [0u8; 64 * 1024];
-        loop {
-            let count = reader
-                .read(&mut buffer)
-                .map_err(|error| format!("读取更新包失败：{error}"))?;
-            if count == 0 {
-                break;
-            }
-            file.write_all(&buffer[..count])
-                .map_err(|error| format!("写入更新包失败：{error}"))?;
-            downloaded += count as u64;
-            let progress = match total.filter(|value| *value > 0) {
-                Some(total) => format!(
-                    "正在下载更新 · {:.1}% · {:.1}/{:.1} MB",
-                    downloaded as f64 * 100.0 / total as f64,
-                    downloaded as f64 / 1_048_576.0,
-                    total as f64 / 1_048_576.0
-                ),
-                None => format!("正在下载更新 · {:.1} MB", downloaded as f64 / 1_048_576.0),
-            };
-            let _ = download_window.emit("app-update-progress", progress);
-        }
-        file.flush()
-            .map_err(|error| format!("保存更新包失败：{error}"))?;
-        if downloaded < 512 * 1024 {
-            let _ = std::fs::remove_file(&download_target);
-            return Err("下载的更新包大小异常，已取消安装".into());
-        }
+        crate::installer::download_file_candidates_with_agent(
+            &agent,
+            &[download_url],
+            &download_target,
+            512 * 1024,
+            |message| {
+                let _ = download_window.emit("app-update-progress", message);
+            },
+        )?;
         let mut signature = [0u8; 2];
         std::fs::File::open(&download_target)
             .and_then(|mut input| input.read_exact(&mut signature))
@@ -801,5 +775,22 @@ mod tests {
             official_mirror_urls_for_locale("zh-CN"),
             vec![GITEE_MIRROR_LIST_URL, DEFAULT_MIRROR_LIST_URL]
         );
+    }
+
+    #[test]
+    fn legacy_manifest_keeps_new_php_catalogs() {
+        assert!(keep_builtin_for_legacy_manifest(
+            sources::PHP_RUNTIME_TOOL_ID,
+            "202607141100"
+        ));
+        assert!(keep_builtin_for_legacy_manifest("composer", "202607141100"));
+        assert!(!keep_builtin_for_legacy_manifest(
+            sources::PHP_RUNTIME_TOOL_ID,
+            "202608301100"
+        ));
+        assert!(!keep_builtin_for_legacy_manifest(
+            "composer",
+            "202608301100"
+        ));
     }
 }

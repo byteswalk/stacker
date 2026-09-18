@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "./invoke";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useBusy, useToast } from "./ui";
@@ -55,6 +55,7 @@ const ICON: Record<string, string> = {
   maven: "ti-world-download",
   gradle: "ti-world-download",
   cargo: "ti-package",
+  composer: "ti-package",
 };
 const AV: Record<string, string> = {
   pip: "py",
@@ -65,6 +66,7 @@ const AV: Record<string, string> = {
   maven: "mv2",
   gradle: "gr",
   cargo: "rs",
+  composer: "cmp",
 };
 const CUSTOM_PIP_PATH_KEY = "stacker.pip.customPath";
 const CUSTOM_CONFIG_PATH_KEYS: Record<string, string> = {
@@ -114,7 +116,7 @@ function customConfigHint(toolId: string) {
 
 function sourceActionName(id: string) {
   if (id === "go") return "模块代理";
-  if (["pip", "npm", "yarn", "maven", "gradle", "cargo"].includes(id)) return "仓库镜像";
+  if (["pip", "composer", "npm", "yarn", "maven", "gradle", "cargo"].includes(id)) return "仓库镜像";
   return "下载源";
 }
 
@@ -155,6 +157,8 @@ export function SourcesPanel({ toolIds, refresh }: { toolIds: string[]; refresh?
   });
   const [err, setErr] = useState(false);
   const [sel, setSel] = useState<Record<string, string>>({});
+  const selRef = useRef<Record<string, string>>({});
+  const sourceRecoveryNotices = useRef(new Set<string>());
   const [pipSel, setPipSel] = useState<Record<string, string>>({});
   const [sourceScopes, setSourceScopes] = useState<Record<string, "user" | "system">>({ go: "user" });
   const [sourceProxy, setSourceProxy] = useState<Record<string, boolean>>({});
@@ -163,6 +167,10 @@ export function SourcesPanel({ toolIds, refresh }: { toolIds: string[]; refresh?
   const [busy, setBusy] = useState("");
   const [pings, setPings] = useState<Record<string, number | null>>({});
   const [testing, setTesting] = useState(false);
+
+  useEffect(() => {
+    selRef.current = sel;
+  }, [sel]);
 
   async function load(nextCustomPipPath = customPipPath) {
     const all = await invoke<ToolState[]>("list_sources");
@@ -205,25 +213,37 @@ export function SourcesPanel({ toolIds, refresh }: { toolIds: string[]; refresh?
         });
       }).catch(() => {});
     }
-    setSel((s) => {
-      const n = { ...s };
-      const warned: string[] = [];
-      mine.forEach((x) => {
-        const fallback = x.mirrors.find((m) => m.id === "official")?.id ?? x.mirrors[0]?.id ?? "";
-        const picked = n[x.id] || x.current || fallback;
-        if (picked && !x.mirrors.some((m) => m.id === picked)) {
-          n[x.id] = fallback;
-          warned.push(`${x.name} 当前选择的源已不在清单中，页面已恢复为官方源；点击「应用」后写入。`);
-        } else if (!n[x.id]) {
-          n[x.id] = picked;
+    const nextSelection = { ...selRef.current };
+    const warnings: Array<{ key: string; message: string }> = [];
+    mine.forEach((x) => {
+      const fallback = x.mirrors.find((m) => m.id === "official")?.id ?? x.mirrors[0]?.id ?? "";
+      const mirrorExists = (id: string) => x.mirrors.some((mirror) => mirror.id === id);
+      const previous = nextSelection[x.id];
+
+      if (previous && !mirrorExists(previous)) {
+        nextSelection[x.id] = fallback;
+        if (fallback) {
+          warnings.push({
+            key: `${x.id}:selection:${previous}`,
+            message: `${x.name} 原先选择的源已不在清单中，已预选官方源；点击「应用」后生效。`,
+          });
         }
-        if (!x.current && x.current_label === "未识别" && fallback) {
-          n[x.id] = fallback;
-          warned.push(`${x.name} 当前配置不在源清单中，页面已恢复为官方源；点击「应用」后写入。`);
-        }
-      });
-      warned.forEach((msg) => toast(msg, "info"));
-      return n;
+      } else if (!previous) {
+        nextSelection[x.id] = x.current && mirrorExists(x.current) ? x.current : fallback;
+      }
+
+      // 未安装、尚未配置或采用自定义配置的工具都只预选官方源。
+      // “当前配置未识别”不是操作失败，进入页面时不应反复打扰用户。
+      if (x.installed && !x.current && x.current_label === "未识别" && fallback) {
+        nextSelection[x.id] = fallback;
+      }
+    });
+    selRef.current = nextSelection;
+    setSel(nextSelection);
+    warnings.forEach(({ key, message }) => {
+      if (sourceRecoveryNotices.current.has(key)) return;
+      sourceRecoveryNotices.current.add(key);
+      toast(message, "info");
     });
 
     if (toolIds.includes("pip")) {

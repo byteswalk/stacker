@@ -6,6 +6,7 @@ import { TerminalBar } from "../TerminalBar";
 import { Select } from "../Select";
 import { EcoActions, type Shells, summaryLine } from "../EcoActions";
 import { useNotifications } from "../notifications";
+import { StorageLocations } from "../StorageLocations";
 
 type Toolchain = { name: string; is_default: boolean };
 type RustupStatus = {
@@ -428,6 +429,8 @@ export default function Rust() {
       ))}
 
       <div className="callout"><i className="ti ti-info-circle" /><div>rustfmt、clippy 和交叉编译目标由 rustup 管理，可通过上方「组件与目标」查看和调整。</div></div>
+
+      <StorageLocations ecosystem="rust" />
 
       <div className="grouphd" style={{ marginTop: 18 }}>
         <span className="gt"><i className="ti ti-package" /> Cargo 源 <span className="cnt">CARGO_HOME/config.toml</span></span>

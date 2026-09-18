@@ -70,6 +70,23 @@ export interface AnalysisSummary {
   skippedPathEntries: SkippedPathEntry[];
   unlistedSkippedPaths: number;
   rootNodes: DirectoryNode[];
+  projects: DevelopmentProject[];
+}
+
+export type ProjectKind = "node" | "rust" | "python" | "maven" | "gradle" | "go" | "dotNet";
+
+export interface DevelopmentProject {
+  projectId: string;
+  nodeId: string;
+  name: string;
+  path: string;
+  kinds: ProjectKind[];
+  allocatedBytes: number;
+  reclaimableBytes: number;
+  artifactCount: number;
+  agentTraces: string[];
+  hasGitMetadata: boolean;
+  lastModifiedAt: string | null;
 }
 
 export interface SkippedPathEntry {
