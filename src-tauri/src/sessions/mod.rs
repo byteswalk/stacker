@@ -1,9 +1,11 @@
 #![allow(dead_code)]
 
+pub mod catalog;
 pub mod claude_catalog;
 pub mod codex_catalog;
 pub mod model;
 pub mod project;
+pub mod roots;
 
 pub(crate) fn err(e: impl std::fmt::Display) -> String {
     e.to_string()

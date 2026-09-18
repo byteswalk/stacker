@@ -186,23 +186,25 @@ pub fn read_head(path: &Path) -> Result<Head, String> {
     let mut file = fs::File::open(path).map_err(super::err)?;
     let len = file.metadata().map(|m| m.len()).unwrap_or(0);
     let mut head = Head::default();
+    let mut lines_read = 0;
     {
         let reader = BufReader::new((&mut file).take(HEAD_BYTES));
         for line in reader.lines().take(HEAD_LINES) {
             let Ok(line) = line else { break };
+            lines_read += 1;
             if let Ok(v) = serde_json::from_str::<Value>(&line) {
                 absorb(&mut head, &v);
             }
         }
     }
-    if len > HEAD_BYTES {
+    if len > HEAD_BYTES || lines_read == HEAD_LINES {
         let start = len.saturating_sub(TAIL_BYTES);
         if file.seek(SeekFrom::Start(start)).is_ok() {
             let mut tail = Vec::new();
             let _ = file.take(TAIL_BYTES).read_to_end(&mut tail);
             let text = String::from_utf8_lossy(&tail);
-            // Skip the first, probably partial, line.
-            for line in text.lines().skip(1) {
+            // Skip the first line when it is probably partial.
+            for line in text.lines().skip(usize::from(start > 0)) {
                 if line.contains("\"custom-title\"") || line.contains("\"summary\"") {
                     if let Ok(v) = serde_json::from_str::<Value>(line) {
                         absorb(&mut head, &v);
