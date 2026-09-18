@@ -6,6 +6,7 @@ mod install;
 mod net;
 mod process;
 mod registry;
+pub(crate) mod tasks;
 
 pub(crate) use activity::{desktop_agent_processes, scan_agent_activity, AgentProcess};
 pub(crate) use process::command_for_path;
@@ -354,6 +355,7 @@ pub(crate) fn run_tool_action(
         ("cli", "install") => install_cli_tool(&spec, &window),
         ("cli", "update") => update_cli_tool(&spec, &window),
         ("cli", "uninstall") => uninstall_cli_tool(&spec, &window),
+        ("cli", "repair") => repair_cli_tool(&spec, &window),
         ("desktop", "install") => install_desktop_tool(&spec, &window),
         ("desktop", "update") => update_desktop_tool(&spec, &window),
         ("desktop", "uninstall") => uninstall_desktop_tool(&spec, &window),
@@ -514,5 +516,42 @@ pub(crate) fn emit_progress<S: AsRef<str>>(window: &Option<tauri::Window>, msg: 
     }
     if let Some(window) = window {
         let _ = window.emit(VIBE_PROGRESS_EVENT, msg.as_ref().to_string());
+    }
+}
+
+pub(crate) fn cached_tool(id: &str) -> Option<VibeTool> {
+    let cache = VIBE_SCAN_CACHE.get()?;
+    let guard = cache.lock().ok()?;
+    guard.as_ref()?.1.iter().find(|tool| tool.id == id).cloned()
+}
+
+/// Re-detects one product and refreshes it in the scan cache.
+pub(crate) fn fresh_tool(id: &str, check_latest: bool) -> Option<VibeTool> {
+    let tool = scan_vibe_tool(id, check_latest)?;
+    cache_vibe_tool(&tool);
+    Some(tool)
+}
+
+#[cfg(test)]
+pub(crate) fn test_surface() -> VibeSurface {
+    pending_surface("Test", "CLI", "", "test", "", "", true)
+}
+
+#[cfg(test)]
+pub(crate) fn test_tool(id: &str) -> VibeTool {
+    VibeTool {
+        id: id.into(),
+        family_id: id.into(),
+        edition: "global".into(),
+        edition_label: String::new(),
+        sort_order: 0,
+        name: id.into(),
+        description: String::new(),
+        docs_url: String::new(),
+        icon: String::new(),
+        cli_id: None,
+        cli_note: None,
+        cli: test_surface(),
+        desktop: test_surface(),
     }
 }

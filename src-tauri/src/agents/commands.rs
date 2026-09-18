@@ -80,3 +80,68 @@ pub async fn vibe_agent_environment() -> Result<AgentEnvironmentSnapshot, String
         .await
         .map_err(|e| e.to_string())?
 }
+
+use super::tasks::{AgentTask, AgentTaskManager, TaskRequest};
+
+#[tauri::command]
+pub fn agent_task_start(
+    request: TaskRequest,
+    manager: tauri::State<'_, AgentTaskManager>,
+) -> Result<AgentTask, String> {
+    manager.start(request)
+}
+
+#[tauri::command]
+pub fn agent_task_cancel(
+    id: String,
+    manager: tauri::State<'_, AgentTaskManager>,
+) -> Result<(), String> {
+    manager.cancel(&id)
+}
+
+#[tauri::command]
+pub fn agent_task_retry(
+    id: String,
+    manager: tauri::State<'_, AgentTaskManager>,
+) -> Result<AgentTask, String> {
+    manager.retry(&id)
+}
+
+#[tauri::command]
+pub fn agent_tasks(manager: tauri::State<'_, AgentTaskManager>) -> Vec<AgentTask> {
+    manager.list()
+}
+
+#[tauri::command]
+pub fn agent_task_log(
+    id: String,
+    manager: tauri::State<'_, AgentTaskManager>,
+) -> Result<Vec<String>, String> {
+    manager.log(&id)
+}
+
+#[tauri::command]
+pub async fn agent_update_plan() -> super::tasks::plan::UpdatePlan {
+    tauri::async_runtime::spawn_blocking(|| {
+        super::tasks::plan::build_update_plan(&super::scan_vibe_tools_cached())
+    })
+    .await
+    .unwrap_or_default()
+}
+
+#[tauri::command]
+pub async fn agent_update_all(app: tauri::AppHandle) -> Result<Vec<AgentTask>, String> {
+    use tauri::Manager;
+    let plan = agent_update_plan().await;
+    let manager = app.state::<AgentTaskManager>();
+    plan.auto
+        .into_iter()
+        .map(|item| {
+            manager.start(TaskRequest {
+                product_id: item.product_id,
+                surface: item.surface,
+                action: super::tasks::Action::Update,
+            })
+        })
+        .collect()
+}

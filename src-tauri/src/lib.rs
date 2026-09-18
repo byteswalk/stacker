@@ -68,6 +68,16 @@ pub fn run() {
         .manage(space_analysis::CleanupTaskManager::default())
         .manage(space_analysis::SpaceMonitorManager::default())
         .setup(|app| {
+            {
+                use tauri::{Emitter, Manager};
+                let handle = app.handle().clone();
+                app.manage(agents::tasks::AgentTaskManager::new(
+                    std::sync::Arc::new(agents::tasks::runner::ProductionRunner),
+                    std::sync::Arc::new(move |task: &agents::tasks::AgentTask| {
+                        let _ = handle.emit("agent-task", task);
+                    }),
+                ));
+            }
             let app_settings = settings::load();
             let log_target = logging::target(settings::logs_dir())?;
             app.handle().plugin(
@@ -132,7 +142,13 @@ pub fn run() {
                                 );
                             }
                         }
-                        settings::CloseBehavior::Exit => {}
+                        settings::CloseBehavior::Exit => {
+                            use tauri::Manager;
+                            if running_agent_tasks(window.app_handle()) > 0 {
+                                api.prevent_close();
+                                confirm_exit(window.app_handle().clone());
+                            }
+                        }
                     }
                 }
             }
@@ -334,6 +350,13 @@ pub fn run() {
             agents::commands::vibe_open_desktop,
             agents::commands::vibe_agent_activity,
             agents::commands::vibe_agent_environment,
+            agents::commands::agent_task_start,
+            agents::commands::agent_task_cancel,
+            agents::commands::agent_task_retry,
+            agents::commands::agent_tasks,
+            agents::commands::agent_task_log,
+            agents::commands::agent_update_plan,
+            agents::commands::agent_update_all,
             work_session::work_environment_contract,
             work_session::work_session_tracking_roots,
             work_session::work_session_launch,
@@ -389,7 +412,13 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
                     crate::proxy::enable(&st.host, st.port, false, st.no_proxy_manual)
                 };
             }
-            "quit" => app.exit(0),
+            "quit" => {
+                if running_agent_tasks(app) == 0 {
+                    app.exit(0);
+                } else {
+                    confirm_exit(app.clone());
+                }
+            }
             _ => {}
         })
         .on_tray_icon_event(move |tray, event| {
@@ -456,4 +485,33 @@ pub(crate) fn refresh_tray_menu(app: &tauri::AppHandle) -> Result<(), String> {
             .map_err(|error| error.to_string())?;
     }
     Ok(())
+}
+
+fn running_agent_tasks(app: &tauri::AppHandle) -> usize {
+    use tauri::Manager;
+    app.try_state::<agents::tasks::AgentTaskManager>()
+        .map_or(0, |manager| manager.running_count())
+}
+
+/// Asks before quitting while agent installs are still running, then cancels them.
+fn confirm_exit(app: tauri::AppHandle) {
+    std::thread::spawn(move || {
+        use tauri::Manager;
+        use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
+        let running = running_agent_tasks(&app);
+        let confirmed = app
+            .dialog()
+            .message(format!(
+                "还有 {running} 个智能体任务正在执行，退出会中断这些任务。确定退出吗？"
+            ))
+            .buttons(MessageDialogButtons::OkCancelCustom(
+                "退出".into(),
+                "取消".into(),
+            ))
+            .blocking_show();
+        if confirmed {
+            app.state::<agents::tasks::AgentTaskManager>().cancel_all();
+            app.exit(0);
+        }
+    });
 }

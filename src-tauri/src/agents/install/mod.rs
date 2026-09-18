@@ -531,3 +531,23 @@ pub(crate) fn run_uninstall_string(uninstall: &str) -> Result<(), String> {
     cmd.spawn().map_err(|e| format!("启动卸载程序失败：{e}"))?;
     Ok(())
 }
+
+/// Removes a broken effective CLI entry so the next healthy install on PATH takes over.
+pub(crate) fn repair_cli_tool(
+    spec: &ToolSpec,
+    window: &Option<tauri::Window>,
+) -> Result<String, String> {
+    let tool = fresh_tool(spec.id, false).ok_or("无法检测该智能体")?;
+    if !tool.cli.can_repair {
+        return Err("当前没有可自动修复的损坏入口".into());
+    }
+    emit_progress(
+        window,
+        format!(
+            "正在移除损坏的入口：{}",
+            tool.cli.path.clone().unwrap_or_default()
+        ),
+    );
+    uninstall_cli_tool(spec, window)?;
+    Ok(format!("{} 已修复，当前使用健康的安装", spec.cli.name))
+}
