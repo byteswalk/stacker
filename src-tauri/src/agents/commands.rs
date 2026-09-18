@@ -109,7 +109,7 @@ pub fn agent_task_log(
 #[tauri::command]
 pub async fn agent_update_plan() -> super::tasks::plan::UpdatePlan {
     tauri::async_runtime::spawn_blocking(|| {
-        super::tasks::plan::build_update_plan(&super::scan_vibe_tools_cached())
+        super::tasks::plan::build_update_plan(&super::last_scan_or_scan())
     })
     .await
     .unwrap_or_default()

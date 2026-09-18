@@ -6,6 +6,8 @@ use super::{Action, Surface, TaskPlan, TaskRequest, TaskRunner};
 use crate::agents::registry::spec_by_id;
 use crate::agents::{VibeSurface, VibeTool};
 
+pub(crate) const VERSION_UNCHANGED: &str = "更新后校验未通过：版本未变化";
+
 /// Checks the re-detected surface after an action. An update only fails on an unchanged
 /// version when an update is still being advertised, so self-updating desktop apps that
 /// apply on restart are not reported as failures.
@@ -32,7 +34,7 @@ pub(crate) fn verify_outcome(
                 && after.version.as_deref() == before_version
                 && after.update_available =>
         {
-            Err("更新后校验未通过：版本未变化".into())
+            Err(VERSION_UNCHANGED.into())
         }
         Action::Update => Ok(()),
         Action::Uninstall if after.health == "missing" => Ok(()),
@@ -113,6 +115,14 @@ impl TaskRunner for ProductionRunner {
         );
         match (result, verified) {
             (Ok(message), Ok(())) => Ok(message),
+            // Desktop auto-updaters (Kimi Work, Claude) download the new version and apply
+            // it on restart; the action already told the user what to do.
+            (Ok(message), Err(reason))
+                if request.surface == Surface::Desktop && reason == VERSION_UNCHANGED =>
+            {
+                crate::installer::task_log("新版本将在应用重启后生效");
+                Ok(message)
+            }
             (Ok(_), Err(reason)) => Err(reason),
             (Err(error), Ok(())) if request.action != Action::Uninstall => {
                 crate::installer::task_log(&format!("安装器返回错误：{error}"));

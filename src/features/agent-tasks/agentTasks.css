@@ -19,6 +19,25 @@
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .a .surface-note{ font-size:11px; color:var(--mut); margin-top:2px; }
 .a .bd.e{ background:rgba(229,72,77,.14); color:#e5484d; }
-.a .update-plan ul{ list-style:none; padding:0; margin:6px 0 12px; }
-.a .update-plan li{ display:flex; gap:10px; align-items:baseline; padding:6px 0; border-bottom:1px solid var(--bd); }
 .a .surface-warn{ color:var(--amber); }
+
+/* 一键更新 plan */
+.a .update-plan{ font-size:13px; }
+.a .update-plan ul{ list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:6px; }
+.a .plan-row{ display:flex; align-items:center; gap:11px; padding:9px 12px; border-radius:10px;
+  background:var(--card); border:1px solid var(--bd); }
+.a .plan-icon{ width:30px; height:30px; flex-shrink:0; border-radius:8px; display:flex; align-items:center;
+  justify-content:center; background:rgba(255,255,255,.06); }
+.a .plan-icon img{ width:20px; height:20px; object-fit:contain; }
+.a .plan-name{ display:flex; flex-direction:column; gap:2px; min-width:0; flex:1; }
+.a .plan-name b{ font-weight:600; color:var(--tx); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.a .plan-name small{ font-size:11.5px; color:var(--mut); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.a .plan-row.manual .plan-name small{ color:var(--amber); }
+.a .plan-versions{ display:flex; align-items:center; gap:6px; flex-shrink:0; font-family:var(--font-mono); font-size:11.5px; }
+.a .plan-versions .ti{ color:#5f6774; font-size:15px; }
+.a .plan-ver{ padding:2px 7px; border-radius:6px; color:var(--mut); background:rgba(255,255,255,.05); }
+.a .plan-ver.next{ color:#f5a45a; background:rgba(245,130,31,.14); }
+.a .plan-group{ display:flex; align-items:center; gap:6px; margin:14px 2px 8px; font-size:12px; font-weight:600; color:#aab1bc; }
+.a .plan-group span{ padding:0 6px; border-radius:999px; background:rgba(255,255,255,.08); color:var(--mut); font-weight:500; }
+.a .plan-empty{ display:flex; align-items:center; gap:8px; padding:14px 12px; border-radius:10px; background:var(--card); color:var(--mut); }
+.a .plan-empty .ti{ color:var(--green); font-size:16px; }

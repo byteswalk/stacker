@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "../../invoke";
 import { Loading, Modal, useToast } from "../../ui";
+import { vibeSnapshot } from "./catalogStore";
 import type { AgentTask } from "../agent-tasks/taskStore";
 
 type PlanItem = {
@@ -14,11 +15,32 @@ type PlanItem = {
 };
 type UpdatePlan = { auto: PlanItem[]; manual: PlanItem[] };
 
+function PlanRow({ item, icons }: { item: PlanItem; icons: Map<string, string> }) {
+  const icon = icons.get(item.productId);
+  return (
+    <li className={"plan-row" + (item.reason ? " manual" : "")}>
+      <span className="plan-icon" aria-hidden="true">
+        {icon ? <img src={`/brands/${icon}`} alt="" /> : <i className="ti ti-sparkles" />}
+      </span>
+      <span className="plan-name">
+        <b>{item.surfaceLabel}</b>
+        <small>{item.reason ?? `${item.productName} · ${item.surface === "cli" ? "CLI" : "桌面端"}`}</small>
+      </span>
+      <span className="plan-versions">
+        <span className="plan-ver">{item.current ?? "未知"}</span>
+        <i className="ti ti-arrow-narrow-right" aria-hidden="true" />
+        <span className="plan-ver next">{item.latest ?? "未知"}</span>
+      </span>
+    </li>
+  );
+}
+
 /** Lists what 一键更新 will run in the background and what needs the user. */
 export function UpdatePlanModal({ onClose }: { onClose: () => void }) {
   const toast = useToast();
   const [plan, setPlan] = useState<UpdatePlan | null>(null);
   const [starting, setStarting] = useState(false);
+  const icons = new Map(vibeSnapshot().tools.map((tool) => [tool.id, tool.icon ?? ""]));
 
   useEffect(() => {
     let active = true;
@@ -43,29 +65,24 @@ export function UpdatePlanModal({ onClose }: { onClose: () => void }) {
     }
   }
 
-  const row = (item: PlanItem) => (
-    <li key={`${item.productId}-${item.surface}`}>
-      <b>{item.surfaceLabel}</b>
-      <span className="mono dim">{item.current ?? "?"} → {item.latest ?? "?"}</span>
-      {item.reason && <span className="dim">{item.reason}</span>}
-    </li>
-  );
-
   return (
-    <Modal title="一键更新" icon="ti-cloud-upload" wide onClose={starting ? undefined : onClose}
+    <Modal title="一键更新" icon="ti-cloud-upload" onClose={starting ? undefined : onClose}
+      sub={plan ? `${plan.auto.length} 项可在后台更新 · 同一安装器的任务自动排队，完成后逐项提示` : undefined}
       footer={<>
         <button className="gh" disabled={starting} onClick={onClose}>取消</button>
         <button className="pr" disabled={!plan || plan.auto.length === 0 || starting} onClick={() => void start()}>
+          <i className={"ti " + (starting ? "ti-loader spin" : "ti-player-play")} />
           {starting ? "正在创建任务…" : `开始更新 ${plan?.auto.length ?? 0} 项`}
         </button>
       </>}>
       {!plan ? <Loading text="正在读取更新计划…" /> : (
         <div className="update-plan">
-          <div className="seclabel">将在后台更新</div>
-          {plan.auto.length ? <ul>{plan.auto.map(row)}</ul> : <p className="dim">没有可自动更新的项目。</p>}
+          {plan.auto.length > 0
+            ? <ul>{plan.auto.map((item) => <PlanRow key={`${item.productId}-${item.surface}`} item={item} icons={icons} />)}</ul>
+            : <div className="plan-empty"><i className="ti ti-circle-check" /> 所有可自动更新的智能体都已是最新版本。</div>}
           {plan.manual.length > 0 && <>
-            <div className="seclabel">需要手动处理</div>
-            <ul>{plan.manual.map(row)}</ul>
+            <div className="plan-group"><i className="ti ti-hand-finger" /> 需要手动处理 <span>{plan.manual.length}</span></div>
+            <ul>{plan.manual.map((item) => <PlanRow key={`${item.productId}-${item.surface}`} item={item} icons={icons} />)}</ul>
           </>}
         </div>
       )}

@@ -437,10 +437,10 @@ pub(crate) static CLIS: &[CliSpec] = &[
     CliSpec {
         id: "pi",
         name: "pi",
-        description: "Mario Zechner 的极简终端编程智能体，命令名 pi。",
+        description: "Earendil（Mario Zechner）维护的极简终端编程智能体，命令名 pi。",
         command: "pi",
         candidates: &["pi.cmd", "pi.exe", "pi.bat", "pi.ps1"],
-        npm_package: Some("@mariozechner/pi-coding-agent"),
+        npm_package: Some("@earendil-works/pi-coding-agent"),
         winget_id: None,
         install_url: "https://pi.dev/",
         docs_url: "https://pi.dev/",
@@ -1107,7 +1107,7 @@ mod tests {
     fn pi_is_an_npm_cli_without_desktop() {
         let pi = spec_by_id("pi").unwrap();
         assert_eq!(pi.cli.command, "pi");
-        assert_eq!(pi.cli.npm_package, Some("@mariozechner/pi-coding-agent"));
+        assert_eq!(pi.cli.npm_package, Some("@earendil-works/pi-coding-agent"));
         assert!(!pi.desktop_available);
     }
 

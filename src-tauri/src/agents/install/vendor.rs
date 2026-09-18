@@ -268,3 +268,46 @@ pub(crate) fn uninstall_trae_cli(window: &Option<tauri::Window>) -> Result<Strin
     )?;
     Ok("TRAE CLI 已卸载，账号配置和项目文件已保留".into())
 }
+
+/// pi moved from `@mariozechner/pi-coding-agent` to `@earendil-works/pi-coding-agent`.
+/// Both packages provide the `pi` command, so the old one is removed before installing.
+pub(crate) const PI_LEGACY_PACKAGE: &str = "@mariozechner/pi-coding-agent";
+pub(crate) const PI_PACKAGE: &str = "@earendil-works/pi-coding-agent";
+
+pub(crate) fn has_legacy_pi(program: Option<&Path>) -> bool {
+    program
+        .and_then(Path::parent)
+        .is_some_and(|prefix| prefix.join("node_modules").join(PI_LEGACY_PACKAGE).is_dir())
+}
+
+pub(crate) fn install_or_update_pi(
+    program: Option<&Path>,
+    window: &Option<tauri::Window>,
+) -> Result<String, String> {
+    if has_legacy_pi(program) {
+        emit_progress(
+            window,
+            "pi 已迁移到 @earendil-works/pi-coding-agent，正在移除旧包 @mariozechner/pi-coding-agent…",
+        );
+        npm_uninstall(PI_LEGACY_PACKAGE, program, window)?;
+    }
+    npm_install_latest(PI_PACKAGE, program, window)?;
+    Ok("pi 已通过 npm 安装最新版本".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_pi_is_detected_next_to_the_npm_shim() {
+        let prefix = tempfile::tempdir().unwrap();
+        let shim = prefix.path().join("pi.cmd");
+        std::fs::write(&shim, b"").unwrap();
+        assert!(!has_legacy_pi(Some(&shim)));
+        std::fs::create_dir_all(prefix.path().join("node_modules").join(PI_LEGACY_PACKAGE))
+            .unwrap();
+        assert!(has_legacy_pi(Some(&shim)));
+        assert!(!has_legacy_pi(None));
+    }
+}

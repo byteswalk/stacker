@@ -2258,4 +2258,11 @@ export const GENERATED_EN: Record<string, string> = {
   "在终端运行": "Run in terminal:",
   "官方不提供独立桌面端；本地 Web 工作台随 CLI 提供，用「打开 Web 工作台」启动。": "There is no separate desktop app; the local web workbench ships with the CLI. Start it with Open Web Workbench.",
   "DeepSeek Harness 桌面端": "DeepSeek Harness desktop",
+  "所有可自动更新的智能体都已是最新版本。": "Every agent that can update automatically is up to date.",
+  "未知": "unknown",
+  "项可在后台更新 · 同一安装器的任务自动排队，完成后逐项提示": "items can update in the background · tasks sharing an installer queue automatically, each reports when done",
+  "Earendil（Mario Zechner）维护的极简终端编程智能体，命令名 pi。": "Minimal terminal coding agent maintained by Earendil (Mario Zechner); the command is pi.",
+  "pi 已迁移到 @earendil-works/pi-coding-agent，正在移除旧包 @mariozechner/pi-coding-agent…": "pi moved to @earendil-works/pi-coding-agent; removing the old @mariozechner/pi-coding-agent package…",
+  "pi 已通过 npm 安装最新版本": "pi installed at the latest version via npm",
+  "新版本将在应用重启后生效": "The new version takes effect after the app restarts",
 };

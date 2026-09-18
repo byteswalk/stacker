@@ -474,3 +474,16 @@ pub(crate) fn test_tool(id: &str) -> VibeTool {
         desktop: test_surface(),
     }
 }
+
+/// The last detection results the page shows, however old; scans only when there are none.
+/// Tasks refresh the entries they touch, so the cache follows every action.
+pub(crate) fn last_scan_or_scan() -> Vec<VibeTool> {
+    let cached = VIBE_SCAN_CACHE
+        .get()
+        .and_then(|cache| cache.lock().ok())
+        .and_then(|guard| guard.as_ref().map(|(_, tools)| tools.clone()));
+    match cached {
+        Some(tools) if !tools.is_empty() => tools,
+        _ => scan_vibe_tools_cached(),
+    }
+}

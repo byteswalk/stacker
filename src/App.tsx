@@ -10,7 +10,7 @@ import { Select } from "./Select";
 import { useI18n } from "./i18n";
 import { NotificationProvider, useNotifications, formatBytes } from "./notifications";
 import { readLastPage, saveLastPage, type Page } from "./pageState";
-import { ALL_NAV_ITEMS, NAV_FOOT, NAV_SECTIONS, type NavItem } from "./navigation";
+import { ALL_NAV_ITEMS, NAV_FOOT, NAV_SECTIONS, readCollapsedSections, sectionKeyOf, toggleSection, type NavItem, type NavSection } from "./navigation";
 import { TaskCenter } from "./features/agent-tasks/TaskCenter";
 import { useTaskToasts } from "./features/agent-tasks/useTaskToasts";
 import "./features/agent-tasks/agentTasks.css";
@@ -36,20 +36,46 @@ export type { Page } from "./pageState";
 
 
 
+function noticeCountFor(page: Page, notices: ReturnType<typeof useNotifications>) {
+  return page === "settings"
+    ? notices.settingsCount
+    : page === "cleanup"
+      ? notices.cleanupCount
+      : notices.pageNoticeCounts[page] ?? 0;
+}
+
 function NavBtn({ item, page, set }: { item: NavItem; page: Page; set: (p: Page) => void }) {
   const { t } = useI18n();
   const notices = useNotifications();
-  const noticeCount = item.id === "settings"
-    ? notices.settingsCount
-    : item.id === "cleanup"
-      ? notices.cleanupCount
-      : notices.pageNoticeCounts[item.id] ?? 0;
+  const noticeCount = noticeCountFor(item.id, notices);
   const noticeTitle = noticeTip(item.id, notices);
   return (
     <button className={"ni" + (page === item.id ? " on" : "")} aria-current={page === item.id ? "page" : undefined} onClick={() => set(item.id)}>
       <i className={"ti " + item.icon} aria-hidden="true" /> {t(item.labelKey)}
       {noticeCount > 0 && <span className="navdot" title={noticeTitle} aria-label={noticeTitle}>{noticeCount > 9 ? "9+" : noticeCount}</span>}
     </button>
+  );
+}
+
+/** A collapsible sidebar section; a collapsed section still shows its reminder count. */
+function NavGroup({ section, page, set, collapsed, onToggle }: {
+  section: NavSection; page: Page; set: (p: Page) => void; collapsed: boolean; onToggle: () => void;
+}) {
+  const { t } = useI18n();
+  const notices = useNotifications();
+  const items = <div className="navgroup-items">{section.items.map((n) => <NavBtn key={n.id} item={n} page={page} set={set} />)}</div>;
+  if (!section.labelKey) return <div className="navgroup">{items}</div>;
+  const hidden = section.items.reduce((sum, item) => sum + noticeCountFor(item.id, notices), 0);
+  return (
+    <div className={"navgroup" + (collapsed ? " collapsed" : "")}>
+      <button className="navgroup-hd" aria-expanded={!collapsed} onClick={onToggle}>
+        {section.icon && <i className={"ti " + section.icon} aria-hidden="true" />}
+        <span>{t(section.labelKey)}</span>
+        {collapsed && hidden > 0 && <span className="navgroup-count">{hidden > 9 ? "9+" : hidden}</span>}
+        <i className="ti ti-chevron-down navgroup-chevron" aria-hidden="true" />
+      </button>
+      <div className="navgroup-body"><div className="navgroup-inner">{items}</div></div>
+    </div>
   );
 }
 
@@ -114,10 +140,16 @@ type SavedProfile = {
 
 function Shell() {
   useTaskToasts();
+  const [collapsedSections, setCollapsedSections] = useState<string[]>(() => readCollapsedSections());
   const { t, tr } = useI18n();
   const toast = useToast();
   const notices = useNotifications();
   const [page, setPage] = useState<Page>(readLastPage);
+  // Opening a page inside a collapsed section expands that section.
+  useEffect(() => {
+    const key = sectionKeyOf(page);
+    if (key) setCollapsedSections((current) => current.includes(key) ? toggleSection(current, key) : current);
+  }, [page]);
   const [profile, setProfile] = useState("");
   const [applying, setApplying] = useState(false);
   const [saved, setSaved] = useState<SavedProfile[]>([]);
@@ -263,10 +295,9 @@ function Shell() {
         </div>
         <nav>
           {NAV_SECTIONS.map((section, index) => (
-            <div className="navsection" key={section.labelKey ?? `top-${index}`}>
-              {section.labelKey && <div className="navlabel">{t(section.labelKey)}</div>}
-              {section.items.map((n) => <NavBtn key={n.id} item={n} page={page} set={setPage} />)}
-            </div>
+            <NavGroup key={section.labelKey ?? `top-${index}`} section={section} page={page} set={setPage}
+              collapsed={!!section.labelKey && collapsedSections.includes(section.labelKey)}
+              onToggle={() => section.labelKey && setCollapsedSections((current) => toggleSection(current, section.labelKey!))} />
           ))}
         </nav>
         <div className="sidefoot">

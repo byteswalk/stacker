@@ -58,6 +58,7 @@ pub(crate) fn install_cli_tool(
         Vendor::Trae => install_or_update_trae_cli(window, "安装"),
         Vendor::OpenClaw => install_openclaw(window),
         Vendor::Hermes => install_hermes(window),
+        Vendor::Pi => install_or_update_pi(None, window),
         _ => {
             if let Some(pkg) = spec.cli.npm_package {
                 npm_install_latest(pkg, None, window)?;
@@ -194,6 +195,7 @@ pub(crate) fn update_cli_tool(
             )?;
             Ok("Hermes CLI 已更新".into())
         }
+        Vendor::Pi => install_or_update_pi(program.as_deref(), window),
         _ => {
             let program = program.ok_or_else(|| format!("未检测到 {}。", spec.cli.name))?;
             update_with_npm_source(spec, &program, window)?;
@@ -254,6 +256,12 @@ pub(crate) fn uninstall_cli_tool(
                 .npm_package
                 .ok_or("该 CLI 不是 npm 包，无法通过 npm 卸载。")?;
             emit_progress(window, format!("正在通过 npm 卸载 {}…", spec.cli.name));
+            // An install from before pi's package move lives under the old package name.
+            let pkg = if spec.vendor == Vendor::Pi && has_legacy_pi(program.as_deref()) {
+                PI_LEGACY_PACKAGE
+            } else {
+                pkg
+            };
             npm_uninstall(pkg, program.as_deref(), window)?;
             Ok(format!("{} 已通过 npm 卸载", spec.cli.name))
         }
