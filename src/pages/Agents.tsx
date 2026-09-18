@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "../invoke";
-import { ConfirmModal, useBusy, useToast } from "../ui";
+import { ConfirmModal, useToast } from "../ui";
 import { useNotifications } from "../notifications";
 import { translateText, useI18n } from "../i18n";
 import { Select } from "../Select";
@@ -15,6 +15,17 @@ import {
   type VibeSurface,
   type VibeTool,
 } from "../features/agents/catalogStore";
+
+import { UpdatePlanModal } from "../features/agents/UpdatePlanModal";
+import { surfaceTaskText } from "../features/agents/surfaceTask";
+import {
+  cancelAgentTask,
+  openTaskFor,
+  startAgentTask,
+  subscribeTasks,
+  taskSnapshot,
+  type AgentTaskAction,
+} from "../features/agent-tasks/taskStore";
 
 export type { VibeSurface, VibeTool } from "../features/agents/catalogStore";
 
@@ -35,22 +46,6 @@ export function UnavailableSurface({ target, surface }: { target: "cli" | "deskt
   );
 }
 
-const TOOL_BRAND_ICONS: Record<string, string> = {
-  claude: "/brands/claude.png",
-  codex: "/brands/codex.png",
-  antigravity: "/brands/antigravity.png",
-  opencode: "/brands/opencode-icon.png",
-  zcode: "/brands/zcode.svg",
-  kimi: "/brands/kimi.ico",
-  workbuddy: "/brands/workbuddy.svg",
-  qoder: "/brands/qoder.svg",
-  "qoder-cn": "/brands/qoder.svg",
-  "trae-work": "/brands/trae-work.png",
-  "trae-global": "/brands/trae-work.png",
-  "deepseek-harness": "/brands/deepseek.svg",
-  openclaw: "/brands/openclaw.svg",
-  hermes: "/brands/hermes.png",
-};
 
 function surfaceBadge(surface: VibeSurface) {
   if (surface.status === "pending") return <span className="bd n">待检测</span>;
@@ -93,10 +88,36 @@ function surfaceStatusText(surface: VibeSurface) {
   return surface.kind === "CLI" ? "未检测到命令入口" : "未检测到桌面端";
 }
 
+/** Badge and meta lines of one card surface, including broken installs. */
+export function SurfaceState({ surface }: { surface: VibeSurface }) {
+  const others = surface.other_installs ?? [];
+  return (
+    <>
+      <div className="surface-title" title={surface.label}>
+        {surface.label}
+        {surface.health === "broken" ? <span className="bd e">已损坏</span> : surfaceBadge(surface)}
+        {surface.install_method_label && <span className="bd b" title={installMethodHint(surface)}>{surface.install_method_label}</span>}
+      </div>
+      <div className="surface-desc" title={surface.description}>{surface.description}</div>
+      <div className="surface-meta mono" title={surface.path || ""}>
+        <span title={surface.broken_reason || undefined}>
+          {surface.health === "broken" ? `生效入口无法运行：${surface.broken_reason ?? ""}` : surfaceStatusText(surface)}
+        </span>
+        {surface.latest ? ` · 最新版本：${surface.latest}` : ""}
+        {surface.path ? ` · ${surface.path}` : ""}
+        {others.length > 0 && (
+          <span title={others.map((info) => `${info.path}${info.version ? ` (${info.version})` : ""}${info.healthy ? "" : " ✕"}`).join("\n")}>
+            {` · 另有 ${others.length} 个安装`}
+          </span>
+        )}
+      </div>
+    </>
+  );
+}
+
 export default function Agents() {
   const { locale } = useI18n();
   const toast = useToast();
-  const runBusy = useBusy();
   const notices = useNotifications();
   const [tools, setTools] = useState<VibeTool[]>(vibeSnapshot().tools);
   const [loading, setLoading] = useState(vibeSnapshot().loading);
@@ -108,6 +129,12 @@ export default function Agents() {
   const [edition, setEdition] = useState("all");
   const [status, setStatus] = useState("all");
   const [uninstall, setUninstall] = useState<{ tool: VibeTool; target: "cli" | "desktop"; surface: VibeSurface } | null>(null);
+  const [repair, setRepair] = useState<{ tool: VibeTool; surface: VibeSurface } | null>(null);
+  const [planOpen, setPlanOpen] = useState(false);
+  const [tasks, setTasks] = useState(taskSnapshot());
+
+  useEffect(() => subscribeTasks(setTasks), []);
+  const closePlan = useCallback(() => setPlanOpen(false), []);
 
   useEffect(() => subscribeVibe((s) => {
     setTools(s.tools);
@@ -174,47 +201,13 @@ export default function Agents() {
     }
   }
 
-  async function runToolAction(tool: VibeTool, target: "cli" | "desktop", action: "install" | "update" | "uninstall") {
-    const surface = target === "cli" ? tool.cli : tool.desktop;
-    const actionText = action === "install" ? "安装" : action === "update" ? "更新" : "卸载";
-    const nativeClaudeInstall = tool.id === "claude" && target === "cli" && action === "install";
-    const message = nativeClaudeInstall
-      ? "正在安装 Claude Code 官方 Windows 原生版，无需预先安装 Node.js。下载安装期间可随时取消。"
-      : action === "uninstall"
-      ? `正在卸载 ${surface.label}。Stacker 会优先使用检测到的包管理器或系统卸载入口。`
-      : `正在${actionText} ${surface.label}。Stacker 会优先按官方推荐方式执行，并在完成后刷新当前项状态。`;
-    let cancelled = false;
+  async function runToolAction(tool: VibeTool, target: "cli" | "desktop", action: AgentTaskAction) {
+    setUninstall(null);
+    setRepair(null);
     try {
-      const result = await runBusy(
-        {
-          title: `${actionText} ${surface.label}`,
-          message,
-          progressEvent: "vibe-progress",
-          cancel: {
-            label: `取消${actionText}`,
-            onCancel: () => {
-              cancelled = true;
-              invoke("op_cancel").catch(() => undefined);
-            },
-          },
-        },
-        async () => {
-          const actionResult = await invoke<string>("vibe_tool_action", { id: tool.id, target, action });
-          await refreshOneTool(tool.id);
-          return actionResult;
-        },
-      );
-      toast(result || `${surface.label} ${actionText}完成`, "ok");
-      setUninstall(null);
-      void notices.checkNow("agents-action").catch(() => undefined);
+      await startAgentTask(tool.id, target, action);
     } catch (e) {
-      const detail = String(e);
-      if (cancelled || detail.includes("已取消")) {
-        toast(`已取消${surface.label}${actionText}`, "info");
-      } else {
-        const logHint = detail.includes("日志") ? "" : "；诊断记录已写入 Stacker 日志，可在设置中打开日志目录查看";
-        toast(`${actionText}失败：${detail}${logHint}`, "err");
-      }
+      toast(`无法创建任务：${e}`, "err");
     }
   }
 
@@ -275,27 +268,22 @@ export default function Agents() {
     const uninstallTitle = !installed
       ? `尚未安装 ${surface.label}`
       : surface.can_uninstall ? `卸载 ${surface.label}` : `${surface.label} 暂无可自动执行的卸载方式`;
+    const task = openTaskFor(tasks, tool.id, target === "cli" ? tool.cli_id : null, target);
+    const taskText = surfaceTaskText(task);
+    const busy = Boolean(task);
     return (
       <div className="vtool-surface">
         <span className={"surface-kind " + (target === "cli" ? "cli" : "desktop")}>{target === "cli" ? "CLI" : "桌面端"}</span>
         <div className="surface-main">
-          <div className="surface-title" title={surface.label}>
-            {surface.label}
-            {surfaceBadge(surface)}
-            {surface.install_method_label && <span className="bd b" title={installMethodHint(surface)}>{surface.install_method_label}</span>}
-          </div>
-          <div className="surface-desc" title={surface.description}>{surface.description}</div>
-          <div className="surface-meta mono" title={surface.path || ""}>
-            <span title={surface.probe_error || undefined}>{surfaceStatusText(surface)}</span>
-            {surface.latest ? ` · 最新版本：${surface.latest}` : ""}
-            {surface.path ? ` · ${surface.path}` : ""}
-          </div>
+          <SurfaceState surface={surface} />
+          {taskText && <div className="surface-task"><i className="ti ti-loader spin" /> <span title={taskText}>{taskText}</span></div>}
+          {target === "cli" && tool.cli_note && <div className="surface-note"><i className="ti ti-info-circle" /> {tool.cli_note}</div>}
         </div>
         <div className="vtool-actions">
           <button
             className={!installed ? "pr sm" : "gh sm"}
             title={installTitle}
-            disabled={installed || (!surface.can_install && !canOpenOfficialDownload)}
+            disabled={busy || installed || (!surface.can_install && !canOpenOfficialDownload)}
             onClick={() => installFromOfficialPage ? openUrl(surface.install_url) : runToolAction(tool, target, "install")}
           >
             <i className="ti ti-download" /> 安装
@@ -303,14 +291,24 @@ export default function Agents() {
           <button
             className={surface.update_available ? "pr sm" : "gh sm"}
             title={updateTitle}
-            disabled={!installed || (!updateFromOfficialPage && (!surface.can_update || !surface.update_available))}
+            disabled={busy || !installed || (!updateFromOfficialPage && (!surface.can_update || !surface.update_available))}
             onClick={() => updateFromOfficialPage ? openUrl(surface.install_url) : runToolAction(tool, target, "update")}
           >
             <i className="ti ti-cloud-upload" /> 更新
           </button>
-          <button className="gh sm danger" title={uninstallTitle} disabled={!installed || !surface.can_uninstall} onClick={() => setUninstall({ tool, target, surface })}>
+          <button className="gh sm danger" title={uninstallTitle} disabled={busy || !installed || !surface.can_uninstall} onClick={() => setUninstall({ tool, target, surface })}>
             <i className="ti ti-trash" /> 卸载
           </button>
+          {surface.can_repair && (
+            <button className="pr sm" title={`移除无法运行的入口，改用本机另一份健康的 ${surface.label}`} disabled={busy} onClick={() => setRepair({ tool, surface })}>
+              <i className="ti ti-tool" /> 修复
+            </button>
+          )}
+          {task && (
+            <button className="gh sm" title="取消这个任务" onClick={() => void cancelAgentTask(task.id).catch((error) => toast(String(error), "err"))}>
+              <i className="ti ti-x" /> 取消
+            </button>
+          )}
           {target === "cli"
             ? <button className="gh sm" title={tool.cli.path ? `在 PowerShell 中启动 ${surface.label}` : `尚未安装 ${surface.label}`} disabled={!tool.cli.path} onClick={() => openTerminal(tool)}><i className="ti ti-terminal-2" /> 打开终端</button>
             : <button className="gh sm" title={surface.can_open ? `打开 ${surface.label}` : `尚未安装 ${surface.label}`} disabled={!surface.can_open} onClick={() => openDesktop(tool)}><i className="ti ti-app-window" /> 打开桌面端</button>}
@@ -325,7 +323,7 @@ export default function Agents() {
         {loading && <span className="border-runner" aria-hidden="true" />}
         <span className="av agent-hero-icon"><i className={"ti " + (loading ? "ti-loader spin" : "ti-sparkles")} /></span>
         <div className="ct">
-          <div className="t1">AI办公智能体</div>
+          <div className="t1">安装更新</div>
           <div className="t2">{loading
             ? "正在检测各智能体的 CLI、桌面端、版本与安装来源…"
             : checked
@@ -337,7 +335,10 @@ export default function Agents() {
           <button className="gh sm" disabled={promptBusy} onClick={() => generatePrompt(true)}>
             <i className={"ti " + (promptBusy ? "ti-loader spin" : "ti-copy")} /> {promptBusy ? "生成中…" : "复制摘要给 AI"}
           </button>
-          <button className="pr sm" disabled={loading} onClick={refreshAgents}>
+          <button className="pr sm" disabled={loading || !checked} title={checked ? "查看可更新的智能体并在后台批量更新" : "请先刷新状态"} onClick={() => setPlanOpen(true)}>
+            <i className="ti ti-cloud-upload" /> 一键更新
+          </button>
+          <button className="gh sm" disabled={loading} onClick={refreshAgents}>
             <i className={"ti " + (loading ? "ti-loader spin" : "ti-refresh")} /> {loading ? "刷新中…" : "状态刷新"}
           </button>
         </div>
@@ -376,7 +377,7 @@ export default function Agents() {
               {checkingTool === tool.id && <span className="border-runner" aria-hidden="true" />}
               <div className="vtool-head">
                 <span className={`vtool-brand ${tool.id}`} aria-hidden="true">
-                  {TOOL_BRAND_ICONS[tool.id] ? <img src={TOOL_BRAND_ICONS[tool.id]} alt="" /> : <i className="ti ti-sparkles" />}
+                  {tool.icon ? <img src={`/brands/${tool.icon}`} alt="" /> : <i className="ti ti-sparkles" />}
                 </span>
                 <div className="mt">
                   <div className="t">{tool.name}{tool.edition_label && <span className={"bd " + (tool.edition === "cn" ? "w" : tool.edition === "global" ? "b" : "n")}>{tool.edition_label}</span>}</div>
@@ -401,6 +402,18 @@ export default function Agents() {
         </>
       )}
 
+      {planOpen && <UpdatePlanModal onClose={closePlan} />}
+      {repair && (
+        <ConfirmModal
+          title={`修复 ${repair.surface.label}`}
+          icon="ti-tool"
+          danger
+          message={<>将卸载无法运行的生效入口 <code>{repair.surface.path}</code>，之后使用本机另一份健康的安装。不会删除账号登录信息、会话或项目文件。</>}
+          confirmLabel="确认修复"
+          onClose={() => setRepair(null)}
+          onConfirm={() => runToolAction(repair.tool, "cli", "repair")}
+        />
+      )}
       {uninstall && (
         <ConfirmModal
           title={`卸载 ${uninstall.surface.label}`}

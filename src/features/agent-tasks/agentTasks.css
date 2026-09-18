@@ -15,3 +15,9 @@
 .a .task-line{ font-size:11px; color:var(--mut); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .a .task-actions{ display:flex; gap:4px; flex-shrink:0; }
 .a .task-log{ max-height:60vh; overflow:auto; font-size:12px; white-space:pre-wrap; margin:0; }
+.a .surface-task{ font-size:11px; color:var(--blue); display:flex; gap:4px; align-items:center; margin-top:2px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.a .surface-note{ font-size:11px; color:var(--mut); margin-top:2px; }
+.a .bd.e{ background:rgba(229,72,77,.14); color:#e5484d; }
+.a .update-plan ul{ list-style:none; padding:0; margin:6px 0 12px; }
+.a .update-plan li{ display:flex; gap:10px; align-items:baseline; padding:6px 0; border-bottom:1px solid var(--bd); }
