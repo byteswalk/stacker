@@ -1,0 +1,17 @@
+.a .task-center{ position:relative; margin-left:auto; }
+.a .task-center-btn .task-count{ margin-left:4px; min-width:16px; padding:0 5px; border-radius:8px;
+  background:var(--acc); color:#fff; font-size:10px; line-height:16px; text-align:center; }
+.a .task-panel{ position:absolute; right:0; top:calc(100% + 6px); width:440px; max-height:440px; overflow:auto;
+  background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:6px; z-index:40;
+  box-shadow:0 12px 32px rgba(0,0,0,.35); }
+.a .task-row{ display:flex; gap:8px; align-items:center; padding:8px; border-radius:8px; }
+.a .task-row + .task-row{ border-top:1px solid var(--bd); }
+.a .task-main{ flex:1; min-width:0; }
+.a .task-title{ font-size:13px; display:flex; gap:8px; align-items:center; color:var(--tx); }
+.a .task-state{ font-size:11px; color:var(--mut); }
+.a .task-row.running .task-state{ color:var(--blue); }
+.a .task-row.failed .task-state{ color:var(--red); }
+.a .task-row.succeeded .task-state{ color:var(--green); }
+.a .task-line{ font-size:11px; color:var(--mut); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.a .task-actions{ display:flex; gap:4px; flex-shrink:0; }
+.a .task-log{ max-height:60vh; overflow:auto; font-size:12px; white-space:pre-wrap; margin:0; }

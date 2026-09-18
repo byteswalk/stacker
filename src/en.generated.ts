@@ -2214,4 +2214,12 @@ export const GENERATED_EN: Record<string, string> = {
   "还有 {running} 个智能体任务正在执行，退出会中断这些任务。确定退出吗？": "{running} agent tasks are still running. Quitting will interrupt them. Quit anyway?",
   "退出": "Quit",
   "需要在官方下载页手动更新": "Update manually from the official download page",
+  "排队中": "Queued",
+  "进行中": "Running",
+  "任务": "Tasks",
+  "暂无日志": "No log yet",
+  "修复": "Repair",
+  "读取任务日志失败：": "Failed to read task log: ",
+  "任务日志": "Task log",
+  "可在任务面板查看日志": "see the task panel for the log",
 };

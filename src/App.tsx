@@ -11,6 +11,9 @@ import { useI18n } from "./i18n";
 import { NotificationProvider, useNotifications, formatBytes } from "./notifications";
 import { readLastPage, saveLastPage, type Page } from "./pageState";
 import { ALL_NAV_ITEMS, NAV_FOOT, NAV_SECTIONS, type NavItem } from "./navigation";
+import { TaskCenter } from "./features/agent-tasks/TaskCenter";
+import { useTaskToasts } from "./features/agent-tasks/useTaskToasts";
+import "./features/agent-tasks/agentTasks.css";
 
 const Overview = lazy(() => import("./pages/Overview"));
 const Agents = lazy(() => import("./pages/Agents"));
@@ -110,6 +113,7 @@ type SavedProfile = {
 };
 
 function Shell() {
+  useTaskToasts();
   const { t, tr } = useI18n();
   const toast = useToast();
   const notices = useNotifications();
@@ -279,6 +283,7 @@ function Shell() {
               {currentNoticeCount > 0 && <span className="navdot title-dot" title={currentNoticeTitle} aria-label={currentNoticeTitle}>{currentNoticeCount > 9 ? "9+" : currentNoticeCount}</span>}
             </span>
           </div>
+          <TaskCenter />
           {page === "overview" && (
             <div className="hdright">
               <div className="profile">
