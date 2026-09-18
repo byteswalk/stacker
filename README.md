@@ -20,7 +20,7 @@ Stacker manages that local layer without requiring a model connection or uploadi
 
 - **Environment visibility** — verify the effective Git, Python, Node.js, Java, Maven, Gradle, Go, Rust, package-manager, proxy, and cache state.
 - **Runtime lifecycle** — discover, install, switch, verify, and remove local toolchain versions.
-- **AI agent lifecycle** — inspect supported CLI and desktop products, distinguish regional editions, install or update supported surfaces, and copy an installed-agent summary for AI use.
+- **Agent management** — inspect supported CLI and desktop products, distinguish regional editions, verify that installs actually run, and install, update, uninstall or repair them as parallel background tasks with one-click update.
 - **Local conversation workspace** — index supported Codex and Claude records, search and group conversations, export readable archives and handoff notes, and perform guarded native operations where the installed client exposes a verified interface.
 - **Git account isolation** — use separate terminal contexts and repository-level commit identities for GitHub, Gitee, GitLab, Gitea, Forgejo, Codeup, enterprise, and generic HTTPS Git services.
 - **Source and network control** — test latency, select download and repository sources, manage terminal proxy settings, and preserve local custom sources.
@@ -36,9 +36,9 @@ Run an on-demand check of the commands, runtimes, package managers, build tools,
 
 ![Stacker programming ecosystem check](assets/screenshots/environment-check.png)
 
-### AI Agent Catalog
+### Agent Install & Update
 
-Review supported AI coding-agent CLI and desktop installations from one page. The catalog currently covers Claude Code, Codex, Antigravity, OpenCode, ZCode, Kimi, WorkBuddy, Qoder regional editions, TRAE regional editions, DeepSeek Harness, OpenClaw, and Hermes Agent. Availability and automated lifecycle actions vary by vendor surface.
+Review supported AI coding-agent CLI and desktop installations from one page. The catalog currently covers Claude Code, Codex, Antigravity, OpenCode, ZCode, Kimi, WorkBuddy regional editions, Qoder regional editions, TRAE regional editions, DeepSeek Harness, OpenClaw, Hermes Agent, and pi. Broken installs, such as placeholders left by a failed install, are flagged and can be repaired when a healthy install exists. Updates can be queued in one click and run in the background. Availability and automated lifecycle actions vary by vendor surface.
 
 ![Stacker AI work agents](assets/screenshots/work-agents.png)
 

@@ -13,8 +13,8 @@
 | --- | --- | --- | --- |
 | 编程生态与安装 | `src/pages/*`、`src/VersionManager.tsx` | `installer.rs`、`versions.rs`、各生态模块 | 发现、安装、切换和验证运行时及构建工具 |
 | 依赖存储位置 | `src/StorageLocations.tsx` | `storage.rs`、`storage/maven.rs` | 管理 Maven、Gradle、npm、pnpm、pip、Composer、Go、Cargo、rustup 存储位置 |
-| AI 智能体目录 | `src/pages/Vibe.tsx` | `vibe.rs` | 智能体产品形态、版本检测及受支持的生命周期操作 |
-| 会话与项目空间 | `src/pages/AgentSpace.tsx`、`src/features/conversations` | `conversations/` | 本地索引、筛选、批量操作、导出、摘要和交接资料 |
+| 智能体管理 · 安装更新 | `src/pages/Agents.tsx`、`src/features/agents`、`src/features/agent-tasks` | `agents/` | 注册表（`agents/registry.rs` 是智能体的唯一数据源）、健康检查、安装更新卸载修复、后台任务、一键更新 |
+| 智能体管理 · 会话数据 | `src/pages/AgentData.tsx`、`src/features/conversations` | `conversations/` | 本地索引、筛选、批量操作、导出、摘要和交接资料 |
 | 磁盘分析 | `src/features/space-analysis` | `space_analysis/` | 后台扫描、项目识别、空间变化、清理计划和提权执行 |
 | 代理、源与设置 | `src/pages/Proxy.tsx`、`src/pages/Settings.tsx` | `proxy.rs`、`sources.rs`、`settings.rs` | 只管理明确选择的终端和开发工具配置，不检测或配置 TUN/VPN |
 | 桌面生命周期 | `src/App.tsx`、`src/main.tsx` | `lib.rs`、`logging.rs` | 单实例、窗口恢复、托盘、首次关闭选择、统一日志和错误边界 |
@@ -82,8 +82,9 @@ cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 ## 已知限制与后续优先级
 
 - 智能体厂商的安装入口、注册表名称和版本源会变化，产品检测需要持续用真实安装样本回归。
-- 智能体更新目前仍是单任务交互；“全部更新”、多个并发后台任务和完成 Toast 尚未形成统一任务中心。
-- WorkBuddy 当前只有一组产品卡；国内/国际产品拆分和各自官方安装源仍需核实后实现。
+- 智能体安装、更新、卸载、修复已作为后台任务并行执行（`agents/tasks`），有一键更新与完成提示；其他生态页面的安装仍使用单任务弹窗。
+- 新增或调整智能体只改 `agents/registry.rs`：产品、共享 CLI、版本、图标、进程特征和数据目录都在这里登记。
+- WorkBuddy 中国版 / 国际版官网没有可静默安装的稳定直链，桌面端只提供官网下载；两版共用 CodeBuddy CLI。
 - 会话摘要当前使用用户明确配置并批准的兼容接口。直接选择本机已安装智能体执行摘要尚未实现，也不能读取其他智能体的登录凭据。
 - Claude 来源目前按已识别的本地记录只读处理；云端账号间迁移、厂商私有项目结构和完整原生删除语义不在当前能力范围。
 - Stacker 可以导出会话、摘要和项目路径作为可阅读交接资料，但不能把一个厂商账号的云端会话无损写入另一个账号或另一个厂商。

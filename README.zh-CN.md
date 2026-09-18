@@ -26,7 +26,7 @@ Stacker 管理的正是这一层，并且不要求接入大模型，也不会上
 
 - **环境可见**：检查 Git、Python、Node.js、Java、Maven、Gradle、Go、Rust、包管理器、代理和缓存的实际生效状态。
 - **运行时管理**：发现、安装、切换、验证和删除本机工具链版本。
-- **AI 智能体管理**：集中查看支持的 CLI 与桌面产品，区分国内版和国际版，安装或更新已支持的产品形态，并复制本机智能体摘要供 AI 使用。
+- **智能体管理**：集中查看支持的 CLI 与桌面产品，区分国内版和国际版，检查安装是否真正可用；安装、更新、卸载和修复在后台并行执行，支持一键更新并在完成时提示。
 - **本机会话与项目整理**：索引受支持的 Codex、Claude 本地记录，搜索、分组、批量导出会话与交接资料，并仅在本机客户端提供且通过能力检查时操作原会话。
 - **Git 多账号隔离**：为 GitHub、Gitee、GitLab、Gitea、Forgejo、Codeup、企业和通用 HTTPS Git 服务提供独立终端上下文与仓库级提交身份。
 - **下载与网络管理**：测速并选择下载源和仓库源，管理终端代理，保留本机自定义源。
@@ -42,9 +42,9 @@ Stacker 管理的正是这一层，并且不要求接入大模型，也不会上
 
 ![Stacker 编程生态体检](assets/screenshots/zh-CN/environment-check.png)
 
-### AI 智能体目录
+### 智能体安装更新
 
-集中查看受支持的 AI 编程智能体 CLI、桌面端安装状态。当前目录覆盖 Claude Code、Codex、Antigravity、OpenCode、ZCode、Kimi、WorkBuddy、Qoder 国内/国际版、TRAE 国内/国际版、DeepSeek Harness、OpenClaw 和 Hermes Agent。不同厂商产品形态支持的自动安装、更新和卸载能力并不完全相同。
+集中查看受支持的 AI 编程智能体 CLI、桌面端安装状态。当前目录覆盖 Claude Code、Codex、Antigravity、OpenCode、ZCode、Kimi、WorkBuddy 国内/国际版、Qoder 国内/国际版、TRAE 国内/国际版、DeepSeek Harness、OpenClaw、Hermes Agent 和 pi。安装损坏（例如失败留下的占位程序）会被标出，并在本机另有健康安装时提供修复。更新可以一键批量提交，在后台并行执行。不同厂商产品形态支持的自动安装、更新和卸载能力并不完全相同。
 
 ![Stacker AI 工作智能体](assets/screenshots/zh-CN/work-agents.png)
 
