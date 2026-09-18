@@ -1,0 +1,529 @@
+pub(crate) mod direct;
+pub(crate) mod npm;
+pub(crate) mod vendor;
+pub(crate) mod winget;
+
+use crate::agents::{
+    detect::*, install::direct::*, install::npm::*, install::vendor::*, install::winget::*,
+    process::*, registry::*, *,
+};
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::time::{Duration, Instant};
+
+pub(crate) fn install_cli_tool(
+    spec: &ToolSpec,
+    window: &Option<tauri::Window>,
+) -> Result<String, String> {
+    emit_progress(window, format!("正在安装 {}…", spec.cli.name));
+    match spec.id {
+        "claude" => install_or_update_claude(None, None, window),
+        "codex" => run_codex_installer(window).or_else(|installer_error| {
+            if let Some(pkg) = spec.cli.npm_package {
+                emit_progress(
+                    window,
+                    format!("Codex 官方安装器未完成（{installer_error}），正在改用 npm…"),
+                );
+                npm_install_latest(pkg, None, window)?;
+                Ok("Codex CLI 已通过 npm 安装".into())
+            } else {
+                Err("Codex CLI 安装失败".into())
+            }
+        }),
+        "kimi" => install_or_update_kimi_cli(None, None, window, "安装"),
+        "antigravity" => {
+            if let Some(id) = spec.cli.winget_id {
+                if winget_command().is_some() {
+                    emit_progress(window, "正在通过 WinGet 安装 Antigravity CLI…");
+                    let result = run_winget_owned(
+                        winget_args("install", id, None, true),
+                        Duration::from_secs(900),
+                        window,
+                    );
+                    match result {
+                        Ok(_) => {}
+                        Err(err) => {
+                            if cli_installed_after_action(spec) {
+                                return Ok("Antigravity CLI 已安装".into());
+                            }
+                            return Err(err);
+                        }
+                    }
+                    return Ok("Antigravity CLI 已通过 WinGet 安装".into());
+                }
+            }
+            install_or_update_antigravity_cli(window, "安装")
+        }
+        "opencode" => install_opencode(window),
+        "trae-work" => install_or_update_trae_cli(window, "安装"),
+        "openclaw" => install_openclaw(window),
+        "hermes" => install_hermes(window),
+        _ => {
+            if let Some(pkg) = spec.cli.npm_package {
+                npm_install_latest(pkg, None, window)?;
+                Ok(format!("{} 已通过 npm 安装", spec.cli.name))
+            } else {
+                Err("该 CLI 暂无自动安装方案，请查看官方文档。".into())
+            }
+        }
+    }
+}
+
+pub(crate) fn update_cli_tool(
+    spec: &ToolSpec,
+    window: &Option<tauri::Window>,
+) -> Result<String, String> {
+    emit_progress(window, "正在检测当前安装来源…");
+    let program = resolve_command(spec.cli.candidates);
+    let method = detect_install_method(spec, program.as_deref());
+    match spec.id {
+        "claude" => install_or_update_claude(program.as_deref(), method.as_deref(), window),
+        "codex" => match (program.as_deref(), method.as_deref()) {
+            (Some(program), Some("npm")) => {
+                update_with_npm_source(spec, program, window)?;
+                Ok("Codex CLI 已通过 npm 更新".into())
+            }
+            (Some(_), Some("winget")) => {
+                let id = spec.cli.winget_id.ok_or("Codex CLI 缺少 WinGet 包 ID")?;
+                emit_progress(window, "正在通过 WinGet 更新 Codex CLI…");
+                run_winget_owned(
+                    winget_args("upgrade", id, None, true),
+                    Duration::from_secs(900),
+                    window,
+                )?;
+                Ok("Codex CLI 已通过 WinGet 更新".into())
+            }
+            (Some(_), _) => {
+                emit_progress(window, "正在运行 Codex 官方 Windows 安装器…");
+                run_codex_installer(window)?;
+                Ok("Codex CLI 已通过官方 Windows 安装器更新".into())
+            }
+            (None, _) => install_cli_tool(spec, window),
+        },
+        "kimi" => install_or_update_kimi_cli(program.as_deref(), method.as_deref(), window, "更新"),
+        "antigravity" => {
+            if method.as_deref() == Some("winget") {
+                let id = spec
+                    .cli
+                    .winget_id
+                    .ok_or("Antigravity CLI 缺少 WinGet 包 ID")?;
+                emit_progress(window, "正在通过 WinGet 更新 Antigravity CLI…");
+                run_winget_owned(
+                    winget_args("upgrade", id, None, true),
+                    Duration::from_secs(900),
+                    window,
+                )?;
+                return Ok("Antigravity CLI 已通过 WinGet 更新".into());
+            }
+            if let Some(program) = program {
+                emit_progress(window, "正在执行 agy update…");
+                match run_command_text(
+                    &program,
+                    &["update"],
+                    "agy update",
+                    Duration::from_secs(900),
+                ) {
+                    Ok(_) => return Ok("Antigravity CLI 已更新".into()),
+                    Err(err) => emit_progress(
+                        window,
+                        format!("agy update 未完成，改用官方安装脚本：{err}"),
+                    ),
+                }
+            }
+            install_or_update_antigravity_cli(window, "更新")
+        }
+        "opencode" => match (program.as_deref(), method.as_deref()) {
+            (Some(program), Some("npm")) => {
+                update_with_npm_source(spec, program, window)?;
+                Ok("OpenCode CLI 已通过 npm 更新".into())
+            }
+            (Some(_), Some("winget")) => {
+                let id = spec.cli.winget_id.ok_or("OpenCode CLI 缺少 WinGet 包 ID")?;
+                emit_progress(window, "正在通过 WinGet 更新 OpenCode CLI…");
+                run_winget_owned(
+                    winget_args("upgrade", id, None, true),
+                    Duration::from_secs(900),
+                    window,
+                )?;
+                Ok("OpenCode CLI 已通过 WinGet 更新".into())
+            }
+            (Some(_), Some("scoop")) => {
+                emit_progress(window, "正在通过 Scoop 更新 OpenCode CLI…");
+                run_scoop(&["update", "opencode"], Duration::from_secs(900))?;
+                Ok("OpenCode CLI 已通过 Scoop 更新".into())
+            }
+            (Some(_), Some("chocolatey")) => {
+                emit_progress(window, "正在通过 Chocolatey 更新 OpenCode CLI…");
+                run_choco(&["upgrade", "opencode", "-y"], Duration::from_secs(900))?;
+                Ok("OpenCode CLI 已通过 Chocolatey 更新".into())
+            }
+            (Some(_), _) => Err(
+                "已检测到 OpenCode CLI，但无法判断安装来源。请按官方文档使用原安装方式更新。"
+                    .into(),
+            ),
+            (None, _) => install_cli_tool(spec, window),
+        },
+        "trae-work" => {
+            if let Some(program) = program {
+                emit_progress(window, "正在执行 traecli update…");
+                match run_command_text(
+                    &program,
+                    &["update"],
+                    "traecli update",
+                    Duration::from_secs(1200),
+                ) {
+                    Ok(_) => return Ok("TRAE CLI 已更新".into()),
+                    Err(err) => emit_progress(
+                        window,
+                        format!("traecli update 未完成，改用官方安装脚本：{err}"),
+                    ),
+                }
+            }
+            install_or_update_trae_cli(window, "更新")
+        }
+        "hermes" => {
+            let program = program.ok_or_else(|| "未检测到 Hermes CLI。".to_string())?;
+            emit_progress(window, "正在执行 hermes update…");
+            run_command_text(
+                &program,
+                &["update"],
+                "hermes update",
+                Duration::from_secs(1200),
+            )?;
+            Ok("Hermes CLI 已更新".into())
+        }
+        _ => {
+            let program = program.ok_or_else(|| format!("未检测到 {}。", spec.cli.name))?;
+            update_with_npm_source(spec, &program, window)?;
+            Ok(format!("{} 已更新", spec.cli.name))
+        }
+    }
+}
+
+pub(crate) fn uninstall_cli_tool(
+    spec: &ToolSpec,
+    window: &Option<tauri::Window>,
+) -> Result<String, String> {
+    emit_progress(window, "正在检测当前安装来源…");
+    let program = resolve_command(spec.cli.candidates);
+    let method = detect_install_method(spec, program.as_deref());
+    if spec.id == "hermes" {
+        let program = program.ok_or_else(|| "未检测到 Hermes CLI。".to_string())?;
+        emit_progress(window, "正在运行 Hermes 官方卸载程序…");
+        run_command_text(
+            &program,
+            &["uninstall", "--yes"],
+            "hermes uninstall",
+            Duration::from_secs(900),
+        )?;
+        return Ok("Hermes CLI 已卸载，用户配置和会话数据已保留".into());
+    }
+    if spec.id == "openclaw" {
+        let program = program.ok_or_else(|| "未检测到 OpenClaw CLI。".to_string())?;
+        emit_progress(window, "正在移除 OpenClaw 网关服务…");
+        let _ = run_command_text(
+            &program,
+            &["gateway", "uninstall"],
+            "openclaw gateway uninstall",
+            Duration::from_secs(180),
+        );
+        let pkg = spec.cli.npm_package.ok_or("OpenClaw 缺少 npm 包信息。")?;
+        emit_progress(window, "正在卸载 OpenClaw CLI…");
+        npm_uninstall(pkg, Some(&program), window)?;
+        return Ok("OpenClaw CLI 与网关服务已卸载，配置和工作区已保留".into());
+    }
+    if spec.id == "trae-work" {
+        return uninstall_trae_cli(window);
+    }
+    match method.as_deref() {
+        Some("winget") => {
+            let id = spec.cli.winget_id.ok_or("该 CLI 缺少 WinGet 包 ID")?;
+            emit_progress(window, format!("正在通过 WinGet 卸载 {}…", spec.cli.name));
+            run_winget_owned(
+                winget_args("uninstall", id, None, true),
+                Duration::from_secs(900),
+                window,
+            )?;
+            Ok(format!("{} 已通过 WinGet 卸载", spec.cli.name))
+        }
+        Some("npm") | Some("conda-npm") => {
+            let pkg = spec
+                .cli
+                .npm_package
+                .ok_or("该 CLI 不是 npm 包，无法通过 npm 卸载。")?;
+            emit_progress(window, format!("正在通过 npm 卸载 {}…", spec.cli.name));
+            npm_uninstall(pkg, program.as_deref(), window)?;
+            Ok(format!("{} 已通过 npm 卸载", spec.cli.name))
+        }
+        Some("scoop") => {
+            emit_progress(window, format!("正在通过 Scoop 卸载 {}…", spec.cli.name));
+            run_scoop(&["uninstall", spec.cli.command], Duration::from_secs(900))?;
+            Ok(format!("{} 已通过 Scoop 卸载", spec.cli.name))
+        }
+        Some("chocolatey") => {
+            emit_progress(
+                window,
+                format!("正在通过 Chocolatey 卸载 {}…", spec.cli.name),
+            );
+            run_choco(
+                &["uninstall", spec.cli.command, "-y"],
+                Duration::from_secs(900),
+            )?;
+            Ok(format!("{} 已通过 Chocolatey 卸载", spec.cli.name))
+        }
+        Some("native") => {
+            let program = program.ok_or_else(|| "未找到可卸载的命令入口。".to_string())?;
+            remove_cli_binary(&program, spec.cli.command)?;
+            Ok(format!(
+                "{} 命令文件已移除，登录配置和历史数据已保留。",
+                spec.cli.name
+            ))
+        }
+        _ => Err(format!(
+            "无法判断 {} 的安装来源。为避免误删文件，请按官方文档卸载。",
+            spec.cli.name
+        )),
+    }
+}
+
+pub(crate) fn install_desktop_tool(
+    spec: &ToolSpec,
+    window: &Option<tauri::Window>,
+) -> Result<String, String> {
+    if let Some(id) = spec.desktop.winget_id {
+        let mut last_error = None;
+        for attempt in 1..=2 {
+            emit_progress(
+                window,
+                if attempt == 1 {
+                    format!("正在通过 WinGet 安装 {}…", spec.desktop.name)
+                } else {
+                    format!("正在利用已下载的安装缓存重试 {}…", spec.desktop.name)
+                },
+            );
+            match run_winget_owned(
+                winget_args("install", id, spec.desktop.winget_source, true),
+                Duration::from_secs(1200),
+                window,
+            ) {
+                Ok(_) => {
+                    last_error = None;
+                    break;
+                }
+                Err(err) => {
+                    if wait_for_desktop_install(spec, window, Duration::from_secs(10)) {
+                        return Ok(format!("{} 已安装", spec.desktop.name));
+                    }
+                    if crate::installer::op_cancelled() || err.contains("已取消") {
+                        return Err(err);
+                    }
+                    last_error = Some(err);
+                    if attempt == 1 {
+                        emit_progress(window, "首次安装未完成，正在复核下载缓存后重试…");
+                        std::thread::sleep(Duration::from_secs(1));
+                    }
+                }
+            }
+        }
+        if let Some(err) = last_error {
+            return Err(format!("{}；自动重试后仍未完成", err));
+        }
+        if wait_for_desktop_install(spec, window, Duration::from_secs(120)) {
+            return Ok(format!("{} 已通过 WinGet 安装", spec.desktop.name));
+        }
+        return Err(format!(
+            "WinGet 已完成，但尚未检测到 {}。请打开 Microsoft Store 检查下载状态，或在设置中打开 Stacker 日志目录查看详细记录",
+            spec.desktop.name
+        ));
+    }
+    if let Some(installer) = direct_desktop_installer(spec.id) {
+        return match install_desktop_from_official_package(spec, installer, window) {
+            Ok(message) => Ok(message),
+            Err(err) if err.contains("已取消") => Err(err),
+            Err(err) => match open_external_target(spec.desktop.install_url) {
+                Ok(()) => Err(format!(
+                    "{err}。已打开 {} 官方安装页，可在浏览器中继续下载。",
+                    spec.desktop.name
+                )),
+                Err(open_err) => Err(format!("{err}；同时无法打开官方安装页：{open_err}")),
+            },
+        };
+    }
+    Err(format!(
+        "{} 无法自动安装：{}",
+        spec.desktop.name,
+        desktop_install_unavailable_reason(spec)
+    ))
+}
+
+pub(crate) fn wait_for_desktop_install(
+    spec: &ToolSpec,
+    window: &Option<tauri::Window>,
+    timeout: Duration,
+) -> bool {
+    let started = Instant::now();
+    let mut last_reported = u64::MAX;
+    while started.elapsed() < timeout {
+        if desktop_installed_after_action(spec) {
+            return true;
+        }
+        if crate::installer::op_cancelled() {
+            return false;
+        }
+        let elapsed = started.elapsed().as_secs();
+        if elapsed != last_reported {
+            last_reported = elapsed;
+            emit_progress(
+                window,
+                format!(
+                    "正在确认 {} 安装状态 · 已 {} 秒",
+                    spec.desktop.name, elapsed
+                ),
+            );
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
+    false
+}
+
+pub(crate) fn update_desktop_tool(
+    spec: &ToolSpec,
+    window: &Option<tauri::Window>,
+) -> Result<String, String> {
+    let found = detect_desktop_app(&spec.desktop);
+    let current = found.as_ref().and_then(|f| f.version.as_deref());
+    if let Some(next) = desktop_internal_latest(spec, current) {
+        emit_progress(
+            window,
+            format!("{} 已下载 {next}，需要重启应用完成更新…", spec.desktop.name),
+        );
+        open_desktop_tool(spec.id)?;
+        return Ok(format!(
+            "{} 已下载 {next}，请在应用内点击 Relaunch to update 完成更新。",
+            spec.desktop.name
+        ));
+    }
+    if let Some(id) = spec.desktop.winget_id {
+        emit_progress(
+            window,
+            format!("正在通过 WinGet 更新 {}…", spec.desktop.name),
+        );
+        run_winget_owned(
+            winget_args("upgrade", id, spec.desktop.winget_source, true),
+            Duration::from_secs(1200),
+            window,
+        )?;
+        return Ok(format!("{} 已通过 WinGet 更新", spec.desktop.name));
+    }
+    if let Some(installer) = direct_desktop_installer(spec.id) {
+        return install_desktop_from_official_package(spec, installer, window)
+            .map(|_| format!("{} 已更新", spec.desktop.name));
+    }
+    Err(format!(
+        "{} 暂无可自动执行的 Windows 更新源，已取消操作。",
+        spec.desktop.name
+    ))
+}
+
+pub(crate) fn uninstall_desktop_tool(
+    spec: &ToolSpec,
+    window: &Option<tauri::Window>,
+) -> Result<String, String> {
+    let found = detect_desktop_app(&spec.desktop);
+    if let Some(uninstall) = found
+        .as_ref()
+        .and_then(|f| f.uninstall.as_deref())
+        .filter(|s| s.starts_with("appx:"))
+    {
+        let package = uninstall.trim_start_matches("appx:");
+        emit_progress(window, format!("正在卸载 {}…", spec.desktop.name));
+        uninstall_appx_package(package)?;
+        return Ok(format!("{} 已卸载", spec.desktop.name));
+    }
+    if let Some(id) = spec.desktop.winget_id {
+        emit_progress(
+            window,
+            format!("正在通过 WinGet 卸载 {}…", spec.desktop.name),
+        );
+        run_winget_owned(
+            winget_args("uninstall", id, spec.desktop.winget_source, true),
+            Duration::from_secs(1200),
+            window,
+        )?;
+        return Ok(format!("{} 已通过 WinGet 卸载", spec.desktop.name));
+    }
+    if let Some(uninstall) = found.and_then(|f| f.uninstall) {
+        emit_progress(window, format!("正在运行 {} 卸载程序…", spec.desktop.name));
+        run_uninstall_string(&uninstall)?;
+        return Ok(format!("{} 卸载程序已启动", spec.desktop.name));
+    }
+    Err(format!(
+        "未找到 {} 的自动卸载入口。请在 Windows“已安装的应用”中卸载。",
+        spec.desktop.name
+    ))
+}
+
+pub(crate) fn cli_installed_after_action(spec: &ToolSpec) -> bool {
+    resolve_command(spec.cli.candidates).is_some()
+        || spec.cli.winget_id.is_some_and(winget_package_installed)
+}
+
+pub(crate) fn desktop_installed_after_action(spec: &ToolSpec) -> bool {
+    detect_desktop_app(&spec.desktop).is_some()
+}
+
+pub(crate) fn uninstall_appx_package(package_full_name: &str) -> Result<(), String> {
+    let package = ps_single_quoted(package_full_name);
+    let script = format!("Remove-AppxPackage -Package {package} -ErrorAction Stop");
+    run_powershell(
+        &[
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            &script,
+        ],
+        "Remove-AppxPackage",
+        Duration::from_secs(120),
+    )
+    .map(|_| ())
+}
+
+pub(crate) fn remove_cli_binary(program: &Path, command_name: &str) -> Result<(), String> {
+    let path = program
+        .canonicalize()
+        .unwrap_or_else(|_| program.to_path_buf());
+    let file_name = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or_default()
+        .to_lowercase();
+    if file_name != command_name.to_lowercase() {
+        return Err("命令文件名不匹配，已取消卸载。".into());
+    }
+    let p = path.to_string_lossy().to_lowercase();
+    let user = std::env::var_os("USERPROFILE")
+        .map(|s| PathBuf::from(s).to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    let local = std::env::var_os("LOCALAPPDATA")
+        .map(|s| PathBuf::from(s).to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    if (!user.is_empty() && p.starts_with(&user)) || (!local.is_empty() && p.starts_with(&local)) {
+        std::fs::remove_file(&path).map_err(|e| format!("删除命令文件失败：{e}"))?;
+        Ok(())
+    } else {
+        Err("命令不在当前用户目录内，为避免误删已取消卸载。".into())
+    }
+}
+
+pub(crate) fn run_uninstall_string(uninstall: &str) -> Result<(), String> {
+    let mut cmd = Command::new("cmd.exe");
+    cmd.args(["/d", "/c", uninstall]);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+    cmd.spawn().map_err(|e| format!("启动卸载程序失败：{e}"))?;
+    Ok(())
+}

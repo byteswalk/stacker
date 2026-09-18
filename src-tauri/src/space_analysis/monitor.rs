@@ -1,5 +1,5 @@
 use super::windows_fs::{allocated_size, display_path};
-use crate::vibe::scan_agent_activity;
+use crate::agents::scan_agent_activity;
 use chrono::Local;
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
@@ -326,7 +326,7 @@ fn run_monitor(task_id: String, roots: Vec<PathBuf>, cancel: Arc<AtomicBool>, re
     });
 }
 
-fn monitor_processes(processes: Vec<crate::vibe::AgentProcess>) -> Vec<MonitorAgentProcess> {
+fn monitor_processes(processes: Vec<crate::agents::AgentProcess>) -> Vec<MonitorAgentProcess> {
     processes
         .into_iter()
         .map(|process| MonitorAgentProcess {

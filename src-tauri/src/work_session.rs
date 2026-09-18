@@ -352,7 +352,7 @@ fn tracking_roots(
     if !workspace.is_dir() {
         return Err("A project folder is required.".into());
     }
-    crate::vibe::managed_agent(request.agent_id.trim())?;
+    crate::agents::managed_agent(request.agent_id.trim())?;
     let enabled = request.enabled_items.into_iter().collect::<HashSet<_>>();
     let mut roots = Vec::new();
     push_tracking_root(
@@ -724,7 +724,7 @@ fn launch(request: WorkSessionLaunchRequest) -> Result<WorkSessionLaunchResult, 
     if !workspace.is_dir() {
         return Err("A project folder is required.".into());
     }
-    let cli = crate::vibe::managed_cli(request.agent_id.trim())?;
+    let cli = crate::agents::managed_cli(request.agent_id.trim())?;
     let contract = build_contract()?;
     let enabled = request.enabled_items.into_iter().collect::<HashSet<_>>();
     let unknown = enabled
@@ -806,7 +806,7 @@ fn launch_desktop(request: WorkSessionDesktopRequest) -> Result<WorkSessionLaunc
         return Err("Select whether to launch the desktop app or attach a running app.".into());
     }
     let workspace = validate_workspace(&request.workspace)?;
-    let desktop = crate::vibe::managed_desktop(request.agent_id.trim())?;
+    let desktop = crate::agents::managed_desktop(request.agent_id.trim())?;
     let process = if request.action == "attach" {
         let pid = request
             .pid
@@ -828,7 +828,7 @@ fn launch_desktop(request: WorkSessionDesktopRequest) -> Result<WorkSessionLaunc
                 desktop.agent_name
             ));
         }
-        crate::vibe::open_desktop_tool(&desktop.id)?;
+        crate::agents::open_desktop_tool(&desktop.id)?;
         find_launched_desktop_process(&desktop.id, &before)?
     };
     let session_id = format!(
@@ -879,8 +879,8 @@ fn validate_workspace(value: &str) -> Result<PathBuf, String> {
 }
 
 fn desktop_candidates(agent_id: &str) -> Result<Vec<WorkSessionDesktopProcess>, String> {
-    let desktop = crate::vibe::managed_desktop(agent_id.trim())?;
-    let mut processes = crate::vibe::desktop_agent_processes(&desktop.id)?
+    let desktop = crate::agents::managed_desktop(agent_id.trim())?;
+    let mut processes = crate::agents::desktop_agent_processes(&desktop.id)?
         .into_iter()
         .map(|process| WorkSessionDesktopProcess {
             agent_id: process.agent_id,
@@ -1005,7 +1005,7 @@ fn resolve_command(candidates: &[&str]) -> Option<PathBuf> {
 }
 
 fn probe_version(id: &str, program: &Path, args: &[&str]) -> Option<String> {
-    let command = crate::vibe::command_for_path(program, args);
+    let command = crate::agents::command_for_path(program, args);
     let output = run_with_timeout(command, Duration::from_secs(6)).ok()?;
     let text = format!(
         "{}\n{}",

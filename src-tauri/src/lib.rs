@@ -1,3 +1,4 @@
+mod agents;
 mod backup;
 mod binary;
 mod bundle;
@@ -25,7 +26,6 @@ mod space_analysis;
 mod storage;
 mod update;
 mod versions;
-mod vibe;
 mod winadmin;
 mod winenv;
 mod work_session;
@@ -325,15 +325,15 @@ pub fn run() {
             settings::settings_sync_system_proxy,
             settings::settings_set_proxy_manual,
             settings::os_info,
-            vibe::vibe_catalog,
-            vibe::vibe_tools,
-            vibe::vibe_tools_refresh,
-            vibe::vibe_tool,
-            vibe::vibe_environment_prompt,
-            vibe::vibe_tool_action,
-            vibe::vibe_open_desktop,
-            vibe::vibe_agent_activity,
-            vibe::vibe_agent_environment,
+            agents::commands::vibe_catalog,
+            agents::commands::vibe_tools,
+            agents::commands::vibe_tools_refresh,
+            agents::commands::vibe_tool,
+            agents::commands::vibe_environment_prompt,
+            agents::commands::vibe_tool_action,
+            agents::commands::vibe_open_desktop,
+            agents::commands::vibe_agent_activity,
+            agents::commands::vibe_agent_environment,
             work_session::work_environment_contract,
             work_session::work_session_tracking_roots,
             work_session::work_session_launch,

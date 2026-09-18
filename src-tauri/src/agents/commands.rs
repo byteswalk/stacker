@@ -1,0 +1,82 @@
+use crate::agents::{activity::*, registry::*, *};
+
+#[tauri::command]
+pub async fn vibe_tools() -> Vec<VibeTool> {
+    tauri::async_runtime::spawn_blocking(scan_vibe_tools_cached)
+        .await
+        .unwrap_or_default()
+}
+
+/// Explicit user refreshes must not reuse the short-lived startup cache. This
+/// matters for desktop agents that update themselves outside of Stacker.
+#[tauri::command]
+pub async fn vibe_tools_refresh() -> Vec<VibeTool> {
+    tauri::async_runtime::spawn_blocking(|| {
+        invalidate_vibe_scan_cache();
+        scan_vibe_tools_cached()
+    })
+    .await
+    .unwrap_or_default()
+}
+
+#[tauri::command]
+pub fn vibe_catalog() -> Vec<VibeTool> {
+    tool_specs().into_iter().map(vibe_catalog_tool).collect()
+}
+
+#[tauri::command]
+pub async fn vibe_tool(id: String) -> Result<VibeTool, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let tool = scan_vibe_tool(&id, true).ok_or_else(|| "未知的工作智能体工具".to_string())?;
+        cache_vibe_tool(&tool);
+        Ok(tool)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn vibe_environment_prompt() -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(build_environment_prompt)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn vibe_tool_action(
+    window: tauri::Window,
+    id: String,
+    target: String,
+    action: String,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let result = run_tool_action(&id, &target, &action, Some(window));
+        if result.is_ok() {
+            invalidate_vibe_scan_cache();
+        }
+        result
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn vibe_open_desktop(id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || open_desktop_tool(&id))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn vibe_agent_activity() -> Result<AgentActivitySnapshot, String> {
+    tauri::async_runtime::spawn_blocking(scan_agent_activity)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn vibe_agent_environment() -> Result<AgentEnvironmentSnapshot, String> {
+    tauri::async_runtime::spawn_blocking(scan_agent_environment)
+        .await
+        .map_err(|e| e.to_string())?
+}

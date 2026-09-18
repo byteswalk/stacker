@@ -1,0 +1,990 @@
+use crate::agents::{install::winget::*, process::*, registry::*, *};
+use serde_json::Value;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+pub(crate) struct DesktopFound {
+    pub(crate) path: Option<PathBuf>,
+    pub(crate) version: Option<String>,
+    pub(crate) method: Option<String>,
+    pub(crate) uninstall: Option<String>,
+    pub(crate) launch: Option<String>,
+}
+
+pub(crate) fn cli_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurface {
+    if spec.cli.command.is_empty() {
+        return unavailable_surface(
+            spec.cli.name,
+            "CLI",
+            spec.cli.description,
+            spec.cli.install_url,
+            spec.cli.docs_url,
+        );
+    }
+    let program = resolve_command(spec.cli.candidates);
+    let probe = program
+        .as_deref()
+        .map(|p| run_program_probe(spec.cli.name, p, &["--version"], Duration::from_secs(5)));
+    let version = probe
+        .as_ref()
+        .and_then(|r| r.as_ref().ok())
+        .map(|s| s.to_string());
+    let method = detect_install_method(spec, program.as_deref());
+    let probe_error = probe
+        .as_ref()
+        .and_then(|r| r.as_ref().err())
+        .map(|s| s.to_string());
+    let installed =
+        program.is_some() && (probe.as_ref().is_some_and(|r| r.is_ok()) || method.is_some());
+    let latest = if check_latest && installed {
+        latest_for_cli(spec, method.as_deref(), version.as_deref())
+            .ok()
+            .flatten()
+    } else {
+        None
+    };
+    let update_available = installed
+        && version
+            .as_deref()
+            .zip(latest.as_deref())
+            .is_some_and(|(cur, next)| crate::update::ver_lt(cur, next));
+    let status = if update_available {
+        "update"
+    } else if installed {
+        "installed"
+    } else if program.is_some() {
+        "unknown"
+    } else {
+        "missing"
+    };
+    VibeSurface {
+        available: true,
+        label: spec.cli.name.into(),
+        kind: "CLI".into(),
+        description: spec.cli.description.into(),
+        installed,
+        status: status.into(),
+        version,
+        probe_error,
+        latest,
+        update_available,
+        path: program.map(|p| p.to_string_lossy().into_owned()),
+        command: Some(spec.cli.command.into()),
+        install_method_label: method.as_deref().and_then(install_method_label),
+        install_method: method,
+        install_url: spec.cli.install_url.into(),
+        docs_url: spec.cli.docs_url.into(),
+        can_install: true,
+        install_unavailable_reason: None,
+        can_update: installed,
+        can_uninstall: installed,
+        can_open: installed,
+    }
+}
+
+pub(crate) fn desktop_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurface {
+    if spec.id != "deepseek-harness"
+        && spec.desktop.keywords.is_empty()
+        && spec.desktop.winget_id.is_none()
+        && spec.desktop.appx_names.is_empty()
+    {
+        return unavailable_surface(
+            spec.desktop.name,
+            "桌面端",
+            spec.desktop.description,
+            spec.desktop.install_url,
+            spec.desktop.docs_url,
+        );
+    }
+    let found = detect_desktop_app(&spec.desktop);
+    let installed = found.is_some();
+    let method = found.as_ref().and_then(|f| f.method.clone());
+    // Kimi Work applies some updates in place. Its uninstall registration can
+    // briefly keep the previous DisplayVersion, while Kimi.exe is already new.
+    // Prefer the executable's file version so we don't advertise a phantom update.
+    let version = found.as_ref().and_then(|found| {
+        if spec.id == "kimi" {
+            found
+                .path
+                .as_deref()
+                .and_then(desktop_executable_version)
+                .or_else(|| found.version.clone())
+        } else {
+            found.version.clone()
+        }
+    });
+    let path = found
+        .as_ref()
+        .and_then(|f| f.path.as_ref())
+        .map(|p| p.to_string_lossy().into_owned());
+    let latest = if check_latest && installed {
+        desktop_internal_latest(spec, version.as_deref())
+            .or_else(|| {
+                spec.desktop.winget_id.and_then(|id| {
+                    winget_available_update(id, spec.desktop.winget_source)
+                        .ok()
+                        .flatten()
+                })
+            })
+            .or_else(|| version.clone())
+    } else {
+        None
+    };
+    let update_available = installed
+        && version
+            .as_deref()
+            .zip(latest.as_deref())
+            .is_some_and(|(cur, next)| crate::update::ver_lt(cur, next));
+    let has_direct_installer = direct_desktop_installer(spec.id).is_some();
+    let can_install = spec.desktop.winget_id.is_some() || has_direct_installer;
+    VibeSurface {
+        available: true,
+        label: spec.desktop.name.into(),
+        kind: "桌面端".into(),
+        description: spec.desktop.description.into(),
+        installed,
+        status: if update_available {
+            "update".into()
+        } else if installed {
+            "installed".into()
+        } else {
+            "missing".into()
+        },
+        version,
+        probe_error: None,
+        latest,
+        update_available,
+        path,
+        command: None,
+        install_method_label: method.as_deref().and_then(install_method_label),
+        install_method: method,
+        install_url: spec.desktop.install_url.into(),
+        docs_url: spec.desktop.docs_url.into(),
+        can_install,
+        install_unavailable_reason: (!can_install)
+            .then(|| desktop_install_unavailable_reason(spec).to_string()),
+        can_update: installed
+            && (spec.desktop.winget_id.is_some() || has_direct_installer || update_available),
+        // A locally launched DeepSeek Harness workspace is not registered as
+        // a conventional Windows app. Never offer an unsafe partial uninstall.
+        can_uninstall: installed && spec.id != "deepseek-harness",
+        can_open: installed,
+    }
+}
+
+pub(crate) fn detect_install_method(spec: &ToolSpec, program: Option<&Path>) -> Option<String> {
+    let program = program?;
+    let p = program.to_string_lossy().replace('/', "\\").to_lowercase();
+    if spec.id == "claude"
+        && (p.contains("\\.local\\bin\\claude") || p.contains("\\.local\\share\\claude\\"))
+    {
+        return Some("native".into());
+    }
+    if spec.id == "codex" && (p.contains("\\.codex\\") || p.contains("\\.local\\bin\\codex")) {
+        return Some("native".into());
+    }
+    if spec.id == "kimi"
+        && (p.contains("\\.local\\bin\\kimi")
+            || p.contains("\\kimi-code\\bin\\")
+            || p.contains("\\appdata\\local\\kimi-code\\"))
+    {
+        return Some("native".into());
+    }
+    if spec.id == "antigravity"
+        && (p.contains("\\antigravity\\")
+            || p.contains("\\.local\\bin\\agy")
+            || p.contains("\\agy\\bin\\agy"))
+    {
+        return Some("native".into());
+    }
+    if spec.id == "trae-work" && p.contains("\\appdata\\local\\trae-cli\\bin\\") {
+        return Some("native".into());
+    }
+    if spec.id == "hermes"
+        && (p.contains("\\appdata\\local\\hermes\\") || p.contains("\\.hermes\\"))
+    {
+        return Some("native".into());
+    }
+    if spec.id == "opencode" {
+        if p.contains("\\scoop\\shims\\") || p.contains("\\scoop\\apps\\opencode\\") {
+            return Some("scoop".into());
+        }
+        if p.contains("\\chocolatey\\bin\\") || p.contains("\\chocolatey\\lib\\opencode\\") {
+            return Some("chocolatey".into());
+        }
+        if p.contains("\\.opencode\\bin\\") {
+            return Some("native".into());
+        }
+    }
+    if let Some(pkg) = spec.cli.npm_package {
+        if is_conda_path(&p) && is_npm_shim(program, pkg) {
+            return Some("conda-npm".into());
+        }
+        if is_npm_shim(program, pkg) {
+            return Some("npm".into());
+        }
+    }
+    // Most installations can be identified from their resolved executable. Only
+    // query WinGet when the path itself is inconclusive; `winget list` is slow and
+    // may contact package sources, so running it for every npm/native CLI makes a
+    // full agent scan unnecessarily expensive.
+    if let Some(id) = spec.cli.winget_id {
+        if p.contains("\\winget\\links\\") || winget_package_installed(id) {
+            return Some("winget".into());
+        }
+    }
+    None
+}
+
+pub(crate) fn install_method_label(method: &str) -> Option<String> {
+    match method {
+        "winget" => Some("WinGet".into()),
+        "npm" => Some("npm".into()),
+        "native" => Some("官方安装".into()),
+        "scoop" => Some("Scoop".into()),
+        "chocolatey" => Some("Chocolatey".into()),
+        "conda-npm" => Some("Conda npm".into()),
+        "appx" => Some("应用商店版".into()),
+        "shortcut" => Some("快捷方式".into()),
+        "registry" => Some("安装程序版".into()),
+        "app" => Some("本地应用".into()),
+        "local-workbench" => Some("本地工作台".into()),
+        "download" => Some("官方下载".into()),
+        _ => None,
+    }
+}
+
+pub(crate) fn is_conda_path(path: &str) -> bool {
+    path.contains("\\anaconda")
+        || path.contains("\\miniconda")
+        || path.contains("\\mambaforge")
+        || path.contains("\\miniforge")
+        || path.contains("\\conda\\envs\\")
+        || path.contains("\\envs\\")
+}
+
+pub(crate) fn is_npm_shim(program: &Path, npm_package: &str) -> bool {
+    let p = program.to_string_lossy().replace('/', "\\").to_lowercase();
+    if p.contains("\\node_modules\\")
+        || p.contains("\\npm\\")
+        || p.contains("\\node_global\\")
+        || p.contains("\\npm-global\\")
+    {
+        return true;
+    }
+    let pkg = npm_package.to_lowercase();
+    std::fs::read_to_string(program)
+        .map(|s| s.to_lowercase().contains(&pkg) || s.to_lowercase().contains("node_modules"))
+        .unwrap_or(false)
+}
+
+pub(crate) fn latest_for_cli(
+    spec: &ToolSpec,
+    method: Option<&str>,
+    current: Option<&str>,
+) -> Result<Option<String>, String> {
+    if let (Some("winget"), Some(id)) = (method, spec.cli.winget_id) {
+        return Ok(winget_available_update(id, None)?.or_else(|| current.map(|s| s.to_string())));
+    }
+    if spec.id == "antigravity" || spec.id == "hermes" {
+        return Ok(current.map(|s| s.to_string()));
+    }
+    if spec.id == "trae-work" {
+        return trae_cli_latest().map(Some);
+    }
+    if method == Some("native") && spec.id == "claude" {
+        return Ok(current.map(|s| s.to_string()));
+    }
+    if let Some(pkg) = spec.cli.npm_package {
+        return npm_latest(pkg).map(Some);
+    }
+    Ok(current.map(|s| s.to_string()))
+}
+
+pub(crate) fn trae_cli_latest() -> Result<String, String> {
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_millis(1500))
+        .timeout_read(Duration::from_millis(1500))
+        .build();
+    let version = agent
+        .get("https://lf-cdn.trae.com.cn/obj/trae-com-cn/trae-cli/trae-cli_latest_version.txt")
+        .set("User-Agent", "Stacker")
+        .call()
+        .map_err(|e| format!("获取 TRAE CLI 最新版本失败：{e}"))?
+        .into_string()
+        .map_err(|e| format!("读取 TRAE CLI 最新版本失败：{e}"))?;
+    let version = version.trim().trim_start_matches('v').trim();
+    if version.is_empty() {
+        Err("TRAE CLI 最新版本响应为空。".into())
+    } else {
+        Ok(version.to_string())
+    }
+}
+
+pub(crate) fn desktop_internal_latest(spec: &ToolSpec, current: Option<&str>) -> Option<String> {
+    match spec.id {
+        "claude" => claude_desktop_ready_update(current),
+        "kimi" => kimi_work_latest().ok(),
+        _ => None,
+    }
+}
+
+pub(crate) fn kimi_work_latest() -> Result<String, String> {
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(5))
+        .timeout_read(Duration::from_secs(5))
+        .redirects(3)
+        .build();
+    let response = agent
+        .get("https://appsupport.moonshot.cn/api/app/pkg/latest/windows/download")
+        .set("User-Agent", "Stacker")
+        .call()
+        .map_err(|e| format!("获取 Kimi Work 最新版本失败：{e}"))?;
+    let final_url = response.get_url();
+    let file = final_url.rsplit('/').next().unwrap_or_default();
+    let version = file
+        .strip_prefix("kimi_")
+        .and_then(|value| value.strip_suffix(".exe"))
+        .unwrap_or_default()
+        .trim();
+    if version.is_empty() {
+        Err("Kimi Work 下载地址未包含版本信息。".into())
+    } else {
+        Ok(version.to_string())
+    }
+}
+
+pub(crate) fn claude_desktop_ready_update(current: Option<&str>) -> Option<String> {
+    let local = std::env::var_os("LOCALAPPDATA").map(PathBuf::from)?;
+    let candidates = [
+        local.join("Claude-3p\\Logs\\main.log"),
+        local.join("Claude-3p\\logs\\main.log"),
+    ];
+    let mut latest_ready: Option<String> = None;
+    for path in candidates {
+        let Ok(text) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        for line in text.lines() {
+            if let Some(version) = parse_claude_ready_update_version(line) {
+                latest_ready = Some(version);
+            }
+        }
+    }
+    latest_ready.filter(|next| {
+        current
+            .map(|cur| crate::update::ver_lt(cur, next))
+            .unwrap_or(true)
+    })
+}
+
+pub(crate) fn parse_claude_ready_update_version(line: &str) -> Option<String> {
+    if !line.contains("Update downloaded and ready to install") {
+        return None;
+    }
+    let marker = "releaseName: 'Claude ";
+    let start = line.find(marker)? + marker.len();
+    let rest = &line[start..];
+    let end = rest.find('\'')?;
+    let version = rest[..end].trim();
+    (!version.is_empty()).then(|| version.to_string())
+}
+
+pub(crate) fn detect_desktop_app(spec: &DesktopSpec) -> Option<DesktopFound> {
+    if spec.name.contains("DeepSeek Harness") {
+        return deepseek_harness_launcher().map(|path| DesktopFound {
+            path: Some(path),
+            version: None,
+            method: Some("local-workbench".into()),
+            uninstall: None,
+            launch: None,
+        });
+    }
+    desktop_appx_package(spec)
+        .or_else(|| desktop_registry(spec))
+        .or_else(|| desktop_start_menu_shortcut(spec))
+        .or_else(|| desktop_exe_candidate(spec))
+        .or_else(|| {
+            spec.winget_id.and_then(|id| {
+                winget_package_installed(id).then(|| DesktopFound {
+                    path: None,
+                    version: None,
+                    method: Some("winget".into()),
+                    uninstall: None,
+                    launch: None,
+                })
+            })
+        })
+}
+
+pub(crate) fn deepseek_harness_launcher() -> Option<PathBuf> {
+    let local = std::env::var_os("LOCALAPPDATA").map(PathBuf::from)?;
+    let launcher = local.join("DeepSeekHarness\\start-deepseek-harness.ps1");
+    let content = std::fs::read_to_string(&launcher).ok()?;
+    let workspace = content.lines().find_map(|line| {
+        let value = line.trim().strip_prefix("$repo = '")?;
+        value.strip_suffix('\'').map(PathBuf::from)
+    })?;
+    workspace.is_dir().then_some(launcher)
+}
+
+#[cfg(windows)]
+pub(crate) fn desktop_appx_package(spec: &DesktopSpec) -> Option<DesktopFound> {
+    if spec.appx_names.is_empty() {
+        return None;
+    }
+    let names = spec
+        .appx_names
+        .iter()
+        .map(|name| ps_single_quoted(name))
+        .collect::<Vec<_>>()
+        .join(",");
+    let script = format!(
+        r#"
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$names = @({names})
+foreach ($name in $names) {{
+  $pkg = Get-AppxPackage -Name $name -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($pkg) {{
+    $app = Get-StartApps | Where-Object {{ $_.AppID -like "$($pkg.PackageFamilyName)!*" }} | Select-Object -First 1
+    $appId = if ($app) {{ $app.AppID }} else {{ "$($pkg.PackageFamilyName)!App" }}
+    Write-Output ("{{0}}`t{{1}}`t{{2}}`t{{3}}`t{{4}}" -f $pkg.Name, $pkg.Version, $pkg.InstallLocation, $appId, $pkg.PackageFullName)
+    break
+  }}
+}}
+"#
+    );
+    let text = run_powershell(
+        &[
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            &script,
+        ],
+        "Get-AppxPackage",
+        Duration::from_secs(8),
+    )
+    .ok()?;
+    let line = text.lines().map(str::trim).find(|line| !line.is_empty())?;
+    let parts: Vec<&str> = line.splitn(5, '\t').collect();
+    if parts.len() < 4 {
+        return None;
+    }
+    let version = (!parts[1].trim().is_empty()).then(|| parts[1].trim().to_string());
+    let install = parts[2].trim();
+    let app_id = parts[3].trim();
+    let package_full_name = parts.get(4).map(|s| s.trim()).unwrap_or_default();
+    let path = (!install.is_empty()).then(|| PathBuf::from(install));
+    let launch = (!app_id.is_empty()).then(|| format!("shell:AppsFolder\\{app_id}"));
+    let uninstall = (!package_full_name.is_empty()).then(|| format!("appx:{package_full_name}"));
+    Some(DesktopFound {
+        path,
+        version,
+        method: Some("appx".into()),
+        uninstall,
+        launch,
+    })
+}
+
+#[cfg(not(windows))]
+pub(crate) fn desktop_appx_package(_: &DesktopSpec) -> Option<DesktopFound> {
+    None
+}
+
+#[cfg(windows)]
+pub(crate) fn desktop_registry(spec: &DesktopSpec) -> Option<DesktopFound> {
+    use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ};
+    use winreg::RegKey;
+    let paths = [
+        r"Software\Microsoft\Windows\CurrentVersion\Uninstall",
+        r"Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+    ];
+    for hive in [HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE] {
+        let root = RegKey::predef(hive);
+        for path in paths {
+            let Ok(uninstall) = root.open_subkey_with_flags(path, KEY_READ) else {
+                continue;
+            };
+            for name in uninstall.enum_keys().flatten() {
+                let Ok(key) = uninstall.open_subkey_with_flags(&name, KEY_READ) else {
+                    continue;
+                };
+                let display: String = key.get_value("DisplayName").unwrap_or_default();
+                if !desktop_name_matches(&display, spec.keywords, spec.excludes) {
+                    continue;
+                }
+                let version: Option<String> = key.get_value("DisplayVersion").ok();
+                let quiet: Option<String> = key.get_value("QuietUninstallString").ok();
+                let normal: Option<String> = key.get_value("UninstallString").ok();
+                let uninstall_string = quiet.or(normal);
+                let icon: Option<String> = key.get_value("DisplayIcon").ok();
+                let install_location: Option<String> = key.get_value("InstallLocation").ok();
+                let icon_file = icon.as_deref().and_then(parse_registered_file);
+                let uninstall_file = uninstall_string
+                    .as_deref()
+                    .and_then(executable_from_command);
+                let path = icon_file
+                    .as_ref()
+                    .filter(|path| is_launchable_desktop_exe(path, spec.keywords, spec.excludes))
+                    .cloned()
+                    .or_else(|| {
+                        install_location
+                            .as_deref()
+                            .map(str::trim)
+                            .filter(|location| !location.is_empty())
+                            .and_then(|location| {
+                                find_exe_in_dir(
+                                    &PathBuf::from(location),
+                                    spec.keywords,
+                                    spec.excludes,
+                                )
+                            })
+                    })
+                    .or_else(|| {
+                        icon_file
+                            .as_deref()
+                            .and_then(Path::parent)
+                            .and_then(|dir| find_exe_in_dir(dir, spec.keywords, spec.excludes))
+                    })
+                    .or_else(|| {
+                        uninstall_file
+                            .as_deref()
+                            .and_then(Path::parent)
+                            .and_then(|dir| find_exe_in_dir(dir, spec.keywords, spec.excludes))
+                    });
+                return Some(DesktopFound {
+                    path,
+                    version,
+                    method: Some("registry".into()),
+                    uninstall: uninstall_string,
+                    launch: None,
+                });
+            }
+        }
+    }
+    None
+}
+
+#[cfg(not(windows))]
+pub(crate) fn desktop_registry(_: &DesktopSpec) -> Option<DesktopFound> {
+    None
+}
+
+pub(crate) fn desktop_start_menu_shortcut(spec: &DesktopSpec) -> Option<DesktopFound> {
+    for root in start_menu_roots() {
+        if let Some(path) = find_shortcut_recursive(&root, spec.keywords, spec.excludes, 4) {
+            return Some(DesktopFound {
+                path: Some(path),
+                version: None,
+                method: Some("shortcut".into()),
+                uninstall: None,
+                launch: None,
+            });
+        }
+    }
+    None
+}
+
+pub(crate) fn desktop_exe_candidate(spec: &DesktopSpec) -> Option<DesktopFound> {
+    for path in desktop_candidate_paths(spec) {
+        if path.is_file() {
+            return Some(DesktopFound {
+                path: Some(path),
+                version: None,
+                method: Some("app".into()),
+                uninstall: None,
+                launch: None,
+            });
+        }
+    }
+    None
+}
+
+pub(crate) fn desktop_executable_version(path: &Path) -> Option<String> {
+    #[cfg(windows)]
+    {
+        let path = ps_single_quoted(&path.to_string_lossy());
+        let script = format!(
+            "$version = (Get-Item -LiteralPath {path} -ErrorAction Stop).VersionInfo.FileVersion; if ($version) {{ Write-Output $version }}"
+        );
+        let output = run_powershell(
+            &[
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                &script,
+            ],
+            "读取桌面应用版本",
+            Duration::from_secs(3),
+        )
+        .ok()?;
+        normalize_desktop_version(&output)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = path;
+        None
+    }
+}
+
+pub(crate) fn normalize_desktop_version(value: &str) -> Option<String> {
+    let value = value.trim().trim_start_matches(['v', 'V']);
+    let version = value
+        .split_whitespace()
+        .map(|part| part.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '.' && c != '-'))
+        .find(|part| part.chars().any(|c| c.is_ascii_digit()))
+        .unwrap_or_default()
+        .trim();
+    if version.is_empty() {
+        return None;
+    }
+    let mut parts = version.split('.').collect::<Vec<_>>();
+    while parts.len() > 3 && parts.last().is_some_and(|part| *part == "0") {
+        parts.pop();
+    }
+    Some(parts.join("."))
+}
+
+pub(crate) fn desktop_name_matches(name: &str, keywords: &[&str], excludes: &[&str]) -> bool {
+    let lower = name.to_lowercase();
+    keywords.iter().any(|k| lower.contains(&k.to_lowercase()))
+        && !excludes.iter().any(|k| lower.contains(&k.to_lowercase()))
+}
+
+pub(crate) fn parse_registered_file(value: &str) -> Option<PathBuf> {
+    let mut s = value.trim().trim_matches('"').to_string();
+    if let Some(idx) = s.rfind(',') {
+        if s[idx + 1..].chars().all(|c| c == '-' || c.is_ascii_digit()) {
+            s.truncate(idx);
+        }
+    }
+    let p = PathBuf::from(s.trim().trim_matches('"'));
+    p.is_file().then_some(p)
+}
+
+pub(crate) fn executable_from_command(value: &str) -> Option<PathBuf> {
+    let value = value.trim();
+    let executable = if let Some(rest) = value.strip_prefix('"') {
+        let end = rest.find('"')?;
+        &rest[..end]
+    } else {
+        let lower = value.to_ascii_lowercase();
+        let end = lower.find(".exe")? + ".exe".len();
+        &value[..end]
+    };
+    let path = PathBuf::from(executable.trim());
+    path.is_file().then_some(path)
+}
+
+pub(crate) fn is_launchable_desktop_exe(path: &Path, keywords: &[&str], excludes: &[&str]) -> bool {
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+    let lower = name.to_lowercase();
+    if !lower.ends_with(".exe")
+        || [
+            "uninstall",
+            "unins",
+            "installer",
+            "setup",
+            "update",
+            "crashpad",
+            "helper",
+        ]
+        .iter()
+        .any(|marker| lower.contains(marker))
+    {
+        return false;
+    }
+    desktop_name_matches(&lower, keywords, excludes)
+}
+
+pub(crate) fn find_exe_in_dir(dir: &Path, keywords: &[&str], excludes: &[&str]) -> Option<PathBuf> {
+    let entries = std::fs::read_dir(dir).ok()?;
+    let mut fallback = None;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() || !is_launchable_desktop_exe(&path, keywords, excludes) {
+            continue;
+        }
+        let stem = path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or_default()
+            .to_lowercase()
+            .replace([' ', '-', '_'], "");
+        if keywords
+            .iter()
+            .any(|keyword| stem == keyword.to_lowercase().replace([' ', '-', '_'], ""))
+        {
+            return Some(path);
+        }
+        fallback.get_or_insert(path);
+    }
+    fallback
+}
+
+pub(crate) fn start_menu_roots() -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    if let Some(appdata) = std::env::var_os("APPDATA") {
+        roots.push(PathBuf::from(appdata).join("Microsoft\\Windows\\Start Menu\\Programs"));
+    }
+    if let Some(programdata) = std::env::var_os("PROGRAMDATA") {
+        roots.push(PathBuf::from(programdata).join("Microsoft\\Windows\\Start Menu\\Programs"));
+    }
+    roots
+}
+
+pub(crate) fn find_shortcut_recursive(
+    dir: &Path,
+    keywords: &[&str],
+    excludes: &[&str],
+    depth: usize,
+) -> Option<PathBuf> {
+    if depth == 0 {
+        return None;
+    }
+    let entries = std::fs::read_dir(dir).ok()?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            if let Some(found) = find_shortcut_recursive(&path, keywords, excludes, depth - 1) {
+                return Some(found);
+            }
+            continue;
+        }
+        let name = path.file_name()?.to_string_lossy().to_lowercase();
+        if name.ends_with(".lnk") && desktop_name_matches(&name, keywords, excludes) {
+            return Some(path);
+        }
+    }
+    None
+}
+
+pub(crate) fn desktop_candidate_paths(spec: &DesktopSpec) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let local = std::env::var_os("LOCALAPPDATA").map(PathBuf::from);
+    let pf = std::env::var_os("ProgramFiles").map(PathBuf::from);
+    let pf86 = std::env::var_os("ProgramFiles(x86)").map(PathBuf::from);
+    let mut add = |base: &Option<PathBuf>, rest: &str| {
+        if let Some(base) = base {
+            out.push(base.join(rest));
+        }
+    };
+    match spec.name {
+        name if name.contains("Claude") => {
+            add(&local, "Programs\\Claude\\Claude.exe");
+            add(&pf, "Claude\\Claude.exe");
+        }
+        name if name.contains("Codex") => {
+            add(&local, "Programs\\Codex\\Codex.exe");
+            add(&pf, "Codex\\Codex.exe");
+        }
+        name if name.contains("Antigravity") => {
+            add(&local, "Programs\\Antigravity\\Antigravity.exe");
+            add(&local, "Google\\Antigravity\\Application\\antigravity.exe");
+            add(&pf, "Google\\Antigravity\\Application\\antigravity.exe");
+            add(&pf86, "Google\\Antigravity\\Application\\antigravity.exe");
+        }
+        name if name.contains("OpenCode") => {
+            add(&local, "Programs\\OpenCode\\OpenCode.exe");
+            add(&pf, "OpenCode\\OpenCode.exe");
+        }
+        name if name.contains("ZCode") => {
+            add(&local, "Programs\\ZCode\\ZCode.exe");
+            add(&pf, "ZCode\\ZCode.exe");
+        }
+        name if name.contains("Kimi Work") => {
+            add(&local, "Programs\\kimi-desktop\\Kimi.exe");
+            add(&local, "Programs\\Kimi\\Kimi.exe");
+            add(&local, "Programs\\Kimi Work\\Kimi Work.exe");
+            add(&local, "Kimi\\Kimi.exe");
+            add(&local, "Kimi Work\\Kimi Work.exe");
+            add(&pf, "kimi-desktop\\Kimi.exe");
+            add(&pf, "Kimi\\Kimi.exe");
+            add(&pf, "Kimi Work\\Kimi Work.exe");
+        }
+        name if name.contains("WorkBuddy") => {
+            add(&local, "Programs\\WorkBuddy\\WorkBuddy.exe");
+            add(&local, "WorkBuddy\\WorkBuddy.exe");
+            add(&pf, "WorkBuddy\\WorkBuddy.exe");
+        }
+        name if name.contains("Qoder") => {
+            add(&local, "Programs\\Qoder\\Qoder.exe");
+            add(&pf, "Qoder\\Qoder.exe");
+        }
+        name if name.contains("TRAE Work") => {
+            add(&local, "Programs\\TRAE SOLO CN\\TRAE SOLO CN.exe");
+            add(&local, "TRAE SOLO CN\\TRAE SOLO CN.exe");
+            add(&pf, "TRAE SOLO CN\\TRAE SOLO CN.exe");
+        }
+        name if name.contains("TRAE") => {
+            add(&local, "Programs\\TRAE SOLO\\TRAE SOLO.exe");
+            add(&local, "TRAE SOLO\\TRAE SOLO.exe");
+            add(&pf, "TRAE SOLO\\TRAE SOLO.exe");
+        }
+        name if name.contains("OpenClaw") => {
+            add(&local, "Programs\\OpenClaw\\OpenClaw.exe");
+            add(&local, "OpenClaw\\OpenClaw.exe");
+            add(&pf, "OpenClaw\\OpenClaw.exe");
+        }
+        name if name.contains("Hermes") => {
+            add(&local, "Programs\\Hermes\\Hermes.exe");
+            add(&local, "hermes\\desktop\\Hermes.exe");
+            add(&local, "hermes\\Hermes.exe");
+            add(&pf, "Hermes\\Hermes.exe");
+        }
+        _ => {}
+    }
+    out
+}
+
+pub(crate) fn winget_package_installed(id: &str) -> bool {
+    run_winget(
+        &["list", "--id", id, "--exact", "--accept-source-agreements"],
+        Duration::from_secs(10),
+    )
+    .map(|text| text.to_lowercase().contains(&id.to_lowercase()))
+    .unwrap_or(false)
+}
+
+pub(crate) fn winget_available_update(
+    id: &str,
+    source: Option<&str>,
+) -> Result<Option<String>, String> {
+    let args = winget_args("show", id, source, true);
+    debug_assert!(winget_query_is_read_only(&args));
+    let refs = args.iter().map(String::as_str).collect::<Vec<_>>();
+    let text = run_winget(&refs, Duration::from_secs(15))?;
+    Ok(winget_latest_version_from_show(&text))
+}
+
+pub(crate) fn winget_latest_version_from_show(text: &str) -> Option<String> {
+    text.lines().find_map(|line| {
+        let normalized = line.trim().replace('：', ":");
+        let (key, value) = normalized.split_once(':')?;
+        let key = key.trim().to_ascii_lowercase();
+        if key == "version" || key == "版本" {
+            let value = value.trim();
+            (!value.is_empty()).then(|| value.to_string())
+        } else {
+            None
+        }
+    })
+}
+
+pub(crate) fn npm_latest(package: &str) -> Result<String, String> {
+    let package = package.replace('@', "%40").replace('/', "%2F");
+    let url = format!("https://registry.npmjs.org/{package}");
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_millis(1500))
+        .timeout_read(Duration::from_millis(1500))
+        .build();
+    let body = agent
+        .get(&url)
+        .set("User-Agent", "Stacker")
+        .call()
+        .map_err(|e| e.to_string())?
+        .into_string()
+        .map_err(|e| e.to_string())?;
+    let v: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+    v.get("dist-tags")
+        .and_then(|d| d.get("latest"))
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+        .ok_or_else(|| "npm registry 未返回 latest 版本".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn desktop_launcher_rejects_uninstaller_and_icon_files() {
+        let keywords = &["zcode"];
+        assert!(is_launchable_desktop_exe(
+            Path::new(r"D:\AITools\ZCode\ZCode.exe"),
+            keywords,
+            &[],
+        ));
+        assert!(!is_launchable_desktop_exe(
+            Path::new(r"D:\AITools\ZCode\Uninstall ZCode.exe"),
+            keywords,
+            &[],
+        ));
+        assert!(!is_launchable_desktop_exe(
+            Path::new(r"D:\AITools\ZCode\uninstallerIcon.ico"),
+            keywords,
+            &[],
+        ));
+    }
+
+    #[test]
+    fn trae_desktop_editions_match_their_actual_windows_registration_names() {
+        let cn = spec_by_id("trae-work").expect("TRAE CN catalog entry");
+        assert!(desktop_name_matches(
+            "TraeWork CN (User)",
+            cn.desktop.keywords,
+            cn.desktop.excludes,
+        ));
+        assert!(desktop_name_matches(
+            "TRAE SOLO CN",
+            cn.desktop.keywords,
+            cn.desktop.excludes,
+        ));
+        assert!(!desktop_name_matches(
+            "TraeWork (User)",
+            cn.desktop.keywords,
+            cn.desktop.excludes,
+        ));
+
+        let global = spec_by_id("trae-global").expect("TRAE global catalog entry");
+        assert!(desktop_name_matches(
+            "TraeWork (User)",
+            global.desktop.keywords,
+            global.desktop.excludes,
+        ));
+        assert!(!desktop_name_matches(
+            "TraeWork CN (User)",
+            global.desktop.keywords,
+            global.desktop.excludes,
+        ));
+    }
+
+    #[test]
+    fn winget_show_version_parser_supports_english_and_chinese_output() {
+        assert_eq!(
+            winget_latest_version_from_show(
+                "Found Claude Code [Anthropic.ClaudeCode]\nVersion: 2.1.248\nPublisher: Anthropic"
+            ),
+            Some("2.1.248".into())
+        );
+        assert_eq!(
+            winget_latest_version_from_show(
+                &[
+                    "\u{5df2}\u{627e}\u{5230} Claude Code",
+                    "\u{7248}\u{672c}\u{ff1a}2.1.248",
+                    "\u{53d1}\u{5e03}\u{8005}\u{ff1a}Anthropic",
+                ]
+                .join("\n")
+            ),
+            Some("2.1.248".into())
+        );
+    }
+
+    #[test]
+    fn desktop_file_version_removes_only_windows_build_zeroes() {
+        assert_eq!(normalize_desktop_version("3.2.3.0"), Some("3.2.3".into()));
+        assert_eq!(
+            normalize_desktop_version("v26.707.3351.0"),
+            Some("26.707.3351".into())
+        );
+        assert_eq!(
+            normalize_desktop_version("Kimi 3.2.3"),
+            Some("3.2.3".into())
+        );
+    }
+}
