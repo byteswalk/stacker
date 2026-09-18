@@ -219,7 +219,7 @@ pub struct AgentTask {
 - 模式为手动：注入 Stacker 设置的代理地址。
 - 模式为跟随系统：调用时只读取 Windows 系统代理地址并注入。
 - 模式为关闭：不注入任何代理，子进程继承系统环境。
-- 注入范围只限 Stacker 自己的下载请求和它启动的安装进程（环境变量 `HTTP_PROXY`、`HTTPS_PROXY`、`npm_config_proxy`、`npm_config_https_proxy`，WinGet 的 `--proxy`）。
+- 注入范围只限 Stacker 自己的下载请求和它启动的安装进程（环境变量 `HTTP_PROXY`、`HTTPS_PROXY`、`npm_config_proxy`、`npm_config_https_proxy`）。WinGet 不传 `--proxy`：该参数需要管理员启用 `ProxyCommandLineOptions`，否则所有 WinGet 调用都会报参数错误。
 - 删除从用户环境变量 `HTTP_PROXY` 推导代理的逻辑；安装前不再改写 npm 配置或代理模式。npm 配置指向不可连接的本机代理时只报错提示。
 
 ### 前端

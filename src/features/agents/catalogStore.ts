@@ -28,6 +28,7 @@ export type VibeSurface = {
   broken_reason?: string | null;
   other_installs?: InstallInfo[];
   can_repair?: boolean;
+  latest_error?: string | null;
 };
 export type VibeTool = {
   id: string;

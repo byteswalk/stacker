@@ -43,12 +43,13 @@ pub(crate) fn cli_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurface {
         Some(_) => "broken",
     };
     let can_repair = health == "broken" && other_installs.iter().any(|info| info.healthy);
-    let latest = if check_latest && installed {
-        latest_for_cli(spec, method.as_deref(), version.as_deref())
-            .ok()
-            .flatten()
+    let (latest, latest_error) = if check_latest && installed {
+        match latest_for_cli(spec, method.as_deref(), version.as_deref()) {
+            Ok(latest) => (latest, None),
+            Err(error) => (None, Some(error)),
+        }
     } else {
-        None
+        (None, None)
     };
     let update_available = installed
         && version
@@ -90,6 +91,7 @@ pub(crate) fn cli_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurface {
         broken_reason,
         other_installs,
         can_repair,
+        latest_error,
     }
 }
 
@@ -203,6 +205,7 @@ pub(crate) fn desktop_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurfac
         broken_reason,
         other_installs: Vec::new(),
         can_repair: false,
+        latest_error: None,
     }
 }
 
@@ -932,31 +935,114 @@ pub(crate) fn winget_latest_version_from_show(text: &str) -> Option<String> {
     })
 }
 
+const NPM_DEFAULT_REGISTRY: &str = "https://registry.npmjs.org/";
+
+/// `/latest` document URLs, the user's configured npm registry first. The small
+/// per-version document avoids downloading a package's whole metadata.
+pub(crate) fn npm_latest_urls(package: &str, configured: Option<&str>) -> Vec<String> {
+    let mut urls = Vec::new();
+    for registry in [
+        configured.unwrap_or(NPM_DEFAULT_REGISTRY),
+        NPM_DEFAULT_REGISTRY,
+    ] {
+        let url = format!("{}/{package}/latest", registry.trim().trim_end_matches('/'));
+        if !urls.contains(&url) {
+            urls.push(url);
+        }
+    }
+    urls
+}
+
+/// The registry npm itself uses, read once per ten minutes (npm config lookups are slow).
+type RegistryCache = std::sync::Mutex<Option<(std::time::Instant, Option<String>)>>;
+
+fn configured_npm_registry() -> Option<String> {
+    use std::sync::{Mutex, OnceLock};
+    use std::time::Instant;
+    static CACHE: OnceLock<RegistryCache> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(None));
+    if let Ok(guard) = cache.lock() {
+        if let Some((at, value)) = guard.as_ref() {
+            if at.elapsed() < Duration::from_secs(600) {
+                return value.clone();
+            }
+        }
+    }
+    let value = resolve_command(&["npm.cmd", "npm.exe", "npm.bat"])
+        .and_then(|npm| {
+            run_command_text(
+                &npm,
+                &["config", "get", "registry"],
+                "读取 npm 源",
+                Duration::from_secs(8),
+            )
+            .ok()
+        })
+        .map(|text| text.trim().to_string())
+        .filter(|text| text.starts_with("http"));
+    if let Ok(mut guard) = cache.lock() {
+        *guard = Some((Instant::now(), value.clone()));
+    }
+    value
+}
+
 pub(crate) fn npm_latest(package: &str) -> Result<String, String> {
-    let package = package.replace('@', "%40").replace('/', "%2F");
-    let url = format!("https://registry.npmjs.org/{package}");
-    let agent = ureq::AgentBuilder::new()
-        .timeout_connect(Duration::from_millis(1500))
-        .timeout_read(Duration::from_millis(1500))
-        .build();
-    let body = agent
-        .get(&url)
-        .set("User-Agent", "Stacker")
-        .call()
-        .map_err(|e| e.to_string())?
-        .into_string()
-        .map_err(|e| e.to_string())?;
-    let v: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
-    v.get("dist-tags")
-        .and_then(|d| d.get("latest"))
-        .and_then(|v| v.as_str())
-        .map(str::to_string)
-        .ok_or_else(|| "npm registry 未返回 latest 版本".into())
+    let mut builder = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(4))
+        .timeout_read(Duration::from_secs(8));
+    if let Some(proxy) = crate::agents::net::stacker_proxy() {
+        if let Ok(proxy) = ureq::Proxy::new(&proxy) {
+            builder = builder.proxy(proxy);
+        }
+    }
+    let agent = builder.build();
+    let mut last_error = String::new();
+    for url in npm_latest_urls(package, configured_npm_registry().as_deref()) {
+        let response = agent
+            .get(&url)
+            .set("User-Agent", "Stacker")
+            .call()
+            .map_err(|e| e.to_string())
+            .and_then(|response| response.into_string().map_err(|e| e.to_string()));
+        match response {
+            Ok(body) => {
+                let v: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+                if let Some(version) = v.get("version").and_then(Value::as_str) {
+                    return Ok(version.to_string());
+                }
+                last_error = "npm 源未返回版本号".into();
+            }
+            Err(error) => last_error = error,
+        }
+    }
+    Err(format!("查询最新版本失败：{last_error}"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn npm_latest_urls_prefer_the_configured_registry() {
+        assert_eq!(
+            npm_latest_urls(
+                "@moonshot-ai/kimi-code",
+                Some("https://mirrors.cloud.tencent.com/npm/")
+            ),
+            vec![
+                "https://mirrors.cloud.tencent.com/npm/@moonshot-ai/kimi-code/latest".to_string(),
+                "https://registry.npmjs.org/@moonshot-ai/kimi-code/latest".to_string(),
+            ]
+        );
+        assert_eq!(
+            npm_latest_urls("pi", Some("https://registry.npmjs.org")),
+            vec!["https://registry.npmjs.org/pi/latest".to_string()]
+        );
+        assert_eq!(
+            npm_latest_urls("pi", None),
+            vec!["https://registry.npmjs.org/pi/latest".to_string()]
+        );
+    }
     use std::path::Path;
 
     #[test]

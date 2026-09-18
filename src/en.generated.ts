@@ -2247,4 +2247,9 @@ export const GENERATED_EN: Record<string, string> = {
   "个更新任务，可在任务面板查看进度": "update tasks; follow progress in the task panel",
   "安装更新": "Install & Update",
   "与国际版使用同一个 qoder 命令（npm 包 @qoder-ai/qodercli）。": "Uses the same qoder command as the international edition (npm package @qoder-ai/qodercli).",
+  " · 最新版本查询失败": " · latest version lookup failed",
+  "查询最新版本失败：{last_error}": "Latest version lookup failed: {last_error}",
+  "npm 源未返回版本号": "The npm registry returned no version",
+  "读取 npm 源": "Read npm registry",
+  "最新版本查询失败": "latest version lookup failed",
 };

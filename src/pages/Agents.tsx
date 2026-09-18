@@ -104,6 +104,7 @@ export function SurfaceState({ surface }: { surface: VibeSurface }) {
           {surface.health === "broken" ? `生效入口无法运行：${surface.broken_reason ?? ""}` : surfaceStatusText(surface)}
         </span>
         {surface.latest ? ` · 最新版本：${surface.latest}` : ""}
+        {surface.latest_error && <span className="surface-warn" title={surface.latest_error}>{" · 最新版本查询失败"}</span>}
         {surface.path ? ` · ${surface.path}` : ""}
         {others.length > 0 && (
           <span title={others.map((info) => `${info.path}${info.version ? ` (${info.version})` : ""}${info.healthy ? "" : " ✕"}`).join("\n")}>

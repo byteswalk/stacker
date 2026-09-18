@@ -8,13 +8,9 @@ pub(crate) fn winget_args(
     source: Option<&str>,
     exact: bool,
 ) -> Vec<String> {
-    winget_args_with_proxy(
-        action,
-        id,
-        source,
-        exact,
-        crate::agents::net::stacker_proxy().as_deref(),
-    )
+    // WinGet rejects --proxy unless an administrator enabled ProxyCommandLineOptions,
+    // so it uses its own system proxy handling; child env still carries Stacker's proxy.
+    winget_args_with_proxy(action, id, source, exact, None)
 }
 
 pub(crate) fn winget_args_with_proxy(
