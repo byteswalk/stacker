@@ -102,7 +102,7 @@ export function SummaryDialog({ target, onClose }: { target: Target; onClose: (c
         {target.kind === "summary" && <label className="session-check"><input type="checkbox" checked={regenerate} onChange={(e) => setRegenerate(e.target.checked)} />{t("重新生成已有摘要")}</label>}
         {settings && <RunnerFields value={settings} options={options} onChange={setSettings} agents={agents.length ? agents : undefined} />}
         {preview?.handoffRunner && <p className="session-note">{t("交接资料执行者")}：{runnerText(preview.handoffRunner, t)}</p>}
-        <p className="session-note"><i className="ti ti-shield-lock" /> {t("会话正文会发送给所选智能体的模型服务，使用你在该智能体中登录的账号额度。运行时不开放任何工具，也不会在智能体里留下新会话。这里的修改只对本次生效，默认值在「数据来源 → 摘要」中设置。")}</p>
+        <p className="session-note"><i className="ti ti-shield-lock" /> {t("会话正文会发送给所选智能体的模型服务，使用你在该智能体中登录的账号额度。运行时不开放任何工具，也不会在智能体里留下新会话。这里的修改只对本次生效，默认值在「设置 → 摘要」中设置。")}</p>
       </> : <>
         <p className="session-impact"><b>{t(JOB_STATE[job.state] ?? job.state)}</b> · {job.done} / {job.total}</p>
         {running && <progress max={Math.max(1, job.total)} value={job.done} />}

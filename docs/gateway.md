@@ -13,7 +13,7 @@
 
 接口：`GET /v1/models`、`POST /v1/chat/completions`、`POST /v1/messages`、`GET /health`（无需密钥）。
 
-- 只写 `codex` / `claude` 时，使用「会话数据 → 数据来源 → 摘要」中该智能体的默认模型与推理强度；其他智能体只写名字时使用该 CLI 自己的默认模型（DeepSeek Harness 为 deepseek-v4-flash）；OpenAI 请求的 `reasoning_effort` 可覆盖推理强度。
+- 只写 `codex` / `claude` 时，使用「会话数据 → 设置 → 摘要」中该智能体的默认模型与推理强度；其他智能体只写名字时使用该 CLI 自己的默认模型（DeepSeek Harness 为 deepseek-v4-flash）；OpenAI 请求的 `reasoning_effort` 可覆盖推理强度。
 - 每次请求把 system 与全部消息渲染为一段对话交给执行器，多轮对话由客户端自己携带历史。
 - 只支持文本；带 `tools` 或图片的请求返回 400。
 - `stream: true` 会在生成完成后以一个内容块返回完整 SSE。

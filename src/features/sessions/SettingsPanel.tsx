@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useI18n } from "../../i18n";
+import { DataLocations } from "./DataLocations";
 import { getRoots, getSummarySettings, openSession, runnerOptions, saveSummarySettings, setRoots } from "./api";
 import { cleanSettings, RunnerFields } from "./RunnerFields";
 import { errorMessage, type AgentOptions, type Roots, type RootsView, type SummarySettings } from "./types";
@@ -11,7 +12,8 @@ const ROWS: { key: keyof Roots; label: string; hint: string }[] = [
   { key: "claudeDesktopIndex", label: "Claude 桌面端会话索引", hint: "桌面端侧栏的会话列表，用于标题、归档和孤儿识别" },
 ];
 
-export function SourcesPanel({ onSaved }: { onSaved: () => void }) {
+/** The 设置 tab: data-folder migration, summary defaults, export folder, advanced read paths. */
+export function SettingsPanel({ onSaved }: { onSaved: () => void }) {
   const { tr: t } = useI18n();
   const [view, setView] = useState<RootsView | null>(null);
   const [draft, setDraft] = useState<Roots | null>(null);
@@ -55,26 +57,30 @@ export function SourcesPanel({ onSaved }: { onSaved: () => void }) {
   if (!view || !draft) return error ? <p role="alert" className="session-error">{t(error)}</p> : null;
   const dirty = ROWS.some(({ key }) => draft[key] !== view.overrides[key]);
   return <div className="session-sources">
-    {ROWS.map(({ key, label, hint }) => <div className="session-source" key={key}>
-      <div className="session-source-head"><b>{t(label)}</b><small>{t(hint)}</small></div>
-      <code title={view.effective[key]}>{view.effective[key]}</code>
-      <div className="session-source-edit">
-        <input className="ip full" value={draft[key]} placeholder={t("使用默认位置")} aria-label={t(label)} onChange={(e) => setDraft({ ...draft, [key]: e.target.value })} />
-        <button className="gh sm" onClick={() => void choose(key).catch((e) => setError(errorMessage(e)))}><i className="ti ti-folder" />{t("选择…")}</button>
-        <button className="gh sm" disabled={!draft[key]} onClick={() => setDraft({ ...draft, [key]: "" })}>{t("恢复默认")}</button>
-      </div>
-    </div>)}
-    <div className="session-source">
-      <div className="session-source-head"><b>{t("精简导出目录")}</b><small>{t("删除前导出的 Markdown 保存在这里")}</small></div>
-      <div className="session-source-edit"><code title={view.exportDir}>{view.exportDir}</code><button className="gh sm" onClick={() => void openSession("", "exports").catch((e) => setError(errorMessage(e)))}><i className="ti ti-folder-open" />{t("打开")}</button></div>
-    </div>
-    <p className="session-note">{t("Stacker 只读取这些目录；删除会话时仅处理对应智能体目录内的文件。修改路径不会迁移数据。")}</p>
-    {error && <p role="alert" className="session-error">{t(error)}</p>}
-    <div><button className="pr sm" disabled={busy || !dirty} onClick={() => void save()}><i className="ti ti-device-floppy" />{t("保存")}</button></div>
+    <DataLocations onChanged={onSaved} />
     {summary && <div className="session-source summary-settings">
       <div className="session-source-head"><b>{t("摘要")}</b><small>{t("生成会话摘要和交接资料时使用的本机智能体、模型与推理强度。留空表示使用该命令行自己的默认值。")}</small></div>
       <RunnerFields value={summary} options={options} onChange={setSummary} />
       <div><button className="pr sm" disabled={busy || JSON.stringify(summary) === savedSummary} onClick={() => void saveSummary()}><i className="ti ti-device-floppy" />{t("保存摘要设置")}</button></div>
     </div>}
+    <div className="session-source">
+      <div className="session-source-head"><b>{t("精简导出目录")}</b><small>{t("删除前导出的 Markdown 保存在这里")}</small></div>
+      <div className="session-source-edit"><code title={view.exportDir}>{view.exportDir}</code><button className="gh sm" onClick={() => void openSession("", "exports").catch((e) => setError(errorMessage(e)))}><i className="ti ti-folder-open" />{t("打开")}</button></div>
+    </div>
+    <details className="session-source advanced-paths" open={dirty || ROWS.some(({ key }) => !!view.overrides[key])}>
+      <summary><b>{t("高级：读取位置")}</b></summary>
+      <p className="session-note"><i className="ti ti-alert-triangle" /> {t("这里只改变 Stacker 从哪里读取数据，不会移动任何文件，智能体自己也不会跟着改。要把数据移到其他盘释放空间，请用上方的「数据目录迁移」。只有智能体数据放在 Stacker 没识别到的位置时，才需要改这里。")}</p>
+      {ROWS.map(({ key, label, hint }) => <div className="session-source" key={key}>
+        <div className="session-source-head"><b>{t(label)}</b><small>{t(hint)}</small></div>
+        <code title={view.effective[key]}>{view.effective[key]}</code>
+        <div className="session-source-edit">
+          <input className="ip full" value={draft[key]} placeholder={t("使用默认位置")} aria-label={t(label)} onChange={(e) => setDraft({ ...draft, [key]: e.target.value })} />
+          <button className="gh sm" onClick={() => void choose(key).catch((e) => setError(errorMessage(e)))}><i className="ti ti-folder" />{t("选择…")}</button>
+          <button className="gh sm" disabled={!draft[key]} onClick={() => setDraft({ ...draft, [key]: "" })}>{t("恢复默认")}</button>
+        </div>
+      </div>)}
+      <div><button className="pr sm" disabled={busy || !dirty} onClick={() => void save()}><i className="ti ti-device-floppy" />{t("保存读取位置")}</button></div>
+    </details>
+    {error && <p role="alert" className="session-error">{t(error)}</p>}
   </div>;
 }

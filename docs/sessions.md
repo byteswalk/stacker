@@ -6,13 +6,13 @@
 
 | 智能体 | 根目录 | 读取内容 |
 | --- | --- | --- |
-| Codex | 「数据来源」中的自定义路径 → 用户环境变量 `CODEX_HOME` → `~/.codex` | 只读打开最新的 `state_<n>.sqlite`：`threads`、`thread_spawn_edges`、`projects`、`project_roots`；正文读取 rollout JSONL |
+| Codex | 「设置 → 高级：读取位置」中的自定义路径 → 用户环境变量 `CODEX_HOME` → `~/.codex` | 只读打开最新的 `state_<n>.sqlite`：`threads`、`thread_spawn_edges`、`projects`、`project_roots`；正文读取 rollout JSONL |
 | Claude | 自定义路径 → `CLAUDE_CONFIG_DIR` → `~/.claude` | `projects/<项目>/<会话>.jsonl` 的开头 256 行（1 MB）和末尾 256 KB；`<会话>/subagents/`、`custom-title.json`、`file-history/<会话>`、`session-env/<会话>` 只统计大小 |
 | Claude 桌面端索引 | 自定义路径 → `%APPDATA%\Claude\claude-code-sessions` | `<账号>/<组织>/local_*.json`：侧栏标题、归档状态、最后活动时间 |
 
 Claude 桌面端的 Code 页与 CLI 共用 `~/.claude/projects`，Codex 桌面端、CLI 与 IDE 共用 `~/.codex`，因此按智能体而不是按客户端区分来源。每条会话带一个客户端标签：桌面端、终端、IDE、自动化、SDK。
 
-列表结果在内存中缓存 10 秒；点击「刷新」或修改数据来源后重新读取。
+列表结果在内存中缓存 10 秒；点击「刷新」或修改读取位置后重新读取。
 
 ## 分类
 
@@ -71,7 +71,7 @@ Claude 桌面端的 Code 页与 CLI 共用 `~/.claude/projects`，Codex 桌面�
 
 - 入口：会话详情「生成摘要 / 重新生成」；选中多个会话后操作条「生成摘要」；「项目」标签每行「交接」。
 - 确认框显示会话数、将发送的字数和执行者，可只对本次修改执行者、模型与推理强度。会话正文会发送给所选智能体的模型服务，消耗该账号的额度。
-- 默认值在「数据来源 → 摘要」：执行者（同源 / 固定 Codex / 固定 Claude）、每个智能体的模型与推理强度。默认 Codex 用命令行默认模型、推理 low；Claude 用 sonnet、推理 low。Codex 的模型列表读取 `~/.codex/models_cache.json`。
+- 默认值在「设置 → 摘要」：执行者（同源 / 固定 Codex / 固定 Claude）、每个智能体的模型与推理强度。默认 Codex 用命令行默认模型、推理 low；Claude 用 sonnet、推理 low。Codex 的模型列表读取 `~/.codex/models_cache.json`。
 - 运行方式：每次在新建的临时空目录中运行，结束后删除。
   - Codex：`codex exec --ephemeral --ignore-user-config --ignore-rules -s read-only`，并关闭 shell、代码执行、插件、浏览器、电脑操控等全部工具功能（按 `codex features list` 取当前版本存在的名称）。
   - Claude：`claude -p --no-session-persistence --tools "" --strict-mcp-config`；运行后删除 Claude 为临时目录留下的空项目文件夹。
@@ -83,10 +83,14 @@ Claude 桌面端的 Code 页与 CLI 共用 `~/.claude/projects`，Codex 桌面�
 
 ## 迁移到其他盘
 
-「占用」标签中每个智能体的标题下显示数据位置，普通目录提供「迁移到其他盘…」。
+「设置」标签最上方的「数据目录迁移」，以及「占用」标签中每个智能体的标题下，显示数据位置；普通目录提供「迁移到其他盘…」。迁移会移动全部数据（历史会话、配置、缓存），原位置留下目录联接，智能体无需任何设置。
+
+迁移完成后，原数据先改名为备份保留在原位置，C 盘空间此时尚未释放；确认智能体在新位置运行正常后点「删除原位置的备份」才会释放。
+
+「设置 → 高级：读取位置」只改变 Stacker 从哪里读取，不移动任何数据。
 
 - 迁移前检查：智能体已退出（Codex 命令行与桌面端；Claude 命令行与桌面端，桌面端的 Code 页也使用 `~/.claude`）、原位置是普通目录且没有设置 `CODEX_HOME` / `CLAUDE_CONFIG_DIR`、目标为本机 NTFS 分区上的空目录或不存在的路径、剩余空间不少于数据大小的 1.1 倍。默认目标为剩余空间最多的非系统分区下 `AgentData\codex` 或 `AgentData\claude`。
-- 步骤：复制并保留修改时间（目录内部的目录联接在新位置重建，指向内部的改为指向新位置）→ 核对文件数、字节数与联接数 → 原目录改名为 `<原名>.stacker-backup` → 在原路径创建目录联接指向新位置。每一步都记录在 `sessions.sqlite3`，任何一步失败都会撤销到迁移前；应用中途退出后，「占用」标签提示「上次迁移未完成」并可恢复原状。
+- 步骤：复制并保留修改时间（目录内部的目录联接在新位置重建，指向内部的改为指向新位置）→ 核对文件数、字节数与联接数 → 原目录改名为 `<原名>.stacker-backup` → 在原路径创建目录联接指向新位置。每一步都记录在 `sessions.sqlite3`，任何一步失败都会撤销到迁移前；应用中途退出后，「设置」与「占用」标签提示「上次迁移未完成」并可恢复原状。
 - 完成后原目录保留为备份。确认智能体在新位置正常后，点击「删除原位置的备份」才会释放空间。
 - 迁回原位置：备份还在时只删除联接并改回原名；备份已删时把数据复制回原位置。新位置上的副本都会保留。
 - 删除联接只删除联接本身，不进入目标目录。C1 会话删除与 C2 清理的越界检查基于解析后的真实路径，迁移后仍然有效。

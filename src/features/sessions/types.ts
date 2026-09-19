@@ -78,7 +78,7 @@ export const PAGE_SIZE = 40;
 
 export const ERRORS: Record<string, string> = {
   E_STORAGE: "无法读写 Stacker 的会话数据目录，请检查剩余空间和目录权限。",
-  E_SOURCE_MISSING: "数据目录不存在，请在「数据来源」中检查路径。",
+  E_SOURCE_MISSING: "数据目录不存在，请在「设置 → 高级：读取位置」中检查路径。",
   E_PATH: "路径不存在或不在允许范围内。",
   E_LINK: "涉及符号链接或目录联接，已阻止操作。",
   E_ACCESS: "文件访问被拒绝，请检查权限。",
