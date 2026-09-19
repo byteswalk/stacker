@@ -1,5 +1,5 @@
 import { invoke } from "../../invoke";
-import type { DeleteJob, DeleteMode, DeletePreview, ProjectRow, Roots, RootsView, SessionDetail, SessionPage, SessionQuery } from "./types";
+import type { CleanupJob, CleanupPreview, DeleteJob, DeleteMode, DeletePreview, ProjectRow, Roots, RootsView, SessionDetail, SessionPage, SessionQuery, FootprintReport } from "./types";
 
 export const listSessions = (query: SessionQuery) => invoke<SessionPage>("sessions_list", { query });
 export const listProjects = () => invoke<ProjectRow[]>("sessions_projects");
@@ -12,3 +12,7 @@ export const previewDelete = (ids: string[], mode: DeleteMode) => invoke<DeleteP
 export const executeDelete = (token: string) => invoke<DeleteJob>("sessions_delete_execute", { token });
 export const deleteJob = () => invoke<DeleteJob | null>("sessions_job");
 export const cancelDelete = () => invoke<void>("sessions_cancel");
+export const scanFootprint = (refresh: boolean) => invoke<FootprintReport>("footprint_scan", { refresh });
+export const previewCleanup = (ids: string[]) => invoke<CleanupPreview>("footprint_preview", { ids });
+export const executeCleanup = (token: string) => invoke<CleanupJob>("footprint_execute", { token });
+export const cleanupJob = () => invoke<CleanupJob | null>("footprint_job");

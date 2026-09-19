@@ -93,9 +93,30 @@ export const ERRORS: Record<string, string> = {
   E_VERIFY: "删除后核对未通过，请刷新检查。",
   E_TIMEOUT: "接口响应超时，请刷新核对结果。",
   E_CANCELLED: "操作已取消，已完成的项目保留。",
+  E_APP_RUNNING: "对应程序正在运行，请先退出后再清理。",
 };
 
 export function errorMessage(error: unknown): string {
   const text = String(error);
   return ERRORS[text] ?? text;
 }
+
+export type FootprintKind = "sessions" | "reclaimable" | "review" | "keep";
+export type FootprintItem = {
+  id: string;
+  agent: AgentName;
+  owner: "shared" | "desktop_app";
+  kind: FootprintKind;
+  label: string;
+  explain: string;
+  paths: string[];
+  bytes: number;
+  files: number;
+  blocked: string | null;
+  note: string | null;
+};
+export type AgentFootprint = { agent: AgentName; total: number; reclaimable: number; items: FootprintItem[] };
+export type FootprintReport = { agents: AgentFootprint[]; total: number; reclaimable: number; scannedAt: number; warnings: string[] };
+export type CleanupPreview = { token: string; items: FootprintItem[]; blocked: FootprintItem[]; bytes: number; created: number };
+export type CleanupItemResult = { id: string; label: string; status: string; detail: string; freed: number };
+export type CleanupJob = { state: string; done: number; total: number; freed: number; items: CleanupItemResult[]; error: string };

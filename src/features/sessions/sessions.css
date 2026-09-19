@@ -128,3 +128,31 @@
   .a .session-row{grid-template-columns:18px 24px minmax(100px,1fr) 64px}
   .a .session-tags{display:none}
 }
+
+.a .footprint{display:flex;flex-direction:column;gap:14px}
+.a .footprint-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:14px 16px;border:1px solid var(--bd);border-radius:10px;background:var(--card)}
+.a .footprint-summary>div:first-child{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;font-size:12px;color:var(--mut)}
+.a .footprint-summary b{font-size:20px;color:var(--tx);margin-right:14px}
+.a .footprint-summary b.accent{color:var(--acc)}
+.a .footprint-agent{border:1px solid var(--bd);border-radius:10px;overflow:hidden}
+.a .footprint-agent>header{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:var(--card);font-size:14px}
+.a .footprint-agent>header span{color:var(--mut);font-size:13px}
+.a .footprint-section{border-top:1px solid var(--bd)}
+.a .footprint-section-head{display:flex;align-items:baseline;gap:10px;padding:10px 14px 4px;font-size:12px}
+.a .footprint-section-head small{color:var(--mut)}
+.a .footprint-section-head span{margin-left:auto;color:var(--mut)}
+.a .footprint-section.reclaimable .footprint-section-head b{color:#5fb878}
+.a .footprint-section.review .footprint-section-head b{color:#e6b450}
+.a .footprint-section.keep .footprint-section-head b,.a .footprint-section.sessions .footprint-section-head b{color:var(--mut)}
+.a .footprint-row{display:grid;grid-template-columns:18px minmax(0,1fr) auto 80px;gap:10px;align-items:center;padding:7px 14px;font-size:12px}
+.a .footprint-row:hover{background:var(--card)}
+.a .footprint-row.selected{background:var(--cardh)}
+.a .footprint-row input[type=checkbox]{width:15px;height:15px;accent-color:var(--acc)}
+.a .footprint-label{display:flex;flex-direction:column;gap:3px;background:none;border:0;padding:0;text-align:left;color:var(--tx);font:inherit;cursor:pointer;min-width:0}
+.a .footprint-label b{font-size:12.5px;font-weight:600}
+.a .footprint-label small{color:var(--mut);font-size:11.5px;line-height:1.5}
+.a .footprint-label small.warn{color:#e6b450}
+.a .footprint-size{text-align:right;font-variant-numeric:tabular-nums}
+.a .footprint-row.keep .footprint-size,.a .footprint-row.sessions .footprint-size{color:var(--mut)}
+.a .footprint-paths{grid-column:2/-1;margin:4px 0 2px;padding:0;list-style:none;display:flex;flex-direction:column;gap:3px;max-height:200px;overflow:auto}
+.a .footprint-paths code{font-size:11px;color:var(--mut);overflow-wrap:anywhere}

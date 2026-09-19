@@ -3,6 +3,7 @@ import { useI18n } from "../../i18n";
 import { useToast } from "../../ui";
 import { listProjects, listSessions, setFavorite } from "./api";
 import { DeleteDialog } from "./DeleteDialog";
+import { FootprintPanel } from "./FootprintPanel";
 import { ProjectList } from "./ProjectList";
 import { SessionDetail } from "./SessionDetail";
 import { SessionList } from "./SessionList";
@@ -11,8 +12,8 @@ import { SourcesPanel } from "./SourcesPanel";
 import { EMPTY_PAGE, EMPTY_QUERY, errorMessage, type ProjectRow, type Session, type SessionPage, type SessionQuery } from "./types";
 import "./sessions.css";
 
-type Tab = "sessions" | "projects" | "sources";
-const TABS: [Tab, string, string][] = [["sessions", "会话", "ti-messages"], ["projects", "项目", "ti-folders"], ["sources", "数据来源", "ti-database"]];
+type Tab = "sessions" | "projects" | "footprint" | "sources";
+const TABS: [Tab, string, string][] = [["sessions", "会话", "ti-messages"], ["projects", "项目", "ti-folders"], ["footprint", "占用", "ti-chart-pie"], ["sources", "数据来源", "ti-database"]];
 
 // Survive page switches within one app session.
 let lastTab: Tab = "sessions";
@@ -91,6 +92,7 @@ export function SessionCatalog({ onCleanup }: { onCleanup: () => void }) {
       onSelect={setSelected} onFilter={filter} onPage={(offset) => setQuery((q) => ({ ...q, offset }))}
       onOpen={setDetail} onFavorite={(ids, value) => void favorite(ids, value)} onDelete={() => setDeleting([...selected])} />}
     {tab === "projects" && <ProjectList rows={projects} loading={loading} onPick={(project) => { filter({ project }); setTab("sessions"); }} />}
+    {tab === "footprint" && <FootprintPanel onShowSessions={(agent) => { filter({ agent, sort: "bytes" }); setTab("sessions"); }} />}
     {tab === "sources" && <SourcesPanel onSaved={() => { toast(t("已保存"), "ok"); void load(); }} />}
     {detail && <SessionDetail session={detail} onClose={() => setDetail(null)} />}
     {deleting && <DeleteDialog ids={deleting} onClose={(changed) => { setDeleting(null); if (changed) { setSelected([]); void load(); } }} />}
