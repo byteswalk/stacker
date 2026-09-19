@@ -1,4 +1,4 @@
-import { connectChrome, createBridge } from "./lib/bridge";
+import { BridgeError, connectChrome, createBridge } from "./lib/bridge";
 import { createBridgeHandler, isBridgeMessage } from "./lib/bridgeMessages";
 import { addExcerpt, enqueueAll, onOutboxChange, openDb, outboxCount } from "./lib/db";
 import { LAST_TAB_KEY, shouldRemember, siteTabOf } from "./lib/lastTab";
@@ -56,9 +56,11 @@ const bridge = createBridge(connectChrome, {
   version: chrome.runtime.getManifest().version,
   onConnected: (hello) => {
     // Stacker's copy is empty (new install or wiped data): send everything once.
-    void openDb().then(async (db) => {
-      if (hello.counts.conversations === 0 && (await db.count("conversations")) > 0) await enqueueAll(db, Date.now());
-    });
+    void openDb()
+      .then(async (db) => {
+        if (hello.counts.conversations === 0 && (await db.count("conversations")) > 0) await enqueueAll(db, Date.now());
+      })
+      .catch((e) => console.warn("Stacker sync: queueing a full resync failed", e));
   },
 });
 let lastSyncAt: number | null = null;
@@ -75,8 +77,10 @@ async function runFlush() {
       await flush(db, bridge.call);
       lastSyncAt = Date.now();
     }
-  } catch {
-    // Not connected or Stacker refused: the changes stay queued for the next try.
+  } catch (e) {
+    // Not connected or Stacker refused (BridgeError, e.g. E_NOT_CONNECTED/E_TIMEOUT): the changes
+    // stay queued for the next try, silently. Anything else is unexpected — surface it.
+    if (!(e instanceof BridgeError)) console.warn("Stacker sync: flush failed", e);
   } finally {
     flushing = false;
     if (flushAgain) { flushAgain = false; flushSoon(500); }
