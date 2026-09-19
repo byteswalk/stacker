@@ -47,7 +47,7 @@ export function Popup() {
         {conv.tags.map((x) => <span key={x} className="chip">{x}</span>)}
         <input placeholder={t("加标签")} value={tag} onChange={(e) => setTag(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { void addTag(db, [conv.key], tag).then(load); setTag(""); } }} />
       </div>
-      <textarea style={{ width: "100%", marginTop: 6 }} rows={4} placeholder={t("备注")} defaultValue={conv.note} onBlur={(e) => void save({ note: e.target.value })} />
+      <textarea style={{ width: "100%", marginTop: 6 }} rows={4} placeholder={t("备注")} key={conv.key} defaultValue={conv.note} onBlur={(e) => { if (e.target.value !== conv.note) void save({ note: e.target.value }); }} />
     </>}
     <h4>{t("摘录")}（{excerpts.length}）</h4>
     <p className="mut">{t("在网页上选中文字，点出现的「存为摘录」按钮即可添加。")}</p>
