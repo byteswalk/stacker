@@ -2,14 +2,20 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error plain ESM script without types
 import { extensionId } from "../scripts/extension-id.mjs";
+import { SITES } from "./sites/registry";
 
 const manifest = JSON.parse(readFileSync(new URL("../public/manifest.json", import.meta.url), "utf8"));
+const SITE_MATCHES = ["https://chatgpt.com/*", "https://claude.ai/*", "https://gemini.google.com/*", "https://grok.com/*", "https://chat.deepseek.com/*"];
 
 describe("manifest", () => {
-  it("asks only for the supported sites and never for all URLs", () => {
-    expect(manifest.host_permissions).toEqual(["https://chatgpt.com/*", "https://claude.ai/*"]);
+  it("asks only for the five supported sites and never for all URLs", () => {
+    expect(manifest.host_permissions).toEqual(SITE_MATCHES);
+    expect(manifest.content_scripts).toEqual([{ matches: SITE_MATCHES, js: ["content.js"], run_at: "document_idle" }]);
     expect(JSON.stringify(manifest)).not.toContain("<all_urls>");
     expect(manifest.permissions).toEqual(["storage", "downloads"]);
+  });
+  it("covers exactly the sites in the registry", () => {
+    expect(Object.values(SITES).map((s) => s.match)).toEqual(SITE_MATCHES);
   });
   it("has a fixed ID recorded in EXTENSION_ID", () => {
     const recorded = readFileSync(new URL("../EXTENSION_ID", import.meta.url), "utf8").trim();
