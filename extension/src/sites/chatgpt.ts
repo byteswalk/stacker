@@ -40,13 +40,20 @@ export function currentBranch(mappingValue: unknown, currentNode: string): Messa
 export const chatgpt: AdapterFactory = (fetchJson) => {
   let token: string | null = null;
 
-  async function auth(): Promise<string> {
-    if (token) return token;
+  async function readSession(): Promise<{ token: string; userId: string }> {
     const session = obj(expectOk(await fetchJson(`${ORIGIN}/api/auth/session`)), "session");
     if (typeof session.accessToken !== "string" || !session.accessToken) throw new SiteError("E_AUTH", "no session");
+    const userId = str(obj(session.user, "session.user").id, "session.user.id");
     token = session.accessToken;
-    return token;
+    return { token: session.accessToken, userId };
   }
+
+  async function auth(): Promise<string> {
+    if (token) return token;
+    const { token: newToken } = await readSession();
+    return newToken;
+  }
+
   async function api(path: string, init: FetchInit = {}): Promise<unknown> {
     const bearer = await auth();
     return expectOk(await fetchJson(`${ORIGIN}${path}`, { ...init, headers: { ...init.headers, Authorization: `Bearer ${bearer}` } }));
@@ -58,10 +65,8 @@ export const chatgpt: AdapterFactory = (fetchJson) => {
     conversationUrl: (id) => `${ORIGIN}/c/${id}`,
 
     async account() {
-      const session = obj(expectOk(await fetchJson(`${ORIGIN}/api/auth/session`)), "session");
-      if (typeof session.accessToken !== "string" || !session.accessToken) throw new SiteError("E_AUTH", "no session");
-      token = session.accessToken;
-      return { remoteId: str(obj(session.user, "session.user").id, "session.user.id"), label: "ChatGPT" };
+      const { userId } = await readSession();
+      return { remoteId: userId, label: "ChatGPT" };
     },
 
     /** Cursor is `live:<offset>` or `archived:<offset>`; live pages come first. */
