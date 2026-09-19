@@ -1,6 +1,7 @@
 //! Web chats from the Stacker browser extension: native-messaging bridge, storage and sync.
 pub mod framing;
 pub mod protocol;
+pub mod store;
 
 use std::path::PathBuf;
 
