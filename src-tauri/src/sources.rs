@@ -118,6 +118,12 @@ fn rust_runtime_mirrors_builtin() -> Vec<Mirror> {
             "https://mirrors.ustc.edu.cn/rust-static",
             "mirrors.ustc.edu.cn",
         ),
+        m(
+            "sjtug",
+            "上海交大",
+            "https://mirrors.sjtug.sjtu.edu.cn/rust-static",
+            "mirrors.sjtug.sjtu.edu.cn",
+        ),
     ]
 }
 
@@ -168,12 +174,6 @@ fn python_runtime_mirrors_builtin() -> Vec<Mirror> {
             "https://mirrors.bfsu.edu.cn/python/{version}/{filename}",
             "mirrors.bfsu.edu.cn",
         ),
-        m(
-            "nju",
-            "南京大学",
-            "https://mirror.nju.edu.cn/python/{version}/{filename}",
-            "mirror.nju.edu.cn",
-        ),
     ]
 }
 
@@ -207,28 +207,16 @@ fn node_runtime_mirrors_builtin() -> Vec<Mirror> {
             "repo.huaweicloud.com",
         ),
         m(
-            "tuna",
-            "清华",
-            "https://mirrors.tuna.tsinghua.edu.cn/nodejs-release",
-            "mirrors.tuna.tsinghua.edu.cn",
+            "aliyun",
+            "阿里云",
+            "https://mirrors.aliyun.com/nodejs-release",
+            "mirrors.aliyun.com",
         ),
         m(
-            "bfsu",
-            "北外",
-            "https://mirrors.bfsu.edu.cn/nodejs-release",
-            "mirrors.bfsu.edu.cn",
-        ),
-        m(
-            "nju",
-            "南京大学",
-            "https://mirror.nju.edu.cn/nodejs-release",
-            "mirror.nju.edu.cn",
-        ),
-        m(
-            "sjtug",
-            "上交",
-            "https://mirrors.sjtug.sjtu.edu.cn/nodejs-release",
-            "mirrors.sjtug.sjtu.edu.cn",
+            "ustc",
+            "中科大",
+            "https://mirrors.ustc.edu.cn/node",
+            "mirrors.ustc.edu.cn",
         ),
     ]
 }
@@ -266,6 +254,18 @@ fn git_runtime_mirrors_builtin() -> Vec<Mirror> {
             "华为云",
             "https://repo.huaweicloud.com/git-for-windows/",
             "repo.huaweicloud.com",
+        ),
+        m(
+            "ustc",
+            "中科大",
+            "https://mirrors.ustc.edu.cn/github-release/git-for-windows/git/",
+            "mirrors.ustc.edu.cn",
+        ),
+        m(
+            "bfsu",
+            "北外",
+            "https://mirrors.bfsu.edu.cn/github-release/git-for-windows/git/",
+            "mirrors.bfsu.edu.cn",
         ),
     ]
 }
@@ -321,6 +321,12 @@ fn maven_runtime_mirrors_builtin() -> Vec<Mirror> {
             "腾讯云",
             "https://mirrors.cloud.tencent.com/apache/maven",
             "mirrors.cloud.tencent.com",
+        ),
+        m(
+            "bfsu",
+            "北外",
+            "https://mirrors.bfsu.edu.cn/apache/maven",
+            "mirrors.bfsu.edu.cn",
         ),
     ]
 }
@@ -475,6 +481,24 @@ pub fn hardcoded() -> Vec<Tool> {
                     "https://mirrors.cloud.tencent.com/pypi/simple",
                     "mirrors.cloud.tencent.com",
                 ),
+                m(
+                    "huawei",
+                    "华为云",
+                    "https://repo.huaweicloud.com/repository/pypi/simple",
+                    "repo.huaweicloud.com",
+                ),
+                m(
+                    "bfsu",
+                    "北外",
+                    "https://mirrors.bfsu.edu.cn/pypi/web/simple",
+                    "mirrors.bfsu.edu.cn",
+                ),
+                m(
+                    "volces",
+                    "火山引擎",
+                    "https://mirrors.volces.com/pypi/simple",
+                    "mirrors.volces.com",
+                ),
             ],
         ),
         mk(
@@ -502,6 +526,12 @@ pub fn hardcoded() -> Vec<Tool> {
                     "https://mirrors.cloud.tencent.com/npm/",
                     "mirrors.cloud.tencent.com",
                 ),
+                m(
+                    "huawei",
+                    "华为云",
+                    "https://repo.huaweicloud.com/repository/npm/",
+                    "repo.huaweicloud.com",
+                ),
             ],
         ),
         mk(
@@ -518,10 +548,10 @@ pub fn hardcoded() -> Vec<Tool> {
                     "repo.packagist.org",
                 ),
                 m(
-                    "aliyun",
-                    "阿里云",
-                    "https://mirrors.aliyun.com/composer/",
-                    "mirrors.aliyun.com",
+                    "huawei",
+                    "华为云",
+                    "https://repo.huaweicloud.com/repository/php/",
+                    "repo.huaweicloud.com",
                 ),
             ],
         ),
@@ -544,6 +574,18 @@ pub fn hardcoded() -> Vec<Tool> {
                     "https://registry.npmmirror.com/",
                     "registry.npmmirror.com",
                 ),
+                m(
+                    "tencent",
+                    "腾讯云",
+                    "https://mirrors.cloud.tencent.com/npm/",
+                    "mirrors.cloud.tencent.com",
+                ),
+                m(
+                    "huawei",
+                    "华为云",
+                    "https://repo.huaweicloud.com/repository/npm/",
+                    "repo.huaweicloud.com",
+                ),
             ],
         ),
         mk(
@@ -558,12 +600,6 @@ pub fn hardcoded() -> Vec<Tool> {
                     "官方 proxy",
                     "https://proxy.golang.org,direct",
                     "",
-                ),
-                m(
-                    "goproxyio",
-                    "goproxy.io",
-                    "https://goproxy.io,direct",
-                    "goproxy.io",
                 ),
                 m(
                     "goproxycn",
@@ -582,6 +618,12 @@ pub fn hardcoded() -> Vec<Tool> {
                     "腾讯云",
                     "https://mirrors.tencent.com/go/,direct",
                     "mirrors.tencent.com",
+                ),
+                m(
+                    "huawei",
+                    "华为云",
+                    "https://repo.huaweicloud.com/repository/goproxy/,direct",
+                    "repo.huaweicloud.com",
                 ),
             ],
         ),
@@ -668,10 +710,16 @@ pub fn hardcoded() -> Vec<Tool> {
                     "mirrors.tuna.tsinghua.edu.cn",
                 ),
                 m(
-                    "ustc",
-                    "中科大",
-                    "https://mirrors.ustc.edu.cn/anaconda",
-                    "mirrors.ustc.edu.cn",
+                    "zju",
+                    "浙江大学",
+                    "https://mirrors.zju.edu.cn/anaconda",
+                    "mirrors.zju.edu.cn",
+                ),
+                m(
+                    "sjtug",
+                    "上海交大",
+                    "https://mirror.sjtu.edu.cn/anaconda",
+                    "mirror.sjtu.edu.cn",
                 ),
             ],
         ),
@@ -700,6 +748,24 @@ pub fn hardcoded() -> Vec<Tool> {
                     "清华大学",
                     "sparse+https://mirrors.tuna.tsinghua.edu.cn/crates.io-index/",
                     "mirrors.tuna.tsinghua.edu.cn",
+                ),
+                m(
+                    "aliyun",
+                    "阿里云",
+                    "sparse+https://mirrors.aliyun.com/crates.io-index/",
+                    "mirrors.aliyun.com",
+                ),
+                m(
+                    "sjtug",
+                    "上海交大",
+                    "sparse+https://mirrors.sjtug.sjtu.edu.cn/crates.io-index/",
+                    "mirrors.sjtug.sjtu.edu.cn",
+                ),
+                m(
+                    "bfsu",
+                    "北外",
+                    "sparse+https://mirrors.bfsu.edu.cn/crates.io-index/",
+                    "mirrors.bfsu.edu.cn",
                 ),
             ],
         ),

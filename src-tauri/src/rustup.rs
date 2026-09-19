@@ -620,17 +620,10 @@ pub async fn rustup_target_set(
     set_addon(window, "target", name, install, source_url).await
 }
 
-// 优先官方 rustup-init；连接失败时尝试备用下载源。
+// rustup-init 位于 RUSTUP_UPDATE_ROOT（= 下载源/rustup）的 dist 下；清华的下载源本身以 /rustup 结尾，同样适用。
 fn rustup_init_url(source_url: Option<String>) -> String {
     let base = clean_source_url(source_url);
-    if base == "https://static.rust-lang.org" {
-        "https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe"
-            .to_string()
-    } else if base.ends_with("/rustup") {
-        format!("{base}/dist/x86_64-pc-windows-msvc/rustup-init.exe")
-    } else {
-        format!("{base}/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe")
-    }
+    format!("{base}/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe")
 }
 
 /// 一键安装 rustup：下载 rustup-init.exe 并静默安装 stable 工具链。
@@ -698,6 +691,18 @@ fn install_self_impl(window: &tauri::Window, source_url: Option<String>) -> Resu
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rustup_init_lives_under_update_root() {
+        assert_eq!(
+            rustup_init_url(Some("https://mirrors.tuna.tsinghua.edu.cn/rustup/".into())),
+            "https://mirrors.tuna.tsinghua.edu.cn/rustup/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe"
+        );
+        assert_eq!(
+            rustup_init_url(None),
+            "https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe"
+        );
+    }
 
     #[test]
     fn parses_default_toolchain_and_removes_host_suffix() {
