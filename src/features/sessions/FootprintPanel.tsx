@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "../../i18n";
 import { formatSpaceBytes as bytes } from "../space-analysis/components/SpaceOverview";
-import { scanFootprint } from "./api";
+import { migrationDeleteBackup, migrationStatus, scanFootprint } from "./api";
+import { MigrationDialog } from "./MigrationDialog";
+import { ConfirmModal } from "../../ui";
 import { FootprintDialog } from "./FootprintDialog";
 import { AGENT_LABEL } from "./sessionsView";
-import { errorMessage, type FootprintItem, type FootprintKind, type FootprintReport } from "./types";
+import { errorMessage, type FootprintItem, type FootprintKind, type FootprintReport, type LocationStatus } from "./types";
 
 const SECTIONS: { kind: FootprintKind; title: string; hint: string }[] = [
   { kind: "sessions", title: "会话记录", hint: "按会话删除，删除前可精简导出" },
@@ -30,6 +32,15 @@ export function FootprintPanel({ onShowSessions }: { onShowSessions: (agent: str
   const [open, setOpen] = useState<string | null>(null);
   const [cleaning, setCleaning] = useState<string[] | null>(null);
   const request = useRef(0);
+  const [locations, setLocations] = useState<LocationStatus[]>([]);
+  const [migrating, setMigrating] = useState<{ status: LocationStatus; mode: "migrate" | "back" } | null>(null);
+  const [dropBackup, setDropBackup] = useState<LocationStatus | null>(null);
+  const [dropping, setDropping] = useState(false);
+
+  const loadLocations = useCallback(() => {
+    migrationStatus().then((list) => setLocations(list ?? [])).catch((e) => setError(errorMessage(e)));
+  }, []);
+  useEffect(() => { loadLocations(); }, [loadLocations]);
 
   const load = useCallback(async (refresh: boolean) => {
     const current = ++request.current;
@@ -84,7 +95,22 @@ export function FootprintPanel({ onShowSessions }: { onShowSessions: (agent: str
     {error && <div role="alert" className="session-error">{t(error)}</div>}
     {!report && loading && <div className="session-empty"><i className="ti ti-loader spin" /><b>{t("正在统计智能体数据，约需 10 秒…")}</b></div>}
     {report?.agents.map((agent) => <section key={agent.agent} className="footprint-agent">
-      <header><b>{AGENT_LABEL[agent.agent]}</b><span>{bytes(agent.total)}</span></header>
+      <header><b>{AGENT_LABEL[agent.agent]}</b><span>{bytes(agent.total)}</span>
+        {(() => {
+          const loc = locations.find((l) => l.agent === agent.agent);
+          if (!loc) return null;
+          const shown = loc.kind === "migrated" ? `${loc.source} → ${loc.actual}` : loc.actual;
+          return <div className="footprint-location">
+            <code title={shown}>{shown}</code>
+            {loc.kind === "normal" && <button className="gh sm" onClick={() => setMigrating({ status: loc, mode: "migrate" })}><i className="ti ti-transfer" />{t("迁移到其他盘…")}</button>}
+            {loc.kind === "migrated" && loc.backupExists && <button className="pr sm" onClick={() => setDropBackup(loc)}><i className="ti ti-trash" />{t("删除原位置的备份")}</button>}
+            {loc.kind === "migrated" && <button className="gh sm" onClick={() => setMigrating({ status: loc, mode: "back" })}>{t("迁回原位置")}</button>}
+            {loc.kind === "incomplete" && <button className="pr sm" onClick={() => setMigrating({ status: loc, mode: "back" })}><i className="ti ti-alert-triangle" />{t("上次迁移未完成，恢复原状")}</button>}
+            {loc.kind === "env" && <small>{t("由环境变量指定位置")}</small>}
+            {loc.kind === "external_link" && <small>{t("已是其他工具创建的链接")}</small>}
+          </div>;
+        })()}
+      </header>
       {SECTIONS.map(({ kind, title, hint }) => {
         const list = agent.items.filter((i) => i.kind === kind);
         if (!list.length) return null;
@@ -95,6 +121,12 @@ export function FootprintPanel({ onShowSessions }: { onShowSessions: (agent: str
       })}
     </section>)}
     {!!report?.warnings.length && <p className="session-note">{report.warnings.length} {t("个目录无法读取，未计入统计。")}</p>}
+    {migrating && <MigrationDialog status={migrating.status} mode={migrating.mode} onClose={(changed) => { setMigrating(null); loadLocations(); if (changed) void load(true); }} />}
+    {dropBackup && <ConfirmModal title={t("删除原位置的备份")} icon="ti-trash" danger busy={dropping}
+      message={`${t("确认智能体在新位置运行正常后再删除。删除后迁回需要重新复制数据。")} ${dropBackup.backup}`}
+      confirmLabel={t("删除备份")}
+      onConfirm={() => { setDropping(true); migrationDeleteBackup(dropBackup.agent).then(() => { setDropBackup(null); loadLocations(); void load(true); }).catch((e) => setError(errorMessage(e))).finally(() => setDropping(false)); }}
+      onClose={() => setDropBackup(null)} />}
     {cleaning && <FootprintDialog ids={cleaning} onClose={(changed) => { setCleaning(null); if (changed) void load(true); }} />}
   </div>;
 }

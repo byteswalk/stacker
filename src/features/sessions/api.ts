@@ -1,5 +1,5 @@
 import { invoke } from "../../invoke";
-import type { AgentOptions, SummaryJob, SummaryPreview, SummarySettings, CleanupJob, CleanupPreview, DeleteJob, DeleteMode, DeletePreview, ProjectRow, Roots, RootsView, SessionDetail, SessionPage, SessionQuery, FootprintReport } from "./types";
+import type { LocationStatus, MigrationCheck, MigrationJob, AgentOptions, SummaryJob, SummaryPreview, SummarySettings, CleanupJob, CleanupPreview, DeleteJob, DeleteMode, DeletePreview, ProjectRow, Roots, RootsView, SessionDetail, SessionPage, SessionQuery, FootprintReport } from "./types";
 
 export const listSessions = (query: SessionQuery) => invoke<SessionPage>("sessions_list", { query });
 export const listProjects = () => invoke<ProjectRow[]>("sessions_projects");
@@ -25,3 +25,10 @@ export const summaryJob = () => invoke<SummaryJob | null>("summary_job");
 export const cancelSummary = () => invoke<void>("summary_cancel");
 export const previewHandoff = (project: string, limit: number, settings: SummarySettings | null) => invoke<SummaryPreview>("handoff_preview", { project, limit, settings });
 export const startHandoff = (project: string, limit: number, settings: SummarySettings | null, locale: string) => invoke<SummaryJob>("handoff_start", { project, limit, settings, locale });
+export const migrationStatus = () => invoke<LocationStatus[]>("migration_status");
+export const migrationCheck = (agent: string, target: string) => invoke<MigrationCheck>("migration_check", { agent, target });
+export const migrationStart = (agent: string, target: string) => invoke<MigrationJob>("migration_start", { agent, target });
+export const migrationDeleteBackup = (agent: string) => invoke<void>("migration_delete_backup", { agent });
+export const migrationMoveBack = (agent: string) => invoke<MigrationJob>("migration_move_back", { agent });
+export const migrationJob = () => invoke<MigrationJob | null>("migration_job");
+export const migrationCancel = () => invoke<void>("migration_cancel");

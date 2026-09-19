@@ -101,6 +101,14 @@ export const ERRORS: Record<string, string> = {
   E_RUNNER_TIMEOUT: "智能体 5 分钟内没有完成，已停止。",
   E_RUNNER_FAILED: "智能体运行失败，请稍后重试或换一个模型。",
   E_RUNNER_EMPTY: "智能体没有返回内容。",
+  E_NOT_MOVABLE: "该目录已经不在默认位置（链接或环境变量），不能在这里迁移。",
+  E_LINK_INSIDE: "目录里有无法重建的文件链接，已停止。",
+  E_TARGET: "目标必须是绝对路径、为空或不存在，且不能与原目录互相包含。",
+  E_TARGET_FS: "目标必须位于本机 NTFS 分区。",
+  E_SPACE: "目标分区剩余空间不足。",
+  E_LINK_CREATE: "无法创建目录联接，已恢复原状。",
+  E_LINK_REMOVE: "无法删除目录联接。",
+  E_NOT_LINK: "原位置不是目录联接。",
 };
 
 export function errorMessage(error: unknown): string {
@@ -136,3 +144,13 @@ export type SummaryPreviewItem = { id: string; title: string; agent: AgentName; 
 export type SummaryPreview = { items: SummaryPreviewItem[]; totalChars: number; projectName: string; handoffRunner: RunnerChoice | null };
 export type SummaryJobItem = { id: string; title: string; status: string; detail: string; elapsedMs: number; by: string };
 export type SummaryJob = { id: string; kind: "summary" | "handoff"; state: string; done: number; total: number; items: SummaryJobItem[]; error: string; resultPath: string; resultText: string };
+
+export type Volume = { root: string; fileSystem: string; free: number; fixed: boolean };
+export type MigrationStep = "copying" | "copied" | "renamed" | "linked" | "done" | "cleaned";
+export type LocationStatus = {
+  agent: AgentName; source: string; actual: string;
+  kind: "normal" | "migrated" | "incomplete" | "external_link" | "env" | "missing";
+  step: MigrationStep | null; target: string; backup: string; backupExists: boolean; suggestedTarget: string; drives: Volume[];
+};
+export type MigrationCheck = { problems: string[]; bytes: number; files: number; free: number; target: string };
+export type MigrationJob = { agent: AgentName | null; action: "migrate" | "back"; state: string; copied: number; total: number; error: string };

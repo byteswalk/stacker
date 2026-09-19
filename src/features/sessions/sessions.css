@@ -176,3 +176,13 @@
 .a .session-project-name{background:none;border:0;padding:0;color:var(--tx);font:inherit;text-align:left;cursor:pointer}
 .a .session-project-name:hover b{color:var(--link)}
 .a .summary-settings{max-width:760px}
+
+.a .footprint-agent>header{flex-wrap:wrap;gap:6px 12px}
+.a .footprint-location{flex-basis:100%;display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px}
+.a .footprint-location code{color:var(--mut);overflow-wrap:anywhere;margin-right:auto}
+.a .footprint-location small{color:var(--mut)}
+.a .migration-row{display:flex;align-items:center;gap:10px;font-size:12px}
+.a .migration-row>span{width:64px;color:var(--mut);flex-shrink:0}
+.a .migration-row .ip{flex:1;min-width:0}
+.a .migration-row code{overflow-wrap:anywhere}
+.a .migration-drives{display:flex;gap:6px;flex-wrap:wrap;padding-left:74px}
