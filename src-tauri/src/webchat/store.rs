@@ -46,18 +46,38 @@ pub fn open(root: &Path) -> Result<Connection, String> {
     let conn = Connection::open(root.join(FILE)).map_err(db_err)?;
     conn.busy_timeout(std::time::Duration::from_secs(5))
         .map_err(db_err)?;
-    conn.execute_batch("PRAGMA journal_mode=WAL;")
-        .map_err(db_err)?;
+    // The very first write to a brand-new database file (switching journal mode here, or the
+    // first BEGIN IMMEDIATE in migrate() below) can return SQLITE_BUSY immediately when two
+    // connections race for it, without `busy_timeout`'s handler ever being invoked to retry it;
+    // retry it ourselves.
+    retry_busy(|| conn.execute_batch("PRAGMA journal_mode=WAL;"))?;
     migrate(&conn)?;
     Ok(conn)
 }
 
+/// Retries `attempt` while it fails with SQLITE_BUSY, for up to 5 seconds.
+fn retry_busy<T>(mut attempt: impl FnMut() -> rusqlite::Result<T>) -> Result<T, String> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        match attempt() {
+            Ok(v) => return Ok(v),
+            Err(rusqlite::Error::SqliteFailure(e, _))
+                if e.code == rusqlite::ErrorCode::DatabaseBusy
+                    && std::time::Instant::now() < deadline =>
+            {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            Err(e) => return Err(db_err(e)),
+        }
+    }
+}
+
 // BEGIN IMMEDIATE takes the write lock before anything is read, so two connections opening the
 // same brand-new database at once cannot both see user_version = 0 and both try to create the
-// same tables: the second one blocks (via busy_timeout) until the first commits, then re-reads
-// user_version inside its own transaction and finds there is nothing left to do.
+// same tables: the second one waits until the first commits, then re-reads user_version inside
+// its own transaction and finds there is nothing left to do.
 fn migrate(conn: &Connection) -> Result<(), String> {
-    conn.execute_batch("BEGIN IMMEDIATE").map_err(db_err)?;
+    retry_busy(|| conn.execute_batch("BEGIN IMMEDIATE"))?;
     let outcome = run_pending_migrations(conn);
     if outcome.is_ok() {
         conn.execute_batch("COMMIT").map_err(db_err)?;
