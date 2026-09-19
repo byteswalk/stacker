@@ -1,4 +1,5 @@
 import { createRoot } from "react-dom/client";
-import { t } from "../../i18n";
+import "../style.css";
+import { App } from "./App";
 
-createRoot(document.getElementById("root")!).render(<h1>{t("Stacker 网页对话")}</h1>);
+createRoot(document.getElementById("root")!).render(<App />);

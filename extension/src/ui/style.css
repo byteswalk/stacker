@@ -1,0 +1,26 @@
+:root { --bg:#14171c; --panel:#1b1f26; --bd:#2a303a; --tx:#e6e8eb; --mut:#8a93a0; --acc:#f5821f; --red:#e5534b; --yel:#d9a441; color-scheme: dark; }
+@media (prefers-color-scheme: light) { :root { --bg:#f6f7f9; --panel:#fff; --bd:#dde1e6; --tx:#1f2937; --mut:#6b7380; color-scheme: light; } }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--tx); font:13px/1.5 system-ui, "Microsoft YaHei", sans-serif; }
+button { font:inherit; color:var(--tx); background:var(--panel); border:1px solid var(--bd); border-radius:6px; padding:4px 10px; cursor:pointer; }
+button:disabled { opacity:.5; cursor:default; }
+button.primary { background:var(--acc); border-color:var(--acc); color:#fff; }
+button.danger { background:var(--red); border-color:var(--red); color:#fff; }
+input, select, textarea { font:inherit; color:var(--tx); background:var(--bg); border:1px solid var(--bd); border-radius:6px; padding:4px 8px; }
+.layout { display:grid; grid-template-columns:200px 1fr 380px; grid-template-rows:auto 1fr; height:100vh; }
+.top { grid-column:1/-1; display:flex; gap:8px; align-items:center; padding:8px 12px; border-bottom:1px solid var(--bd); flex-wrap:wrap; }
+.side, .main, .detail { overflow:auto; padding:10px 12px; }
+.side { border-right:1px solid var(--bd); }
+.detail { border-left:1px solid var(--bd); }
+.filters { display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-bottom:8px; }
+.list { list-style:none; margin:0; padding:0; }
+.list li { display:grid; grid-template-columns:auto 1fr auto; gap:8px; align-items:center; padding:6px 4px; border-bottom:1px solid var(--bd); cursor:pointer; }
+.list li.active { background:rgba(245,130,31,.12); }
+.mut { color:var(--mut); font-size:12px; }
+.chip { display:inline-block; padding:0 6px; border:1px solid var(--bd); border-radius:999px; font-size:11px; margin-right:4px; }
+.warn { color:var(--yel); }
+.err { color:var(--red); }
+.mask { position:fixed; inset:0; background:rgba(0,0,0,.45); display:grid; place-items:center; z-index:10; }
+.dialog { background:var(--panel); border:1px solid var(--bd); border-radius:10px; padding:16px; width:min(560px, 92vw); max-height:86vh; overflow:auto; }
+.msg { border-bottom:1px solid var(--bd); padding:8px 0; white-space:pre-wrap; }
+.row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
