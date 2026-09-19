@@ -18,6 +18,9 @@ const LOGIN: Record<LoginStatus["state"], { label: string; cls: string }> = {
   unknown: { label: "登录状态未知", cls: "n" },
 };
 
+/** Agents whose defaults follow the summary settings; the rest use their CLI's own defaults. */
+const SUMMARY_AGENTS = ["codex", "claude"];
+
 const RUN_ERRORS: Record<string, string> = {
   E_RUNNER_AUTH: "未登录：请在终端运行该智能体并完成登录。",
   E_RUNNER_MISSING: "未找到命令行程序。",
@@ -81,7 +84,7 @@ export function GatewayAgents() {
           </div>
         </div>
         <p className="proxy-note">
-          {t("请求里写")} <code>{card.id}</code> {t("时使用默认")}：<b>{card.defaultModel ?? t("CLI 默认模型")}</b> · <b>{card.defaultEffort ?? t("CLI 默认推理")}</b>{t("（在「会话数据 → 数据来源 → 摘要」中修改）。也可以写下表中的调用名指定模型，并用 reasoning_effort 指定推理档位（Anthropic 风格请求用默认档位）。")}
+          {t("请求里写")} <code>{card.id}</code> {t("时使用默认")}：<b>{card.defaultModel ?? t("CLI 默认模型")}</b> · <b>{card.defaultEffort ?? t("CLI 默认推理")}</b>{SUMMARY_AGENTS.includes(card.id) ? t("（在「会话数据 → 数据来源 → 摘要」中修改）") : ""}{t("。也可以写下表中的调用名指定模型，并用 reasoning_effort 指定推理档位（Anthropic 风格请求用默认档位）。")}
         </p>
         {!!card.efforts.length && <p className="proxy-note gw-efforts">{t("只写智能体名时可用的推理档位")}：{card.efforts.map((e) => <span key={e} className={"chip" + (e === card.defaultEffort ? " auto" : "")}>{e}</span>)}</p>}
         <div className="gw-models">

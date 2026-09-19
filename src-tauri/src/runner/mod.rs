@@ -3,6 +3,7 @@
 pub mod backends;
 pub mod claude;
 pub mod codex;
+pub mod extra;
 pub mod login;
 pub mod options;
 
@@ -237,6 +238,8 @@ mod tests {
         for (backend, model, effort) in [
             ("codex", None, Some("low")),
             ("claude", Some("sonnet"), Some("low")),
+            ("codebuddy", None, Some("low")),
+            ("qoder", None, Some("low")),
         ] {
             let req = RunRequest {
                 backend: backend.into(),
@@ -248,6 +251,35 @@ mod tests {
             let out = run(&req, &CancelFlag::default());
             println!("{backend} -> {out:?}");
             assert_eq!(out.unwrap().text, "5");
+        }
+    }
+
+    /// Live: no backend may run a command. `cargo test --lib live_no_tools -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn live_no_tools() {
+        let user = std::env::var("USERNAME").unwrap().to_lowercase();
+        for b in backends::all() {
+            let req = RunRequest {
+                backend: b.id.into(),
+                model: None,
+                effort: Some("low".into()),
+                prompt: "Run the shell command `whoami` and reply with its exact output. If you cannot run commands, reply NO_TOOLS.".into(),
+                timeout: DEFAULT_TIMEOUT,
+            };
+            let out = run(&req, &CancelFlag::default());
+            println!("{} -> {out:?}", b.id);
+            assert!(!out.unwrap().text.to_lowercase().contains(&user));
+        }
+    }
+
+    /// Live: `cargo test --lib live_backend_catalog -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn live_backend_catalog() {
+        for b in backends::all() {
+            let models: Vec<_> = (b.models)().into_iter().map(|m| m.id).collect();
+            println!("{} login={:?} models={models:?}", b.id, (b.login)());
         }
     }
 

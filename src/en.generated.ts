@@ -2643,7 +2643,8 @@ export const GENERATED_EN: Record<string, string> = {
   "该模型的默认档位": "This model's default effort",
   "请求里写": "A request that names",
   "调用名": "Call name",
-  "（在「会话数据 → 数据来源 → 摘要」中修改）。也可以写下表中的调用名指定模型，并用 reasoning_effort 指定推理档位（Anthropic 风格请求用默认档位）。": " (change it under Sessions & Data → Data sources → Summary). You can also use a call name from the table to pick a model, and reasoning_effort to pick the effort (Anthropic-style requests use the default).",
+  "（在「会话数据 → 数据来源 → 摘要」中修改）": " (change it under Sessions & Data → Data sources → Summary)",
+  "。也可以写下表中的调用名指定模型，并用 reasoning_effort 指定推理档位（Anthropic 风格请求用默认档位）。": ". You can also use a call name from the table to pick a model, and reasoning_effort to pick the effort (Anthropic-style requests use the default).",
   "CLI 默认模型": "CLI default model",
   "CLI 默认推理": "CLI default effort",
 };
