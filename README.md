@@ -130,6 +130,7 @@ npm run release:windows
 ## Project Documentation
 
 - [Session data behavior and safety boundaries](docs/sessions.md)
+- [Local gateway](docs/gateway.md)
 - [Development, verification, cleanup, and maintainer handoff](docs/development.md)
 
 ## License

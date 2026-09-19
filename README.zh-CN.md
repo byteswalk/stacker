@@ -130,6 +130,7 @@ npm run release:windows
 ## 项目文档
 
 - [会话数据的行为和安全边界](docs/sessions.md)
+- [本机网关](docs/gateway.md)
 - [开发、验证、清理与维护交接](docs/development.md)
 
 ## 许可证
