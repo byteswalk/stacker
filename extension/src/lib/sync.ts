@@ -1,4 +1,5 @@
 import type { Message } from "../shared/types";
+import { BridgeError } from "./bridge";
 import {
   dropOutbox, getBody, getConversation, listAccounts, listConversations, listExcerpts, listFolders, readOutbox,
   type Account, type Conversation, type Db, type Excerpt, type Folder, type OutboxEntry, type OutboxKind, type StoredBody,
@@ -12,7 +13,11 @@ export const MAX_BATCH = 200;
 export const MAX_BYTES = 900_000;
 /** A single message longer than this is clipped so its chunk still fits. */
 export const MAX_MESSAGE_CHARS = 250_000;
+/** A conversation note longer than this is clipped in the wire record. */
+export const MAX_NOTE_CHARS = 20_000;
 export const FLUSH_LIMIT = 2000;
+/** Stacker will never accept these, however often we retry: drop that one message instead of blocking the outbox forever. */
+const UNRECOVERABLE_CODES = new Set(["E_REQUEST", "E_TOO_LARGE", "E_PATH"]);
 
 const encoder = new TextEncoder();
 export const byteSize = (value: unknown) => encoder.encode(JSON.stringify(value)).length;
@@ -42,7 +47,7 @@ const wireAccount = (a: Account) => ({
 const wireConversation = (c: Conversation) => ({
   key: c.key, site: c.site, account: c.account, id: c.id, title: c.title, createdAt: c.createdAt, updatedAt: c.updatedAt,
   archived: c.archived, removedAt: c.removedAt, listedAt: stamp(c.listedAt), folderId: c.folderId, tags: c.tags,
-  favorite: c.favorite, note: c.note, localUpdatedAt: stamp(c.localUpdatedAt),
+  favorite: c.favorite, note: c.note.slice(0, MAX_NOTE_CHARS), localUpdatedAt: stamp(c.localUpdatedAt),
 });
 const wireFolder = (f: Folder) => ({ id: f.id, name: f.name, createdAt: f.createdAt, localUpdatedAt: stamp(f.localUpdatedAt) });
 const wireExcerpt = (e: Excerpt) => ({
@@ -60,7 +65,12 @@ const clip = (m: Message): Message =>
 
 /** One `syncBody` message per chunk; a long body is split by message index so each chunk fits. */
 export function bodyChunks(c: Conversation, body: StoredBody, fetchedAt: number): BodyChunk[] {
-  const head = { key: c.key, site: c.site, account: c.account, id: c.id, title: body.title, updatedAt: body.updatedAt, fetchedAt };
+  // Some sites (Grok, Gemini) report the body's own updatedAt as the latest-message time, which can
+  // be 0 or otherwise behind the listing's updatedAt; db.ts's putBody already worked out the corrected,
+  // never-goes-backwards time as c.bodyUpdatedAt. Sending body.updatedAt instead would make Stacker
+  // think the body is stale forever.
+  const updatedAt = c.bodyUpdatedAt ?? Math.max(body.updatedAt, c.updatedAt);
+  const head = { key: c.key, site: c.site, account: c.account, id: c.id, title: body.title, updatedAt, fetchedAt };
   const groups = batches(body.messages.map(clip), Number.MAX_SAFE_INTEGER, MAX_BYTES - byteSize(head) - 100);
   const parts = groups.length ? groups : [[]];
   return parts.map((messages, chunk) => ({ ...head, chunk, chunks: parts.length, messages }));
@@ -115,7 +125,10 @@ async function loadBodyChunks(db: Db, key: string): Promise<BodyChunk[]> {
 
 /**
  * Sends queued changes to Stacker in order. Each message's queue entries are dropped only after
- * Stacker accepted it; the first failure stops the flush and leaves the rest queued.
+ * Stacker accepted it, or after Stacker refused it for a reason no retry will fix (see
+ * UNRECOVERABLE_CODES) — that message is warned about and skipped instead of blocking every later
+ * message forever. A connection failure (E_NOT_CONNECTED, E_TIMEOUT, or anything else) still stops
+ * the flush and leaves the rest queued for the next try.
  */
 export async function flush(db: Db, call: Call, limit = FLUSH_LIMIT): Promise<number> {
   let sent = 0;
@@ -127,11 +140,19 @@ export async function flush(db: Db, call: Call, limit = FLUSH_LIMIT): Promise<nu
     // Entries whose record no longer exists (e.g. an excerpt added then deleted) have nothing to send.
     await dropOutbox(db, entries.map((e) => e.seq!).filter((s) => !covered.has(s)));
     for (const o of outgoing) {
-      if (o.type === "syncBody") {
-        for (const chunk of await loadBodyChunks(db, o.key)) { await call("syncBody", chunk); sent++; }
-      } else {
-        await call(o.type, o.payload);
-        sent++;
+      try {
+        if (o.type === "syncBody") {
+          for (const chunk of await loadBodyChunks(db, o.key)) { await call("syncBody", chunk); sent++; }
+        } else {
+          await call(o.type, o.payload);
+          sent++;
+        }
+      } catch (e) {
+        if (e instanceof BridgeError && UNRECOVERABLE_CODES.has(e.code)) {
+          console.warn(`Stacker sync: dropped a ${o.type} message Stacker will never accept (${e.code})`);
+        } else {
+          throw e;
+        }
       }
       await dropOutbox(db, o.seqs);
     }
