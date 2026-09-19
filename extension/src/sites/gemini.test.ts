@@ -103,6 +103,10 @@ describe("gemini adapter", () => {
     await expect(gemini(fake(({ id }) => batchReply(id, null))).read("c_gone")).rejects.toThrow("E_NOT_FOUND");
   });
 
+  it("reports a chat whose first page is well-formed but empty as not found", async () => {
+    await expect(gemini(fake(({ id }) => batchReply(id, [[], null]))).read("c_gone")).rejects.toThrow("E_NOT_FOUND");
+  });
+
   it("deletes with GzXR5e, has no archive, and links without the c_ prefix", async () => {
     const calls: Call[] = [];
     const a = gemini(fake(routes, appHtml, calls));

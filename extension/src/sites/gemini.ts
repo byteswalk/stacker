@@ -111,6 +111,9 @@ export const gemini: AdapterFactory = (fetchJson) => {
         pageTokens.add(next);
         pageToken = next;
       }
+      // A well-formed reply with no turns at all only happens on the first page: a real chat always
+      // has at least one turn, so an empty first page means the chat is gone, not that it is empty.
+      if (turns.length === 0) throw new SiteError("E_NOT_FOUND", id);
       // Gemini sends the newest turn first.
       const messages = turns.map((turn, i) => turnMessages(turn, `read[0][${i}]`)).reverse().flat();
       const updatedAt = messages.reduce((max, m) => Math.max(max, m.at ?? 0), 0);
