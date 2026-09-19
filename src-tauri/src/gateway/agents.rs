@@ -63,62 +63,69 @@ fn defaults_for(id: &str) -> (Option<String>, Option<String>) {
 pub fn agent_cards() -> Vec<AgentCard> {
     let config = load();
     let mut seen = std::collections::HashSet::new();
-    let mut cards = Vec::new();
-    for tool in crate::agents::last_scan_or_scan() {
-        let Some(cli_id) = tool.cli_id.clone() else {
-            continue;
-        };
-        if !seen.insert(cli_id.clone()) {
-            continue;
-        }
-        let backend = backends::get(&cli_id);
-        let installed = tool.cli.installed;
-        let mut card = AgentCard {
-            id: cli_id.clone(),
-            name: tool.cli.label.clone(),
-            installed,
-            version: tool.cli.version.clone(),
-            supported: false,
-            reason: String::new(),
-            login: None,
-            enabled: false,
-            default_model: None,
-            default_effort: None,
-            efforts: Vec::new(),
-            models: Vec::new(),
-        };
-        match (backend, installed) {
-            (_, false) => card.reason = "未安装".into(),
-            (None, true) => {
-                card.reason = "尚未验证能否在不留会话、不开放工具的前提下调用，暂未接入".into()
-            }
-            (Some(b), true) => {
-                let login = (b.login)();
-                if login.state == "logged_out" {
-                    card.reason = "未登录：请在终端运行该智能体并完成登录".into();
-                }
-                card.supported = login.state != "logged_out";
-                card.login = Some(login);
-                card.enabled = card.supported && !config.disabled_agents.contains(&cli_id);
-                let (model, effort) = defaults_for(b.id);
-                card.default_model = model;
-                card.default_effort = effort;
-                card.efforts = (b.efforts)();
-                card.models = (b.models)()
-                    .into_iter()
-                    .map(|m| AgentModel {
-                        call: format!("{}/{}", b.id, m.id),
-                        label: m.label,
-                        efforts: m.efforts,
-                        default_effort: m.default_effort,
-                    })
-                    .collect();
-            }
-        }
-        cards.push(card);
-    }
+    let tools: Vec<_> = crate::agents::last_scan_or_scan()
+        .into_iter()
+        .filter_map(|tool| Some((tool.cli_id.clone()?, tool)))
+        .filter(|(cli_id, _)| seen.insert(cli_id.clone()))
+        .collect();
+    // Each agent's sign-in and model checks start its CLI, so the agents are checked at once.
+    let mut cards: Vec<AgentCard> = std::thread::scope(|scope| {
+        let handles: Vec<_> = tools
+            .iter()
+            .map(|(cli_id, tool)| scope.spawn(|| card_for(&config, cli_id, tool)))
+            .collect();
+        handles.into_iter().filter_map(|h| h.join().ok()).collect()
+    });
     cards.sort_by_key(|c| (!c.supported, !c.installed));
     cards
+}
+
+fn card_for(config: &GatewayConfig, cli_id: &str, tool: &crate::agents::VibeTool) -> AgentCard {
+    let backend = backends::get(cli_id);
+    let installed = tool.cli.installed;
+    let mut card = AgentCard {
+        id: cli_id.to_string(),
+        name: tool.cli.label.clone(),
+        installed,
+        version: tool.cli.version.clone(),
+        supported: false,
+        reason: String::new(),
+        login: None,
+        enabled: false,
+        default_model: None,
+        default_effort: None,
+        efforts: Vec::new(),
+        models: Vec::new(),
+    };
+    match (backend, installed) {
+        (_, false) => card.reason = "未安装".into(),
+        (None, true) => {
+            card.reason = "尚未验证能否在不留会话、不开放工具的前提下调用，暂未接入".into()
+        }
+        (Some(b), true) => {
+            let login = (b.login)();
+            if login.state == "logged_out" {
+                card.reason = "未登录：请在终端运行该智能体并完成登录".into();
+            }
+            card.supported = login.state != "logged_out";
+            card.login = Some(login);
+            card.enabled = card.supported && !config.disabled_agents.iter().any(|d| d == cli_id);
+            let (model, effort) = defaults_for(b.id);
+            card.default_model = model;
+            card.default_effort = effort;
+            card.efforts = (b.efforts)();
+            card.models = (b.models)()
+                .into_iter()
+                .map(|m| AgentModel {
+                    call: format!("{}/{}", b.id, m.id),
+                    label: m.label,
+                    efforts: m.efforts,
+                    default_effort: m.default_effort,
+                })
+                .collect();
+        }
+    }
+    card
 }
 
 #[tauri::command]
@@ -194,3 +201,4 @@ pub async fn gateway_test(agent: String, model: Option<String>) -> Result<TestRe
     .await
     .map_err(|e| e.to_string())?
 }
+
