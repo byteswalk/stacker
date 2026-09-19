@@ -39,9 +39,14 @@ export function installExcerptButton(doc: Document = document): void {
   button.addEventListener("mousedown", (e) => e.preventDefault());
   button.addEventListener("click", async () => {
     if (!pending) return;
-    const res = (await chrome.runtime.sendMessage(pending)) as { ok: boolean } | undefined;
-    button.textContent = res?.ok ? t("已存") : t("保存失败");
-    pending = null;
-    setTimeout(hide, 1500);
+    try {
+      const res = (await chrome.runtime.sendMessage(pending)) as { ok: boolean } | undefined;
+      button.textContent = res?.ok ? t("已存") : t("保存失败");
+    } catch {
+      button.textContent = t("保存失败");
+    } finally {
+      pending = null;
+      setTimeout(hide, 1500);
+    }
   });
 }

@@ -1,6 +1,8 @@
 import { addExcerpt, openDb } from "./lib/db";
-import { LAST_TAB_KEY, siteTabOf } from "./lib/lastTab";
-import type { SiteId } from "./shared/types";
+import { LAST_TAB_KEY, shouldRemember, siteTabOf } from "./lib/lastTab";
+import { isValidSaveExcerpt } from "./lib/saveExcerpt";
+
+export type { SaveExcerpt } from "./lib/saveExcerpt";
 
 const MANAGE = chrome.runtime.getURL("manage.html");
 
@@ -30,13 +32,16 @@ async function remember(tab: chrome.tabs.Tab) {
   if (siteTab) await chrome.storage.session.set({ [LAST_TAB_KEY]: siteTab });
 }
 chrome.tabs.onActivated.addListener(({ tabId }) => { void chrome.tabs.get(tabId).then(remember).catch(() => {}); });
-chrome.tabs.onUpdated.addListener((_id, change, tab) => { if (change.url || change.title) void remember(tab); });
+chrome.tabs.onUpdated.addListener((_id, change, tab) => { if (shouldRemember(change, tab)) void remember(tab); });
 
-export interface SaveExcerpt { type: "save-excerpt"; site: SiteId; conversationId: string | null; url: string; pageTitle: string; text: string }
-
-chrome.runtime.onMessage.addListener((message: unknown, _sender, reply) => {
-  const m = message as SaveExcerpt;
-  if (m?.type !== "save-excerpt") return false;
+chrome.runtime.onMessage.addListener((message: unknown, sender, reply) => {
+  const shaped = message as { type?: unknown } | null;
+  if (shaped?.type !== "save-excerpt") return false;
+  if (sender.id !== chrome.runtime.id || !isValidSaveExcerpt(message)) {
+    reply({ ok: false });
+    return true;
+  }
+  const m = message;
   void openDb()
     .then((db) => addExcerpt(db, { site: m.site, conversationId: m.conversationId, url: m.url, pageTitle: m.pageTitle, text: m.text.slice(0, 20_000), note: "" }, Date.now()))
     .then(() => reply({ ok: true }), (e) => reply({ ok: false, error: String(e) }));

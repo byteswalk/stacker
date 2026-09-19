@@ -10,3 +10,8 @@ export function siteTabOf(tab: { id?: number; url?: string; title?: string }): S
   if (!site || !conversationIdOfUrl(site, tab.url)) return null;
   return { tabId: tab.id, site, url: tab.url, title: tab.title ?? "" };
 }
+
+/** Ignores background-tab updates so the popup never shows a conversation the user isn't looking at. */
+export function shouldRemember(change: { url?: string; title?: string }, tab: { active?: boolean }): boolean {
+  return !!tab.active && !!(change.url || change.title);
+}
