@@ -52,4 +52,15 @@ describe("refreshIndex", () => {
     expect(result).toMatchObject({ added: 3, total: 3 });
     expect(listAttempts).toBe(3); // first page (fail), first page (retry), second page
   });
+
+  it("stops as broken when a page repeats ids already seen, without marking anything removed", async () => {
+    const db = await openDb("refresh-3");
+    const api = {
+      account: async () => ({ remoteId: "u", label: "ChatGPT" }),
+      list: async (_site: string, cursor: string | null) => ({ items: [conv("a"), conv("b")], next: String(Number(cursor ?? 0) + 2) }),
+    } as unknown as SiteApi;
+    const pacer = createPacer({ gapMs: 0, sleep: async () => {} });
+    await expect(refreshIndex(api, db, "chatgpt", pacer, () => {}, () => 5)).rejects.toThrow("E_BROKEN: paging");
+    expect(await listConversations(db)).toEqual([]);
+  });
 });

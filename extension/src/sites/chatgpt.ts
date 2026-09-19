@@ -85,8 +85,8 @@ export const chatgpt: AdapterFactory = (fetchJson) => {
           archived: archived || bool(item.is_archived),
         };
       });
-      const total = typeof page.total === "number" ? page.total : offset + items.length;
-      const more = items.length > 0 && offset + items.length < total;
+      // Without a total, a full page means there may be more.
+      const more = items.length > 0 && (typeof page.total === "number" ? offset + items.length < page.total : items.length === PAGE);
       const next = more ? `${phase}:${offset + items.length}` : archived ? null : "archived:0";
       return { items, next };
     },
@@ -102,7 +102,8 @@ export const chatgpt: AdapterFactory = (fetchJson) => {
     },
 
     async remove(id) {
-      await api(`/backend-api/conversation/${encodeURIComponent(id)}`, { method: "PATCH", body: { is_visible: false } });
+      const res = await api(`/backend-api/conversation/${encodeURIComponent(id)}`, { method: "PATCH", body: { is_visible: false } });
+      if (typeof res !== "object" || res === null || (res as Record<string, unknown>).success !== true) throw new SiteError("E_BROKEN", "remove response");
     },
 
     async archive(id) {

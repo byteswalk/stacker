@@ -48,6 +48,21 @@ describe("chatgpt adapter", () => {
     expect(patches).toEqual([{ is_visible: false }, { is_archived: true }]);
   });
 
+  it("treats a delete response without success: true as a changed interface", async () => {
+    for (const reply of [{}, { success: false }, null, "ok"]) {
+      const a = chatgpt(fake({ "/api/auth/session": session, "/backend-api/conversation/c1": reply }));
+      await expect(a.remove("c1")).rejects.toThrow("E_BROKEN: remove response");
+    }
+  });
+
+  it("keeps paging by page size when the list has no total", async () => {
+    const full = { items: Array.from({ length: 100 }, (_, i) => ({ id: `x${i}`, title: "", create_time: 1, update_time: 1 })) };
+    const a = chatgpt(fake({ "/api/auth/session": session, "offset=0&": full, "offset=100&": { items: [{ id: "y", title: "", create_time: 1, update_time: 1 }] } }));
+    const first = await a.list(null);
+    expect(first.next).toBe("live:100");
+    expect((await a.list(first.next)).next).toBe("archived:0");
+  });
+
   it("treats a missing token as signed out and a changed shape as broken", async () => {
     await expect(chatgpt(fake({ "/api/auth/session": {} })).account()).rejects.toThrow("E_AUTH");
     const a = chatgpt(fake({ "/api/auth/session": session, "/backend-api/conversations": { conversations: [] } }));
