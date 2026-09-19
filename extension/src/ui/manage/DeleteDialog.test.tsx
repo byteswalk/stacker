@@ -4,6 +4,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Conversation } from "../../lib/db";
+import type { ItemResult } from "../../lib/deleteJob";
 import { DeleteDialog } from "./DeleteDialog";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -36,5 +37,16 @@ describe("DeleteDialog", () => {
     expect(host.textContent).toContain("不会留下任何副本");
     await act(async () => button("确认直接删除").click());
     expect(onRun).toHaveBeenCalledWith("direct", expect.any(AbortSignal), expect.any(Function));
+  });
+  it("shows progress immediately, disables 完成, and blocks a second run", async () => {
+    let resolveRun: (r: ItemResult[]) => void = () => {};
+    const onRun = mount(vi.fn(() => new Promise<ItemResult[]>((resolve) => { resolveRun = resolve; })));
+    const trigger = button("删除 2 条");
+    act(() => { trigger.click(); trigger.click(); });
+    expect(onRun).toHaveBeenCalledTimes(1);
+    expect(host.textContent).toContain("正在删除");
+    expect(button("中止")).toBeTruthy();
+    expect((button("完成") as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => { resolveRun([]); });
   });
 });

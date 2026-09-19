@@ -20,13 +20,17 @@ export function DeleteDialog({ items, currentAccounts, onRun, onClose }: {
   const [results, setResults] = useState<ItemResult[] | null>(null);
   const [running, setRunning] = useState(false);
   const controller = useRef<AbortController | null>(null);
+  const runningRef = useRef(false);
   const others = items.filter((c) => !currentAccounts.has(c.account)).length;
 
   async function start() {
     if (mode === "direct" && !confirming) { setConfirming(true); return; }
+    if (runningRef.current) return;
+    runningRef.current = true;
     controller.current = new AbortController();
+    setResults(items.map((c) => ({ key: c.key, title: c.title, status: "pending", error: "" })));
     setRunning(true);
-    try { setResults(await onRun(mode, controller.current.signal, setResults)); } finally { setRunning(false); }
+    try { setResults(await onRun(mode, controller.current.signal, setResults)); } finally { setRunning(false); runningRef.current = false; }
   }
 
   const done = results?.filter((r) => r.status === "done").length ?? 0;
@@ -36,13 +40,13 @@ export function DeleteDialog({ items, currentAccounts, onRun, onClose }: {
       <p>{t("将删除")} {items.length} {t("条对话。")}</p>
       {others > 0 && <p className="warn">{others} {t("条不属于当前登录的账号，会被跳过。请先在网站上切换到对应账号。")}</p>}
       {MODES.map((m) => <label key={m.value} style={{ display: "block", margin: "6px 0" }}>
-        <input type="radio" name="mode" value={m.value} checked={mode === m.value} onChange={() => { setMode(m.value); setConfirming(false); }} /> <b>{t(m.label)}</b>
+        <input type="radio" name="mode" value={m.value} checked={mode === m.value} disabled={running} onChange={() => { setMode(m.value); setConfirming(false); }} /> <b>{t(m.label)}</b>
         <div className="mut">{t(m.hint)}</div>
       </label>)}
       {confirming && <p className="err">{t("直接删除不会留下任何副本，删除后无法恢复。确定继续吗？")}</p>}
       <div className="row">
-        <button onClick={() => onClose(false)}>{t("取消")}</button>
-        <button className="danger" onClick={() => void start()}>{confirming ? t("确认直接删除") : `${t("删除")} ${items.length} ${t("条")}`}</button>
+        <button disabled={running} onClick={() => onClose(false)}>{t("取消")}</button>
+        <button className="danger" disabled={running} onClick={() => void start()}>{confirming ? t("确认直接删除") : `${t("删除")} ${items.length} ${t("条")}`}</button>
       </div>
     </>}
     {results && <>

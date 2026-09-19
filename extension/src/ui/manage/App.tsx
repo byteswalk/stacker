@@ -32,7 +32,7 @@ export function App() {
   const [selected, setSelected] = useState(new Set<string>());
   const [active, setActive] = useState<Conversation | null>(null);
   const [busy, setBusy] = useState("");
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState<{ text: string; kind: "info" | "error" } | null>(null);
   const [deleting, setDeleting] = useState<Conversation[] | null>(null);
   const [current, setCurrent] = useState(new Set<string>());
 
@@ -57,14 +57,14 @@ export function App() {
   const chosen = convs.filter((c) => selected.has(c.key));
 
   async function guarded(label: string, task: () => Promise<void>) {
-    setBusy(label); setMessage("");
-    try { await task(); } catch (e) { setMessage(errorText(e)); } finally { setBusy(""); if (db) await reload(db); }
+    setBusy(label); setMessage(null);
+    try { await task(); } catch (e) { setMessage({ text: errorText(e), kind: "error" }); } finally { setBusy(""); if (db) await reload(db); }
   }
 
   const refresh = (site: SiteId) => guarded(t("正在刷新列表"), async () => {
     const r = await refreshIndex(api, db!, site, createPacer(), (n) => setBusy(`${t("正在刷新列表")} ${n}`));
     setCurrent((old) => new Set([...old, r.account.key]));
-    setMessage(`${SITES[site].label}：${t("共")} ${r.total}，${t("新增")} ${r.added}，${t("已删除")} ${r.removed}`);
+    setMessage({ text: `${SITES[site].label}：${t("共")} ${r.total}，${t("新增")} ${r.added}，${t("已删除")} ${r.removed}`, kind: "info" });
   });
 
   const readBody = (c: Conversation) => guarded(t("正在读取正文"), async () => {
@@ -78,7 +78,7 @@ export function App() {
       if (!body) { await pacer.wait(); const fresh = await api.read(c.site, c.id); await putBody(db!, c.key, fresh, Date.now()); body = { ...fresh, key: c.key }; }
       await saveFile(exportFileName(c, "md"), toMarkdown(c, aliasOf(c.account), body, mode, urlOf(c)), "text/markdown");
     }
-    setMessage(`${t("已导出")} ${chosen.length} ${t("条到下载目录的「Stacker 网页对话」文件夹")}`);
+    setMessage({ text: `${t("已导出")} ${chosen.length} ${t("条到下载目录的「Stacker 网页对话」文件夹")}`, kind: "info" });
   });
 
   async function openDelete() {
@@ -106,8 +106,9 @@ export function App() {
       </select>
       {filter.account && <button onClick={() => { const alias = prompt(t("账号备注名"), aliasOf(filter.account)); if (alias) void renameAccount(db, filter.account, alias).then(() => reload(db)); }}>{t("改备注名")}</button>}
       {(Object.keys(SITES) as SiteId[]).map((s) => <button key={s} disabled={!!busy} onClick={() => void refresh(s)}>{t("刷新")} {SITES[s].label}</button>)}
+      {(Object.keys(SITES) as SiteId[]).map((s) => <a key={s} href={SITES[s].origin} target="_blank" rel="noreferrer">{t("打开")} {SITES[s].label}</a>)}
       {busy && <span className="mut">{busy}…</span>}
-      {message && <span className={message.includes("：") ? "mut" : "err"}>{message}</span>}
+      {message && <span className={message.kind === "error" ? "err" : "mut"}>{message.text}</span>}
     </div>
     <div className="side">
       <div><button onClick={() => setFilter({ ...filter, folder: "" })}>{t("全部")}</button></div>
@@ -118,6 +119,9 @@ export function App() {
         <button aria-label={t("删除文件夹")} onClick={() => { if (confirm(t("删除文件夹？其中的对话不会被删除。"))) void deleteFolder(db, f.id).then(() => reload(db)); }}>×</button>
       </div>)}
       <button onClick={() => { const name = prompt(t("文件夹名称")); if (name) void createFolder(db, name, Date.now()).then(() => reload(db)); }}>＋ {t("新建文件夹")}</button>
+      <h4>{t("标签")}</h4>
+      <div><button onClick={() => setFilter({ ...filter, tag: "" })}>{t("全部标签")}</button></div>
+      {allTags(convs).map((tag) => <div key={tag}><button className={filter.tag === tag ? "primary" : ""} onClick={() => setFilter({ ...filter, tag })}>{tag}</button></div>)}
     </div>
     <div className="main">
       <Filters value={filter} onChange={setFilter} tags={allTags(convs)} />

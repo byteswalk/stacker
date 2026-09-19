@@ -3,6 +3,7 @@ export const EN: Record<string, string> = {
   "Stacker 网页对话": "Stacker Web Chats",
 
   // manage/App.tsx
+  "打开": "Open",
   "正在刷新列表": "Refreshing list",
   "共": "total",
   "新增": "added",
