@@ -1,5 +1,6 @@
 import { serializeError, SiteError, type SerializedError, type SiteId } from "../shared/types";
 import { browserFetchJson } from "../sites/http";
+import { pageOf } from "../sites/page";
 import { siteOfUrl, SITES } from "../sites/registry";
 import type { Adapter } from "../sites/types";
 
@@ -34,7 +35,7 @@ export function createAgent(adapter: Adapter) {
 export function installAgent(): void {
   const site = siteOfUrl(location.href);
   if (!site) return;
-  const agent = createAgent(SITES[site].factory(browserFetchJson));
+  const agent = createAgent(SITES[site].factory(browserFetchJson, pageOf(document, () => localStorage)));
   chrome.runtime.onMessage.addListener((message: unknown, _sender, reply) => {
     const req = message as SiteRequest;
     if (req?.type !== "site-rpc") return false;
