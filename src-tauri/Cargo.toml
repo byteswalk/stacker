@@ -44,7 +44,7 @@ zip = "2"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
-winapi = { version = "0.3", features = ["winuser", "fileapi", "shellapi", "synchapi", "processthreadsapi", "handleapi", "winbase", "dpapi", "wincrypt", "minwindef", "winnt", "errhandlingapi"] }
+winapi = { version = "0.3", features = ["winuser", "fileapi", "shellapi", "synchapi", "processthreadsapi", "handleapi", "winbase", "dpapi", "wincrypt", "minwindef", "winnt", "errhandlingapi", "tlhelp32"] }
 
 [profile.dev]
 debug = 1
