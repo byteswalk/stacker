@@ -2,6 +2,7 @@ import type { SiteId } from "../shared/types";
 import { chatgpt } from "./chatgpt";
 import { claude } from "./claude";
 import { gemini, geminiUrl } from "./gemini";
+import { grok } from "./grok";
 import type { AdapterFactory } from "./types";
 
 export interface SiteInfo {
@@ -35,6 +36,10 @@ export const SITES: Record<SiteId, SiteInfo> = {
       return hex ? `c_${hex}` : null;
     },
     urlOf: geminiUrl,
+  },
+  grok: {
+    label: "Grok", factory: grok, origin: "https://grok.com", match: "https://grok.com/*", verified: false,
+    idOfPath: firstGroup(/\/c\/([A-Za-z0-9-]+)/), urlOf: (id) => `https://grok.com/c/${id}`,
   },
 };
 
