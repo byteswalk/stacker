@@ -1,3 +1,6 @@
+export const account = { uuid: "user-1", display_name: "Ada", full_name: "Ada Lovelace", email_address: "ada@example.com" };
+export const accountFullNameOnly = { uuid: "user-1", display_name: "", full_name: "Ada Lovelace", email_address: "ada@example.com" };
+export const accountNoNames = { uuid: "user-1", display_name: "", full_name: "", email_address: "ada@example.com" };
 export const orgs = [
   { uuid: "org-api", name: "API", capabilities: ["api"] },
   { uuid: "org-chat", name: "Personal", capabilities: ["chat", "claude_pro"] },

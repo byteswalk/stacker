@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { FetchInit, FetchResult } from "./http";
 import { claude } from "./claude";
-import { conversation, conversationMissingLeaf, listFull, listTail, orgs, orgsUpdated } from "./fixtures/claude";
+import { account, accountFullNameOnly, accountNoNames, conversation, conversationMissingLeaf, listFull, listTail, orgs, orgsUpdated } from "./fixtures/claude";
 
 function fake(route: (url: string, init?: FetchInit) => unknown, calls: [string, FetchInit | undefined][] = []) {
   return vi.fn(async (url: string, init?: FetchInit): Promise<FetchResult> => {
@@ -13,6 +13,7 @@ function fake(route: (url: string, init?: FetchInit) => unknown, calls: [string,
 const routes = (url: string, init?: FetchInit) => {
   if (init?.method === "DELETE") return null;
   if (url.endsWith("/api/organizations")) return orgs;
+  if (url.endsWith("/api/account")) return account;
   if (url.includes("chat_conversations/k1")) return conversation;
   if (url.includes("chat_conversations/k2")) return conversationMissingLeaf;
   if (url.includes("offset=0")) return listFull;
@@ -21,8 +22,20 @@ const routes = (url: string, init?: FetchInit) => {
 };
 
 describe("claude adapter", () => {
-  it("uses the chat organization as the account", async () => {
-    expect(await claude(fake(routes)).account()).toEqual({ remoteId: "org-chat", label: "Claude" });
+  it("uses the chat organization as the account and its display name as the label, never keeping the email", async () => {
+    const result = await claude(fake(routes)).account();
+    expect(result).toEqual({ remoteId: "org-chat", label: "Ada" });
+    expect(JSON.stringify(result)).not.toContain("example.com");
+  });
+  it("falls back to full_name when display_name is missing", async () => {
+    const fullNameOnly = (url: string, init?: FetchInit) => (url.endsWith("/api/account") ? accountFullNameOnly : routes(url, init));
+    expect(await claude(fake(fullNameOnly)).account()).toEqual({ remoteId: "org-chat", label: "Ada Lovelace" });
+  });
+  it("falls back to Claude when both names are missing or the account lookup fails", async () => {
+    const noNames = (url: string, init?: FetchInit) => (url.endsWith("/api/account") ? accountNoNames : routes(url, init));
+    expect(await claude(fake(noNames)).account()).toEqual({ remoteId: "org-chat", label: "Claude" });
+    const noAccountEndpoint = (url: string, init?: FetchInit) => (url.endsWith("/api/account") ? undefined : routes(url, init));
+    expect(await claude(fake(noAccountEndpoint)).account()).toEqual({ remoteId: "org-chat", label: "Claude" });
   });
   it("pages by offset until a short page", async () => {
     const a = claude(fake(routes));

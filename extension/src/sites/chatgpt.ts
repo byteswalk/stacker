@@ -59,12 +59,13 @@ export function currentBranch(mappingValue: unknown, currentNode: string): Messa
 export const chatgpt: AdapterFactory = (fetchJson) => {
   let token: string | null = null;
 
-  async function readSession(): Promise<{ token: string; userId: string }> {
+  async function readSession(): Promise<{ token: string; userId: string; name: string }> {
     const session = obj(expectOk(await fetchJson(`${ORIGIN}/api/auth/session`)), "session");
     if (typeof session.accessToken !== "string" || !session.accessToken) throw new SiteError("E_AUTH", "no session");
-    const userId = str(obj(session.user, "session.user").id, "session.user.id");
+    const user = obj(session.user, "session.user");
+    const userId = str(user.id, "session.user.id");
     token = session.accessToken;
-    return { token: session.accessToken, userId };
+    return { token: session.accessToken, userId, name: optStr(user.name) };
   }
 
   async function auth(): Promise<string> {
@@ -84,8 +85,8 @@ export const chatgpt: AdapterFactory = (fetchJson) => {
     conversationUrl: (id) => `${ORIGIN}/c/${id}`,
 
     async account() {
-      const { userId } = await readSession();
-      return { remoteId: userId, label: "ChatGPT" };
+      const { userId, name } = await readSession();
+      return { remoteId: userId, label: name || "ChatGPT" };
     },
 
     /** Cursor is `live:<offset>` or `archived:<offset>`; live pages come first. */

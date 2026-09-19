@@ -1,8 +1,9 @@
 import "fake-indexeddb/auto";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
-  addExcerpt, addTag, bodyIsFresh, createFolder, deleteFolder, getBody, getConversation, listConversations,
-  listExcerpts, markRemoved, mergeListing, openDb, putBody, updateLocal, upsertAccount, type Db,
+  accountDisplayName, addExcerpt, addTag, bodyIsFresh, createFolder, deleteFolder, getBody, getConversation,
+  listAccounts, listConversations, listExcerpts, markRemoved, mergeListing, openDb, putBody, renameAccount,
+  updateLocal, upsertAccount, type Account, type Db,
 } from "./db";
 
 let db: Db;
@@ -14,7 +15,7 @@ const item = (id: string, updatedAt = 2) => ({ id, title: id.toUpperCase(), crea
 describe("db", () => {
   it("keeps local fields when a listing refreshes a conversation", async () => {
     const account = await upsertAccount(db, "chatgpt", { remoteId: "u1", label: "ChatGPT" }, 10);
-    expect(account).toMatchObject({ key: "chatgpt:u1", alias: "ChatGPT" });
+    expect(account).toMatchObject({ key: "chatgpt:u1", name: "ChatGPT", alias: "" });
     expect(await mergeListing(db, account, [item("a"), item("b")], true, 10)).toEqual({ added: 2, updated: 0, removed: 0 });
     await updateLocal(db, ["chatgpt:a"], { favorite: true, note: "keep" });
     await addTag(db, ["chatgpt:a", "chatgpt:b"], "work");
@@ -27,7 +28,8 @@ describe("db", () => {
   it("only marks missing ones removed after a complete listing of that account", async () => {
     const one = await upsertAccount(db, "claude", { remoteId: "o1", label: "Claude" }, 1);
     const two = await upsertAccount(db, "claude", { remoteId: "o2", label: "Claude" }, 1);
-    expect(two.alias).toBe("Claude 2");
+    expect(two.alias).toBe("");
+    expect(accountDisplayName(two)).toBe("Claude");
     await mergeListing(db, one, [item("x")], true, 1);
     await mergeListing(db, two, [item("y")], true, 1);
     await mergeListing(db, one, [], false, 2);
@@ -69,5 +71,42 @@ describe("db", () => {
     await addExcerpt(db, { site: "chatgpt", conversationId: "a", url: "https://chatgpt.com/c/a", pageTitle: "A", text: "gpt text", note: "" }, 5);
     await addExcerpt(db, { site: "claude", conversationId: "b", url: "https://claude.ai/chat/b", pageTitle: "B", text: "claude text", note: "" }, 6);
     expect((await listExcerpts(db, "claude")).map((e) => e.text)).toEqual(["claude text"]);
+  });
+
+  it("stores the site's name on first sight and updates it on every later upsert", async () => {
+    const first = await upsertAccount(db, "chatgpt", { remoteId: "u1", label: "Ada Lovelace" }, 1);
+    expect(first.name).toBe("Ada Lovelace");
+    expect(accountDisplayName(first)).toBe("Ada Lovelace");
+    const second = await upsertAccount(db, "chatgpt", { remoteId: "u1", label: "Ada L." }, 2);
+    expect(second.name).toBe("Ada L.");
+    expect(accountDisplayName(second)).toBe("Ada L.");
+  });
+
+  it("lets a user alias override the site name, and a cleared alias falls back to the name", async () => {
+    const account = await upsertAccount(db, "chatgpt", { remoteId: "u1", label: "Ada Lovelace" }, 1);
+    await renameAccount(db, account.key, "Work account");
+    const renamed = (await listAccounts(db))[0];
+    expect(renamed.alias).toBe("Work account");
+    expect(accountDisplayName(renamed)).toBe("Work account");
+    // The site keeps reporting its own name even while an alias is set.
+    await upsertAccount(db, "chatgpt", { remoteId: "u1", label: "Ada L." }, 2);
+    expect(accountDisplayName((await listAccounts(db))[0])).toBe("Work account");
+    await renameAccount(db, account.key, "");
+    const cleared = (await listAccounts(db))[0];
+    expect(cleared.alias).toBe("");
+    expect(accountDisplayName(cleared)).toBe("Ada L.");
+  });
+
+  it("migrates an old auto-generated alias so the real name shows through, but keeps a user-chosen alias", async () => {
+    const auto: Account = { key: "chatgpt:u1", site: "chatgpt", remoteId: "u1", alias: "ChatGPT 2", lastSeen: 1 } as unknown as Account;
+    const custom: Account = { key: "claude:o1", site: "claude", remoteId: "o1", alias: "My Work Claude", lastSeen: 1 } as unknown as Account;
+    const db2 = await openDb(`test-migrate-${n++}`);
+    await db2.put("accounts", auto);
+    await db2.put("accounts", custom);
+    const [migratedAuto, migratedCustom] = await listAccounts(db2);
+    expect(migratedAuto).toMatchObject({ alias: "", name: "ChatGPT" });
+    expect(migratedCustom).toMatchObject({ alias: "My Work Claude", name: "Claude" });
+    expect(accountDisplayName(migratedAuto)).toBe("ChatGPT");
+    expect(accountDisplayName(migratedCustom)).toBe("My Work Claude");
   });
 });

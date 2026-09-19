@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { t } from "../../i18n";
 import {
-  addTag, bodyIsFresh, createFolder, deleteFolder, getBody, listAccounts, listConversations, listFolders,
-  openDb, putBody, renameAccount, renameFolder, updateLocal, type Account, type Conversation, type Db, type Folder,
+  accountDisplayName, addTag, bodyIsFresh, createFolder, deleteFolder, getBody, listAccounts, listConversations,
+  listFolders, openDb, putBody, renameAccount, renameFolder, updateLocal, type Account, type Conversation, type Db,
+  type Folder,
 } from "../../lib/db";
 import { brokenSitesIn, createBrokenSites, type BrokenSites } from "../../lib/brokenSites";
 import { runDeleteJob } from "../../lib/deleteJob";
@@ -58,7 +59,10 @@ export function App() {
   }, [db, convs, filter.inBody]);
 
   const shown = useMemo(() => applyFilter(convs, filter, bodies), [convs, filter, bodies]);
-  const aliasOf = useCallback((key: string) => accounts.find((a) => a.key === key)?.alias ?? key, [accounts]);
+  const aliasOf = useCallback((key: string) => {
+    const a = accounts.find((x) => x.key === key);
+    return a ? accountDisplayName(a) : key;
+  }, [accounts]);
   const chosen = convs.filter((c) => selected.has(c.key));
 
   async function guarded(label: string, task: () => Promise<void>) {
@@ -124,9 +128,9 @@ export function App() {
       </select>
       <select value={filter.account} onChange={(e) => setFilter({ ...filter, account: e.target.value })}>
         <option value="">{t("全部账号")}</option>
-        {siteAccounts.map((a) => <option key={a.key} value={a.key}>{a.alias}</option>)}
+        {siteAccounts.map((a) => <option key={a.key} value={a.key}>{accountDisplayName(a)}</option>)}
       </select>
-      {filter.account && <button onClick={() => { const alias = prompt(t("账号备注名"), aliasOf(filter.account)); if (alias) void renameAccount(db, filter.account, alias).then(() => reload(db)); }}>{t("改备注名")}</button>}
+      {filter.account && <button onClick={() => { const alias = prompt(t("账号备注名"), aliasOf(filter.account)); if (alias !== null) void renameAccount(db, filter.account, alias).then(() => reload(db)); }}>{t("改备注名")}</button>}
       {(Object.keys(SITES) as SiteId[]).map((s) => <button key={s} disabled={!!busy} onClick={() => void refresh(s)}>{t("刷新")} {SITES[s].label}</button>)}
       {(Object.keys(SITES) as SiteId[]).filter((s) => broken[s]).map((s) => <span key={s} className="err">{SITES[s].label}：{t("接口已变化")}</span>)}
       {(Object.keys(SITES) as SiteId[]).map((s) => <a key={s} href={SITES[s].origin} target="_blank" rel="noreferrer">{t("打开")} {SITES[s].label}</a>)}

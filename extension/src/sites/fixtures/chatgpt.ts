@@ -1,4 +1,5 @@
-export const session = { user: { id: "user-abc", email: "someone@example.com" }, accessToken: "tok" };
+export const session = { user: { id: "user-abc", name: "Ada Lovelace", email: "someone@example.com" }, accessToken: "tok" };
+export const sessionNoName = { user: { id: "user-abc", name: "", email: "someone@example.com" }, accessToken: "tok" };
 export const listPage = {
   items: [
     { id: "c1", title: "Plan a trip", create_time: "2026-09-01T10:00:00Z", update_time: "2026-09-02T10:00:00Z", is_archived: false },

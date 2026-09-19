@@ -62,7 +62,15 @@ export const claude: AdapterFactory = (fetchJson) => {
 
     async account() {
       org = null;
-      return { remoteId: await orgId(), label: "Claude" };
+      const remoteId = await orgId();
+      let label = "Claude";
+      try {
+        const acc = obj(await get("/api/account"), "account");
+        label = optStr(acc.display_name) || optStr(acc.full_name) || "Claude";
+      } catch {
+        // A failed or unexpected /api/account response only costs the display name.
+      }
+      return { remoteId, label };
     },
 
     async list(cursor) {

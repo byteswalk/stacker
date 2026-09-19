@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { FetchInit, FetchResult } from "./http";
 import { chatgpt } from "./chatgpt";
-import { conversation, imageConversation, listPage, session, voiceConversation } from "./fixtures/chatgpt";
+import { conversation, imageConversation, listPage, session, sessionNoName, voiceConversation } from "./fixtures/chatgpt";
 
 function fake(routes: Record<string, unknown>, calls: [string, FetchInit | undefined][] = []) {
   return vi.fn(async (url: string, init?: FetchInit): Promise<FetchResult> => {
@@ -12,11 +12,16 @@ function fake(routes: Record<string, unknown>, calls: [string, FetchInit | undef
 }
 
 describe("chatgpt adapter", () => {
-  it("names the account by user id and never keeps the email", async () => {
+  it("names the account by user id and label, and never keeps the email", async () => {
     const a = chatgpt(fake({ "/api/auth/session": session }));
     const account = await a.account();
-    expect(account).toEqual({ remoteId: "user-abc", label: "ChatGPT" });
+    expect(account).toEqual({ remoteId: "user-abc", label: "Ada Lovelace" });
     expect(JSON.stringify(account)).not.toContain("example.com");
+  });
+
+  it("falls back to the site name when the account has no name", async () => {
+    const a = chatgpt(fake({ "/api/auth/session": sessionNoName }));
+    expect(await a.account()).toEqual({ remoteId: "user-abc", label: "ChatGPT" });
   });
 
   it("lists live then archived pages with the bearer token", async () => {
