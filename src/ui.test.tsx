@@ -2,7 +2,7 @@
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { BusyHost, BusyProvider, ConfirmModal, Modal, ToastHost, ToastProvider, useBusy, useToast } from "./ui";
+import { BUSY_READ_DELAY, BusyHost, BusyProvider, ConfirmModal, Modal, ToastHost, ToastProvider, useBusy, useBusyRead, useToast } from "./ui";
 import { StorageLocations } from "./StorageLocations";
 import { invoke, reportFrontendWarning } from "./invoke";
 import { listen } from "@tauri-apps/api/event";
@@ -51,6 +51,23 @@ describe("modal keyboard behavior", () => {
     expect(reportFrontendWarning).toHaveBeenCalled();
     await act(async () => { await expect(run({ title: "Next" }, async () => "next")).resolves.toBe("next"); });
   });
+  it("shows a read only when it is slow, and lets reads overlap an action", async () => {
+    let run!: ReturnType<typeof useBusy>;
+    let read!: ReturnType<typeof useBusyRead>;
+    function Action() { run = useBusy(); read = useBusyRead(); return <BusyHost />; }
+    act(() => root.render(<BusyProvider><Action /></BusyProvider>));
+    let finishRead!: () => void;
+    let pending!: Promise<void>;
+    act(() => { pending = read("Reading sessions", () => new Promise<void>((resolve) => { finishRead = resolve; })); });
+    expect(container.querySelector("[role='dialog']")).toBeNull();
+    act(() => { vi.advanceTimersByTime(BUSY_READ_DELAY + 10); });
+    expect(container.querySelector("[role='dialog']")?.textContent).toContain("Reading sessions");
+    await act(async () => { await expect(run({ title: "Deleting" }, async () => "ok")).resolves.toBe("ok"); });
+    await act(async () => { await expect(read("Second read", async () => 2)).resolves.toBe(2); });
+    await act(async () => { finishRead(); await pending; });
+    expect(container.querySelector("[role='dialog']")).toBeNull();
+  });
+
   it("does not expose a close action while a confirmation is busy", () => {
     const close = vi.fn();
     act(() => root.render(<ConfirmModal title="Confirm" message="Working" busy onClose={close} onConfirm={() => {}} />));

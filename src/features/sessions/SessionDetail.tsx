@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../../i18n";
-import { Modal } from "../../ui";
+import { Modal, useBusyRead } from "../../ui";
 import { formatSpaceBytes as bytes } from "../space-analysis/components/SpaceOverview";
 import { openSession, readSession } from "./api";
 import { AGENT_LABEL, CLIENT_LABEL, STATUS_LABEL } from "./sessionsView";
@@ -15,13 +15,14 @@ export function SessionDetail({ session, onClose, onSummarize }: { session: Sess
   const [offset, setOffset] = useState(0);
   const [error, setError] = useState("");
   const request = useRef(0);
+  const read = useBusyRead();
 
   useEffect(() => {
     const current = ++request.current;
-    readSession(session.id, offset)
+    read("正在读取会话记录", () => readSession(session.id, offset))
       .then((d) => { if (current === request.current) setDetail(d); })
       .catch((e) => { if (current === request.current) setError(errorMessage(e)); });
-  }, [session.id, offset]);
+  }, [session.id, offset, read]);
 
   const open = (target: "folder" | "project" | "native") => void openSession(session.id, target).catch((e) => setError(errorMessage(e)));
   return <Modal wide title={session.title} onClose={onClose} footer={<>

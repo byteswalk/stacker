@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "../../invoke";
 import { useI18n } from "../../i18n";
-import { useToast } from "../../ui";
+import { useBusy, useBusyRead, useToast } from "../../ui";
 
 type LoginStatus = { state: "logged_in" | "logged_out" | "unknown"; method: string };
 type AgentModel = { call: string; label: string; efforts: string[]; defaultEffort: string | null };
@@ -31,10 +31,12 @@ const RUN_ERRORS: Record<string, string> = {
 export function GatewayAgents() {
   const { tr: t } = useI18n();
   const toast = useToast();
+  const read = useBusyRead();
+  const busy = useBusy();
   const [cards, setCards] = useState<AgentCard[] | null>(null);
   const [tests, setTests] = useState<Record<string, TestResult | "running">>({});
 
-  const load = useCallback(async () => setCards(await invoke<AgentCard[]>("gateway_agents")), []);
+  const load = useCallback(async () => setCards(await read("正在检查本机智能体", () => invoke<AgentCard[]>("gateway_agents"), "逐个查询安装、登录状态和模型列表。")), [read]);
   useEffect(() => { load().catch(() => setCards([])); }, [load]);
 
   async function toggle(card: AgentCard, enabled: boolean) {
@@ -45,7 +47,8 @@ export function GatewayAgents() {
     const key = model ?? card.id;
     setTests((old) => ({ ...old, [key]: "running" }));
     try {
-      const result = await invoke<TestResult>("gateway_test", { agent: card.id, model: model?.split("/")[1] ?? null });
+      const result = await busy({ title: `${t("正在测试")} ${card.name}`, message: t("发送一条简短消息并等待回复，通常需要 5–30 秒。") },
+        () => invoke<TestResult>("gateway_test", { agent: card.id, model: model ? model.slice(card.id.length + 1) : null }));
       setTests((old) => ({ ...old, [key]: result }));
     } catch (e) {
       setTests((old) => ({ ...old, [key]: { ok: false, reply: "", error: String(e), elapsedMs: 0, model: "", effort: "" } }));

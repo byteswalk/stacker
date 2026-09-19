@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "../../i18n";
-import { useToast } from "../../ui";
+import { useBusyRead, useToast } from "../../ui";
 import { listProjects, listSessions, setFavorite } from "./api";
 import { DeleteDialog } from "./DeleteDialog";
 import { FootprintPanel } from "./FootprintPanel";
@@ -25,6 +25,7 @@ let cachedProjects: ProjectRow[] = [];
 export function SessionCatalog({ onCleanup }: { onCleanup: () => void }) {
   const { tr: t } = useI18n();
   const toast = useToast();
+  const read = useBusyRead();
   const [tab, setTab] = useState<Tab>(lastTab);
   const [query, setQuery] = useState<SessionQuery>(lastQuery);
   const [page, setPage] = useState<SessionPage>(cachedPage);
@@ -44,7 +45,7 @@ export function SessionCatalog({ onCleanup }: { onCleanup: () => void }) {
     const generation = ++request.current;
     setLoading(true);
     try {
-      const [nextPage, nextProjects] = await Promise.all([listSessions(queryRef.current), listProjects()]);
+      const [nextPage, nextProjects] = await read("正在读取会话", () => Promise.all([listSessions(queryRef.current), listProjects()]));
       if (generation !== request.current) return;
       cachedPage = nextPage; cachedProjects = nextProjects;
       setPage(nextPage); setProjects(nextProjects);
@@ -55,7 +56,7 @@ export function SessionCatalog({ onCleanup }: { onCleanup: () => void }) {
     } finally {
       if (generation === request.current) setLoading(false);
     }
-  }, []);
+  }, [read]);
 
   useEffect(() => {
     queryRef.current = query; lastQuery = query;

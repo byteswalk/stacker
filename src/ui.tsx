@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useCallback, useEffect, useId, use
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useModalFocus } from "./modalFocus";
 import { reportFrontendWarning } from "./invoke";
+import { useI18n } from "./i18n";
 
 /* ───────────── Toast ───────────── */
 type ToastKind = "ok" | "err" | "info";
@@ -89,8 +90,13 @@ export type BusyOpts = {
   progressEvent?: string;            // 订阅的进度事件名（下载=install-progress，扫描=env-scan-progress）
   doneToken?: string;                // 视为完成的 payload（默认 __done__）
   cancel?: { label: string; onCancel: () => void }; // 真取消按钮（仅可取消的操作，如扫描）
+  /** Show the dialog only if the task is still running after this long, so quick reads never flash. */
+  delayMs?: number;
+  /** Reads may overlap each other and an action; actions (the default) stay one at a time. */
+  shared?: boolean;
 };
-type BusyState = (BusyOpts & { progress?: string; cancelRequested?: boolean }) | null;
+type BusyEntry = BusyOpts & { id: number; visible: boolean; progress?: string; cancelRequested?: boolean };
+type BusyState = BusyEntry | null;
 const BusyCtx = createContext<{
   state: BusyState;
   run: <T>(opts: BusyOpts, task: () => Promise<T>) => Promise<T>;
@@ -98,17 +104,30 @@ const BusyCtx = createContext<{
   requestCancel: () => void;
 }>({ state: null, run: async (_o, t) => t(), hide: () => {}, requestCancel: () => {} });
 
+/** The delay used for reads that are usually quick but can take seconds. */
+export const BUSY_READ_DELAY = 400;
+
 export function BusyProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<BusyState>(null);
+  const [entries, setEntries] = useState<BusyEntry[]>([]);
   const activeRef = useRef(false);
-  const hide = useCallback(() => setState(null), []);
-  const requestCancel = useCallback(() => {
-    setState((current) => current ? { ...current, cancelRequested: true, progress: "正在取消，请稍候…" } : current);
+  const seq = useRef(0);
+  const patch = useCallback((id: number, change: (entry: BusyEntry) => BusyEntry) => {
+    setEntries((list) => list.map((entry) => entry.id === id ? change(entry) : entry));
   }, []);
+  const state = [...entries].reverse().find((entry) => entry.visible) ?? null;
+  const shownId = state?.id;
+  const hide = useCallback(() => setEntries([]), []);
+  const requestCancel = useCallback(() => {
+    if (shownId === undefined) return;
+    patch(shownId, (entry) => ({ ...entry, cancelRequested: true, progress: "正在取消，请稍候…" }));
+  }, [patch, shownId]);
   const run = useCallback(async <T,>(opts: BusyOpts, task: () => Promise<T>): Promise<T> => {
-    if (activeRef.current) throw new Error("已有操作正在执行，请等待当前操作完成。");
-    activeRef.current = true;
-    setState({ ...opts, progress: undefined });
+    const exclusive = !opts.shared;
+    if (exclusive && activeRef.current) throw new Error("已有操作正在执行，请等待当前操作完成。");
+    if (exclusive) activeRef.current = true;
+    const id = ++seq.current;
+    setEntries((list) => [...list, { ...opts, id, visible: !opts.delayMs }]);
+    const timer = opts.delayMs ? window.setTimeout(() => patch(id, (entry) => ({ ...entry, visible: true })), opts.delayMs) : undefined;
     let un: UnlistenFn | undefined;
     try {
       if (opts.progressEvent) {
@@ -120,25 +139,36 @@ export function BusyProvider({ children }: { children: ReactNode }) {
           const now = Date.now();
           if (!isDone && now - last < 120) return;
           last = now;
-          setState((s) => (s && !s.cancelRequested ? { ...s, progress: isDone ? "完成" : e.payload } : s));
+          patch(id, (entry) => entry.cancelRequested ? entry : { ...entry, progress: isDone ? "完成" : e.payload });
         });
       }
       return await task();
     }
     finally {
-      activeRef.current = false;
-      setState(null);
+      if (timer !== undefined) window.clearTimeout(timer);
+      if (exclusive) activeRef.current = false;
+      setEntries((list) => list.filter((entry) => entry.id !== id));
       try {
         void Promise.resolve(un?.()).catch((cause) => reportFrontendWarning("Progress listener cleanup failed", cause));
       } catch (cause) {
         reportFrontendWarning("Progress listener cleanup failed", cause);
       }
     }
-  }, []);
+  }, [patch]);
   return <BusyCtx.Provider value={{ state, run, hide, requestCancel }}>{children}</BusyCtx.Provider>;
 }
 /** 返回 run：await busy({title,...}, () => invoke(...))，期间弹模态挡操作。 */
 export function useBusy() { return useContext(BusyCtx).run; }
+
+/**
+ * For reads: `await read(title, () => invoke(...))` shows the progress dialog only when the read
+ * takes longer than a moment, and never refuses to run because something else is busy.
+ */
+export function useBusyRead() {
+  const run = useBusy();
+  return useCallback(<T,>(title: string, task: () => Promise<T>, message?: string) =>
+    run({ title, message, shared: true, delayMs: BUSY_READ_DELAY }, task), [run]);
+}
 
 export function BusyHost() {
   const { state, requestCancel } = useContext(BusyCtx);
@@ -147,32 +177,33 @@ export function BusyHost() {
 }
 
 function BusyDialog({ state, requestCancel }: { state: NonNullable<BusyState>; requestCancel: () => void }) {
+  const { tr } = useI18n();
   const modalRef = useModalFocus(undefined, 200);
   const titleId = useId();
   return (
-    <div className="modalmask" style={{ zIndex: 200 }}>
+    <div className="modalmask busy-mask" style={{ zIndex: 200 }}>
       <div ref={modalRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby={titleId} aria-busy="true" className="modal" style={{ maxWidth: 470 }}>
-        <div className="modalhd"><span id={titleId}><i className="ti ti-loader spin" /> {state.title}</span></div>
+        <div className="modalhd"><span id={titleId}><i className="ti ti-loader spin" /> {tr(state.title)}</span></div>
         <div className="modalbody">
-          {state.message && <div style={{ fontSize: 13, color: "var(--tx)", lineHeight: 1.7 }}>{state.message}</div>}
+          {state.message && <div style={{ fontSize: 13, color: "var(--tx)", lineHeight: 1.7 }}>{tr(state.message)}</div>}
           {(state.progress || state.progressEvent) && (
             <div className="instbar trace-card" style={{ margin: "10px 0 0", overflow: "hidden", flexDirection: "column", alignItems: "stretch", gap: 8 }}>
               <span className="border-runner" aria-hidden="true" />
               <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
               <i className="ti ti-loader spin" style={{ color: "var(--acc)" }} />
-              <span className="ptxt" style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={state.progress ?? "正在处理"}>{state.progress ?? "正在处理…"}</span>
+              <span className="ptxt" style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={tr(state.progress ?? "正在处理")}>{tr(state.progress ?? "正在处理…")}</span>
               </div>
             </div>
           )}
           <div style={{ fontSize: 11.5, color: "var(--mut)", marginTop: 10, lineHeight: 1.6 }}>
-            请保持 Stacker 运行。操作完成后，此窗口会自动关闭。</div>
+            {tr("请保持 Stacker 运行。操作完成后，此窗口会自动关闭。")}</div>
         </div>
         {state.cancel && (
           <div className="modalft">
             <button className="gh sm" disabled={state.cancelRequested} onClick={() => {
               requestCancel();
               state.cancel!.onCancel();
-            }}>{state.cancelRequested ? "正在取消…" : state.cancel.label}</button>
+            }}>{tr(state.cancelRequested ? "正在取消…" : state.cancel.label)}</button>
           </div>
         )}
       </div>

@@ -3,7 +3,7 @@ import { useI18n } from "../../i18n";
 import { formatSpaceBytes as bytes } from "../space-analysis/components/SpaceOverview";
 import { migrationDeleteBackup, migrationStatus, scanFootprint } from "./api";
 import { MigrationDialog } from "./MigrationDialog";
-import { ConfirmModal } from "../../ui";
+import { ConfirmModal, useBusyRead } from "../../ui";
 import { FootprintDialog } from "./FootprintDialog";
 import { AGENT_LABEL } from "./sessionsView";
 import { errorMessage, type FootprintItem, type FootprintKind, type FootprintReport, type LocationStatus } from "./types";
@@ -25,6 +25,7 @@ export function defaultSelection(report: FootprintReport): string[] {
 
 export function FootprintPanel({ onShowSessions }: { onShowSessions: (agent: string) => void }) {
   const { tr: t } = useI18n();
+  const read = useBusyRead();
   const [report, setReport] = useState<FootprintReport | null>(cachedReport);
   const [selected, setSelected] = useState<string[]>(() => (cachedReport ? defaultSelection(cachedReport) : []));
   const [loading, setLoading] = useState(false);
@@ -46,7 +47,7 @@ export function FootprintPanel({ onShowSessions }: { onShowSessions: (agent: str
     const current = ++request.current;
     setLoading(true); setError("");
     try {
-      const next = await scanFootprint(refresh);
+      const next = await read("正在统计智能体数据", () => scanFootprint(refresh), "逐个目录计算占用，约需 10 秒。");
       if (current !== request.current) return;
       cachedReport = next; setReport(next); setSelected(defaultSelection(next));
     } catch (e) {
@@ -54,7 +55,7 @@ export function FootprintPanel({ onShowSessions }: { onShowSessions: (agent: str
     } finally {
       if (current === request.current) setLoading(false);
     }
-  }, []);
+  }, [read]);
 
   useEffect(() => { if (!cachedReport) void load(false); }, [load]);
 
