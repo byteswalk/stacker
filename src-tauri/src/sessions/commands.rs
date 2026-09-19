@@ -248,3 +248,13 @@ pub fn footprint_execute(token: String) -> Result<super::footprint::cleanup::Cle
 pub fn footprint_job() -> Option<super::footprint::cleanup::CleanupJob> {
     super::footprint::cleanup::job()
 }
+
+#[tauri::command]
+pub async fn runner_options() -> Result<Vec<crate::runner::options::AgentOptions>, String> {
+    blocking(|| {
+        let conn = super::annotations::connect()?;
+        let roots = super::roots::resolve(&super::annotations::roots(&conn));
+        Ok(crate::runner::options::options(Path::new(&roots.codex)))
+    })
+    .await
+}

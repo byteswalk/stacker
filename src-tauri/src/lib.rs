@@ -169,6 +169,7 @@ pub fn run() {
             sessions::commands::footprint_preview,
             sessions::commands::footprint_execute,
             sessions::commands::footprint_job,
+            sessions::commands::runner_options,
             sources::list_sources,
             sources::apply_source,
             sources::apply_source_scoped,
