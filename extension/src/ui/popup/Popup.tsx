@@ -29,7 +29,7 @@ export function Popup() {
   }, [db, tab, id]);
   useEffect(() => { void load(); }, [load]);
 
-  if (!tab || !id) return <p style={{ padding: 12 }}>{t("在 ChatGPT 或 Claude 打开一条对话后，这里会显示它。")}</p>;
+  if (!tab || !id) return <p style={{ padding: 12 }}>{t("在 ChatGPT、Claude、Gemini、Grok 或 DeepSeek 打开一条对话后，这里会显示它。")}</p>;
   const save = async (patch: Parameters<typeof updateLocal>[2]) => { if (db && conv) { await updateLocal(db, [conv.key], patch); await load(); } };
   return <div style={{ padding: 12 }}>
     <div className="mut">{SITES[tab.site].label}</div>

@@ -5,10 +5,11 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Conversation } from "../../lib/db";
 import type { ItemResult } from "../../lib/deleteJob";
+import type { SiteId } from "../../shared/types";
 import { DeleteDialog } from "./DeleteDialog";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
-const conv = (id: string, account = "chatgpt:u", site: "chatgpt" | "claude" = "chatgpt"): Conversation => ({
+const conv = (id: string, account = "chatgpt:u", site: SiteId = "chatgpt"): Conversation => ({
   key: `${site}:${id}`, site, account, id, title: id, createdAt: 0, updatedAt: 0, archived: false,
   folderId: null, tags: [], favorite: false, note: "", bodyFetchedAt: null, bodyUpdatedAt: null, removedAt: null,
 });
@@ -16,7 +17,7 @@ let host: HTMLDivElement;
 afterEach(() => host?.remove());
 
 const ALIAS: Record<string, string> = { "chatgpt:u": "工作号", "chatgpt:other": "私人号", "claude:o": "Claude 号" };
-function mount(onRun = vi.fn(async () => []), items = [conv("a"), conv("b", "chatgpt:other"), conv("c")], siteErrors: Partial<Record<"chatgpt" | "claude", string>> = {}) {
+function mount(onRun = vi.fn(async () => []), items = [conv("a"), conv("b", "chatgpt:other"), conv("c")], siteErrors: Partial<Record<SiteId, string>> = {}) {
   host = document.createElement("div");
   document.body.append(host);
   act(() => createRoot(host).render(<DeleteDialog items={items} currentAccounts={new Set(["chatgpt:u"])} aliasOf={(k) => ALIAS[k] ?? k}
@@ -75,5 +76,15 @@ describe("DeleteDialog", () => {
     const after = new Event("beforeunload", { cancelable: true });
     window.dispatchEvent(after);
     expect(after.defaultPrevented).toBe(false);
+  });
+  it("leaves out an unverified site's items and says why", async () => {
+    const reason = "未实测：该站点的接口还没有在真实账号上核对过，暂不支持删除";
+    const items = [conv("a"), conv("g", "grok:default", "grok")];
+    const onRun = mount(vi.fn(async () => []), items, { grok: reason });
+    const lines = [...host.querySelectorAll("ul.groups li")].map((li) => li.textContent);
+    expect(lines).toEqual(["ChatGPT · 工作号：1 条", `Grok · grok:default：1 条 — ${reason}`]);
+    expect(host.querySelector("ul.groups li:last-child span")?.className).toBe("err");
+    await act(async () => button("删除 1 条").click());
+    expect(onRun).toHaveBeenCalledWith([items[0]], "slim", expect.any(AbortSignal), expect.any(Function));
   });
 });

@@ -32,10 +32,15 @@ export const EN: Record<string, string> = {
   "导出精简版": "Export slim",
   "导出完整版": "Export full",
   "删除…": "Delete…",
-  "没有对话。先打开并登录 ChatGPT 或 Claude，再点「刷新」。": "No conversations. Open and sign in to ChatGPT or Claude, then click “Refresh”.",
   "选择一条对话查看详情": "Select a conversation to see its details",
   "接口已变化": "interface changed",
   "接口已变化，请先刷新该站点": "the site's interface changed; refresh that site first",
+  "没有对话。先打开并登录 ChatGPT、Claude、Gemini、Grok 或 DeepSeek，再点「刷新」。": "No conversations. Open and sign in to ChatGPT, Claude, Gemini, Grok or DeepSeek, then click “Refresh”.",
+  "未实测": "not yet verified",
+  "这些站点的接口还没有在真实账号上核对过：可以刷新、读取和导出，暂不支持删除。": "These sites' interfaces haven't been checked against a real account yet: refresh, read and export work; deleting is not available yet.",
+
+  // manage/siteStatus.ts
+  "未实测：该站点的接口还没有在真实账号上核对过，暂不支持删除": "Not yet verified: this site's interface hasn't been checked against a real account, so deleting is not available yet",
 
   // manage/ConversationList.tsx
   "本页": "This page",
@@ -92,7 +97,7 @@ export const EN: Record<string, string> = {
   "显示已删除": "Show deleted",
 
   // ui/popup/Popup.tsx
-  "在 ChatGPT 或 Claude 打开一条对话后，这里会显示它。": "Open a conversation on ChatGPT or Claude to see it here.",
+  "在 ChatGPT、Claude、Gemini、Grok 或 DeepSeek 打开一条对话后，这里会显示它。": "Open a conversation on ChatGPT, Claude, Gemini, Grok or DeepSeek to see it here.",
   "这条对话还不在列表里：请在管理页刷新该站点。": "This conversation isn't in the list yet: refresh that site on the manage page.",
   "在网页上选中文字，点出现的「存为摘录」按钮即可添加。": "Select text on the page and click the “Save as excerpt” button that appears to add one.",
   "在管理页打开": "Open in manage page",

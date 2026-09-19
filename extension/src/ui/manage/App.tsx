@@ -20,6 +20,7 @@ import { ConversationList } from "./ConversationList";
 import { DeleteDialog } from "./DeleteDialog";
 import { Detail } from "./Detail";
 import { Filters } from "./Filters";
+import { deleteBlockReason, siteName } from "./siteStatus";
 
 const api = createSiteApi();
 const brokenStore = createBrokenSites();
@@ -109,7 +110,8 @@ export function App() {
     const stillBroken = await brokenStore.all();
     setBroken(stillBroken);
     for (const site of sites) {
-      if (stillBroken[site]) { errors[site] = t("接口已变化，请先刷新该站点"); continue; }
+      const blocked = deleteBlockReason(site, stillBroken);
+      if (blocked) { errors[site] = blocked; continue; }
       try { const a = await api.account(site); signedIn.add(`${site}:${a.remoteId}`); } catch (e) { errors[site] = errorText(e); }
     }
     setCurrent(signedIn);
@@ -119,12 +121,13 @@ export function App() {
 
   if (!db) return <p style={{ padding: 16 }}>{t("正在打开…")}</p>;
   const siteAccounts = accounts.filter((a) => !filter.site || a.site === filter.site);
+  const unverified = (Object.keys(SITES) as SiteId[]).filter((s) => !SITES[s].verified);
   return <div className="layout">
     <div className="top">
       <b>{t("Stacker 网页对话")}</b>
       <select value={filter.site} onChange={(e) => setFilter({ ...filter, site: e.target.value as SiteId | "", account: "" })}>
         <option value="">{t("全部站点")}</option>
-        {(Object.keys(SITES) as SiteId[]).map((s) => <option key={s} value={s}>{SITES[s].label}</option>)}
+        {(Object.keys(SITES) as SiteId[]).map((s) => <option key={s} value={s}>{siteName(s)}</option>)}
       </select>
       <select value={filter.account} onChange={(e) => setFilter({ ...filter, account: e.target.value })}>
         <option value="">{t("全部账号")}</option>
@@ -133,6 +136,7 @@ export function App() {
       {filter.account && <button onClick={() => { const alias = prompt(t("账号备注名"), aliasOf(filter.account)); if (alias !== null) void renameAccount(db, filter.account, alias).then(() => reload(db)); }}>{t("改备注名")}</button>}
       {(Object.keys(SITES) as SiteId[]).map((s) => <button key={s} disabled={!!busy} onClick={() => void refresh(s)}>{t("刷新")} {SITES[s].label}</button>)}
       {(Object.keys(SITES) as SiteId[]).filter((s) => broken[s]).map((s) => <span key={s} className="err">{SITES[s].label}：{t("接口已变化")}</span>)}
+      {unverified.length > 0 && <span className="warn" title={t("这些站点的接口还没有在真实账号上核对过：可以刷新、读取和导出，暂不支持删除。")}>{unverified.map((s) => SITES[s].label).join("、")}：{t("未实测")}</span>}
       {(Object.keys(SITES) as SiteId[]).map((s) => <a key={s} href={SITES[s].origin} target="_blank" rel="noreferrer">{t("打开")} {SITES[s].label}</a>)}
       {busy && <span className="mut">{busy}…</span>}
       {message && <span className={message.kind === "error" ? "err" : "mut"}>{message.text}</span>}
@@ -164,7 +168,7 @@ export function App() {
         <button disabled={!!busy} onClick={() => void exportChosen("full")}>{t("导出完整版")}</button>
         <button className="danger" disabled={!!busy} onClick={() => void openDelete()}>{t("删除…")}</button>
       </div>}
-      {shown.length === 0 ? <p className="mut">{t("没有对话。先打开并登录 ChatGPT 或 Claude，再点「刷新」。")}</p>
+      {shown.length === 0 ? <p className="mut">{t("没有对话。先打开并登录 ChatGPT、Claude、Gemini、Grok 或 DeepSeek，再点「刷新」。")}</p>
         : <ConversationList items={shown} aliasOf={aliasOf} selected={selected} active={active?.key ?? null} onOpen={setActive}
           onSelect={(keys, on) => setSelected((old) => { const next = new Set(old); keys.forEach((k) => (on ? next.add(k) : next.delete(k))); return next; })} />}
     </div>
