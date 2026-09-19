@@ -160,7 +160,15 @@ export async function addExcerpt(db: Db, e: Omit<Excerpt, "id" | "createdAt">, n
 }
 
 export async function listExcerpts(db: Db, site?: SiteId, conversationId?: string): Promise<Excerpt[]> {
-  const all = site && conversationId ? await db.getAllFromIndex("excerpts", "conversation", [site, conversationId]) : await db.getAll("excerpts");
+  let all: Excerpt[];
+  if (site && conversationId) {
+    all = await db.getAllFromIndex("excerpts", "conversation", [site, conversationId]);
+  } else if (site) {
+    const allExcerpts = await db.getAll("excerpts");
+    all = allExcerpts.filter((e) => e.site === site);
+  } else {
+    all = await db.getAll("excerpts");
+  }
   return all.sort((a, b) => b.createdAt - a.createdAt);
 }
 

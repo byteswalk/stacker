@@ -60,4 +60,14 @@ describe("db", () => {
     await addExcerpt(db, { site: "chatgpt", conversationId: "a", url: "https://chatgpt.com/c/a", pageTitle: "A", text: "tip", note: "" }, 5);
     expect((await listExcerpts(db, "chatgpt", "a")).map((e) => e.text)).toEqual(["tip"]);
   });
+
+  it("filters excerpts by site only", async () => {
+    const chatgptAccount = await upsertAccount(db, "chatgpt", { remoteId: "u", label: "ChatGPT" }, 1);
+    const claudeAccount = await upsertAccount(db, "claude", { remoteId: "o", label: "Claude" }, 1);
+    await mergeListing(db, chatgptAccount, [item("a")], true, 1);
+    await mergeListing(db, claudeAccount, [item("b")], true, 1);
+    await addExcerpt(db, { site: "chatgpt", conversationId: "a", url: "https://chatgpt.com/c/a", pageTitle: "A", text: "gpt text", note: "" }, 5);
+    await addExcerpt(db, { site: "claude", conversationId: "b", url: "https://claude.ai/chat/b", pageTitle: "B", text: "claude text", note: "" }, 6);
+    expect((await listExcerpts(db, "claude")).map((e) => e.text)).toEqual(["claude text"]);
+  });
 });
