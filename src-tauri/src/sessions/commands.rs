@@ -452,3 +452,64 @@ pub async fn handoff_start(
     })
     .await
 }
+
+fn agent_of(agent: &str) -> Result<Agent, String> {
+    match agent {
+        "codex" => Ok(Agent::Codex),
+        "claude" => Ok(Agent::Claude),
+        _ => Err("E_REQUEST".into()),
+    }
+}
+
+#[tauri::command]
+pub async fn migration_status() -> Result<Vec<super::migration::LocationStatus>, String> {
+    blocking(|| {
+        Ok(vec![
+            super::migration::status(Agent::Codex),
+            super::migration::status(Agent::Claude),
+        ])
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn migration_check(
+    agent: String,
+    target: String,
+) -> Result<super::migration::CheckResult, String> {
+    blocking(move || {
+        Ok(super::migration::check(
+            agent_of(&agent)?,
+            Path::new(target.trim()),
+        ))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn migration_start(
+    agent: String,
+    target: String,
+) -> Result<super::migration::MigrationJob, String> {
+    blocking(move || super::migration::start(agent_of(&agent)?, PathBuf::from(target.trim()))).await
+}
+
+#[tauri::command]
+pub async fn migration_delete_backup(agent: String) -> Result<(), String> {
+    blocking(move || super::migration::delete_backup(agent_of(&agent)?)).await
+}
+
+#[tauri::command]
+pub async fn migration_move_back(agent: String) -> Result<super::migration::MigrationJob, String> {
+    blocking(move || super::migration::move_back(agent_of(&agent)?)).await
+}
+
+#[tauri::command]
+pub fn migration_job() -> Option<super::migration::MigrationJob> {
+    super::migration::job()
+}
+
+#[tauri::command]
+pub fn migration_cancel() {
+    super::migration::cancel()
+}

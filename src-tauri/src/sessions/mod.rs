@@ -8,6 +8,7 @@ pub mod delete;
 pub mod export;
 pub mod footprint;
 pub mod handoff;
+pub mod migration;
 pub mod model;
 pub mod project;
 pub mod roots;
