@@ -57,6 +57,23 @@ describe("pacer", () => {
     expect(attempts).toBe(1);
   });
 
+  it("withPacing throws E_CANCELLED when the signal is aborted during the pacing gap, without running the task", async () => {
+    const controller = new AbortController();
+    let clock = 0;
+    const pacer = createPacer({ gapMs: 1000, now: () => clock, sleep: async (ms) => { controller.abort(); clock += ms; } });
+    await pacer.wait(); // first wait never naps (last starts at -Infinity); seeds `last` at clock 0
+    let called = false;
+    const task = async () => { called = true; return "value"; };
+    try {
+      await withPacing(pacer, task, controller.signal);
+      expect.unreachable("expected withPacing to throw");
+    } catch (e) {
+      expect(e).toBeInstanceOf(SiteError);
+      expect((e as SiteError).code).toBe("E_CANCELLED");
+    }
+    expect(called).toBe(false);
+  });
+
   it("sleep rejects with E_CANCELLED when aborted", async () => {
     const controller = new AbortController();
     const promise = sleep(1000, controller.signal);

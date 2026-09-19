@@ -2,7 +2,7 @@ import "fake-indexeddb/auto";
 import { describe, expect, it, vi } from "vitest";
 import { SiteError } from "../shared/types";
 import { getConversation, listConversations, mergeListing, openDb, upsertAccount, type Db } from "./db";
-import { runDeleteJob, type DeleteDeps } from "./deleteJob";
+import { ACCOUNT_RECHECK_EVERY, runDeleteJob, type DeleteDeps } from "./deleteJob";
 import { createPacer } from "./pacer";
 import type { SiteApi } from "./siteClient";
 
@@ -79,5 +79,64 @@ describe("delete job", () => {
     const controller = new AbortController();
     controller.abort();
     expect((await run(items, "direct", deps, controller.signal)).map((r) => r.error)).toEqual(["E_CANCELLED", "E_CANCELLED"]);
+  });
+  it("does not remove when the signal is cancelled during export, and skips the rest", async () => {
+    const { deps, api, items } = await setup(["a", "b"]);
+    const controller = new AbortController();
+    deps.save = async () => { controller.abort(); };
+    const results = await run(items, "slim", deps, controller.signal);
+    expect(results.map((r) => [r.status, r.error])).toEqual([["skipped", "E_CANCELLED"], ["skipped", "E_CANCELLED"]]);
+    expect(api.remove).not.toHaveBeenCalled();
+  });
+  it("stops the job when reading a conversation keeps rate-limiting", async () => {
+    const { deps, api, items } = await setup(["a", "b", "c"]);
+    (api.read as ReturnType<typeof vi.fn>).mockRejectedValue(new SiteError("E_RATE", "", 1));
+    const results = await run(items, "slim", deps);
+    expect(results.map((r) => [r.status, r.error])).toEqual([
+      ["failed", "E_RATE"], ["skipped", "E_RATE"], ["skipped", "E_RATE"],
+    ]);
+    expect(api.remove).not.toHaveBeenCalled();
+  });
+  it("stops the job when a stop code is thrown while exporting", async () => {
+    const { deps, api, items } = await setup(["a", "b"]);
+    (api.read as ReturnType<typeof vi.fn>).mockRejectedValue(new SiteError("E_BROKEN", "page.items"));
+    const results = await run(items, "slim", deps);
+    expect(results.map((r) => [r.status, r.error])).toEqual([["failed", "E_BROKEN"], ["skipped", "E_BROKEN"]]);
+    expect(api.remove).not.toHaveBeenCalled();
+  });
+  it("skips only the account that is not currently signed in when a job spans two accounts", async () => {
+    const db = await openDb(`del-${n++}`);
+    const acc1 = await upsertAccount(db, "chatgpt", { remoteId: "u", label: "ChatGPT" }, 1);
+    const acc2 = await upsertAccount(db, "chatgpt", { remoteId: "other", label: "ChatGPT" }, 1);
+    await mergeListing(db, acc1, [{ id: "a", title: "a", createdAt: 1, updatedAt: 2, archived: false }], true, 1);
+    await mergeListing(db, acc2, [{ id: "b", title: "b", createdAt: 1, updatedAt: 2, archived: false }], true, 1);
+    const api = {
+      account: vi.fn(async () => ({ remoteId: "u", label: "ChatGPT" })),
+      read: vi.fn(async (_s: string, id: string) => ({ id, title: id, updatedAt: 2, messages: [] })),
+      remove: vi.fn(async () => {}),
+    } as unknown as SiteApi;
+    const deps: DeleteDeps = {
+      api, db, now: () => 50, pacer: createPacer({ gapMs: 0, sleep: async () => {} }),
+      save: async () => {}, aliasOf: () => "Work",
+    };
+    const results = await run(await listConversations(db), "direct", deps);
+    const byKey = new Map(results.map((r) => [r.key, r]));
+    expect(byKey.get("chatgpt:a")?.status).toBe("done");
+    expect([byKey.get("chatgpt:b")?.status, byKey.get("chatgpt:b")?.error]).toEqual(["skipped", "E_ACCOUNT"]);
+    expect(api.remove).toHaveBeenCalledTimes(1);
+  });
+  it("re-checks the signed-in account every ACCOUNT_RECHECK_EVERY items and stops that account once it no longer matches", async () => {
+    expect(ACCOUNT_RECHECK_EVERY).toBe(20);
+    const ids = Array.from({ length: 21 }, (_, i) => `id${String(i).padStart(2, "0")}`);
+    const { deps, api, items } = await setup(ids);
+    let calls = 0;
+    (api.account as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      calls++;
+      return calls === 1 ? { remoteId: "u", label: "ChatGPT" } : { remoteId: "other", label: "ChatGPT" };
+    });
+    const results = await run(items, "direct", deps);
+    expect(results.slice(0, 20).map((r) => r.status)).toEqual(Array(20).fill("done"));
+    expect([results[20].status, results[20].error]).toEqual(["skipped", "E_ACCOUNT"]);
+    expect(api.account).toHaveBeenCalledTimes(2);
   });
 });

@@ -36,6 +36,7 @@ export function createPacer({ gapMs = 1500, maxBackoffMs = 60_000, sleep: nap = 
 export async function withPacing<T>(pacer: Pacer, task: () => Promise<T>, signal?: AbortSignal): Promise<T> {
   for (let attempt = 0; ; attempt++) {
     await pacer.wait();
+    if (signal?.aborted) throw new SiteError("E_CANCELLED");
     try {
       const v = await task();
       pacer.ok();

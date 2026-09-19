@@ -15,7 +15,9 @@ export interface DeleteDeps {
 }
 
 const STOP: ErrorCode[] = ["E_BROKEN", "E_AUTH", "E_NO_TAB", "E_NO_AGENT"];
+export const ACCOUNT_RECHECK_EVERY = 20;
 const code = (e: unknown): string => (e instanceof SiteError ? e.code : "E_NET");
+const errorText = (e: unknown): string => (e instanceof SiteError ? e.code : e instanceof Error ? e.message : String(e));
 
 export async function runDeleteJob(items: Conversation[], mode: DeleteMode, deps: DeleteDeps, signal: AbortSignal, onProgress: (results: ItemResult[]) => void): Promise<ItemResult[]> {
   const results: ItemResult[] = items.map((c) => ({ key: c.key, title: c.title, status: "pending", error: "" }));
@@ -38,6 +40,7 @@ export async function runDeleteJob(items: Conversation[], mode: DeleteMode, deps
   }
 
   const checked = new Map<string, boolean>();
+  const processed = new Map<string, number>();
   for (let i = 0; i < items.length; i++) {
     if (signal.aborted) { skipRest(i, "E_CANCELLED"); break; }
     const c = items[i];
@@ -45,7 +48,15 @@ export async function runDeleteJob(items: Conversation[], mode: DeleteMode, deps
       if (!checked.has(c.account)) {
         const remote = await withPacing(deps.pacer, () => deps.api.account(c.site), signal);
         checked.set(c.account, accountKey(c.site, remote.remoteId) === c.account);
+        processed.set(c.account, 0);
+      } else if (checked.get(c.account)) {
+        const seen = processed.get(c.account) ?? 0;
+        if (seen > 0 && seen % ACCOUNT_RECHECK_EVERY === 0) {
+          const remote = await withPacing(deps.pacer, () => deps.api.account(c.site), signal);
+          checked.set(c.account, accountKey(c.site, remote.remoteId) === c.account);
+        }
       }
+      if (checked.get(c.account)) processed.set(c.account, (processed.get(c.account) ?? 0) + 1);
       if (!checked.get(c.account)) {
         results[i] = { ...results[i], status: "skipped", error: "E_ACCOUNT" };
         report();
@@ -53,8 +64,9 @@ export async function runDeleteJob(items: Conversation[], mode: DeleteMode, deps
       }
       if (mode !== "direct") {
         try { await exportOne(c); } catch (e) {
-          if (STOP.includes(code(e) as ErrorCode) || code(e) === "E_CANCELLED") throw e;
-          results[i] = { ...results[i], status: "failed", error: e instanceof Error ? e.message : String(e) };
+          const err = code(e);
+          if (STOP.includes(err as ErrorCode) || err === "E_CANCELLED" || err === "E_RATE") throw e;
+          results[i] = { ...results[i], status: "failed", error: errorText(e) };
           report();
           continue;
         }
