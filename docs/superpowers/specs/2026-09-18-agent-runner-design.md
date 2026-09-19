@@ -32,9 +32,13 @@ pub fn run(req: &RunRequest, cancel: &CancelToken) -> Result<RunOutput, String>;
 ```
 
 - 每次运行新建临时空目录作为工作目录，结束后删除。
-- 命令：
-  - Codex：`codex exec - --ephemeral --skip-git-repo-check -s read-only -C <临时目录> -o <临时目录>\out.md [-m 模型]`；stdin 为「说明 + 输入」。
+- 命令（2026-09-18 在维护者机器上实测）：
+  - Codex：`codex exec - --ephemeral --skip-git-repo-check --ignore-rules --ignore-user-config -c web_search="disabled" -s read-only -C <临时目录> -o <临时目录>\out.md [-m 模型]`，并对以下功能逐个加 `--disable`：`shell_tool`、`unified_exec`、`code_mode_host`、`multi_agent`、`apps`、`plugins`、`remote_plugin`、`browser_use`、`browser_use_external`、`in_app_browser`、`computer_use`、`image_generation`、`view_image`、`hooks`、`goals`、`skill_search`、`sleep_tool`、`tool_suggest`、`shell_snapshot`。stdin 为「说明 + 输入」。
+    - 实测：会话表记录数不变（670 → 670）；让它执行 `whoami` 时，执行入口返回 `code-mode host is disabled`，无法读文件或运行命令；简单问答约 16 秒、8.4K token。`--ignore-user-config` 不加载 config.toml 中的 MCP、插件与模型设置，登录凭据（`auth.json`）不受影响。
+    - 未知功能名会导致 CLI 报错：启动前用 `codex features list` 取当前版本支持的名称，只禁用存在的项。
   - Claude：`claude -p --no-session-persistence --tools "" --strict-mcp-config --output-format json [--model 模型]`，工作目录为临时目录，stdin 为「说明 + 输入」；解析 JSON 的 `result`，`is_error` 为真时返回错误。
+    - 实测：`projects` 下会话记录数不变（637 → 637），但会留下空目录 `projects\<临时目录 slug>\memory`，运行结束后删除该 slug 目录（仅当其中没有任何文件时）；让它执行 `whoami` 时只输出了一段调用文本，没有实际执行；简单问答约 14 秒。
+    - 默认模型为 Opus，简单问答约 0.06 美元：摘要的 Claude 默认模型设为 `sonnet`（可在设置中清空改回 CLI 默认或改为其他）。
 - 可执行文件通过现有 `agents::process::resolve_command` 查找；子进程隐藏窗口，注入 `agents::net::stacker_proxy()` 代理环境变量。
 - 超时或取消时结束整个子进程树（`terminate_command_tree`）。
 - 错误码：`E_RUNNER_MISSING`（未安装）、`E_RUNNER_AUTH`（输出含未登录提示）、`E_RUNNER_TIMEOUT`、`E_RUNNER_FAILED`（退出码非 0，附带 stderr 摘录，不含输入内容）、`E_CANCELLED`。
@@ -64,7 +68,7 @@ pub fn run(req: &RunRequest, cancel: &CancelToken) -> Result<RunOutput, String>;
 执行者：
 
 - 设置项 `summary_runner`：`same`（默认，会话属于哪个智能体就用哪个）、`codex`、`claude`。
-- 设置项 `summary_model_codex`、`summary_model_claude`：留空用 CLI 默认模型。
+- 设置项 `summary_model_codex`（默认空，即 CLI 默认模型）、`summary_model_claude`（默认 `sonnet`）；留空用 CLI 默认模型。
 - 同源的执行者未安装时，该项失败，提示改用另一个或安装。
 
 任务：
