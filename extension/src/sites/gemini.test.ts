@@ -27,7 +27,7 @@ const routes = ({ id, payload }: Rpc): string => {
   const p = payload as unknown[];
   if (id === "MaZiqc") return batchReply(id, p[1] === "tok-2" ? listLast : listFirst);
   if (id === "hNvQHb") return batchReply(id, [chatNewestFirst, null]);
-  if (id === "GzXR5e") return batchReply(id, null);
+  if (id === "GzXR5e") return batchReply(id, []);
   return "";
 };
 const batchCalls = (calls: Call[]) => calls.filter(([url]) => url.includes("/batchexecute"));
@@ -114,6 +114,10 @@ describe("gemini adapter", () => {
     expect(batchCalls(calls).map(([, init]) => rpcOf(init))).toEqual([{ id: "GzXR5e", payload: ["c_aaa111"] }]);
     expect(a.archive).toBeUndefined();
     expect(a.conversationUrl("c_aaa111")).toBe("https://gemini.google.com/app/aaa111");
+  });
+
+  it("flags a non-array delete reply as broken", async () => {
+    await expect(gemini(fake(({ id }) => batchReply(id, { ok: true }))).remove("c_aaa111")).rejects.toThrow("E_BROKEN");
   });
 
   it("fetches fresh page tokens once when the old ones are refused", async () => {

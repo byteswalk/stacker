@@ -121,7 +121,8 @@ export const gemini: AdapterFactory = (fetchJson) => {
     },
 
     async remove(id) {
-      await rpc(RPC.remove, [id]);
+      const reply = await rpc(RPC.remove, [id]);
+      arr(reply, "remove reply");
     },
   };
 };

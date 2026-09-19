@@ -31,7 +31,7 @@ export const SITES: Record<SiteId, SiteInfo> = {
     idOfPath: firstGroup(/\/chat\/([A-Za-z0-9-]+)/), urlOf: (id) => `https://claude.ai/chat/${id}`,
   },
   gemini: {
-    label: "Gemini", factory: gemini, origin: "https://gemini.google.com", match: "https://gemini.google.com/*", verified: false,
+    label: "Gemini", factory: gemini, origin: "https://gemini.google.com", match: "https://gemini.google.com/*", verified: true,
     idOfPath: (path) => {
       const hex = /\/app\/([0-9a-f]+)/.exec(path)?.[1];
       return hex ? `c_${hex}` : null;

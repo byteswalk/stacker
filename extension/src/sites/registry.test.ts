@@ -36,6 +36,6 @@ describe("registry", () => {
 
   it("marks which sites were checked on a real account", () => {
     const verified = Object.fromEntries((Object.keys(SITES) as SiteId[]).map((s) => [s, SITES[s].verified]));
-    expect(verified).toEqual({ chatgpt: true, claude: true, gemini: false, grok: false, deepseek: false });
+    expect(verified).toEqual({ chatgpt: true, claude: true, gemini: true, grok: false, deepseek: false });
   });
 });
