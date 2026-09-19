@@ -374,7 +374,7 @@ mod tests {
         assert_eq!(get(&conn, "r1").unwrap_err(), "E_NOT_FOUND");
         assert!(
             for_source(&conn, "web:chatgpt:a").unwrap().is_empty(),
-            "删除结果时反查索引一起删"
+            "deleting a result also removes its reverse-lookup index"
         );
     }
 
