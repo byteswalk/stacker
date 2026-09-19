@@ -10,6 +10,7 @@ mod custom;
 mod dpapi;
 mod env;
 mod fnm;
+mod gateway;
 mod git;
 mod gradle;
 mod installer;
@@ -110,6 +111,7 @@ pub fn run() {
             settings::init();
             settings::start_log_retention_worker();
             proxy_ledger::reconcile_on_startup();
+            gateway::restore();
             binary::migrate_legacy_envs();
             build_tray(app.handle())?;
             Ok(())
@@ -356,6 +358,9 @@ pub fn run() {
             settings::settings_sync_system_proxy,
             settings::settings_set_proxy_manual,
             proxy_ledger::proxy_overview,
+            gateway::gateway_status,
+            gateway::gateway_set,
+            gateway::gateway_new_token,
             proxy_ledger::proxy_location_write,
             proxy_ledger::proxy_location_clear,
             settings::os_info,
