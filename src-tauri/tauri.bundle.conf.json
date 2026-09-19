@@ -1,7 +1,7 @@
 {
   "bundle": {
     "resources": {
-      "../extension/dist/**/*": "extension/"
+      "../extension/dist/": "extension/"
     }
   }
 }
