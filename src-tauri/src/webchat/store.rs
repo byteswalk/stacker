@@ -381,6 +381,117 @@ pub fn counts(conn: &Connection) -> Result<Counts, String> {
     .map_err(db_err)
 }
 
+/// Most pieces one body may be split into (about 57 MB of messages).
+pub const MAX_CHUNKS: usize = 64;
+
+const BODY_UPSERT: &str = "
+INSERT INTO web_conversations(key,site,account,id,title,updated_at,body_fetched_at,body_updated_at,body_messages)
+VALUES(?1,?2,?3,?4,?5,?6,?7,?6,?8)
+ON CONFLICT(key) DO UPDATE SET body_fetched_at=excluded.body_fetched_at,
+  body_updated_at=excluded.body_updated_at, body_messages=excluded.body_messages";
+
+/// Stores one piece of a body read; once every piece of that read is in, writes the body file.
+/// Returns whether the file was written. An older read never replaces a newer one.
+pub fn put_body_chunk(conn: &Connection, root: &Path, chunk: &BodyChunk) -> Result<bool, String> {
+    if !valid_key(&chunk.site, &chunk.id, &chunk.key)
+        || chunk.chunks == 0
+        || chunk.chunks > MAX_CHUNKS
+        || chunk.chunk >= chunk.chunks
+    {
+        return Err("E_REQUEST".into());
+    }
+    let stored: Option<i64> = conn
+        .query_row(
+            "SELECT body_fetched_at FROM web_conversations WHERE key=?1",
+            [&chunk.key],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(db_err)?
+        .flatten();
+    if stored.is_some_and(|at| at > chunk.fetched_at) {
+        return Ok(false);
+    }
+    let messages = if chunk.chunks == 1 {
+        chunk.messages.clone()
+    } else {
+        match collect_parts(conn, chunk)? {
+            Some(all) => all,
+            None => return Ok(false),
+        }
+    };
+    let count = messages.len() as i64;
+    let body = StoredBody {
+        key: chunk.key.clone(),
+        site: chunk.site.clone(),
+        account: chunk.account.clone(),
+        id: chunk.id.clone(),
+        title: chunk.title.clone(),
+        updated_at: chunk.updated_at,
+        fetched_at: chunk.fetched_at,
+        messages,
+    };
+    let path = super::bodies::body_path(root, &chunk.site, &chunk.account, &chunk.id);
+    super::bodies::write_body(&path, &body)?;
+    conn.execute(
+        BODY_UPSERT,
+        params![
+            chunk.key,
+            chunk.site,
+            chunk.account,
+            chunk.id,
+            chunk.title,
+            chunk.updated_at,
+            chunk.fetched_at,
+            count
+        ],
+    )
+    .map_err(db_err)?;
+    Ok(true)
+}
+
+/// Keeps a piece until its siblings arrive; returns every message in order once complete.
+fn collect_parts(conn: &Connection, chunk: &BodyChunk) -> Result<Option<Vec<WebMessage>>, String> {
+    let tx = conn.unchecked_transaction().map_err(db_err)?;
+    tx.execute(
+        "DELETE FROM web_body_parts WHERE key=?1 AND fetched_at<>?2",
+        params![chunk.key, chunk.fetched_at],
+    )
+    .map_err(db_err)?;
+    let json = serde_json::to_string(&chunk.messages).map_err(db_err)?;
+    tx.execute(
+        "INSERT OR REPLACE INTO web_body_parts(key,fetched_at,chunk,chunks,messages) VALUES(?1,?2,?3,?4,?5)",
+        params![chunk.key, chunk.fetched_at, chunk.chunk as i64, chunk.chunks as i64, json],
+    )
+    .map_err(db_err)?;
+    let parts: Vec<String> = {
+        let mut stmt = tx
+            .prepare(
+                "SELECT messages FROM web_body_parts WHERE key=?1 AND fetched_at=?2 ORDER BY chunk",
+            )
+            .map_err(db_err)?;
+        let rows = stmt
+            .query_map(params![chunk.key, chunk.fetched_at], |r| {
+                r.get::<_, String>(0)
+            })
+            .map_err(db_err)?;
+        let parts: Result<Vec<String>, _> = rows.collect();
+        parts.map_err(db_err)?
+    };
+    if parts.len() < chunk.chunks {
+        tx.commit().map_err(db_err)?;
+        return Ok(None);
+    }
+    let mut all = Vec::new();
+    for part in parts {
+        all.extend(serde_json::from_str::<Vec<WebMessage>>(&part).map_err(db_err)?);
+    }
+    tx.execute("DELETE FROM web_body_parts WHERE key=?1", [&chunk.key])
+        .map_err(db_err)?;
+    tx.commit().map_err(db_err)?;
+    Ok(Some(all))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -562,5 +673,102 @@ mod tests {
         );
         let c = counts(&conn).unwrap();
         assert_eq!((c.folders, c.excerpts, c.bodies), (0, 1, 0));
+    }
+
+    fn chunk(chunk: usize, chunks: usize, fetched_at: i64, text: &str) -> BodyChunk {
+        BodyChunk {
+            key: "chatgpt:a".into(),
+            site: "chatgpt".into(),
+            account: "chatgpt:u1".into(),
+            id: "a".into(),
+            title: "A".into(),
+            updated_at: 7,
+            fetched_at,
+            chunk,
+            chunks,
+            messages: vec![WebMessage {
+                role: "user".into(),
+                text: text.into(),
+                at: None,
+                attachments: vec![],
+            }],
+        }
+    }
+
+    fn body_texts(root: &Path) -> Vec<String> {
+        let path = super::super::bodies::body_path(root, "chatgpt", "chatgpt:u1", "a");
+        super::super::bodies::read_body(&path)
+            .unwrap()
+            .messages
+            .into_iter()
+            .map(|m| m.text)
+            .collect()
+    }
+
+    #[test]
+    fn a_single_chunk_is_stored_at_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(dir.path()).unwrap();
+        assert!(put_body_chunk(&conn, dir.path(), &chunk(0, 1, 100, "hello")).unwrap());
+        assert_eq!(body_texts(dir.path()), vec!["hello"]);
+        assert_eq!(counts(&conn).unwrap().bodies, 1);
+    }
+
+    #[test]
+    fn chunks_are_assembled_in_order_whatever_order_they_arrive() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(dir.path()).unwrap();
+        assert!(!put_body_chunk(&conn, dir.path(), &chunk(1, 2, 100, "second")).unwrap());
+        assert!(put_body_chunk(&conn, dir.path(), &chunk(0, 2, 100, "first")).unwrap());
+        assert_eq!(body_texts(dir.path()), vec!["first", "second"]);
+        let parts: i64 = conn
+            .query_row("SELECT count(*) FROM web_body_parts", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(
+            parts, 0,
+            "staged parts are cleared once the body is written"
+        );
+    }
+
+    #[test]
+    fn an_older_read_never_replaces_a_newer_body() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(dir.path()).unwrap();
+        put_body_chunk(&conn, dir.path(), &chunk(0, 1, 200, "new")).unwrap();
+        assert!(!put_body_chunk(&conn, dir.path(), &chunk(0, 1, 100, "old")).unwrap());
+        assert_eq!(body_texts(dir.path()), vec!["new"]);
+    }
+
+    #[test]
+    fn a_body_before_its_listing_creates_a_row_the_listing_overwrites() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(dir.path()).unwrap();
+        put_body_chunk(&conn, dir.path(), &chunk(0, 1, 100, "x")).unwrap();
+        upsert_conversations(&conn, &[conv("a", 50, 0)]).unwrap();
+        let saved = conversations(&conn).unwrap().remove(0);
+        assert_eq!(saved.title, "Title a");
+        assert_eq!(counts(&conn).unwrap().bodies, 1);
+    }
+
+    #[test]
+    fn bad_chunk_numbers_are_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(dir.path()).unwrap();
+        for bad in [
+            chunk(2, 2, 1, "x"),
+            chunk(0, 0, 1, "x"),
+            chunk(0, MAX_CHUNKS + 1, 1, "x"),
+        ] {
+            assert_eq!(
+                put_body_chunk(&conn, dir.path(), &bad).unwrap_err(),
+                "E_REQUEST"
+            );
+        }
+        let mut wrong_key = chunk(0, 1, 1, "x");
+        wrong_key.key = "chatgpt:b".into();
+        assert_eq!(
+            put_body_chunk(&conn, dir.path(), &wrong_key).unwrap_err(),
+            "E_REQUEST"
+        );
     }
 }
