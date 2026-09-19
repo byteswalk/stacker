@@ -21,6 +21,7 @@ export function createAgent(adapter: Adapter) {
         case "archive":
           if (!adapter.archive) throw new SiteError("E_HTTP", "archive unsupported");
           await adapter.archive(arg); value = null; break;
+        default: throw new SiteError("E_HTTP", "unknown op");
       }
       return { ok: true, value };
     } catch (e) {

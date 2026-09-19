@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { SiteError } from "../shared/types";
 import type { Adapter } from "../sites/types";
-import { createAgent } from "./agent";
+import { createAgent, type SiteOp } from "./agent";
 
 const adapter: Adapter = {
   site: "claude", origin: "https://claude.ai", conversationUrl: (id) => id,
@@ -18,5 +18,9 @@ describe("content agent", () => {
     expect(await agent({ type: "site-rpc", site: "claude", op: "list", arg: null })).toEqual({ ok: false, error: { code: "E_RATE", detail: "", retryAfterMs: 3000 } });
     expect(await agent({ type: "site-rpc", site: "claude", op: "archive", arg: "x" })).toMatchObject({ ok: false, error: { code: "E_HTTP" } });
     expect(await agent({ type: "site-rpc", site: "chatgpt", op: "account", arg: null })).toMatchObject({ ok: false, error: { code: "E_NO_AGENT" } });
+  });
+  it("rejects unknown ops", async () => {
+    const agent = createAgent(adapter);
+    expect(await agent({ type: "site-rpc", site: "claude", op: "bogus" as SiteOp, arg: null })).toMatchObject({ ok: false, error: { code: "E_HTTP" } });
   });
 });
