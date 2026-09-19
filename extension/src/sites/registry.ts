@@ -1,6 +1,7 @@
 import type { SiteId } from "../shared/types";
 import { chatgpt } from "./chatgpt";
 import { claude } from "./claude";
+import { gemini, geminiUrl } from "./gemini";
 import type { AdapterFactory } from "./types";
 
 export interface SiteInfo {
@@ -26,6 +27,14 @@ export const SITES: Record<SiteId, SiteInfo> = {
   claude: {
     label: "Claude", factory: claude, origin: "https://claude.ai", match: "https://claude.ai/*", verified: true,
     idOfPath: firstGroup(/\/chat\/([A-Za-z0-9-]+)/), urlOf: (id) => `https://claude.ai/chat/${id}`,
+  },
+  gemini: {
+    label: "Gemini", factory: gemini, origin: "https://gemini.google.com", match: "https://gemini.google.com/*", verified: false,
+    idOfPath: (path) => {
+      const hex = /\/app\/([0-9a-f]+)/.exec(path)?.[1];
+      return hex ? `c_${hex}` : null;
+    },
+    urlOf: geminiUrl,
   },
 };
 
