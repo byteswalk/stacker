@@ -357,6 +357,21 @@ pub fn move_back(agent: Agent) -> Result<MigrationJob, String> {
 mod tests {
     use super::*;
 
+    /// Live, read-only: `cargo test --lib live_migration_check -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn live_migration_check() {
+        for agent in [Agent::Codex, Agent::Claude] {
+            let s = status(agent);
+            let started = std::time::Instant::now();
+            let c = check(agent, Path::new(&s.suggested_target));
+            println!(
+                "{} kind={} source={} suggested={} -> problems={:?} bytes={} files={} free={} ({:?})",
+                agent.as_str(), s.kind, s.source, s.suggested_target, c.problems, c.bytes, c.files, c.free, started.elapsed()
+            );
+        }
+    }
+
     #[test]
     fn running_agents_are_detected_by_image() {
         let img = |s: &str| vec![PathBuf::from(s)];
