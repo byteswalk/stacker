@@ -29,6 +29,9 @@ mod space_analysis;
 mod storage;
 mod update;
 mod versions;
+// Wired into bridge mode (Task 7) and Tauri commands (Task 9); the allow goes away in Task 9.
+#[allow(dead_code)]
+mod webchat;
 mod winadmin;
 mod winenv;
 
