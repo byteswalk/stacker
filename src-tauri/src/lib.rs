@@ -7,6 +7,8 @@ mod checkup;
 mod cleanup;
 mod composer;
 mod custom;
+// Wired into Tauri commands in Task 7; the allow goes away then.
+#[allow(dead_code)]
 mod distill;
 mod dpapi;
 mod env;
