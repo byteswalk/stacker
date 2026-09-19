@@ -51,12 +51,14 @@ function NavBtn({ item, page, set }: { item: NavItem; page: Page; set: (p: Page)
   const noticeCount = noticeCountFor(item.id, notices);
   const noticeTitle = noticeTip(item.id, notices);
   return (
-    <button className={"ni" + (page === item.id ? " on" : "")} aria-current={page === item.id ? "page" : undefined} onClick={() => set(item.id)}>
-      <i className={"ti " + item.icon} aria-hidden="true" /> {t(item.labelKey)}
+    <button className={"ni" + (page === item.id ? " on" : "")} title={t(item.labelKey)} aria-current={page === item.id ? "page" : undefined} onClick={() => set(item.id)}>
+      <i className={"ti " + item.icon} aria-hidden="true" /> <span className="nl">{t(item.labelKey)}</span>
       {noticeCount > 0 && <span className="navdot" title={noticeTitle} aria-label={noticeTitle}>{noticeCount > 9 ? "9+" : noticeCount}</span>}
     </button>
   );
 }
+
+const SIDE_NARROW_KEY = "stackerLocal.sideNarrow.v1";
 
 /** A collapsible sidebar section; a collapsed section still shows its reminder count. */
 function NavGroup({ section, page, set, collapsed, onToggle }: {
@@ -69,7 +71,7 @@ function NavGroup({ section, page, set, collapsed, onToggle }: {
   const hidden = section.items.reduce((sum, item) => sum + noticeCountFor(item.id, notices), 0);
   return (
     <div className={"navgroup" + (collapsed ? " collapsed" : "")}>
-      <button className="navgroup-hd" aria-expanded={!collapsed} onClick={onToggle}>
+      <button className="navgroup-hd" title={t(section.labelKey)} aria-expanded={!collapsed} onClick={onToggle}>
         {section.icon && <i className={"ti " + section.icon} aria-hidden="true" />}
         <span>{t(section.labelKey)}</span>
         {collapsed && hidden > 0 && <span className="navgroup-count">{hidden > 9 ? "9+" : hidden}</span>}
@@ -142,6 +144,13 @@ type SavedProfile = {
 function Shell() {
   useTaskToasts();
   const [collapsedSections, setCollapsedSections] = useState<string[]>(() => readCollapsedSections());
+  const [sideNarrow, setSideNarrowState] = useState(() => {
+    try { return localStorage.getItem(SIDE_NARROW_KEY) === "1"; } catch { return false; }
+  });
+  const setSideNarrow = (narrow: boolean) => {
+    setSideNarrowState(narrow);
+    try { localStorage.setItem(SIDE_NARROW_KEY, narrow ? "1" : "0"); } catch { /* per-viewer convenience only */ }
+  };
   const { t, tr } = useI18n();
   const toast = useToast();
   const notices = useNotifications();
@@ -282,7 +291,7 @@ function Shell() {
 
   return (
     <div className="a">
-      <aside className="side">
+      <aside className={"side" + (sideNarrow ? " narrow" : "")}>
         <div className="brand">
           <span className="logo" aria-hidden="true">
             <svg className="logo-mark" viewBox="0 0 32 32" focusable="false">
@@ -291,7 +300,7 @@ function Shell() {
               <path className="logo-layer-3" d="M16 16 28 22 16 28 4 22Z" />
             </svg>
           </span>
-          Stacker
+          <span className="brand-text">Stacker</span>
           {appVersion && <span className="brand-version" title={`Stacker v${appVersion}`}>v{appVersion}</span>}
         </div>
         <nav>
@@ -303,6 +312,9 @@ function Shell() {
         </nav>
         <div className="sidefoot">
           {NAV_FOOT.map((n) => <NavBtn key={n.id} item={n} page={page} set={setPage} />)}
+          <button className="ni side-toggle" title={tr(sideNarrow ? "展开侧栏" : "收起侧栏")} aria-pressed={sideNarrow} onClick={() => setSideNarrow(!sideNarrow)}>
+            <i className={"ti " + (sideNarrow ? "ti-layout-sidebar-left-expand" : "ti-layout-sidebar-left-collapse")} aria-hidden="true" /> <span className="nl">{tr("收起侧栏")}</span>
+          </button>
         </div>
       </aside>
 
