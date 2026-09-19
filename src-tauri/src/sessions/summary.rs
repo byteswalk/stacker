@@ -249,6 +249,38 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
+    /// Live, read-only: summarizes the smallest ordinary session of each agent without saving.
+    /// `cargo test --lib live_summary -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn live_summary() {
+        let roots = super::super::roots::resolve(&Default::default());
+        let catalog = super::super::catalog::load(&roots);
+        let run = |req: &RunRequest, c: &CancelFlag| crate::runner::run(req, c);
+        // Sessions with 20k–100k readable characters: one call, real content.
+        for agent in [Agent::Codex, Agent::Claude] {
+            let (session, markdown) = catalog
+                .sessions
+                .iter()
+                .filter(|s| s.agent == agent && !super::super::catalog::is_automation(s))
+                .filter(|s| (200_000..20_000_000).contains(&s.bytes))
+                .filter_map(|s| transcript_markdown(s).ok().map(|m| (s, m)))
+                .find(|(_, m)| (20_000..100_000).contains(&m.chars().count()))
+                .unwrap();
+            let choice = choose(&SummarySettings::default(), agent);
+            let started = std::time::Instant::now();
+            let text = summarize_text(&markdown, &choice, "zh-CN", &CancelFlag::default(), &run);
+            println!(
+                "== {} [{}] {} chars, {:?}\n{}\n",
+                session.title,
+                choice.label(),
+                markdown.chars().count(),
+                started.elapsed(),
+                text.unwrap_or_else(|e| e)
+            );
+        }
+    }
+
     #[test]
     fn runner_choice_follows_settings() {
         let s = SummarySettings::default();

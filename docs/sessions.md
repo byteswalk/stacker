@@ -64,6 +64,22 @@ Claude 桌面端的 Code 页与 CLI 共用 `~/.claude/projects`，Codex 桌面�
 - 旧版 Claude Code 只在没有进程使用该版本时列为可清理；版本号最大的始终保留。
 - 不跟随链接或目录联接，删除路径必须位于其根目录内且不能是根目录本身。
 
+## 摘要与交接
+
+摘要与交接资料由本机已登录的 Codex / Claude 命令行生成，不需要 API Key。
+
+- 入口：会话详情「生成摘要 / 重新生成」；选中多个会话后操作条「生成摘要」；「项目」标签每行「交接」。
+- 确认框显示会话数、将发送的字数和执行者，可只对本次修改执行者、模型与推理强度。会话正文会发送给所选智能体的模型服务，消耗该账号的额度。
+- 默认值在「数据来源 → 摘要」：执行者（同源 / 固定 Codex / 固定 Claude）、每个智能体的模型与推理强度。默认 Codex 用命令行默认模型、推理 low；Claude 用 sonnet、推理 low。Codex 的模型列表读取 `~/.codex/models_cache.json`。
+- 运行方式：每次在新建的临时空目录中运行，结束后删除。
+  - Codex：`codex exec --ephemeral --ignore-user-config --ignore-rules -s read-only`，并关闭 shell、代码执行、插件、浏览器、电脑操控等全部工具功能（按 `codex features list` 取当前版本存在的名称）。
+  - Claude：`claude -p --no-session-persistence --tools "" --strict-mcp-config`；运行后删除 Claude 为临时目录留下的空项目文件夹。
+  - 两者都不会在智能体中留下新会话，也无法读写文件或执行命令。
+- 长会话：可读正文超过 12 万字时分段生成笔记再合并；超过 12 段只读首尾各 6 段并在摘要中注明。
+- 批量任务同时处理 2 个会话，可取消；已有且未过期的摘要默认跳过。
+- 摘要保存在 `session_notes`，记录执行者、模型、推理强度和时间；原会话变化后标记「已过期」。摘要可被搜索，并写入精简导出的开头。
+- 交接资料：取项目最近的普通会话（默认 10 个，可选 5 / 20 / 全部），先补齐缺失或过期的摘要，再整理成一份文档，保存到导出目录下的 `handoff\<项目>-<时间>.md`。
+
 ## Stacker 保存的数据
 
 `%LOCALAPPDATA%\Stacker\<dev|stable>\conversations\sessions.sqlite3`：
