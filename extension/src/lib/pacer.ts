@@ -1,5 +1,7 @@
 import { SiteError } from "../shared/types";
 
+export const MAX_RATE_RETRIES = 5;
+
 export interface Pacer { wait(): Promise<void>; rateLimited(retryAfterMs: number | null): number; ok(): void }
 
 export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
@@ -28,4 +30,21 @@ export function createPacer({ gapMs = 1500, maxBackoffMs = 60_000, sleep: nap = 
     },
     ok() { gap = gapMs; },
   };
+}
+
+/** Waits its turn, runs the task, and on E_RATE backs off and retries (up to MAX_RATE_RETRIES); other errors are rethrown. */
+export async function withPacing<T>(pacer: Pacer, task: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    await pacer.wait();
+    try {
+      const v = await task();
+      pacer.ok();
+      return v;
+    } catch (err) {
+      if (!(err instanceof SiteError) || err.code !== "E_RATE" || attempt >= MAX_RATE_RETRIES) {
+        throw err;
+      }
+      await sleep(pacer.rateLimited(err.retryAfterMs), signal);
+    }
+  }
 }
