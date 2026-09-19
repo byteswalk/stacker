@@ -283,6 +283,58 @@ pub async fn proxy_overview() -> Overview {
         })
 }
 
+/// `host:port` from a stored proxy value.
+pub fn endpoint(value: &str) -> Option<(String, u16)> {
+    let normalized = normalize(Some(value));
+    let (host, port) = normalized.rsplit_once(':')?;
+    let port = port.parse().ok()?;
+    (!host.is_empty()).then(|| (host.to_string(), port))
+}
+
+/// Locations whose proxy points at a port nobody listens on, as (Stacker's, the user's).
+pub fn stale_with(
+    rows: &[LocationRow],
+    listening: impl Fn(&str, u16) -> bool,
+) -> (Vec<LocationRow>, Vec<LocationRow>) {
+    let mut checked: BTreeMap<(String, u16), bool> = BTreeMap::new();
+    let (mut ours, mut theirs) = (Vec::new(), Vec::new());
+    for row in rows {
+        let Some((host, port)) = row.value.as_deref().and_then(endpoint) else {
+            continue;
+        };
+        let up = *checked
+            .entry((host.clone(), port))
+            .or_insert_with(|| listening(&host, port));
+        if up {
+            continue;
+        }
+        match row.owner.as_str() {
+            "managed" => ours.push(row.clone()),
+            "external" => theirs.push(row.clone()),
+            _ => {}
+        }
+    }
+    (ours, theirs)
+}
+
+/// Clears only the dead proxies Stacker wrote and nobody changed since; the rest is untouched.
+pub fn clear_stale_managed(listening: impl Fn(&str, u16) -> bool) -> Result<usize, String> {
+    let (ours, _) = stale_with(&overview().locations, listening);
+    for row in &ours {
+        if let Some(location) = Location::from_id(&row.id) {
+            clear_location(location)?;
+        }
+    }
+    Ok(ours.len())
+}
+
+#[tauri::command]
+pub async fn proxy_clear_stale() -> Result<usize, String> {
+    tauri::async_runtime::spawn_blocking(|| clear_stale_managed(crate::checkup::port_listening))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub async fn proxy_location_write(id: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -304,6 +356,32 @@ pub async fn proxy_location_clear(id: String) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stale_splits_by_owner_and_skips_live_ports() {
+        let row = |id: &str, value: &str, owner: &str| LocationRow {
+            id: id.into(),
+            value: Some(value.into()),
+            owner: owner.into(),
+        };
+        let rows = vec![
+            row("env", "http://127.0.0.1:7890", "managed"),
+            row("git", "http://127.0.0.1:6789", "external"),
+            row("npm", "http://127.0.0.1:1080", "managed"),
+            row("yarn", "not a proxy", "external"),
+        ];
+        let (ours, theirs) = stale_with(&rows, |_, port| port == 1080);
+        assert_eq!(
+            ours.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
+            ["env"]
+        );
+        assert_eq!(
+            theirs.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
+            ["git"]
+        );
+        assert_eq!(endpoint("http://u@Host:80/"), Some(("host".into(), 80)));
+        assert_eq!(endpoint("host"), None);
+    }
 
     #[test]
     fn values_normalize() {

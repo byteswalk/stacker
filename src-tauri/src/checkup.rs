@@ -63,7 +63,45 @@ pub struct CodingEcosystemCheck {
     pub ecosystems: Vec<EcosystemSnapshot>,
 }
 
-fn port_listening(host: &str, port: u16) -> bool {
+/// Dead proxy endpoints. Only the ones Stacker wrote get a one-click fix, and it clears just
+/// those; proxies set by the user or another tool are only reported.
+fn proxy_stale_checks() -> Vec<CheckItem> {
+    let (ours, theirs) =
+        crate::proxy_ledger::stale_with(&crate::proxy_ledger::overview().locations, port_listening);
+    let describe = |rows: &[crate::proxy_ledger::LocationRow]| {
+        rows.iter()
+            .map(|r| format!("{} → {}", r.id, r.value.as_deref().unwrap_or("")))
+            .collect::<Vec<_>>()
+            .join("，")
+    };
+    let mut out = Vec::new();
+    if !ours.is_empty() {
+        out.push(CheckItem {
+            id: "proxy_stale".into(),
+            sev: "warn".into(),
+            title: "Stacker 写入的代理端口未在监听".into(),
+            desc: format!(
+                "{}。请启动代理软件，或清除这些由 Stacker 写入的代理；你自己设置的代理不会被改动。",
+                describe(&ours)
+            ),
+            page: "proxy".into(),
+            action: "清除 Stacker 写入的代理".into(),
+        });
+    }
+    if !theirs.is_empty() {
+        out.push(CheckItem {
+            id: "proxy_stale_external".into(),
+            sev: "info".into(),
+            title: "你设置的代理端口未在监听".into(),
+            desc: format!("{}。这些代理不是 Stacker 写入的，Stacker 不会改动；如果代理软件没开，终端联网会超时。", describe(&theirs)),
+            page: "proxy".into(),
+            action: "去查看".into(),
+        });
+    }
+    out
+}
+
+pub(crate) fn port_listening(host: &str, port: u16) -> bool {
     let addr = format!("{host}:{port}");
     match addr.to_socket_addrs() {
         Ok(mut it) => {
@@ -673,17 +711,7 @@ fn checkup_page_impl(page: &str) -> Vec<CheckItem> {
             }
         }
         "proxy" => {
-            let status = crate::proxy::status();
-            if status.enabled && !port_listening(&status.host, status.port) {
-                out.push(CheckItem {
-                    id: "proxy_stale".into(),
-                    sev: "warn".into(),
-                    title: "终端代理已配置，但端口未在监听".into(),
-                    desc: format!("终端代理指向 {}:{}，但该端口当前没有程序监听。请启动代理软件，或暂时关闭终端代理。", status.host, status.port),
-                    page: "proxy".into(),
-                    action: "关闭代理".into(),
-                });
-            }
+            out.extend(proxy_stale_checks());
         }
         "java" => {
             if let Some(java_home) = crate::env::java_home_reg() {
@@ -1278,17 +1306,7 @@ fn checkup_impl() -> Vec<CheckItem> {
     }
 
     // 1) 终端代理：已配置但端口没人监听 → 终端联网会超时
-    let s = crate::proxy::status();
-    if s.enabled && !port_listening(&s.host, s.port) {
-        out.push(CheckItem {
-            id: "proxy_stale".into(),
-            sev: "warn".into(),
-            title: "终端代理已配置，但端口未在监听".into(),
-            desc: format!("终端代理指向 {}:{}，但该端口当前没有程序监听。请启动代理软件，或暂时关闭终端代理。", s.host, s.port),
-            page: "proxy".into(),
-            action: "关闭代理".into(),
-        });
-    }
+    out.extend(proxy_stale_checks());
 
     // 1b) fnm 装了但没写 shell 集成 → 切版本不生效（与 Node 页红条同口径：PS / Git Bash 都没写）
     if f.installed && !f.shell.powershell && !f.shell.gitbash {
@@ -1324,4 +1342,16 @@ fn checkup_impl() -> Vec<CheckItem> {
     }
 
     out
+}
+
+#[cfg(test)]
+mod tests {
+    /// Live, read-only: `cargo test --lib live_proxy_stale -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn live_proxy_stale() {
+        for item in super::proxy_stale_checks() {
+            println!("{} | {} | {}", item.id, item.title, item.desc);
+        }
+    }
 }

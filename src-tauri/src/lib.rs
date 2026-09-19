@@ -366,6 +366,7 @@ pub fn run() {
             gateway::agents::gateway_test,
             proxy_ledger::proxy_location_write,
             proxy_ledger::proxy_location_clear,
+            proxy_ledger::proxy_clear_stale,
             settings::os_info,
             agents::commands::vibe_catalog,
             agents::commands::vibe_tools,

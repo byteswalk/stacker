@@ -77,7 +77,7 @@ function extraFixer(id: string): null | (() => Promise<string>) {
     case "fnm_no_integration":
       return async () => { await invoke("fnm_write_integration", { shells: ["powershell", "gitbash", "cmd"] }); return "已写入 fnm shell 集成（新终端生效）"; };
     case "proxy_stale":
-      return async () => { await invoke("proxy_disable", { alsoJvm: false }); return "已关闭终端代理"; };
+      return async () => { const count = await invoke<number>("proxy_clear_stale"); return `已清除 ${count} 处 Stacker 写入的失效代理`; };
     case "cache_safe_high":
       return async () => { const freed = await invoke<number>("cleanup_delete_safe"); return `已清理安全缓存，释放 ${(freed / 1073741824).toFixed(1)} GB`; };
     default:
