@@ -23,6 +23,7 @@
 pub struct RunRequest {
     pub agent: Agent,              // Codex | Claude
     pub model: Option<String>,
+    pub effort: Option<String>,    // 推理强度
     pub instructions: String,      // 任务说明
     pub input: String,             // 会话正文等，经 stdin 传入
     pub timeout: Duration,         // 默认 5 分钟
@@ -39,6 +40,9 @@ pub fn run(req: &RunRequest, cancel: &CancelToken) -> Result<RunOutput, String>;
   - Claude：`claude -p --no-session-persistence --tools "" --strict-mcp-config --output-format json [--model 模型]`，工作目录为临时目录，stdin 为「说明 + 输入」；解析 JSON 的 `result`，`is_error` 为真时返回错误。
     - 实测：`projects` 下会话记录数不变（637 → 637），但会留下空目录 `projects\<临时目录 slug>\memory`，运行结束后删除该 slug 目录（仅当其中没有任何文件时）；让它执行 `whoami` 时只输出了一段调用文本，没有实际执行；简单问答约 14 秒。
     - 默认模型为 Opus，简单问答约 0.06 美元：摘要的 Claude 默认模型设为 `sonnet`（可在设置中清空改回 CLI 默认或改为其他）。
+- 模型与推理强度（实测有效：Codex `-m gpt-5.6-sol -c model_reasoning_effort="low"` 输出中显示 `reasoning effort: low`；Claude `--model sonnet --effort low` 实际使用 claude-sonnet-5，简单问答约 7 秒、0.03 美元）：
+  - Codex：模型 `-m <slug>`，推理 `-c model_reasoning_effort="<档位>"`。
+  - Claude：模型 `--model <别名或完整名>`，推理 `--effort <档位>`。
 - 可执行文件通过现有 `agents::process::resolve_command` 查找；子进程隐藏窗口，注入 `agents::net::stacker_proxy()` 代理环境变量。
 - 超时或取消时结束整个子进程树（`terminate_command_tree`）。
 - 错误码：`E_RUNNER_MISSING`（未安装）、`E_RUNNER_AUTH`（输出含未登录提示）、`E_RUNNER_TIMEOUT`、`E_RUNNER_FAILED`（退出码非 0，附带 stderr 摘录，不含输入内容）、`E_CANCELLED`。
@@ -68,7 +72,11 @@ pub fn run(req: &RunRequest, cancel: &CancelToken) -> Result<RunOutput, String>;
 执行者：
 
 - 设置项 `summary_runner`：`same`（默认，会话属于哪个智能体就用哪个）、`codex`、`claude`。
-- 设置项 `summary_model_codex`（默认空，即 CLI 默认模型）、`summary_model_claude`（默认 `sonnet`）；留空用 CLI 默认模型。
+- 每个智能体各有「模型」与「推理强度」两项设置，留空表示使用 CLI 自己的默认值：
+  - Codex 模型：下拉列表来自 `~/.codex/models_cache.json` 中 `visibility = "list"` 的模型（显示名 + slug），另可手动输入；推理强度按所选模型的 `supported_reasoning_levels` 列出（不提供 `ultra`，它会自动派生子任务）。默认：模型空，推理 `low`。
+  - Claude 模型：下拉提供 `haiku`、`sonnet`、`opus`、`fable` 别名，另可手动输入完整模型名；推理强度 `low`、`medium`、`high`、`xhigh`、`max`。默认：模型 `sonnet`，推理 `low`。
+  - 模型缓存文件不存在或无法解析时，Codex 模型只提供手动输入。
+- 摘要确认框和交接确认框显示本次将使用的执行者、模型和推理强度，可以只对本次临时修改（不改设置）。
 - 同源的执行者未安装时，该项失败，提示改用另一个或安装。
 
 任务：
@@ -105,7 +113,7 @@ pub fn run(req: &RunRequest, cancel: &CancelToken) -> Result<RunOutput, String>;
 
 ## 4. 设置位置
 
-「会话数据 → 数据来源」标签增加「摘要」分区：执行者、两个模型输入框、说明文字。保存在 `sessions.sqlite3` 的 `settings` 表。
+「会话数据 → 数据来源」标签增加「摘要」分区：执行者；Codex 与 Claude 各一组模型、推理强度选择；说明文字。保存在 `sessions.sqlite3` 的 `settings` 表。
 
 ## 5. 不在范围内
 
