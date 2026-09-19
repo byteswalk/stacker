@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useI18n } from "../../i18n";
+import { BrowserExtension } from "./BrowserExtension";
 import { DataLocations } from "./DataLocations";
 import { getRoots, getSummarySettings, openSession, runnerOptions, saveSummarySettings, setRoots } from "./api";
 import { cleanSettings, RunnerFields } from "./RunnerFields";
@@ -63,6 +64,7 @@ export function SettingsPanel({ onSaved }: { onSaved: () => void }) {
       <RunnerFields value={summary} options={options} onChange={setSummary} />
       <div><button className="pr sm" disabled={busy || JSON.stringify(summary) === savedSummary} onClick={() => void saveSummary()}><i className="ti ti-device-floppy" />{t("保存摘要设置")}</button></div>
     </div>}
+    <BrowserExtension />
     <div className="session-source">
       <div className="session-source-head"><b>{t("精简导出目录")}</b><small>{t("删除前导出的 Markdown 保存在这里")}</small></div>
       <div className="session-source-edit"><code title={view.exportDir}>{view.exportDir}</code><button className="gh sm" onClick={() => void openSession("", "exports").catch((e) => setError(errorMessage(e)))}><i className="ti ti-folder-open" />{t("打开")}</button></div>

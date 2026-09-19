@@ -194,3 +194,6 @@
 .a .advanced-paths>summary{cursor:pointer;list-style:revert}
 .a .advanced-paths>summary b{font-size:13px}
 .a .advanced-paths .session-source{border-bottom:none;padding-bottom:0}
+
+.a .extension-steps{margin:0;padding-left:18px}
+.a .extension-steps li{margin:2px 0}

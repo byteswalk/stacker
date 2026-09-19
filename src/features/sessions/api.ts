@@ -1,5 +1,5 @@
 import { invoke } from "../../invoke";
-import type { LocationStatus, MigrationCheck, MigrationJob, AgentOptions, SummaryJob, SummaryPreview, SummarySettings, CleanupJob, CleanupPreview, DeleteJob, DeleteMode, DeletePreview, ProjectRow, Roots, RootsView, SessionDetail, SessionPage, SessionQuery, FootprintReport } from "./types";
+import type { LocationStatus, MigrationCheck, MigrationJob, AgentOptions, SummaryJob, SummaryPreview, SummarySettings, CleanupJob, CleanupPreview, DeleteJob, DeleteMode, DeletePreview, ProjectRow, Roots, RootsView, SessionDetail, SessionPage, SessionQuery, FootprintReport, WebBrowser, WebchatStatus, WebChat, WebChatDetail, WebPage, WebQuery } from "./types";
 
 export const listSessions = (query: SessionQuery) => invoke<SessionPage>("sessions_list", { query });
 export const listProjects = () => invoke<ProjectRow[]>("sessions_projects");
@@ -32,3 +32,12 @@ export const migrationDeleteBackup = (agent: string) => invoke<void>("migration_
 export const migrationMoveBack = (agent: string) => invoke<MigrationJob>("migration_move_back", { agent });
 export const migrationJob = () => invoke<MigrationJob | null>("migration_job");
 export const migrationCancel = () => invoke<void>("migration_cancel");
+
+export const webchatStatus = () => invoke<WebchatStatus>("webchat_status");
+export const webchatConnect = (browser: WebBrowser) => invoke<WebchatStatus>("webchat_connect", { browser });
+export const webchatDisconnect = (browser: WebBrowser) => invoke<WebchatStatus>("webchat_disconnect", { browser });
+export const webchatOpen = (target: "extension" | "exports") => invoke<void>("webchat_open", { target });
+export const listWebChats = (query: WebQuery) => invoke<WebPage>("webchat_list", { query });
+export const readWebChat = (key: string) => invoke<WebChatDetail>("webchat_read", { key });
+export const summarizeWebChat = (key: string, settings: SummarySettings | null, locale: string) => invoke<WebChat>("webchat_summarize", { key, settings, locale });
+export const cancelWebSummary = () => invoke<void>("webchat_summary_cancel");

@@ -111,6 +111,10 @@ export const ERRORS: Record<string, string> = {
   E_LINK_CREATE: "无法创建目录联接，已恢复原状。",
   E_LINK_REMOVE: "无法删除目录联接。",
   E_NOT_LINK: "原位置不是目录联接。",
+  E_REGISTRY: "无法写入注册表，请检查当前用户的注册表权限。",
+  E_NO_EXTENSION: "没有找到插件文件夹。",
+  E_NO_BODY: "Stacker 还没有这条对话的正文。",
+  E_SUMMARY_BUSY: "已有网页对话摘要正在生成，请等待完成。",
 };
 
 export function errorMessage(error: unknown): string {
@@ -156,3 +160,54 @@ export type LocationStatus = {
 };
 export type MigrationCheck = { problems: string[]; bytes: number; files: number; free: number; target: string };
 export type MigrationJob = { agent: AgentName | null; action: "migrate" | "back"; state: string; copied: number; total: number; error: string };
+
+export type WebBrowser = "chrome" | "edge";
+export type WebHostState = "off" | "connected" | "stale";
+export type WebBrowserStatus = { browser: WebBrowser; state: WebHostState; registered: string };
+export type WebCounts = { accounts: number; conversations: number; bodies: number; folders: number; excerpts: number };
+/** Web chat times are milliseconds (browser clocks), unlike local sessions. */
+export type WebchatStatus = {
+  extensionId: string;
+  extensionDir: string;
+  extensionFound: boolean;
+  dataDir: string;
+  exportDir: string;
+  browsers: WebBrowserStatus[];
+  lastHelloAt: number | null;
+  lastSyncAt: number | null;
+  counts: WebCounts;
+};
+export type WebQuery = { site: string; account: string; search: string; fullText: boolean; offset: number };
+export const EMPTY_WEB_QUERY: WebQuery = { site: "", account: "", search: "", fullText: false, offset: 0 };
+export const WEB_PAGE_SIZE = 100;
+export type WebChat = {
+  key: string;
+  site: string;
+  account: string;
+  accountName: string;
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  archived: boolean;
+  removedAt: number | null;
+  folder: string | null;
+  tags: string[];
+  favorite: boolean;
+  note: string;
+  bodyFetchedAt: number | null;
+  bodyMessages: number;
+  bodyStale: boolean;
+  summary: string | null;
+  summaryBy: string;
+  summaryAt: number;
+  summaryStale: boolean;
+};
+export type WebAccountOption = { key: string; site: string; name: string };
+export type WebPage = { items: WebChat[]; total: number; accounts: WebAccountOption[] };
+export type WebMessage = { role: string; text: string; at: number | null; attachments: string[] };
+export type WebChatDetail = { chat: WebChat; messages: WebMessage[]; chars: number; runner: RunnerChoice };
+
+const WEB_SITE_LABEL: Record<string, string> = { chatgpt: "ChatGPT", claude: "Claude", gemini: "Gemini", grok: "Grok", deepseek: "DeepSeek" };
+/** Site ids come from the extension; unknown ones are shown as they are. */
+export const webSiteLabel = (site: string) => WEB_SITE_LABEL[site] ?? site;
