@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 import { describe, expect, it, vi } from "vitest";
 import { SiteError } from "../shared/types";
-import { getConversation, listConversations, mergeListing, openDb, upsertAccount, type Db } from "./db";
+import { bodyIsFresh, getBody, getConversation, listConversations, mergeListing, openDb, putBody, upsertAccount, type Db } from "./db";
 import { ACCOUNT_RECHECK_EVERY, runDeleteJob, type DeleteDeps } from "./deleteJob";
 import { createPacer } from "./pacer";
 import type { SiteApi } from "./siteClient";
@@ -46,6 +46,26 @@ describe("delete job", () => {
     await run(direct.items, "direct", direct.deps);
     expect(direct.saved).toEqual([]);
     expect(direct.api.read).not.toHaveBeenCalled();
+  });
+  it("re-reads the live body before exporting even when the cached body looks fresh", async () => {
+    const { db, api, deps } = await setup(["a"]);
+    await putBody(db, "chatgpt:a", { id: "a", title: "a", updatedAt: 2, messages: [{ role: "user", text: "old cached", at: null, attachments: [] }] }, 10);
+    const [c] = await listConversations(db);
+    expect(bodyIsFresh(c)).toBe(true);
+    const order: string[] = [];
+    (api.read as ReturnType<typeof vi.fn>).mockImplementation(async (_s: string, id: string) => {
+      order.push("read");
+      return { id, title: id, updatedAt: 3, messages: [{ role: "user", text: "live text", at: null, attachments: [] }] };
+    });
+    (api.remove as ReturnType<typeof vi.fn>).mockImplementation(async () => { order.push("remove"); });
+    const texts: string[] = [];
+    deps.save = async (_p, text) => { order.push("save"); texts.push(text); };
+    const results = await run([c], "slim", deps);
+    expect(results[0].status).toBe("done");
+    expect(order).toEqual(["read", "save", "remove"]);
+    expect(texts[0]).toContain("live text");
+    expect(texts[0]).not.toContain("old cached");
+    expect((await getBody(db, "chatgpt:a"))?.messages[0].text).toBe("live text");
   });
   it("never deletes when the export fails", async () => {
     const { deps, api, items } = await setup(["a"]);

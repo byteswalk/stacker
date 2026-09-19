@@ -1,6 +1,6 @@
 import { SiteError, type ErrorCode } from "../shared/types";
 import { conversationUrl } from "../sites/registry";
-import { accountKey, bodyIsFresh, getBody, markRemoved, putBody, type Conversation, type Db, type StoredBody } from "./db";
+import { accountKey, markRemoved, putBody, type Conversation, type Db, type StoredBody } from "./db";
 import { exportFileName, toMarkdown } from "./markdown";
 import { withPacing, type Pacer } from "./pacer";
 import type { SiteApi } from "./siteClient";
@@ -27,12 +27,10 @@ export async function runDeleteJob(items: Conversation[], mode: DeleteMode, deps
   };
 
   async function exportOne(c: Conversation): Promise<void> {
-    let body: StoredBody | undefined = bodyIsFresh(c) ? await getBody(deps.db, c.key) : undefined;
-    if (!body) {
-      const fresh = await withPacing(deps.pacer, () => deps.api.read(c.site, c.id), signal);
-      await putBody(deps.db, c.key, fresh, deps.now());
-      body = { ...fresh, key: c.key };
-    }
+    // Always the live body: the conversation may have new messages since the last read.
+    const fresh = await withPacing(deps.pacer, () => deps.api.read(c.site, c.id), signal);
+    await putBody(deps.db, c.key, fresh, deps.now());
+    const body: StoredBody = { ...fresh, key: c.key };
     const url = conversationUrl(c.site, c.id);
     const alias = deps.aliasOf(c.account);
     await deps.save(exportFileName(c, "md"), toMarkdown(c, alias, body, mode === "full" ? "full" : "slim", url), "text/markdown");
