@@ -37,6 +37,13 @@ mod winenv;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // 浏览器插件的本地消息桥：Chrome / Edge 以插件来源为第一个参数启动本程序。
+    // 只走标准输入输出；在单实例插件和界面之前退出，因此不会打开任何窗口。
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(origin) = webchat::bridge::origin_arg(&args) {
+        std::process::exit(webchat::bridge::run_stdio(&origin));
+    }
+
     if let Some((file, token)) = space_analysis::elevated::helper_arg() {
         std::process::exit(space_analysis::elevated::run_helper_from_file(
             &file, &token,
