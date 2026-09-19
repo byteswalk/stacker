@@ -81,6 +81,27 @@ Claude 桌面端的 Code 页与 CLI 共用 `~/.claude/projects`，Codex 桌面�
 - 摘要保存在 `session_notes`，记录执行者、模型、推理强度和时间；原会话变化后标记「已过期」。摘要可被搜索，并写入精简导出的开头。
 - 交接资料：取项目最近的普通会话（默认 10 个，可选 5 / 20 / 全部），先补齐缺失或过期的摘要，再整理成一份文档，保存到导出目录下的 `handoff\<项目>-<时间>.md`。
 
+## 网页对话
+
+「网页对话」标签显示从「Stacker 网页对话」浏览器插件同步来的 ChatGPT、Claude 等网站对话（连接方法见下一节）。
+
+- 列表按最后更新时间排序，每页 100 条；可按站点、账号筛选，搜索标题、备注、标签和摘要；勾选「搜索正文」时同时搜索已同步的正文（需要逐条解压，较慢）。
+- 标注：「网站上已删除」（插件刷新时发现网站上已没有这条对话，或在插件里删除了）、「未存正文」（插件还没读取过正文）、「正文不是最新」（读取正文后网站上又有更新）、「有摘要」。
+- 详情显示正文、文件夹、标签、备注和摘要。「生成摘要」先确认将发送的字数和执行者，由本机智能体生成（与会话摘要同一套运行方式和「设置 → 摘要」中的模型与推理强度；执行者设为「同源」时网页对话用 Claude）。正文更新后摘要标记「已过期」。同一时间只生成一个网页对话摘要，可取消。
+- Stacker 不会修改或删除网站上的对话；清理在插件里完成。
+
+## 浏览器插件
+
+「设置 → 浏览器插件」：
+
+- 插件文件夹：安装版与免安装版在 `stacker.exe` 所在目录下的 `extension`；开发时为仓库的 `extension\dist`（先运行 `npm run ext:build`）。「打开文件夹」在资源管理器中打开它。
+- 安装步骤：在 `chrome://extensions` 或 `edge://extensions` 打开「开发者模式」，「加载已解压的扩展程序」选择插件文件夹，再点下方的「连接」并重新加载插件。
+- 「连接」（先确认）在当前用户注册表写入 `HKCU\Software\Google\Chrome\NativeMessagingHosts\com.stacker.webchat` 或 `HKCU\Software\Microsoft\Edge\NativeMessagingHosts\com.stacker.webchat`，值为登记文件 `%LOCALAPPDATA%\Stacker\<dev|stable>\conversations\native-messaging\com.stacker.webchat.json` 的路径；登记文件指向当前的 `stacker.exe`，只允许固定 ID 的插件连接。「断开」删除注册表项，两个浏览器都断开后删除登记文件。
+- 状态：已连接 / 未连接 / 「登记指向其他位置」（例如换了安装位置，或开发版与正式版互相覆盖），后者点「连接」即可更新。
+- 最近连接时间、最近同步时间，以及已同步的账号、对话、正文、文件夹、摘录数量。
+
+浏览器以 `stacker.exe chrome-extension://<插件 ID>/` 启动 Stacker 时进入桥接模式：只通过标准输入输出与插件交换数据，不打开窗口，也不会唤起已运行的 Stacker；来源不是固定插件 ID 时立即退出。插件导出的文件存到导出目录下的 `web\<站点>\`，路径最多 4 级、只允许 `.md` 与 `.json`，不能写到导出目录之外。
+
 ## 迁移到其他盘
 
 「设置」标签最上方的「数据目录迁移」，以及「占用」标签中每个智能体的标题下，显示数据位置；普通目录提供「迁移到其他盘…」。迁移会移动全部数据（历史会话、配置、缓存），原位置留下目录联接，智能体无需任何设置。
@@ -103,3 +124,9 @@ Claude 桌面端的 Code 页与 CLI 共用 `~/.claude/projects`，Codex 桌面�
 - `settings`：数据来源自定义路径。
 
 首次打开时，旧会话索引 `index.sqlite3` 中的收藏与摘要按会话 ID 迁移一次；旧的隐藏、分组标注和 Claude Desktop (local)、导入来源不再使用。
+
+`%LOCALAPPDATA%\Stacker\<dev|stable>\conversations\webchat.sqlite3`（与 `sessions.sqlite3` 分开）：
+
+- `web_accounts`、`web_conversations`、`web_folders`、`web_excerpts`：插件同步来的账号、对话索引与整理字段、文件夹、摘录，以及网页对话的摘要。
+- 合并规则：标题、时间、归档、删除标记以最新一次列表刷新为准；文件夹、标签、收藏、备注、账号备注名以最后修改的一方为准。文件夹与摘录删除后不会被旧数据恢复。
+- 正文：`conversations\webchat\bodies\<站点>\<账号>\<对话>.json.gz`；导出：`conversations\exports\web\`；登记文件：`conversations\native-messaging\`。
