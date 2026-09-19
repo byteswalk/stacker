@@ -1,4 +1,5 @@
 //! Local-only OpenAI / Anthropic style gateway over the agent runner.
+pub mod agents;
 pub mod protocol;
 pub mod server;
 
@@ -14,6 +15,8 @@ pub struct GatewayConfig {
     pub enabled: bool,
     pub port: u16,
     pub token: String,
+    /// Agents turned off on the page (missing = on).
+    pub disabled_agents: Vec<String>,
 }
 
 impl Default for GatewayConfig {
@@ -22,6 +25,7 @@ impl Default for GatewayConfig {
             enabled: false,
             port: DEFAULT_PORT,
             token: String::new(),
+            disabled_agents: Vec::new(),
         }
     }
 }
@@ -41,7 +45,7 @@ fn new_token() -> String {
     format!("sk-stacker-{:016x}{:016x}", part(), part())
 }
 
-fn load() -> GatewayConfig {
+pub(crate) fn load() -> GatewayConfig {
     let mut config: GatewayConfig = crate::sessions::annotations::connect()
         .ok()
         .and_then(|c| crate::sessions::annotations::setting(&c, "gateway"))
@@ -57,7 +61,7 @@ fn load() -> GatewayConfig {
     config
 }
 
-fn save(config: &GatewayConfig) -> Result<(), String> {
+pub(crate) fn save(config: &GatewayConfig) -> Result<(), String> {
     let conn = crate::sessions::annotations::connect()?;
     crate::sessions::annotations::set_setting(
         &conn,
@@ -66,12 +70,12 @@ fn save(config: &GatewayConfig) -> Result<(), String> {
     )
 }
 
-struct State {
-    running: Option<(Running, Arc<Shared>)>,
+pub(crate) struct State {
+    pub(crate) running: Option<(Running, Arc<Shared>)>,
     error: String,
 }
 
-static STATE: Mutex<State> = Mutex::new(State {
+pub(crate) static STATE: Mutex<State> = Mutex::new(State {
     running: None,
     error: String::new(),
 });
@@ -81,7 +85,7 @@ fn live_runner() -> Runner {
 }
 
 /// A bare `codex` / `claude` uses the summary settings' model and effort.
-fn live_defaults() -> Defaults {
+pub(crate) fn live_defaults() -> Defaults {
     Arc::new(|chat: &protocol::ChatRequest| {
         let settings = crate::sessions::annotations::connect()
             .map(|c| crate::sessions::summary::load_settings(&c))
@@ -104,6 +108,7 @@ fn start_locked(state: &mut State, config: &GatewayConfig) {
     stop_locked(state);
     state.error.clear();
     let shared = Shared::new(config.token.clone(), live_runner(), live_defaults());
+    agents::apply_enabled(&shared, config);
     match server::start(config.port, shared.clone()) {
         Ok(running) => {
             log::info!(target: "stacker::gateway", "listening on 127.0.0.1:{}", running.port);

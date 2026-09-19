@@ -31,6 +31,8 @@ pub struct LogEntry {
 
 pub struct Shared {
     pub token: String,
+    /// Agents the user allows through the gateway; changed live from the page.
+    pub enabled: Mutex<std::collections::HashSet<crate::sessions::model::Agent>>,
     pub runner: Runner,
     pub defaults: Defaults,
     pub recent: Mutex<VecDeque<LogEntry>>,
@@ -42,6 +44,14 @@ impl Shared {
     pub fn new(token: String, runner: Runner, defaults: Defaults) -> Arc<Self> {
         Arc::new(Self {
             token,
+            enabled: Mutex::new(
+                [
+                    crate::sessions::model::Agent::Codex,
+                    crate::sessions::model::Agent::Claude,
+                ]
+                .into_iter()
+                .collect(),
+            ),
             runner,
             defaults,
             recent: Mutex::new(VecDeque::new()),
@@ -174,10 +184,11 @@ fn runner_error(code: &str) -> ApiError {
 }
 
 /// `codex/<slug>` from Codex's model cache and `claude/<alias>`.
-fn known_models() -> Vec<String> {
+fn known_models(enabled: &std::collections::HashSet<crate::sessions::model::Agent>) -> Vec<String> {
     let codex_home = crate::sessions::roots::resolve(&Default::default()).codex;
     crate::runner::options::options(std::path::Path::new(&codex_home))
         .into_iter()
+        .filter(|o| enabled.contains(&o.agent))
         .flat_map(|o| {
             let agent = o.agent.as_str();
             o.models
@@ -254,7 +265,8 @@ fn handle(mut req: Request, shared: &Shared) {
     }
     match (method, path.as_str()) {
         (Method::Get, "/v1/models") => {
-            let body = protocol::models_list(now(), &known_models());
+            let enabled = shared.enabled.lock().map(|e| e.clone()).unwrap_or_default();
+            let body = protocol::models_list(now(), &known_models(&enabled));
             respond(req, json_response(200, &body), "")
         }
         (Method::Post, "/v1/chat/completions") | (Method::Post, "/v1/messages") => {
@@ -285,6 +297,28 @@ fn handle(mut req: Request, shared: &Shared) {
                 Err(e) => return respond(req, error(style, &e), ""),
             };
             let model = chat.model_name.clone();
+            let allowed = shared
+                .enabled
+                .lock()
+                .map(|e| e.contains(&chat.model.agent))
+                .unwrap_or(false);
+            if !allowed {
+                return respond(
+                    req,
+                    error(
+                        style,
+                        &ApiError::new(
+                            403,
+                            "permission_error",
+                            format!(
+                                "{} is turned off in Stacker's API service.",
+                                chat.model.agent.as_str()
+                            ),
+                        ),
+                    ),
+                    &model,
+                );
+            }
             if shared.in_flight.fetch_add(1, Ordering::SeqCst) >= RUNNING + WAITING {
                 shared.in_flight.fetch_sub(1, Ordering::SeqCst);
                 return respond(

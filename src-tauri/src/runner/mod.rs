@@ -2,6 +2,7 @@
 //! Prompts and answers are never logged.
 pub mod claude;
 pub mod codex;
+pub mod login;
 pub mod options;
 
 use crate::sessions::model::Agent;

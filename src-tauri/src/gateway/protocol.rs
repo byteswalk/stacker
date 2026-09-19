@@ -273,9 +273,16 @@ pub fn anthropic_sse(id: &str, model: &str, text: &str, prompt: &str) -> String 
     out
 }
 
+/// `extra` are `agent/model` ids; each agent's bare name is listed before its models.
 pub fn models_list(created: u64, extra: &[String]) -> Value {
-    let mut ids = vec!["codex".to_string(), "claude".to_string()];
-    ids.extend(extra.iter().cloned());
+    let mut ids: Vec<String> = Vec::new();
+    for id in extra {
+        let agent = id.split('/').next().unwrap_or("").to_string();
+        if !ids.contains(&agent) {
+            ids.push(agent);
+        }
+        ids.push(id.clone());
+    }
     json!({ "object": "list", "data": ids.iter().map(|id| json!({ "id": id, "object": "model", "created": created, "owned_by": "stacker" })).collect::<Vec<_>>() })
 }
 

@@ -2,8 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { invoke } from "../invoke";
 import { useI18n } from "../i18n";
 import { useToast, ErrorState, Loading } from "../ui";
-import { runnerOptions } from "../features/sessions/api";
-import type { AgentOptions } from "../features/sessions/types";
+import { GatewayAgents } from "../features/gateway/GatewayAgents";
 
 type LogEntry = { at: number; endpoint: string; model: string; status: number; elapsedMs: number };
 type Status = { enabled: boolean; running: boolean; port: number; token: string; error: string; recent: LogEntry[] };
@@ -14,7 +13,6 @@ export default function Gateway() {
   const { tr: t } = useI18n();
   const toast = useToast();
   const [status, setStatus] = useState<Status | null>(null);
-  const [options, setOptions] = useState<AgentOptions[]>([]);
   const [port, setPort] = useState("");
   const [busy, setBusy] = useState(false);
   const [showKey, setShowKey] = useState(false);
@@ -27,7 +25,6 @@ export default function Gateway() {
   }, []);
   useEffect(() => {
     load().catch(() => setLoadErr(true));
-    runnerOptions().then(setOptions).catch(() => setOptions([]));
   }, [load]);
   useEffect(() => {
     if (!status?.running) return;
@@ -61,7 +58,6 @@ export default function Gateway() {
   if (!status) return <Loading text={t("正在读取接口服务状态…")} />;
 
   const base = `http://127.0.0.1:${status.port}`;
-  const models = ["codex", "claude", ...options.flatMap((o) => o.models.map((m) => `${o.agent}/${m.id}`))];
   const key = showKey ? status.token : `${status.token.slice(0, 14)}••••••••••••`;
   const EXAMPLES = {
     curl: `curl ${base}/v1/chat/completions \\\n  -H "Authorization: Bearer ${status.token}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"model":"claude/sonnet","messages":[{"role":"user","content":"Hello"}]}'`,
@@ -94,10 +90,11 @@ export default function Gateway() {
             <button className="gh sm" onClick={() => void copy(status.token)}><i className="ti ti-copy" /></button>
             <button className="gh sm" disabled={busy} onClick={() => void regenerate()}><i className="ti ti-refresh" /> {t("重新生成")}</button>
           </div>
-          <div><span>{t("模型")}</span><div className="chips">{models.map((m) => <span className="chip" key={m}>{m}</span>)}</div></div>
         </div>
-        <p className="proxy-note">{t("只写 codex 或 claude 时，使用「会话数据 → 数据来源 → 摘要」中该智能体的默认模型与推理强度；OpenAI 请求可用 reasoning_effort 覆盖推理强度。不支持工具调用和图片；stream 请求会在生成完成后一次性返回。")}</p>
+        <p className="proxy-note">{t("不支持工具调用和图片；stream 请求会在生成完成后一次性返回。")}</p>
       </div>
+
+      <GatewayAgents />
 
       <div className="pxcard">
         <div className="pxsec"><i className="ti ti-code" /> {t("调用示例")}</div>
