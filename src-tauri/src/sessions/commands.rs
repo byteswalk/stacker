@@ -227,3 +227,20 @@ pub async fn footprint_scan(
 ) -> Result<super::footprint::model::FootprintReport, String> {
     blocking(move || Ok(super::footprint::scan_cached(refresh)?.report.clone())).await
 }
+
+#[tauri::command]
+pub async fn footprint_preview(
+    ids: Vec<String>,
+) -> Result<super::footprint::cleanup::CleanupPreview, String> {
+    blocking(move || super::footprint::cleanup::preview(ids)).await
+}
+
+#[tauri::command]
+pub fn footprint_execute(token: String) -> Result<super::footprint::cleanup::CleanupJob, String> {
+    super::footprint::cleanup::execute(token)
+}
+
+#[tauri::command]
+pub fn footprint_job() -> Option<super::footprint::cleanup::CleanupJob> {
+    super::footprint::cleanup::job()
+}
