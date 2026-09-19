@@ -34,6 +34,8 @@ export const EN: Record<string, string> = {
   "删除…": "Delete…",
   "没有对话。先打开并登录 ChatGPT 或 Claude，再点「刷新」。": "No conversations. Open and sign in to ChatGPT or Claude, then click “Refresh”.",
   "选择一条对话查看详情": "Select a conversation to see its details",
+  "接口已变化": "interface changed",
+  "接口已变化，请先刷新该站点": "the site's interface changed; refresh that site first",
 
   // manage/ConversationList.tsx
   "本页": "This page",
@@ -61,7 +63,8 @@ export const EN: Record<string, string> = {
   "精简导出后删除": "Export slim, then delete",
   "把用户和助手的正文存成 Markdown，再删除网站上的对话。": "Save the user's and assistant's messages as Markdown, then delete the conversation on the site.",
   "完整备份后删除": "Back up fully, then delete",
-  "保存完整 Markdown 和原始数据，再删除网站上的对话。": "Save full Markdown and raw data, then delete the conversation on the site.",
+  "保存当前分支的完整 Markdown（含工具消息和附件名），并把同样的消息另存为 JSON，再删除网站上的对话。": "Save the current branch as full Markdown (including tool messages and attachment names) and the same messages as JSON, then delete the conversation on the site.",
+  "不是当前登录的账号，会被跳过": "not the currently signed-in account; will be skipped",
   "直接删除": "Delete directly",
   "不留任何副本。": "Keeps no copy.",
 

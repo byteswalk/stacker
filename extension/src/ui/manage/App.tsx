@@ -4,14 +4,15 @@ import {
   addTag, bodyIsFresh, createFolder, deleteFolder, getBody, listAccounts, listConversations, listFolders,
   openDb, putBody, renameAccount, renameFolder, updateLocal, type Account, type Conversation, type Db, type Folder,
 } from "../../lib/db";
+import { brokenSitesIn, createBrokenSites, type BrokenSites } from "../../lib/brokenSites";
 import { runDeleteJob } from "../../lib/deleteJob";
 import { saveFile } from "../../lib/download";
 import { exportFileName, toMarkdown, type ExportMode } from "../../lib/markdown";
-import { createPacer } from "../../lib/pacer";
+import { createPacer, withPacing } from "../../lib/pacer";
 import { refreshIndex } from "../../lib/refresh";
 import { allTags, applyFilter, bodyText, EMPTY_FILTER, type Filter } from "../../lib/search";
 import { createSiteApi } from "../../lib/siteClient";
-import type { SiteId } from "../../shared/types";
+import { SiteError, type SiteId } from "../../shared/types";
 import { conversationUrl, SITES } from "../../sites/registry";
 import { errorText } from "../errors";
 import { ConversationList } from "./ConversationList";
@@ -20,6 +21,7 @@ import { Detail } from "./Detail";
 import { Filters } from "./Filters";
 
 const api = createSiteApi();
+const brokenStore = createBrokenSites();
 const urlOf = (c: Conversation) => conversationUrl(c.site, c.id);
 
 export function App() {
@@ -35,6 +37,8 @@ export function App() {
   const [message, setMessage] = useState<{ text: string; kind: "info" | "error" } | null>(null);
   const [deleting, setDeleting] = useState<Conversation[] | null>(null);
   const [current, setCurrent] = useState(new Set<string>());
+  const [siteErrors, setSiteErrors] = useState<Partial<Record<SiteId, string>>>({});
+  const [broken, setBroken] = useState<BrokenSites>({});
 
   const reload = useCallback(async (d: Db) => {
     const [c, a, f] = await Promise.all([listConversations(d), listAccounts(d), listFolders(d)]);
@@ -42,6 +46,7 @@ export function App() {
     setActive((old) => (old ? c.find((x) => x.key === old.key) ?? null : null));
   }, []);
   useEffect(() => { void openDb().then(async (d) => { setDb(d); await reload(d); }); }, [reload]);
+  useEffect(() => { void brokenStore.all().then(setBroken); }, []);
 
   useEffect(() => {
     if (!db || !filter.inBody) return;
@@ -62,7 +67,14 @@ export function App() {
   }
 
   const refresh = (site: SiteId) => guarded(t("正在刷新列表"), async () => {
-    const r = await refreshIndex(api, db!, site, createPacer(), (n) => setBusy(`${t("正在刷新列表")} ${n}`));
+    let r;
+    try {
+      r = await refreshIndex(api, db!, site, createPacer(), (n) => setBusy(`${t("正在刷新列表")} ${n}`));
+    } catch (e) {
+      if (e instanceof SiteError && e.code === "E_BROKEN") setBroken(await brokenStore.mark([site], Date.now()));
+      throw e;
+    }
+    setBroken(await brokenStore.clear(site));
     setCurrent((old) => new Set([...old, r.account.key]));
     setMessage({ text: `${SITES[site].label}：${t("共")} ${r.total}，${t("新增")} ${r.added}，${t("已删除")} ${r.removed}`, kind: "info" });
   });
@@ -75,8 +87,13 @@ export function App() {
     const pacer = createPacer();
     for (const c of chosen) {
       let body = bodyIsFresh(c) ? await getBody(db!, c.key) : undefined;
-      if (!body) { await pacer.wait(); const fresh = await api.read(c.site, c.id); await putBody(db!, c.key, fresh, Date.now()); body = { ...fresh, key: c.key }; }
+      if (!body) {
+        const fresh = await withPacing(pacer, () => api.read(c.site, c.id));
+        await putBody(db!, c.key, fresh, Date.now());
+        body = { ...fresh, key: c.key };
+      }
       await saveFile(exportFileName(c, "md"), toMarkdown(c, aliasOf(c.account), body, mode, urlOf(c)), "text/markdown");
+      if (mode === "full") await saveFile(exportFileName(c, "json"), JSON.stringify(body, null, 2), "application/json");
     }
     setMessage({ text: `${t("已导出")} ${chosen.length} ${t("条到下载目录的「Stacker 网页对话」文件夹")}`, kind: "info" });
   });
@@ -84,10 +101,15 @@ export function App() {
   async function openDelete() {
     const sites = [...new Set(chosen.map((c) => c.site))];
     const signedIn = new Set<string>();
+    const errors: Partial<Record<SiteId, string>> = {};
+    const stillBroken = await brokenStore.all();
+    setBroken(stillBroken);
     for (const site of sites) {
-      try { const a = await api.account(site); signedIn.add(`${site}:${a.remoteId}`); } catch { /* shown as other account */ }
+      if (stillBroken[site]) { errors[site] = t("接口已变化，请先刷新该站点"); continue; }
+      try { const a = await api.account(site); signedIn.add(`${site}:${a.remoteId}`); } catch (e) { errors[site] = errorText(e); }
     }
     setCurrent(signedIn);
+    setSiteErrors(errors);
     setDeleting(chosen);
   }
 
@@ -106,6 +128,7 @@ export function App() {
       </select>
       {filter.account && <button onClick={() => { const alias = prompt(t("账号备注名"), aliasOf(filter.account)); if (alias) void renameAccount(db, filter.account, alias).then(() => reload(db)); }}>{t("改备注名")}</button>}
       {(Object.keys(SITES) as SiteId[]).map((s) => <button key={s} disabled={!!busy} onClick={() => void refresh(s)}>{t("刷新")} {SITES[s].label}</button>)}
+      {(Object.keys(SITES) as SiteId[]).filter((s) => broken[s]).map((s) => <span key={s} className="err">{SITES[s].label}：{t("接口已变化")}</span>)}
       {(Object.keys(SITES) as SiteId[]).map((s) => <a key={s} href={SITES[s].origin} target="_blank" rel="noreferrer">{t("打开")} {SITES[s].label}</a>)}
       {busy && <span className="mut">{busy}…</span>}
       {message && <span className={message.kind === "error" ? "err" : "mut"}>{message.text}</span>}
@@ -145,8 +168,13 @@ export function App() {
       {active ? <Detail db={db} conv={active} folders={folders} reading={!!busy} onRead={(c) => void readBody(c)} onChanged={() => void reload(db)} />
         : <p className="mut">{t("选择一条对话查看详情")}</p>}
     </div>
-    {deleting && <DeleteDialog items={deleting} currentAccounts={current}
-      onRun={(mode, signal, onProgress) => runDeleteJob(deleting, mode, { api, db, pacer: createPacer(), now: Date.now, save: saveFile, aliasOf }, signal, onProgress)}
+    {deleting && <DeleteDialog items={deleting} currentAccounts={current} aliasOf={aliasOf} siteErrors={siteErrors}
+      onRun={async (runItems, mode, signal, onProgress) => {
+        const results = await runDeleteJob(runItems, mode, { api, db, pacer: createPacer(), now: Date.now, save: saveFile, aliasOf }, signal, onProgress);
+        const newlyBroken = brokenSitesIn(runItems, results);
+        if (newlyBroken.length) setBroken(await brokenStore.mark(newlyBroken, Date.now()));
+        return results;
+      }}
       onClose={(changed) => { setDeleting(null); if (changed) { setSelected(new Set()); void reload(db); } }} />}
   </div>;
 }

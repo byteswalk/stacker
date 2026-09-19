@@ -38,7 +38,7 @@ describe("delete job", () => {
     expect(api.remove).toHaveBeenCalledTimes(2);
     expect(await removed(db, "chatgpt:a")).toBe(50);
   });
-  it("writes Markdown and raw JSON for a full backup, nothing for direct", async () => {
+  it("writes Markdown and the messages as JSON for a full backup, nothing for direct", async () => {
     const full = await setup(["a"]);
     await run(full.items, "full", full.deps);
     expect(full.saved.map((p) => p.split(".").pop())).toEqual(["md", "json"]);
