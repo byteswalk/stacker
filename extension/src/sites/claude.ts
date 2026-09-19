@@ -34,6 +34,9 @@ function branch(messages: Record<string, unknown>[], leaf: string | null): Recor
     chain.push(m);
     id = optStr(m.parent_message_uuid) || null;
   }
+  if (leaf && chain.length === 0) {
+    throw new SiteError("E_BROKEN", "current_leaf_message_uuid");
+  }
   return chain.reverse();
 }
 
@@ -58,6 +61,7 @@ export const claude: AdapterFactory = (fetchJson) => {
     conversationUrl: (id) => `${ORIGIN}/chat/${id}`,
 
     async account() {
+      org = null;
       return { remoteId: await orgId(), label: "Claude" };
     },
 
@@ -81,13 +85,17 @@ export const claude: AdapterFactory = (fetchJson) => {
     async read(id) {
       const c = obj(await get(`/api/organizations/${await orgId()}/chat_conversations/${encodeURIComponent(id)}?tree=True&rendering_mode=messages&render_all_tools=true`), "conversation");
       const all = arr(c.chat_messages, "conversation.chat_messages").map((m, i) => obj(m, `chat_messages[${i}]`));
-      const messages: Message[] = branch(all, optStr(c.current_leaf_message_uuid) || null).flatMap((m, i): Message[] => {
-        const sender = str(m.sender, `chat_messages[${i}].sender`);
-        if (sender !== "human" && sender !== "assistant") throw new SiteError("E_BROKEN", `chat_messages[${i}].sender`);
+      const uuidToIndex = new Map(all.map((m, i) => [optStr(m.uuid), i]));
+      const branched = branch(all, optStr(c.current_leaf_message_uuid) || null);
+      const messages: Message[] = branched.flatMap((m): Message[] => {
+        const originalIndex = uuidToIndex.get(optStr(m.uuid)) ?? 0;
+        const originalPath = `chat_messages[${originalIndex}]`;
+        const sender = str(m.sender, `${originalPath}.sender`);
+        if (sender !== "human" && sender !== "assistant") throw new SiteError("E_BROKEN", `${originalPath}.sender`);
         const text = messageText(m);
         const attachments = [...fileNames(m.attachments), ...fileNames(m.files)];
         if (!text && !attachments.length) return [];
-        return [{ role: sender === "human" ? "user" : "assistant", text, at: m.created_at == null ? null : time(m.created_at, `chat_messages[${i}].created_at`), attachments }];
+        return [{ role: sender === "human" ? "user" : "assistant", text, at: m.created_at == null ? null : time(m.created_at, `${originalPath}.created_at`), attachments }];
       });
       return { id, title: optStr(c.name), updatedAt: time(c.updated_at, "conversation.updated_at"), messages };
     },

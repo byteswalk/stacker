@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { FetchInit, FetchResult } from "./http";
 import { claude } from "./claude";
-import { conversation, listFull, listTail, orgs } from "./fixtures/claude";
+import { conversation, conversationMissingLeaf, listFull, listTail, orgs, orgsUpdated } from "./fixtures/claude";
 
 function fake(route: (url: string, init?: FetchInit) => unknown, calls: [string, FetchInit | undefined][] = []) {
   return vi.fn(async (url: string, init?: FetchInit): Promise<FetchResult> => {
@@ -14,6 +14,7 @@ const routes = (url: string, init?: FetchInit) => {
   if (init?.method === "DELETE") return null;
   if (url.endsWith("/api/organizations")) return orgs;
   if (url.includes("chat_conversations/k1")) return conversation;
+  if (url.includes("chat_conversations/k2")) return conversationMissingLeaf;
   if (url.includes("offset=0")) return listFull;
   if (url.includes("offset=100")) return listTail;
   return undefined;
@@ -47,5 +48,23 @@ describe("claude adapter", () => {
   it("flags a changed shape as broken", async () => {
     const a = claude(fake((url) => (url.endsWith("/api/organizations") ? orgs : { conversations: [] })));
     await expect(a.list(null)).rejects.toThrow("E_BROKEN");
+  });
+  it("throws E_BROKEN when current_leaf_message_uuid does not exist", async () => {
+    const a = claude(fake(routes));
+    await expect(a.read("k2")).rejects.toThrow("E_BROKEN");
+  });
+  it("re-resolves the organization on every account() call", async () => {
+    let callCount = 0;
+    const a = claude(fake((url) => {
+      if (url.endsWith("/api/organizations")) {
+        callCount++;
+        return callCount === 1 ? orgs : orgsUpdated;
+      }
+      return undefined;
+    }));
+    const first = await a.account();
+    const second = await a.account();
+    expect(first.remoteId).toBe("org-chat");
+    expect(second.remoteId).toBe("org-chat-2");
   });
 });
