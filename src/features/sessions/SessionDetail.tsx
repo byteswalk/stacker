@@ -9,7 +9,7 @@ import { errorMessage, type Session, type SessionDetail as Detail } from "./type
 const DETAIL_PAGE = 200;
 const ROLE: Record<string, string> = { user: "用户", assistant: "助手", tool: "工具" };
 
-export function SessionDetail({ session, onClose }: { session: Session; onClose: () => void }) {
+export function SessionDetail({ session, onClose, onSummarize }: { session: Session; onClose: () => void; onSummarize: () => void }) {
   const { tr: t, locale } = useI18n();
   const [detail, setDetail] = useState<Detail | null>(null);
   const [offset, setOffset] = useState(0);
@@ -36,7 +36,14 @@ export function SessionDetail({ session, onClose }: { session: Session; onClose:
       <span>{new Date(session.updatedAt * 1000).toLocaleString(locale)}</span>
       <code title={session.project.path}>{session.project.path}</code>
     </div>
-    {session.summary && <div className="session-summary"><b>{t("摘要")}{session.summaryStale && <em>{t("已过期")}</em>}</b><pre translate="no">{session.summary}</pre></div>}
+    <div className="session-summary">
+      <div className="session-summary-head">
+        <b>{t("摘要")}{session.summaryStale && <em>{t("已过期")}</em>}</b>
+        {session.summary && session.summaryBy && <small>{session.summaryBy} · {new Date(session.summaryAt * 1000).toLocaleString(locale)}</small>}
+        <button className="gh sm" onClick={onSummarize}><i className="ti ti-sparkles" />{t(session.summary ? "重新生成" : "生成摘要")}</button>
+      </div>
+      {session.summary ? <pre translate="no">{session.summary}</pre> : <p className="session-note">{t("还没有摘要。用本机智能体生成后可在列表中搜索，并写入精简导出。")}</p>}
+    </div>
     {error && <p role="alert" className="session-error">{t(error)}</p>}
     {detail && !detail.complete && <p className="session-error">{t("部分内容无法读取，仅显示可读部分。")}</p>}
     <div className="session-transcript" translate="no">

@@ -156,3 +156,23 @@
 .a .footprint-row.keep .footprint-size,.a .footprint-row.sessions .footprint-size{color:var(--mut)}
 .a .footprint-paths{grid-column:2/-1;margin:4px 0 2px;padding:0;list-style:none;display:flex;flex-direction:column;gap:3px;max-height:200px;overflow:auto}
 .a .footprint-paths code{font-size:11px;color:var(--mut);overflow-wrap:anywhere}
+
+.a .runner-fields{display:flex;flex-direction:column;gap:10px;padding:10px 12px;border:1px solid var(--bd);border-radius:8px}
+.a .runner-agent{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px}
+.a .runner-agent>b{width:70px;font-size:12.5px}
+.a .runner-agent>b em{display:block;font-style:normal;font-weight:400;font-size:11px;color:#e6b450}
+.a .runner-field{display:flex;align-items:center;gap:8px;font-size:12px;flex-wrap:wrap}
+.a .runner-field>span{color:var(--mut)}
+.a .runner-field .sel,.a .runner-field .sel2{min-width:170px}
+.a .runner-field input.ip{width:180px}
+.a .runner-field.inline select.ip{width:auto}
+.a .session-summary-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.a .session-summary-head small{color:var(--mut);font-size:11px}
+.a .session-summary-head .gh{margin-left:auto}
+.a .summary-mark{margin-left:6px;color:#5fb878;font-size:12px}
+.a .summary-mark.stale{color:#e6b450}
+.a .handoff-text{white-space:pre-wrap;overflow-wrap:anywhere;font-family:inherit;font-size:13px;line-height:1.7;max-height:360px;overflow:auto;border:1px solid var(--bd);border-radius:8px;padding:10px 12px;margin:0}
+.a .session-project{grid-template-columns:minmax(200px,1fr) 120px 60px 60px 80px 80px 70px;cursor:default}
+.a .session-project-name{background:none;border:0;padding:0;color:var(--tx);font:inherit;text-align:left;cursor:pointer}
+.a .session-project-name:hover b{color:var(--link)}
+.a .summary-settings{max-width:760px}

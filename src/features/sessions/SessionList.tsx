@@ -17,9 +17,10 @@ type Props = {
   onOpen: (session: Session) => void;
   onFavorite: (ids: string[], favorite: boolean) => void;
   onDelete: () => void;
+  onSummarize: () => void;
 };
 
-export function SessionList({ page, query, projects, loading, selected, onSelect, onFilter, onPage, onOpen, onFavorite, onDelete }: Props) {
+export function SessionList({ page, query, projects, loading, selected, onSelect, onFilter, onPage, onOpen, onFavorite, onDelete, onSummarize }: Props) {
   const { tr: t, locale } = useI18n();
   const [expanded, setExpanded] = useState<string | null>(null);
   const [now] = useState(() => Math.floor(Date.now() / 1000));
@@ -55,7 +56,7 @@ export function SessionList({ page, query, projects, loading, selected, onSelect
             <input type="checkbox" checked={selected.includes(s.id)} aria-label={s.title} onChange={() => onSelect(toggleSelection(selected, s.id))} />
             <button className={`session-favorite ${s.favorite ? "on" : ""}`} title={t(s.favorite ? "取消收藏" : "收藏")} aria-label={t(s.favorite ? "取消收藏" : "收藏")} onClick={() => onFavorite([s.id], !s.favorite)}><i className="ti ti-star" /></button>
             <button className="session-title" onClick={() => onOpen(s)}>
-              <b title={s.title}>{s.pinned && <i className="ti ti-pin" />}{s.title}</b>
+              <b title={s.title}>{s.pinned && <i className="ti ti-pin" />}{s.title}{s.summary && <i className={`ti ti-notes summary-mark ${s.summaryStale ? "stale" : ""}`} title={t(s.summaryStale ? "摘要已过期" : "已有摘要")} />}</b>
               <span title={s.project.path}>{s.project.name}{!s.project.exists && s.project.path ? ` · ${t("项目已删除")}` : ""}</span>
             </button>
             <span className="session-tags">
@@ -77,6 +78,7 @@ export function SessionList({ page, query, projects, loading, selected, onSelect
     {!!selected.length && <div className="session-actionbar" role="toolbar">
       <b>{t("已选")} {selected.length} {t("项")}</b>{selectedBytes > 0 && <span>{t("本页约")} {bytes(selectedBytes)}</span>}
       <button className="gh sm" onClick={() => onFavorite(selected, !selectedFavorite)}><i className="ti ti-star" />{t(selectedFavorite ? "取消收藏" : "收藏")}</button>
+      <button className="gh sm" onClick={onSummarize}><i className="ti ti-sparkles" />{t("生成摘要")}</button>
       <button className="pr sm danger" onClick={onDelete}><i className="ti ti-trash" />{t("删除…")}</button>
       <button className="ic" title={t("清除选择")} aria-label={t("清除选择")} onClick={() => onSelect([])}><i className="ti ti-x" /></button>
     </div>}

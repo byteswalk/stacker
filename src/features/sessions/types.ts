@@ -28,6 +28,8 @@ export type Session = {
   favorite: boolean;
   summary: string | null;
   summaryStale: boolean;
+  summaryBy: string;
+  summaryAt: number;
 };
 
 export type SessionQuery = {
@@ -94,6 +96,11 @@ export const ERRORS: Record<string, string> = {
   E_TIMEOUT: "接口响应超时，请刷新核对结果。",
   E_CANCELLED: "操作已取消，已完成的项目保留。",
   E_APP_RUNNING: "对应程序正在运行，请先退出后再清理。",
+  E_RUNNER_MISSING: "未找到该智能体的命令行，请在「安装更新」页安装，或在摘要设置中改用另一个。",
+  E_RUNNER_AUTH: "该智能体尚未登录，请先在终端运行它并完成登录。",
+  E_RUNNER_TIMEOUT: "智能体 5 分钟内没有完成，已停止。",
+  E_RUNNER_FAILED: "智能体运行失败，请稍后重试或换一个模型。",
+  E_RUNNER_EMPTY: "智能体没有返回内容。",
 };
 
 export function errorMessage(error: unknown): string {
@@ -120,3 +127,12 @@ export type FootprintReport = { agents: AgentFootprint[]; total: number; reclaim
 export type CleanupPreview = { token: string; items: FootprintItem[]; blocked: FootprintItem[]; bytes: number; created: number };
 export type CleanupItemResult = { id: string; label: string; status: string; detail: string; freed: number };
 export type CleanupJob = { state: string; done: number; total: number; freed: number; items: CleanupItemResult[]; error: string };
+
+export type SummarySettings = { runner: "same" | "codex" | "claude"; codexModel: string; codexEffort: string; claudeModel: string; claudeEffort: string };
+export type RunnerChoice = { agent: AgentName; model: string | null; effort: string | null };
+export type ModelOption = { id: string; label: string; efforts: string[]; defaultEffort: string | null };
+export type AgentOptions = { agent: AgentName; installed: boolean; models: ModelOption[]; efforts: string[] };
+export type SummaryPreviewItem = { id: string; title: string; agent: AgentName; chars: number; needed: boolean; runner: RunnerChoice };
+export type SummaryPreview = { items: SummaryPreviewItem[]; totalChars: number; projectName: string; handoffRunner: RunnerChoice | null };
+export type SummaryJobItem = { id: string; title: string; status: string; detail: string; elapsedMs: number; by: string };
+export type SummaryJob = { id: string; kind: "summary" | "handoff"; state: string; done: number; total: number; items: SummaryJobItem[]; error: string; resultPath: string; resultText: string };

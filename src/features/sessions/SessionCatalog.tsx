@@ -9,6 +9,7 @@ import { SessionDetail } from "./SessionDetail";
 import { SessionList } from "./SessionList";
 import { currentSelection } from "./sessionsView";
 import { SourcesPanel } from "./SourcesPanel";
+import { SummaryDialog } from "./SummaryDialog";
 import { EMPTY_PAGE, EMPTY_QUERY, errorMessage, type ProjectRow, type Session, type SessionPage, type SessionQuery } from "./types";
 import "./sessions.css";
 
@@ -33,6 +34,7 @@ export function SessionCatalog({ onCleanup }: { onCleanup: () => void }) {
   const [error, setError] = useState("");
   const [detail, setDetail] = useState<Session | null>(null);
   const [deleting, setDeleting] = useState<string[] | null>(null);
+  const [summarizing, setSummarizing] = useState<{ kind: "summary"; ids: string[] } | { kind: "handoff"; project: string } | null>(null);
   const request = useRef(0);
   const queryRef = useRef(query);
 
@@ -90,11 +92,12 @@ export function SessionCatalog({ onCleanup }: { onCleanup: () => void }) {
     {error && <div role="alert" className="session-error">{t(error)}<button className="gh sm" onClick={() => void load()}><i className="ti ti-refresh" />{t("重试")}</button></div>}
     {tab === "sessions" && <SessionList page={page} query={query} projects={projects} loading={loading} selected={selected}
       onSelect={setSelected} onFilter={filter} onPage={(offset) => setQuery((q) => ({ ...q, offset }))}
-      onOpen={setDetail} onFavorite={(ids, value) => void favorite(ids, value)} onDelete={() => setDeleting([...selected])} />}
-    {tab === "projects" && <ProjectList rows={projects} loading={loading} onPick={(project) => { filter({ project }); setTab("sessions"); }} />}
+      onOpen={setDetail} onFavorite={(ids, value) => void favorite(ids, value)} onDelete={() => setDeleting([...selected])} onSummarize={() => setSummarizing({ kind: "summary", ids: [...selected] })} />}
+    {tab === "projects" && <ProjectList rows={projects} loading={loading} onPick={(project) => { filter({ project }); setTab("sessions"); }} onHandoff={(project) => setSummarizing({ kind: "handoff", project })} />}
     {tab === "footprint" && <FootprintPanel onShowSessions={(agent) => { filter({ agent, sort: "bytes" }); setTab("sessions"); }} />}
     {tab === "sources" && <SourcesPanel onSaved={() => { toast(t("已保存"), "ok"); void load(); }} />}
-    {detail && <SessionDetail session={detail} onClose={() => setDetail(null)} />}
+    {detail && <SessionDetail session={detail} onClose={() => setDetail(null)} onSummarize={() => { setDetail(null); setSummarizing({ kind: "summary", ids: [detail.id] }); }} />}
+    {summarizing && <SummaryDialog target={summarizing} onClose={(changed) => { setSummarizing(null); if (changed) void load(); }} />}
     {deleting && <DeleteDialog ids={deleting} onClose={(changed) => { setDeleting(null); if (changed) { setSelected([]); void load(); } }} />}
   </div>;
 }

@@ -1,5 +1,5 @@
 import { invoke } from "../../invoke";
-import type { CleanupJob, CleanupPreview, DeleteJob, DeleteMode, DeletePreview, ProjectRow, Roots, RootsView, SessionDetail, SessionPage, SessionQuery, FootprintReport } from "./types";
+import type { AgentOptions, SummaryJob, SummaryPreview, SummarySettings, CleanupJob, CleanupPreview, DeleteJob, DeleteMode, DeletePreview, ProjectRow, Roots, RootsView, SessionDetail, SessionPage, SessionQuery, FootprintReport } from "./types";
 
 export const listSessions = (query: SessionQuery) => invoke<SessionPage>("sessions_list", { query });
 export const listProjects = () => invoke<ProjectRow[]>("sessions_projects");
@@ -16,3 +16,12 @@ export const scanFootprint = (refresh: boolean) => invoke<FootprintReport>("foot
 export const previewCleanup = (ids: string[]) => invoke<CleanupPreview>("footprint_preview", { ids });
 export const executeCleanup = (token: string) => invoke<CleanupJob>("footprint_execute", { token });
 export const cleanupJob = () => invoke<CleanupJob | null>("footprint_job");
+export const runnerOptions = () => invoke<AgentOptions[]>("runner_options");
+export const getSummarySettings = () => invoke<SummarySettings>("summary_settings");
+export const saveSummarySettings = (settings: SummarySettings) => invoke<void>("summary_save_settings", { settings });
+export const previewSummary = (ids: string[], regenerate: boolean, settings: SummarySettings | null) => invoke<SummaryPreview>("summary_preview", { ids, regenerate, settings });
+export const startSummary = (ids: string[], regenerate: boolean, settings: SummarySettings | null, locale: string) => invoke<SummaryJob>("summary_start", { ids, regenerate, settings, locale });
+export const summaryJob = () => invoke<SummaryJob | null>("summary_job");
+export const cancelSummary = () => invoke<void>("summary_cancel");
+export const previewHandoff = (project: string, limit: number, settings: SummarySettings | null) => invoke<SummaryPreview>("handoff_preview", { project, limit, settings });
+export const startHandoff = (project: string, limit: number, settings: SummarySettings | null, locale: string) => invoke<SummaryJob>("handoff_start", { project, limit, settings, locale });

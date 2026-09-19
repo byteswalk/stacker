@@ -14,7 +14,7 @@ const session: Session = {
   project: { key: "d:\\repo", name: "repo", path: "D:\\repo", exists: true }, client: "desktop",
   createdAt: 1, updatedAt: 2, archived: false, pinned: false, status: "active",
   children: [{ id: "claude:s1:agent-1", kind: "subagent", title: "查找调用点", bytes: 1, path: "D:\\x" }],
-  bytes: 10, path: "D:\\x.jsonl", inDesktopIndex: true, parentMissing: false, favorite: false, summary: null, summaryStale: false,
+  bytes: 10, path: "D:\\x.jsonl", inDesktopIndex: true, parentMissing: false, favorite: false, summary: null, summaryStale: false, summaryBy: "", summaryAt: 0,
 };
 
 let host: HTMLDivElement;
@@ -74,7 +74,7 @@ describe("session catalog", () => {
   it("jumps from a project to its sessions", async () => {
     await mount();
     await click(button("项目"));
-    await click(host.querySelector(".session-project:not(.head)"));
+    await click(host.querySelector(".session-project:not(.head) .session-project-name"));
     await act(async () => { await vi.advanceTimersByTimeAsync(350); });
     const last = vi.mocked(invoke).mock.calls.filter(([c]) => c === "sessions_list").pop();
     expect((last?.[1] as { query: { project: string } }).query.project).toBe(session.project.key);
