@@ -127,6 +127,10 @@ Build the Windows installer, portable package, and checksum file:
 npm run release:windows
 ```
 
+## Browser Chat Extension
+
+A Chromium browser extension (Chrome, Edge, and other Chromium-based browsers) manages ChatGPT and Claude web conversations independently of the desktop app: organize, search, export, and delete them, with data kept on the local machine only. See the [extension guide](extension/README.md) for installation and usage.
+
 ## Project Documentation
 
 - [Session data behavior and safety boundaries](docs/sessions.md)
