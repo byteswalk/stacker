@@ -46,6 +46,9 @@ pub fn slim_markdown(session: &Session, messages: &[Message]) -> String {
         session.native_id,
         session.path
     );
+    if let Some(summary) = session.summary.as_deref().filter(|s| !s.trim().is_empty()) {
+        out.push_str(&format!("## 摘要\n\n{}\n\n## 正文\n\n", summary.trim()));
+    }
     for m in messages {
         let heading = match m.role.as_str() {
             "user" => "用户",

@@ -173,6 +173,8 @@ pub(crate) mod tests_support {
             favorite: false,
             summary: None,
             summary_stale: false,
+            summary_by: String::new(),
+            summary_at: 0,
         }
     }
 }

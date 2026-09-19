@@ -7,9 +7,12 @@ pub mod commands;
 pub mod delete;
 pub mod export;
 pub mod footprint;
+pub mod handoff;
 pub mod model;
 pub mod project;
 pub mod roots;
+pub mod summary;
+pub mod summary_job;
 pub mod transcript;
 
 pub(crate) fn err(e: impl std::fmt::Display) -> String {

@@ -356,6 +356,8 @@ fn session_from(
         favorite: false,
         summary: None,
         summary_stale: false,
+        summary_by: String::new(),
+        summary_at: 0,
     })
 }
 

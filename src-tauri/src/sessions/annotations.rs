@@ -32,11 +32,12 @@ pub fn connect_at(dir: &Path) -> Result<Connection, String> {
          CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);",
     )
     .map_err(|_| "E_STORAGE".to_string())?;
+    add_summary_columns(&conn)?;
     migrate(&conn, dir)?;
     Ok(conn)
 }
 
-fn setting(conn: &Connection, key: &str) -> Option<String> {
+pub(crate) fn setting(conn: &Connection, key: &str) -> Option<String> {
     conn.query_row("SELECT value FROM settings WHERE key=?", [key], |r| {
         r.get(0)
     })
@@ -45,10 +46,53 @@ fn setting(conn: &Connection, key: &str) -> Option<String> {
     .flatten()
 }
 
-fn set_setting(conn: &Connection, key: &str, value: &str) -> Result<(), String> {
+pub(crate) fn set_setting(conn: &Connection, key: &str, value: &str) -> Result<(), String> {
     conn.execute(
         "INSERT INTO settings(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
         params![key, value],
+    )
+    .map(|_| ())
+    .map_err(|_| "E_STORAGE".to_string())
+}
+
+fn add_summary_columns(conn: &Connection) -> Result<(), String> {
+    let have: Vec<String> = conn
+        .prepare("PRAGMA table_info(session_notes)")
+        .and_then(|mut s| {
+            s.query_map([], |r| r.get::<_, String>(1))
+                .map(|m| m.filter_map(Result::ok).collect())
+        })
+        .map_err(|_| "E_STORAGE".to_string())?;
+    for (name, sql) in [
+        (
+            "summary_by",
+            "ALTER TABLE session_notes ADD COLUMN summary_by TEXT NOT NULL DEFAULT ''",
+        ),
+        (
+            "summary_at",
+            "ALTER TABLE session_notes ADD COLUMN summary_at INTEGER NOT NULL DEFAULT 0",
+        ),
+    ] {
+        if !have.iter().any(|c| c == name) {
+            conn.execute(sql, []).map_err(|_| "E_STORAGE".to_string())?;
+        }
+    }
+    Ok(())
+}
+
+pub fn save_summary(
+    conn: &Connection,
+    id: &str,
+    text: &str,
+    fingerprint: &str,
+    by: &str,
+    at: u64,
+) -> Result<(), String> {
+    conn.execute(
+        "INSERT INTO session_notes(id,summary,summary_fingerprint,summary_by,summary_at) VALUES(?1,?2,?3,?4,?5)
+         ON CONFLICT(id) DO UPDATE SET summary=excluded.summary,summary_fingerprint=excluded.summary_fingerprint,
+         summary_by=excluded.summary_by,summary_at=excluded.summary_at",
+        params![id, text, fingerprint, by, at as i64],
     )
     .map(|_| ())
     .map_err(|_| "E_STORAGE".to_string())
@@ -114,7 +158,7 @@ pub fn quick_fingerprint(path: &Path) -> String {
 
 pub fn apply(conn: &Connection, sessions: &mut [Session]) {
     let Ok(mut stmt) =
-        conn.prepare("SELECT favorite, summary, summary_fingerprint FROM session_notes WHERE id=?")
+        conn.prepare("SELECT favorite, summary, summary_fingerprint, summary_by, summary_at FROM session_notes WHERE id=?")
     else {
         return;
     };
@@ -125,12 +169,16 @@ pub fn apply(conn: &Connection, sessions: &mut [Session]) {
                     r.get::<_, i64>(0)?,
                     r.get::<_, String>(1)?,
                     r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, i64>(4)?,
                 ))
             })
             .optional();
-        if let Ok(Some((favorite, summary, fingerprint))) = row {
+        if let Ok(Some((favorite, summary, fingerprint, by, at))) = row {
             s.favorite = favorite != 0;
             if !summary.is_empty() {
+                s.summary_by = by;
+                s.summary_at = at.max(0) as u64;
                 s.summary_stale = fingerprint != quick_fingerprint(Path::new(&s.path));
                 s.summary = Some(summary);
             }
@@ -194,6 +242,20 @@ mod tests {
         let mut again = vec![session("codex:a")];
         apply(&conn, &mut again);
         assert!(!again[0].favorite);
+    }
+
+    #[test]
+    fn summaries_round_trip_with_their_runner() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = connect_at(dir.path()).unwrap();
+        drop(conn);
+        let conn = connect_at(dir.path()).unwrap(); // column migration is idempotent
+        save_summary(&conn, "codex:a", "notes", "", "codex / default / low", 7).unwrap();
+        let mut sessions = vec![session("codex:a")];
+        apply(&conn, &mut sessions);
+        assert_eq!(sessions[0].summary.as_deref(), Some("notes"));
+        assert_eq!(sessions[0].summary_by, "codex / default / low");
+        assert_eq!(sessions[0].summary_at, 7);
     }
 
     #[test]

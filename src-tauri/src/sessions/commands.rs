@@ -258,3 +258,197 @@ pub async fn runner_options() -> Result<Vec<crate::runner::options::AgentOptions
     })
     .await
 }
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SummaryPreviewItem {
+    pub id: String,
+    pub title: String,
+    pub agent: Agent,
+    /// Characters that will be sent; 0 when the item is skipped.
+    pub chars: usize,
+    pub needed: bool,
+    pub runner: super::summary::RunnerChoice,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SummaryPreview {
+    pub items: Vec<SummaryPreviewItem>,
+    pub total_chars: usize,
+    pub project_name: String,
+    /// Runner that writes the handoff document (handoff previews only).
+    pub handoff_runner: Option<super::summary::RunnerChoice>,
+}
+
+fn effective_settings(
+    override_settings: Option<super::summary::SummarySettings>,
+) -> Result<super::summary::SummarySettings, String> {
+    match override_settings {
+        Some(s) => Ok(s),
+        None => Ok(super::summary::load_settings(
+            &super::annotations::connect()?
+        )),
+    }
+}
+
+fn preview_items(
+    sessions: &[Session],
+    regenerate: bool,
+    settings: &super::summary::SummarySettings,
+) -> Vec<SummaryPreviewItem> {
+    sessions
+        .iter()
+        .map(|s| {
+            let needed = super::summary_job::needs_summary(s, regenerate);
+            SummaryPreviewItem {
+                id: s.id.clone(),
+                title: s.title.clone(),
+                agent: s.agent,
+                chars: if needed {
+                    super::summary::transcript_markdown(s)
+                        .map(|m| m.chars().count())
+                        .unwrap_or(0)
+                } else {
+                    0
+                },
+                needed,
+                runner: super::summary::choose(settings, s.agent),
+            }
+        })
+        .collect()
+}
+
+fn pick(ids: &[String]) -> Result<Vec<Session>, String> {
+    let (all, _, _) = annotated_catalog()?;
+    let picked: Vec<Session> = ids
+        .iter()
+        .filter_map(|id| all.iter().find(|s| &s.id == id).cloned())
+        .collect();
+    if picked.is_empty() || ids.len() > 500 {
+        return Err("E_REQUEST".into());
+    }
+    Ok(picked)
+}
+
+#[tauri::command]
+pub fn summary_settings() -> Result<super::summary::SummarySettings, String> {
+    Ok(super::summary::load_settings(
+        &super::annotations::connect()?
+    ))
+}
+
+#[tauri::command]
+pub fn summary_save_settings(settings: super::summary::SummarySettings) -> Result<(), String> {
+    super::summary::save_settings(&super::annotations::connect()?, &settings)
+}
+
+#[tauri::command]
+pub async fn summary_preview(
+    ids: Vec<String>,
+    regenerate: bool,
+    settings: Option<super::summary::SummarySettings>,
+) -> Result<SummaryPreview, String> {
+    blocking(move || {
+        let settings = effective_settings(settings)?;
+        let items = preview_items(&pick(&ids)?, regenerate, &settings);
+        Ok(SummaryPreview {
+            total_chars: items.iter().map(|i| i.chars).sum(),
+            items,
+            project_name: String::new(),
+            handoff_runner: None,
+        })
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn summary_start(
+    ids: Vec<String>,
+    regenerate: bool,
+    settings: Option<super::summary::SummarySettings>,
+    locale: String,
+) -> Result<super::summary_job::SummaryJob, String> {
+    blocking(move || {
+        let settings = effective_settings(settings)?;
+        super::summary_job::start(
+            "summary",
+            pick(&ids)?,
+            regenerate,
+            settings,
+            locale,
+            super::summary_job::live_runner(),
+            None,
+        )
+    })
+    .await
+}
+
+#[tauri::command]
+pub fn summary_job() -> Option<super::summary_job::SummaryJob> {
+    super::summary_job::job()
+}
+
+#[tauri::command]
+pub fn summary_cancel() {
+    super::summary_job::cancel()
+}
+
+#[tauri::command]
+pub async fn handoff_preview(
+    project: String,
+    limit: usize,
+    settings: Option<super::summary::SummarySettings>,
+) -> Result<SummaryPreview, String> {
+    blocking(move || {
+        let settings = effective_settings(settings)?;
+        let (all, _, _) = annotated_catalog()?;
+        let chosen = super::handoff::select(&all, &project, limit);
+        if chosen.is_empty() {
+            return Err("E_REQUEST".into());
+        }
+        let items = preview_items(&chosen, false, &settings);
+        Ok(SummaryPreview {
+            total_chars: items.iter().map(|i| i.chars).sum(),
+            project_name: chosen[0].project.name.clone(),
+            handoff_runner: Some(super::handoff::choose(&settings, &chosen)),
+            items,
+        })
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn handoff_start(
+    project: String,
+    limit: usize,
+    settings: Option<super::summary::SummarySettings>,
+    locale: String,
+) -> Result<super::summary_job::SummaryJob, String> {
+    blocking(move || {
+        let settings = effective_settings(settings)?;
+        let (all, _, _) = annotated_catalog()?;
+        let chosen = super::handoff::select(&all, &project, limit);
+        if chosen.is_empty() {
+            return Err("E_REQUEST".into());
+        }
+        let ids: Vec<String> = chosen.iter().map(|s| s.id.clone()).collect();
+        let choice = super::handoff::choose(&settings, &chosen);
+        let run = super::summary_job::live_runner();
+        let finish_run = run.clone();
+        let finish_locale = locale.clone();
+        let finish: super::summary_job::Finish = Box::new(move |cancel| {
+            super::handoff::compose(&project, &ids, &choice, &finish_locale, cancel, &finish_run)
+        });
+        super::summary_job::start(
+            "handoff",
+            chosen,
+            false,
+            settings,
+            locale,
+            run,
+            Some(finish),
+        )
+    })
+    .await
+}

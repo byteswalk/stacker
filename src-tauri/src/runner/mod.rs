@@ -1,6 +1,5 @@
 //! Runs the user's signed-in agent CLIs statelessly, in an empty folder, without tools.
 //! Prompts and answers are never logged.
-#![allow(dead_code)]
 pub mod claude;
 pub mod codex;
 pub mod options;
@@ -27,7 +26,6 @@ pub struct RunRequest {
 #[derive(Clone, Debug)]
 pub struct RunOutput {
     pub text: String,
-    pub elapsed_ms: u64,
 }
 
 #[derive(Clone, Default)]
@@ -186,7 +184,7 @@ pub fn run(req: &RunRequest, cancel: &CancelFlag) -> Result<RunOutput, String> {
     if text.is_empty() {
         return Err("E_RUNNER_EMPTY".into());
     }
-    Ok(RunOutput { text, elapsed_ms })
+    Ok(RunOutput { text })
 }
 
 #[cfg(test)]

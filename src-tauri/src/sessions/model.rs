@@ -91,6 +91,9 @@ pub struct Session {
     pub favorite: bool,
     pub summary: Option<String>,
     pub summary_stale: bool,
+    /// "codex / <model> / <effort>" of the run that wrote the summary.
+    pub summary_by: String,
+    pub summary_at: u64,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
