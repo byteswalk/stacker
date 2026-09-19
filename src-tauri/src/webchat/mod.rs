@@ -3,6 +3,7 @@ pub mod bodies;
 pub mod bridge;
 pub mod export;
 pub mod framing;
+pub mod host;
 pub mod protocol;
 pub mod store;
 
