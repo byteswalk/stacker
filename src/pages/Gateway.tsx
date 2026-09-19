@@ -43,7 +43,7 @@ export default function Gateway() {
       const next = await invoke<Status>("gateway_set", { enabled, port: p });
       setStatus(next);
       if (next.error) toast(t(ERRORS[next.error] ?? next.error), "err");
-      else toast(t(enabled ? "本机网关已开启" : "本机网关已关闭"), "ok");
+      else toast(t(enabled ? "接口服务已开启" : "接口服务已关闭"), "ok");
     } catch (e) { toast(t(ERRORS[String(e)] ?? String(e)), "err"); }
     finally { setBusy(false); }
   }
@@ -57,8 +57,8 @@ export default function Gateway() {
     try { await navigator.clipboard.writeText(text); toast(t("已复制"), "ok"); } catch { toast(t("复制失败，请手动选中复制"), "err"); }
   }
 
-  if (loadErr) return <ErrorState title={t("暂时无法读取本机网关状态")} description={t("请稍后重试。")} onRetry={load} />;
-  if (!status) return <Loading text={t("正在读取本机网关状态…")} />;
+  if (loadErr) return <ErrorState title={t("暂时无法读取接口服务状态")} description={t("请稍后重试。")} onRetry={load} />;
+  if (!status) return <Loading text={t("正在读取接口服务状态…")} />;
 
   const base = `http://127.0.0.1:${status.port}`;
   const models = ["codex", "claude", ...options.flatMap((o) => o.models.map((m) => `${o.agent}/${m.id}`))];
@@ -74,8 +74,8 @@ export default function Gateway() {
       <div className={"pxhero" + (status.running ? " on" : "")}>
         <span className="pxic"><i className="ti ti-plug-connected" /></span>
         <div className="pxt">
-          <div className="pxname">{t("本机网关")} <span className={"pxstat " + (status.running ? "on" : "off")}>{t(status.running ? "运行中" : "已关闭")}</span></div>
-          <div className="pxsub">{t("把本机已登录的 Codex / Claude 以 OpenAI 与 Anthropic 风格接口提供给你自己的工具，只有对话能力，不能读写文件或执行命令。")}</div>
+          <div className="pxname">{t("接口服务")} <span className={"pxstat " + (status.running ? "on" : "off")}>{t(status.running ? "运行中" : "已关闭")}</span></div>
+          <div className="pxsub">{t("让你自己的程序（脚本、编辑器插件、Chatbox 等支持 OpenAI / Anthropic 接口的工具）直接调用本机已登录的 Codex / Claude 对话，不用另买 API Key。只有对话能力，不能读写文件或执行命令。")}</div>
         </div>
         <div className="proxy-hero-actions">
           <label className="gw-port">{t("端口")}<input className="ip sm" value={port} disabled={busy} onChange={(e) => setPort(e.target.value.replace(/[^\d]/g, ""))} /></label>
@@ -120,7 +120,7 @@ export default function Gateway() {
 
       <div className="callout">
         <i className="ti ti-shield-lock" />
-        <div><b>{t("仅供本机自用")}</b> {t("网关只监听 127.0.0.1，拒绝浏览器网页发起的请求，每个请求都需要上面的密钥。调用会消耗你在对应智能体中登录账号的额度；请勿把端口或密钥提供给他人，也不要通过转发对外开放。")}</div>
+        <div><b>{t("仅供本机自用")}</b> {t("服务只监听 127.0.0.1，拒绝浏览器网页发起的请求，每个请求都需要上面的密钥。调用会消耗你在对应智能体中登录账号的额度；请勿把端口或密钥提供给他人，也不要通过转发对外开放。")}</div>
       </div>
     </>
   );

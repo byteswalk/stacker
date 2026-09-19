@@ -1273,3 +1273,10 @@ button{ font-family:inherit; }
 .a .gw-log>div:first-child{border-top:0}
 .a .gw-log .ok{color:#6bcf86}
 .a .gw-log .bad{color:#e6b450}
+
+/* Sidebar hierarchy: brighter section headers; children indented along a thin guide line. */
+.a nav .navgroup-hd{ color:var(--tx); font-weight:600; }
+.a nav .navgroup-hd + .navgroup-body .navgroup-items{ margin:2px 0 2px 18px; padding-left:6px; border-left:1px solid var(--bd); }
+.a nav .navgroup-hd + .navgroup-body .ni{ padding-left:10px; font-size:12.5px; }
+.a nav .navgroup-hd + .navgroup-body .ni > i:first-child{ font-size:14px; opacity:.85; }
+[data-theme="light"] .a nav .navgroup-hd{ color:#1f2937; }

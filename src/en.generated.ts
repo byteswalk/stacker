@@ -2610,4 +2610,11 @@ export const GENERATED_EN: Record<string, string> = {
   "还没有请求。": "No requests yet.",
   "已关闭": "Stopped",
   "端口": "Port",
+  "接口服务": "API service",
+  "接口服务已开启": "API service started",
+  "接口服务已关闭": "API service stopped",
+  "暂时无法读取接口服务状态": "Cannot read the API service status right now",
+  "正在读取接口服务状态…": "Reading API service status…",
+  "让你自己的程序（脚本、编辑器插件、Chatbox 等支持 OpenAI / Anthropic 接口的工具）直接调用本机已登录的 Codex / Claude 对话，不用另买 API Key。只有对话能力，不能读写文件或执行命令。": "Lets your own programs (scripts, editor plugins, Chatbox and other tools that speak the OpenAI / Anthropic API) chat with the Codex / Claude you are signed in to on this computer, without buying an API key. Chat only: no file access and no commands.",
+  "服务只监听 127.0.0.1，拒绝浏览器网页发起的请求，每个请求都需要上面的密钥。调用会消耗你在对应智能体中登录账号的额度；请勿把端口或密钥提供给他人，也不要通过转发对外开放。": "The service listens on 127.0.0.1 only, rejects requests from browser pages, and requires the key above on every request. Calls use the quota of the account signed in to each agent; do not share the port or key, and do not expose it through forwarding.",
 };
