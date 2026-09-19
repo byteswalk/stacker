@@ -4,6 +4,7 @@ import { addExcerpt, enqueueAll, onOutboxChange, openDb, outboxCount } from "./l
 import { LAST_TAB_KEY, shouldRemember, siteTabOf } from "./lib/lastTab";
 import { isValidSaveExcerpt } from "./lib/saveExcerpt";
 import { flush } from "./lib/sync";
+import { isTrustedSender } from "./lib/trustedSender";
 
 export type { SaveExcerpt } from "./lib/saveExcerpt";
 
@@ -95,10 +96,13 @@ function flushSoon(delayMs: number) {
 onOutboxChange(() => flushSoon(500));
 flushSoon(1000);
 
+const EXTENSION_URL = chrome.runtime.getURL("");
 const handleBridge = createBridgeHandler({ bridge, openDb, flushSoon, lastSyncAt: () => lastSyncAt });
 chrome.runtime.onMessage.addListener((message: unknown, sender, reply) => {
   if (!isBridgeMessage(message)) return false;
-  if (sender.id !== chrome.runtime.id) {
+  // Only the extension's own pages (manage, popup) may drive the bridge: a content script shares
+  // the extension's sender.id but runs with the website's own sender.url, not the extension's.
+  if (!isTrustedSender(sender, chrome.runtime.id, EXTENSION_URL)) {
     reply({ ok: false, error: "E_REQUEST" });
     return true;
   }
