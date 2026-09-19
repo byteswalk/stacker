@@ -88,6 +88,12 @@ export const EN: Record<string, string> = {
   "仅收藏": "Favorites only",
   "显示已删除": "Show deleted",
 
+  // ui/popup/Popup.tsx
+  "在 ChatGPT 或 Claude 打开一条对话后，这里会显示它。": "Open a conversation on ChatGPT or Claude to see it here.",
+  "这条对话还不在列表里：请在管理页刷新该站点。": "This conversation isn't in the list yet: refresh that site on the manage page.",
+  "在网页上选中文字，点出现的「存为摘录」按钮即可添加。": "Select text on the page and click the “Save as excerpt” button that appears to add one.",
+  "在管理页打开": "Open in manage page",
+
   // ui/errors.ts (ERROR_TEXT values)
   "请先在浏览器中打开并登录该网站": "Please open the site in your browser and sign in first",
   "请刷新该网站页面后重试": "Please refresh the site's page and try again",
