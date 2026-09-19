@@ -3,7 +3,7 @@ import type { SiteId } from "../shared/types";
 import { conversationIdOfUrl, conversationUrl, siteOfUrl, SITES } from "./registry";
 
 /** One conversation id per site, in the form its adapter uses. */
-const SAMPLE_ID: Record<SiteId, string> = { chatgpt: "abc-1", claude: "k1", gemini: "c_aaa111", grok: "g-1" };
+const SAMPLE_ID: Record<SiteId, string> = { chatgpt: "abc-1", claude: "k1", gemini: "c_aaa111", grok: "g-1", deepseek: "s-1" };
 
 describe("registry", () => {
   it("recognises sites and conversation ids from URLs", () => {
@@ -21,6 +21,9 @@ describe("registry", () => {
     expect(siteOfUrl("https://grok.com/c/0f3e-11")).toBe("grok");
     expect(conversationIdOfUrl("grok", "https://grok.com/c/0f3e-11?rid=x")).toBe("0f3e-11");
     expect(conversationIdOfUrl("grok", "https://grok.com/")).toBeNull();
+    expect(siteOfUrl("https://chat.deepseek.com/a/chat/s/7b2c-9")).toBe("deepseek");
+    expect(conversationIdOfUrl("deepseek", "https://chat.deepseek.com/a/chat/s/7b2c-9")).toBe("7b2c-9");
+    expect(conversationIdOfUrl("deepseek", "https://chat.deepseek.com/")).toBeNull();
   });
 
   it("finds every site's conversation id in the URL it builds for it", () => {
@@ -33,6 +36,6 @@ describe("registry", () => {
 
   it("marks which sites were checked on a real account", () => {
     const verified = Object.fromEntries((Object.keys(SITES) as SiteId[]).map((s) => [s, SITES[s].verified]));
-    expect(verified).toEqual({ chatgpt: true, claude: true, gemini: false, grok: false });
+    expect(verified).toEqual({ chatgpt: true, claude: true, gemini: false, grok: false, deepseek: false });
   });
 });

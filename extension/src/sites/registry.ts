@@ -1,6 +1,7 @@
 import type { SiteId } from "../shared/types";
 import { chatgpt } from "./chatgpt";
 import { claude } from "./claude";
+import { deepseek } from "./deepseek";
 import { gemini, geminiUrl } from "./gemini";
 import { grok } from "./grok";
 import type { AdapterFactory } from "./types";
@@ -40,6 +41,10 @@ export const SITES: Record<SiteId, SiteInfo> = {
   grok: {
     label: "Grok", factory: grok, origin: "https://grok.com", match: "https://grok.com/*", verified: false,
     idOfPath: firstGroup(/\/c\/([A-Za-z0-9-]+)/), urlOf: (id) => `https://grok.com/c/${id}`,
+  },
+  deepseek: {
+    label: "DeepSeek", factory: deepseek, origin: "https://chat.deepseek.com", match: "https://chat.deepseek.com/*", verified: false,
+    idOfPath: firstGroup(/\/a\/chat\/s\/([A-Za-z0-9-]+)/), urlOf: (id) => `https://chat.deepseek.com/a/chat/s/${id}`,
   },
 };
 

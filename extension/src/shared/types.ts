@@ -1,4 +1,4 @@
-export type SiteId = "chatgpt" | "claude" | "gemini" | "grok";
+export type SiteId = "chatgpt" | "claude" | "gemini" | "grok" | "deepseek";
 export type Role = "user" | "assistant" | "system" | "tool";
 
 export interface RemoteAccount { remoteId: string; label: string }
