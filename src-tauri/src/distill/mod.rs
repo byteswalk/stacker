@@ -1,6 +1,7 @@
 //! 提炼：从网页对话、本机会话与摘录里提炼可复用的经验问答、领域要求、提示词与 skill 草稿。
 //! 结果与网页对话同库（`webchat.sqlite3`），本机会话与网页对话共用一个结果库。
 //! 只写本机文件，绝不把 skill 安装到任何智能体目录。
+pub mod prompts;
 pub mod store;
 
 use serde::{Deserialize, Serialize};
