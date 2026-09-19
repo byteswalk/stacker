@@ -56,12 +56,17 @@ if (-not $SkipChecks) {
     Invoke-Checked "Rust clippy" { & cargo clippy --manifest-path src-tauri\Cargo.toml --all-targets -- -D warnings }
 }
 
-Invoke-Checked "Windows release build" { & npm.cmd run tauri -- build }
+Invoke-Checked "Browser extension build" { & npm.cmd run ext:build }
+Invoke-Checked "Windows release build" { & npm.cmd run tauri -- build --config src-tauri/tauri.bundle.conf.json }
 
 $ReleaseExe = Join-Path $Root "src-tauri\target\release\stacker.exe"
 $NsisSource = Join-Path $Root "src-tauri\target\release\bundle\nsis\Stacker_${Version}_x64-setup.exe"
 if (-not (Test-Path $ReleaseExe)) { throw "Release executable not found: $ReleaseExe" }
 if (-not (Test-Path $NsisSource)) { throw "NSIS installer not found: $NsisSource" }
+
+$BundledExtension = Join-Path $Root "src-tauri\target\release\extension"
+if (-not (Test-Path (Join-Path $BundledExtension "manifest.json"))) { throw "Browser extension was not bundled: $BundledExtension" }
+if (-not (Test-Path (Join-Path $BundledExtension "chunks"))) { throw "Browser extension subfolders were not bundled: $BundledExtension" }
 
 $Output = Join-Path $Root "release\v$Version"
 $PortableStage = Join-Path $Output "portable"
@@ -77,6 +82,7 @@ Copy-Item $NsisSource $InstallerPath
 Copy-Item $ReleaseExe (Join-Path $PortableStage "Stacker.exe")
 Copy-Item (Join-Path $Root "LICENSE") (Join-Path $PortableStage "LICENSE")
 Copy-Item (Join-Path $Root "resources\PORTABLE_README.txt") (Join-Path $PortableStage "README.txt")
+Copy-Item (Join-Path $Root "extension\dist") (Join-Path $PortableStage "extension") -Recurse
 New-Item (Join-Path $PortableStage "portable.flag") -ItemType File -Force | Out-Null
 Compress-Archive -Path (Join-Path $PortableStage "*") -DestinationPath $PortablePath -CompressionLevel Optimal
 Remove-Item $PortableStage -Recurse -Force
