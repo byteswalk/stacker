@@ -5,12 +5,14 @@ import {
   listFolders, openDb, putBody, renameAccount, renameFolder, updateLocal, type Account, type Conversation, type Db,
   type Folder,
 } from "../../lib/db";
+import { bridgeStatus, callStacker, type BridgeStatus } from "../../lib/bridgeMessages";
 import { brokenSitesIn, createBrokenSites, type BrokenSites } from "../../lib/brokenSites";
 import { runDeleteJob } from "../../lib/deleteJob";
-import { saveFile } from "../../lib/download";
 import { exportFileName, toMarkdown, type ExportMode } from "../../lib/markdown";
 import { createPacer, withPacing } from "../../lib/pacer";
 import { refreshIndex } from "../../lib/refresh";
+import { restoreFromStacker } from "../../lib/restore";
+import { pickSaver } from "../../lib/save";
 import { allTags, applyFilter, bodyText, EMPTY_FILTER, type Filter } from "../../lib/search";
 import { createSiteApi } from "../../lib/siteClient";
 import { SiteError, type SiteId } from "../../shared/types";
@@ -21,6 +23,7 @@ import { DeleteDialog } from "./DeleteDialog";
 import { Detail } from "./Detail";
 import { Filters } from "./Filters";
 import { deleteBlockReason, siteName } from "./siteStatus";
+import { SyncStatus } from "./SyncStatus";
 
 const api = createSiteApi();
 const brokenStore = createBrokenSites();
@@ -41,6 +44,7 @@ export function App() {
   const [current, setCurrent] = useState(new Set<string>());
   const [siteErrors, setSiteErrors] = useState<Partial<Record<SiteId, string>>>({});
   const [broken, setBroken] = useState<BrokenSites>({});
+  const [bridge, setBridge] = useState<BridgeStatus | null>(null);
 
   const reload = useCallback(async (d: Db) => {
     const [c, a, f] = await Promise.all([listConversations(d), listAccounts(d), listFolders(d)]);
@@ -49,6 +53,16 @@ export function App() {
   }, []);
   useEffect(() => { void openDb().then(async (d) => { setDb(d); await reload(d); }); }, [reload]);
   useEffect(() => { void brokenStore.all().then(setBroken); }, []);
+
+  // Poll the connection; connecting is cheap when Stacker is registered and skipped for 30 s after a failure.
+  useEffect(() => {
+    let alive = true;
+    const poll = () => void bridgeStatus(true).then((s) => { if (alive) setBridge(s); }, () => { if (alive) setBridge(null); });
+    poll();
+    const timer = setInterval(poll, 5000);
+    return () => { alive = false; clearInterval(timer); };
+  }, []);
+  const connectedNow = async () => (await bridgeStatus(true).catch(() => null))?.connected ?? false;
 
   useEffect(() => {
     if (!db || !filter.inBody) return;
@@ -90,6 +104,7 @@ export function App() {
 
   const exportChosen = (mode: ExportMode) => guarded(t("正在导出"), async () => {
     const pacer = createPacer();
+    const { save, where } = await pickSaver(connectedNow);
     for (const c of chosen) {
       let body = bodyIsFresh(c) ? await getBody(db!, c.key) : undefined;
       if (!body) {
@@ -97,11 +112,24 @@ export function App() {
         await putBody(db!, c.key, fresh, Date.now());
         body = { ...fresh, key: c.key };
       }
-      await saveFile(exportFileName(c, "md"), toMarkdown(c, aliasOf(c.account), body, mode, urlOf(c)), "text/markdown");
-      if (mode === "full") await saveFile(exportFileName(c, "json"), JSON.stringify(body, null, 2), "application/json");
+      await save(exportFileName(c, "md"), toMarkdown(c, aliasOf(c.account), body, mode, urlOf(c)), "text/markdown");
+      if (mode === "full") await save(exportFileName(c, "json"), JSON.stringify(body, null, 2), "application/json");
     }
-    setMessage({ text: `${t("已导出")} ${chosen.length} ${t("条到下载目录的「Stacker 网页对话」文件夹")}`, kind: "info" });
+    setMessage({
+      text: where === "stacker"
+        ? `${t("已导出")} ${chosen.length} ${t("条到 Stacker 的导出目录")}`
+        : `${t("已导出")} ${chosen.length} ${t("条到下载目录的「Stacker 网页对话」文件夹")}`,
+      kind: "info",
+    });
   });
+
+  const restore = () => {
+    if (!db || !confirm(t("从 Stacker 恢复账号备注名、文件夹、标签、收藏、备注和摘录？这台浏览器里较新的修改会保留。"))) return;
+    void guarded(t("正在从 Stacker 恢复"), async () => {
+      const n = await restoreFromStacker(db, (request) => callStacker("pullBackup", request));
+      setMessage({ text: `${t("已恢复")}：${t("账号")} ${n.accounts}，${t("文件夹")} ${n.folders}，${t("对话")} ${n.conversations}，${t("摘录")} ${n.excerpts}`, kind: "info" });
+    });
+  };
 
   async function openDelete() {
     const sites = [...new Set(chosen.map((c) => c.site))];
@@ -138,6 +166,9 @@ export function App() {
       {(Object.keys(SITES) as SiteId[]).filter((s) => broken[s]).map((s) => <span key={s} className="err">{SITES[s].label}：{t("接口已变化")}</span>)}
       {unverified.length > 0 && <span className="warn" title={t("这些站点的接口还没有在真实账号上核对过：可以刷新、读取和导出，暂不支持删除。")}>{unverified.map((s) => SITES[s].label).join("、")}：{t("未实测")}</span>}
       {(Object.keys(SITES) as SiteId[]).map((s) => <a key={s} href={SITES[s].origin} target="_blank" rel="noreferrer">{t("打开")} {SITES[s].label}</a>)}
+      <SyncStatus status={bridge} busy={!!busy}
+        onReconnect={() => void bridgeStatus(true, true).then(setBridge, () => setBridge(null))}
+        onRestore={restore} />
       {busy && <span className="mut">{busy}…</span>}
       {message && <span className={message.kind === "error" ? "err" : "mut"}>{message.text}</span>}
     </div>
@@ -178,7 +209,8 @@ export function App() {
     </div>
     {deleting && <DeleteDialog items={deleting} currentAccounts={current} aliasOf={aliasOf} siteErrors={siteErrors}
       onRun={async (runItems, mode, signal, onProgress) => {
-        const results = await runDeleteJob(runItems, mode, { api, db, pacer: createPacer(), now: Date.now, save: saveFile, aliasOf }, signal, onProgress);
+        const { save } = await pickSaver(connectedNow);
+        const results = await runDeleteJob(runItems, mode, { api, db, pacer: createPacer(), now: Date.now, save, aliasOf }, signal, onProgress);
         const newlyBroken = brokenSitesIn(runItems, results);
         if (newlyBroken.length) setBroken(await brokenStore.mark(newlyBroken, Date.now()));
         return results;

@@ -118,6 +118,25 @@ export const EN: Record<string, string> = {
   "对话不存在": "Conversation not found",
   "网络或网站错误": "Network or site error",
   "正文为空，未删除": "Conversation body is empty; not deleted",
+  "Stacker 没有响应，请稍后再试": "Stacker did not respond; try again later",
+  "导出文件名无效": "Invalid export file name",
+  "Stacker 无法写入它的数据目录": "Stacker cannot write to its data folder",
+  "Stacker 拒绝了这个请求": "Stacker refused the request",
+
+  // manage/SyncStatus.tsx, manage/App.tsx (Stacker)
+  "未连接 Stacker": "Not connected to Stacker",
+  "重新连接": "Reconnect",
+  "已连接 Stacker": "Connected to Stacker",
+  "待同步": "pending:",
+  "项": "item(s)",
+  "从 Stacker 恢复": "Restore from Stacker",
+  "正在从 Stacker 恢复": "Restoring from Stacker",
+  "从 Stacker 恢复账号备注名、文件夹、标签、收藏、备注和摘录？这台浏览器里较新的修改会保留。": "Restore account aliases, folders, tags, favorites, notes and excerpts from Stacker? Newer changes in this browser are kept.",
+  "已恢复": "Restored",
+  "账号": "Accounts",
+  "文件夹": "Folders",
+  "对话": "Conversations",
+  "条到 Stacker 的导出目录": "item(s) to Stacker's export folder",
 };
 
 export function t(text: string): string {

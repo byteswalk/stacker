@@ -1,4 +1,5 @@
 import { SiteError } from "../shared/types";
+import { BridgeError } from "../lib/bridge";
 import { t } from "../i18n";
 
 export const ERROR_TEXT: Record<string, string> = {
@@ -13,9 +14,14 @@ export const ERROR_TEXT: Record<string, string> = {
   E_HTTP: "网络或网站错误",
   E_NET: "网络或网站错误",
   E_EMPTY: "正文为空，未删除",
+  E_NOT_CONNECTED: "未连接 Stacker",
+  E_TIMEOUT: "Stacker 没有响应，请稍后再试",
+  E_PATH: "导出文件名无效",
+  E_STORAGE: "Stacker 无法写入它的数据目录",
+  E_REQUEST: "Stacker 拒绝了这个请求",
 };
 
 export function errorText(e: unknown): string {
-  const code = e instanceof SiteError ? e.code : typeof e === "string" ? e : "";
+  const code = e instanceof SiteError || e instanceof BridgeError ? e.code : typeof e === "string" ? e : "";
   return ERROR_TEXT[code] ? t(ERROR_TEXT[code]) : e instanceof Error ? e.message : String(e);
 }
