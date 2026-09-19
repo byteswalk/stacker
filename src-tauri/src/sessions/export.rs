@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 const TOOL_TEXT_LIMIT: usize = 2_000;
 
-fn safe(name: &str, limit: usize) -> String {
+pub(crate) fn safe(name: &str, limit: usize) -> String {
     let cleaned: String = name
         .chars()
         .map(|c| {

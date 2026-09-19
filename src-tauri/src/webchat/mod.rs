@@ -1,5 +1,6 @@
 //! Web chats from the Stacker browser extension: native-messaging bridge, storage and sync.
 pub mod bodies;
+pub mod export;
 pub mod framing;
 pub mod protocol;
 pub mod store;
