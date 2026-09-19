@@ -10,6 +10,10 @@ use std::collections::HashSet;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 
+/// `hello`'s own id, plus room to spare; a well-formed request never needs more, and an
+/// id this long could otherwise push `encode_response`'s id-carrying fallback over the limit.
+const MAX_ID: usize = 128;
+
 /// The caller origin Chrome passes as the first argument on Windows.
 pub fn origin_arg(args: &[String]) -> Option<String> {
     args.get(1)
@@ -39,6 +43,9 @@ pub fn serve(input: &mut impl Read, output: &mut impl Write, ctx: &mut Context) 
             Err(_) => return 1,
         };
         let response = match serde_json::from_slice::<Request>(&raw) {
+            Ok(request) if request.id.len() > MAX_ID => {
+                Response::failure(String::new(), "E_REQUEST")
+            }
             Ok(request) => ctx.handle(request),
             Err(_) => Response::failure(String::new(), "E_REQUEST"),
         };
@@ -48,13 +55,19 @@ pub fn serve(input: &mut impl Read, output: &mut impl Write, ctx: &mut Context) 
     }
 }
 
-/// A response that would not fit one native message is replaced by `E_TOO_LARGE`.
+/// A response that would not fit one native message is replaced by `E_TOO_LARGE`; the
+/// fallback always fits, even when the request's own id is what made the first one too big.
 pub fn encode_response(response: &Response) -> Vec<u8> {
     let bytes = serde_json::to_vec(response).unwrap_or_default();
     if bytes.len() <= MAX_MESSAGE {
         return bytes;
     }
-    serde_json::to_vec(&Response::failure(response.id.clone(), "E_TOO_LARGE")).unwrap_or_default()
+    let with_id = serde_json::to_vec(&Response::failure(response.id.clone(), "E_TOO_LARGE"))
+        .unwrap_or_default();
+    if with_id.len() <= MAX_MESSAGE {
+        return with_id;
+    }
+    serde_json::to_vec(&Response::failure(String::new(), "E_TOO_LARGE")).unwrap_or_default()
 }
 
 pub struct Context {
@@ -277,12 +290,49 @@ mod tests {
     }
 
     #[test]
+    fn an_overlong_id_is_refused_before_dispatch_and_the_loop_goes_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = context(&dir);
+        let out = exchange(
+            &mut ctx,
+            &[
+                json!({"id": "x".repeat(MAX_ID + 1), "type": "status"}),
+                json!({"id": "9", "type": "status"}),
+            ],
+        );
+        assert_eq!(out[0], json!({"id": "", "ok": false, "error": "E_REQUEST"}));
+        assert_eq!(
+            (out[1]["id"].as_str(), out[1]["ok"].as_bool()),
+            (Some("9"), Some(true))
+        );
+    }
+
+    #[test]
     fn responses_over_the_limit_become_an_error() {
         let big = Response::success("7".into(), json!("x".repeat(MAX_MESSAGE)));
         let value: Value = serde_json::from_slice(&encode_response(&big)).unwrap();
         assert_eq!(
             value,
             json!({"id": "7", "ok": false, "error": "E_TOO_LARGE"})
+        );
+    }
+
+    #[test]
+    fn the_too_large_fallback_always_fits_even_when_the_id_itself_is_huge() {
+        // With MAX_ID enforced before dispatch this cannot happen in practice, but
+        // encode_response must still hold the line on its own: the fallback can never
+        // grow the message back over the limit just by carrying the same id.
+        let huge_id = "x".repeat(MAX_MESSAGE);
+        let big = Response::success(huge_id, json!("x".repeat(MAX_MESSAGE)));
+        let bytes = encode_response(&big);
+        assert!(
+            bytes.len() <= MAX_MESSAGE,
+            "the fallback response must always fit one frame"
+        );
+        let value: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(
+            value,
+            json!({"id": "", "ok": false, "error": "E_TOO_LARGE"})
         );
     }
 
