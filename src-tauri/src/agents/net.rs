@@ -12,7 +12,8 @@ pub(crate) fn select_proxy(
         "manual" if !manual.0.trim().is_empty() && manual.1 > 0 => {
             Some(format!("http://{}:{}", manual.0.trim(), manual.1))
         }
-        "system" => system.map(|(host, port)| format!("http://{host}:{port}")),
+        // Stacker's own requests read the Windows proxy in hands-off and follow-system mode.
+        "system" | "hands_off" => system.map(|(host, port)| format!("http://{host}:{port}")),
         _ => None,
     }
 }

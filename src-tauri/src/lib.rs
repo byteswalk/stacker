@@ -17,6 +17,7 @@ mod jdk;
 mod logging;
 mod profile;
 mod proxy;
+mod proxy_ledger;
 mod pyenv;
 mod runner;
 mod rustup;
@@ -108,12 +109,7 @@ pub fn run() {
             );
             settings::init();
             settings::start_log_retention_worker();
-            if let Err(error) = settings::settings_set_proxy_mode(app_settings.proxy_mode.clone()) {
-                log::warn!(
-                    target: "stacker::proxy",
-                    "failed to reconcile persisted proxy settings during startup: {error}"
-                );
-            }
+            proxy_ledger::reconcile_on_startup();
             binary::migrate_legacy_envs();
             build_tray(app.handle())?;
             Ok(())
@@ -359,6 +355,9 @@ pub fn run() {
             settings::settings_set_proxy_mode,
             settings::settings_sync_system_proxy,
             settings::settings_set_proxy_manual,
+            proxy_ledger::proxy_overview,
+            proxy_ledger::proxy_location_write,
+            proxy_ledger::proxy_location_clear,
             settings::os_info,
             agents::commands::vibe_catalog,
             agents::commands::vibe_tools,

@@ -479,8 +479,7 @@ fn pip_agent_check(pyenv_python: Option<&(String, PathBuf)>) -> AgentCheck {
 }
 
 fn maven_agent_check() -> AgentCheck {
-    let cleaned = crate::sources::clear_maven_legacy_proxy_opts().unwrap_or(false);
-    let mut check = agent_check(
+    agent_check(
         "maven",
         "Maven",
         "构建工具",
@@ -489,15 +488,7 @@ fn maven_agent_check() -> AgentCheck {
         &["--version"],
         Some("maven"),
         Some("配置 Maven"),
-    );
-    if cleaned {
-        if check.status == "ok" {
-            check.message = "Maven 命令可用；已清理旧版代理环境变量".into();
-        } else {
-            check.message = format!("已清理旧版代理环境变量；{}", check.message);
-        }
-    }
-    check
+    )
 }
 
 fn run_python_version(program: &Path) -> Result<String, String> {

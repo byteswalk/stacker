@@ -720,7 +720,7 @@ export default function Git() {
       <div className="grouphd" style={{ marginTop: 18 }}><span className="gt"><i className="ti ti-world-bolt" /> Git 代理 <span className="cnt">Git 全局网络配置</span></span></div>
       <div className="srcrow">
         <span className="av st"><i className="ti ti-world-bolt" /></span>
-        <div className="mt"><div className="t">HTTP / HTTPS 代理 {proxyConfigured ? <span className="bd g">已配置</span> : <span className="bd n">未配置</span>}</div><div className="s dim">使用设置页中保存的全局代理地址。</div><div className="s mono">{statusLoading ? "检测中…" : gitStatus.http_proxy || gitStatus.https_proxy || "未配置"}</div></div>
+        <div className="mt"><div className="t">HTTP / HTTPS 代理 {proxyConfigured ? <span className="bd g">已配置</span> : <span className="bd n">未配置</span>}</div><div className="s dim">写入「终端代理」页当前的代理地址。</div><div className="s mono">{statusLoading ? "检测中…" : gitStatus.http_proxy || gitStatus.https_proxy || "未配置"}</div></div>
         <button className="pr sm" disabled={!gitStatus.installed || busy} onClick={applyProxy}><i className="ti ti-check" /> 应用</button>
         <button className="gh sm" disabled={!gitStatus.installed || busy || !proxyConfigured} onClick={clearProxy}><i className="ti ti-eraser" /> 清除</button>
       </div>

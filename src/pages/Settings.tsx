@@ -15,7 +15,7 @@ type AppSettings = {
   close_behavior: CloseBehavior;
   minimize_to_tray: boolean;
   theme: Theme;
-  proxy_mode: "system" | "manual" | "off";
+  proxy_mode: "hands_off" | "system" | "manual";
   proxy_host: string;
   proxy_port: number;
   log_level: "error" | "warn" | "info" | "debug";
@@ -88,10 +88,6 @@ export default function Settings() {
 
   const [clearLogConfirm, setClearLogConfirm] = useState(false);
   const [clearLogBusy, setClearLogBusy] = useState(false);
-  const [proxyMode, setProxyMode] = useState<AppSettings["proxy_mode"]>("system");
-  const [proxyHost, setProxyHost] = useState("");
-  const [proxyPort, setProxyPort] = useState("");
-  const [proxySaving, setProxySaving] = useState(false);
   const [appUpdBusy, setAppUpdBusy] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [sourceUpdate, setSourceUpdate] = useState<MirrorsUpdateCheck | null>(null);
@@ -113,9 +109,6 @@ export default function Settings() {
     refreshSourceSummary();
     invoke<AppSettings>("settings_get").then((s) => {
       setCloseBehavior(s.close_behavior || (s.minimize_to_tray ? "tray" : "ask"));
-      setProxyMode(s.proxy_mode || "system");
-      setProxyHost(s.proxy_host || "");
-      setProxyPort(s.proxy_port ? String(s.proxy_port) : "");
       setLogLevel(s.log_level || "error");
       setLogRetentionDays(String(s.log_retention_days || 7));
       setLargeFileThresholdGb(String(Math.round(s.large_file_threshold_bytes / GIB_BYTES) || 1));
@@ -289,61 +282,6 @@ export default function Settings() {
     if (result === "settings-error") setRememberScanTargets(previous);
   }
 
-  async function saveProxyAddr() {
-    const host = proxyHost.trim();
-    const port = Number(proxyPort);
-    if (!host) { toast("请输入代理主机地址", "info"); return; }
-    if (!Number.isInteger(port) || port <= 0 || port > 65535) { toast("请输入有效的代理端口", "info"); return; }
-    setProxySaving(true);
-    try {
-      await invoke("settings_set_proxy_addr", { host, port });
-      setProxyMode("manual");
-      setProxyHost(host);
-      setProxyPort(String(port));
-      toast("全局代理地址已保存", "ok");
-    } catch (e) {
-      toast("保存代理地址失败：" + e, "err");
-    } finally {
-      setProxySaving(false);
-    }
-  }
-
-  async function setProxyConfigurationMode(mode: AppSettings["proxy_mode"]) {
-    setProxySaving(true);
-    try {
-      const saved = await invoke<AppSettings>("settings_set_proxy_mode", { mode });
-      setProxyMode(saved.proxy_mode);
-      setProxyHost(saved.proxy_host || "");
-      setProxyPort(saved.proxy_port ? String(saved.proxy_port) : "");
-      toast(mode === "off"
-        ? "已关闭并清除终端和开发工具的显式代理"
-        : mode === "system"
-          ? "已跟随 Windows 网络设置，并同步终端和开发工具代理"
-          : "已切换为手动代理，并同步已有工具代理", "ok");
-    } catch (e) {
-      toast("切换代理模式失败：" + e, "err");
-    } finally {
-      setProxySaving(false);
-    }
-  }
-
-  async function syncSystemProxy() {
-    setProxySaving(true);
-    try {
-      const saved = await invoke<AppSettings>("settings_sync_system_proxy");
-      setProxyMode(saved.proxy_mode);
-      setProxyHost(saved.proxy_host || "");
-      setProxyPort(saved.proxy_port ? String(saved.proxy_port) : "");
-      toast(saved.proxy_host && saved.proxy_port
-        ? `已同步系统代理 ${saved.proxy_host}:${saved.proxy_port}`
-        : "未检测到显式系统代理；已清除旧代理，网络连接将使用 Windows 当前路由", "ok");
-    } catch (e) {
-      toast("同步系统代理失败：" + e, "err");
-    } finally {
-      setProxySaving(false);
-    }
-  }
-
   async function checkAppUpdate() {
     setAppUpdBusy(true);
     try {
@@ -445,39 +383,6 @@ export default function Settings() {
       <div className="callout"><i className="ti ti-info-circle" /><div>服务器清单用于更新内置源，拉取后会以服务器清单为准全量替换；本地自定义源由当前电脑维护，不会被服务器清单覆盖。</div></div>
 
       <div className="grouphd" style={{ marginTop: 18 }}><span className="gt"><i className="ti ti-adjustments" /> 通用与外观</span></div>
-      <div className="srcrow">
-        <span className="av st"><i className="ti ti-world-bolt" /></span>
-        <div className="mt">
-          <div className="t">开发工具代理</div>
-          <div className="s dim" title="跟随系统会读取 Windows 的显式代理地址；没有显式地址时会清除工具代理，并使用 Windows 当前网络路由。">统一管理终端和构建工具使用的显式代理地址。</div>
-        </div>
-        <Select value={proxyMode} width={132} disabled={proxySaving || noBackend}
-          options={[
-            { value: "system", label: "跟随系统" },
-            { value: "manual", label: "手动代理" },
-            { value: "off", label: "关闭" },
-          ]}
-          onChange={(value) => setProxyConfigurationMode(value as AppSettings["proxy_mode"])} />
-        {proxyMode === "manual" ? <>
-          <input className="ip" value={proxyHost} disabled={proxySaving || noBackend}
-            onChange={(e) => setProxyHost(e.target.value)} placeholder="127.0.0.1" style={{ width: 144 }} />
-          <input className="ip sm" value={proxyPort} disabled={proxySaving || noBackend}
-            onChange={(e) => setProxyPort(e.target.value.replace(/[^\d]/g, ""))} placeholder="端口" />
-          <button className="pr sm" disabled={proxySaving || noBackend} onClick={saveProxyAddr}>
-            <i className={"ti " + (proxySaving ? "ti-loader spin" : "ti-device-floppy")} /> 保存
-          </button>
-        </> : proxyMode === "system" ? <>
-          <span className="s dim proxy-effective-address" title={proxyHost && proxyPort ? `${proxyHost}:${proxyPort}` : "Windows 未提供显式系统代理地址；网络连接将使用 Windows 当前路由。"}>
-            {proxyHost && proxyPort ? `${proxyHost}:${proxyPort}` : "未配置显式代理（使用 Windows 路由）"}
-          </span>
-          <button className="pr sm" disabled={proxySaving || noBackend} onClick={syncSystemProxy}>
-            <i className={"ti " + (proxySaving ? "ti-loader spin" : "ti-refresh")} /> 同步
-          </button>
-        </> : <span className="s dim">不向终端或构建工具写入代理</span>}
-        {proxyMode !== "off" && <button className="gh sm" disabled={proxySaving || noBackend} onClick={() => setProxyConfigurationMode("off")}>
-          <i className="ti ti-eraser" /> 清除
-        </button>}
-      </div>
       <div className="srcrow">
         <span className="av st"><i className="ti ti-device-desktop" /></span>
         <div className="mt">

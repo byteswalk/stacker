@@ -23,7 +23,7 @@ Stacker manages that local layer without requiring a model connection or uploadi
 - **Agent management** — inspect supported CLI and desktop products, distinguish regional editions, verify that installs actually run, and install, update, uninstall or repair them as parallel background tasks with one-click update.
 - **Agent session data** — list the Codex and Claude sessions you actually see in each client, group them by project, find orphaned records, and delete them in bulk with a slim Markdown export.
 - **Git account isolation** — use separate terminal contexts and repository-level commit identities for GitHub, Gitee, GitLab, Gitea, Forgejo, Codeup, enterprise, and generic HTTPS Git services.
-- **Source and network control** — test latency, select download and repository sources, manage terminal proxy settings, and preserve local custom sources.
+- **Source and network control** — test latency, select download and repository sources, and preserve local custom sources. The proxy overview shows where terminal, Git, npm, Yarn, Maven and Gradle proxies come from; by default Stacker is hands-off and only ever syncs entries it wrote itself.
 - **Package storage placement** — move or reset Maven, Gradle, npm, pnpm, pip, Composer, Go, Cargo, and rustup download or build stores without deleting the old location automatically.
 - **Developer disk intelligence** — scan selected folders or disks, recognize development projects and agent traces, locate large files, review rebuildable artifacts by project, and remove only classified targets after confirmation.
 - **Recoverable changes** — back up supported configuration before writing and restore it from local history.
