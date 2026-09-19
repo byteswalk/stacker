@@ -94,6 +94,11 @@ export const EN: Record<string, string> = {
   "在网页上选中文字，点出现的「存为摘录」按钮即可添加。": "Select text on the page and click the “Save as excerpt” button that appears to add one.",
   "在管理页打开": "Open in manage page",
 
+  // content/excerpt.ts
+  "存为摘录": "Save as excerpt",
+  "已存": "Saved",
+  "保存失败": "Save failed",
+
   // ui/errors.ts (ERROR_TEXT values)
   "请先在浏览器中打开并登录该网站": "Please open the site in your browser and sign in first",
   "请刷新该网站页面后重试": "Please refresh the site's page and try again",
