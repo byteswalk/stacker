@@ -7,6 +7,7 @@ mod checkup;
 mod cleanup;
 mod composer;
 mod custom;
+mod distill;
 mod dpapi;
 mod env;
 mod fnm;

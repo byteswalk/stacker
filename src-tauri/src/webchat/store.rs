@@ -9,7 +9,8 @@ use std::path::Path;
 const FILE: &str = "webchat.sqlite3";
 
 /// Schema versions, applied in order; `PRAGMA user_version` records how many ran.
-const MIGRATIONS: &[&str] = &["
+const MIGRATIONS: &[&str] = &[
+    "
 CREATE TABLE web_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE web_accounts (
   key TEXT PRIMARY KEY, site TEXT NOT NULL, remote_id TEXT NOT NULL,
@@ -35,7 +36,23 @@ CREATE TABLE web_excerpts (
 CREATE TABLE web_body_parts (
   key TEXT NOT NULL, fetched_at INTEGER NOT NULL, chunk INTEGER NOT NULL, chunks INTEGER NOT NULL,
   messages TEXT NOT NULL, PRIMARY KEY (key, fetched_at, chunk));
-"];
+",
+    // G4: distilled results and their source reverse-lookup index (native sessions and web
+    // chats share one results database).
+    "
+CREATE TABLE distill_results (
+  id TEXT PRIMARY KEY, kind TEXT NOT NULL, title TEXT NOT NULL DEFAULT '',
+  body TEXT NOT NULL DEFAULT '', sources TEXT NOT NULL DEFAULT '[]',
+  state TEXT NOT NULL DEFAULT 'draft', by_runner TEXT NOT NULL DEFAULT '',
+  folder TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL DEFAULT 0);
+CREATE INDEX distill_results_kind ON distill_results(kind, updated_at);
+CREATE TABLE distill_sources (
+  result_id TEXT NOT NULL, source_key TEXT NOT NULL,
+  PRIMARY KEY (result_id, source_key));
+CREATE INDEX distill_sources_key ON distill_sources(source_key);
+",
+];
 
 fn db_err<E>(_: E) -> String {
     "E_STORAGE".into()
