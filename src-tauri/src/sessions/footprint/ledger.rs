@@ -6,7 +6,7 @@ use crate::sessions::model::{Agent, Roots};
 use crate::space_analysis::windows_fs::display_path;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 pub struct Root {
@@ -243,13 +243,6 @@ pub fn session_ids(sessions: &[crate::sessions::model::Session]) -> HashSet<Stri
         }
     }
     ids
-}
-
-pub fn root_of(path: &Path, scan: &Scan) -> Option<PathBuf> {
-    scan.paths
-        .values()
-        .find(|p| p.paths.iter().any(|q| q == path))
-        .map(|p| p.root.clone())
 }
 
 #[cfg(test)]

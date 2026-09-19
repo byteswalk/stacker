@@ -44,6 +44,26 @@ Claude 桌面端的 Code 页与 CLI 共用 `~/.claude/projects`，Codex 桌面�
 - 不跟随符号链接或目录联接；所有路径必须位于对应智能体根目录内。
 - 删除只影响智能体的会话记录，不删除项目源码、工作树或构建缓存。
 
+## 占用
+
+「占用」标签统计 Codex 与 Claude 在磁盘上的全部数据，每一项归入四类：
+
+| 类别 | 内容 | 操作 |
+| --- | --- | --- |
+| 会话记录 | Codex `sessions`、`archived_sessions`；Claude `projects` | 跳到「会话」标签按占用排序后删除 |
+| 可安全清理 | 旧版命令执行器、旧版 Claude Code、临时文件与缓存、7 天前的日志与终端快照、无对应会话的环境快照与编辑检查点 | 默认勾选 |
+| 需你判断 | Codex `tmp` 下的工作目录、`target`、生成的图片、附件、可视化产物、运行日志数据库 | 默认不勾选，逐项确认 |
+| 保留 | 状态数据库、插件、技能、配置、当前 Claude Code、桌面端组件与运行时 | 只显示大小 |
+
+统计的根目录：Codex 数据目录、`%LOCALAPPDATA%\OpenAI\Codex`、Claude 数据目录、`%APPDATA%\Claude`、`%LOCALAPPDATA%\Claude`、`%LOCALAPPDATA%\Claude-3p` 以及 MSIX 包目录。同一目录经 MSIX 重定向出现两次时只计一次。
+
+清理规则：
+
+- 清理前重新统计，所选项目不存在、被阻止或大小变化超过 1% 时停止。
+- 对应程序在运行时，其临时文件、缓存和日志数据库被阻止，提示先退出；Stacker 不会关闭任何程序。
+- 旧版 Claude Code 只在没有进程使用该版本时列为可清理；版本号最大的始终保留。
+- 不跟随链接或目录联接，删除路径必须位于其根目录内且不能是根目录本身。
+
 ## Stacker 保存的数据
 
 `%LOCALAPPDATA%\Stacker\<dev|stable>\conversations\sessions.sqlite3`：
