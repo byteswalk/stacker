@@ -18,6 +18,7 @@ mod logging;
 mod profile;
 mod proxy;
 mod pyenv;
+mod runner;
 mod rustup;
 mod sessions;
 mod settings;

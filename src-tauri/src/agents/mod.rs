@@ -3,8 +3,8 @@ pub mod commands;
 mod detect;
 mod health;
 mod install;
-mod net;
-mod process;
+pub(crate) mod net;
+pub(crate) mod process;
 mod registry;
 pub(crate) mod tasks;
 
