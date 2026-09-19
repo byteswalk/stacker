@@ -1,4 +1,4 @@
-//! Folder sizes that count every file once, even across hard links and redirected roots.
+//! Folder sizes that count a directory once, even when it is reachable through redirected roots.
 use crate::space_analysis::walker::is_link_or_reparse_point;
 use crate::space_analysis::windows_fs::{display_path, file_identity, FileIdentity};
 use std::collections::HashSet;
@@ -16,6 +16,11 @@ impl Meter {
         Self::default()
     }
 
+    /// Marks a root as visited; false when the same directory was already scanned under another path.
+    pub fn claim(&mut self, root: &Path) -> bool {
+        file_identity(root).map_or(true, |id| self.seen.insert(id))
+    }
+
     /// Returns `(bytes, files)` not yet counted by this meter. Links are never followed.
     pub fn measure(&mut self, path: &Path) -> (u64, u64) {
         let Ok(meta) = fs::symlink_metadata(path) else {
@@ -24,13 +29,15 @@ impl Meter {
         if is_link_or_reparse_point(&meta) {
             return (0, 0);
         }
+        if meta.is_file() {
+            return (meta.len(), 1);
+        }
+        // Redirected roots (MSIX) alias whole directories, so directory identity is enough;
+        // opening every file for its identity would make large trees slow.
         if let Ok(identity) = file_identity(path) {
             if !self.seen.insert(identity) {
                 return (0, 0);
             }
-        }
-        if meta.is_file() {
-            return (meta.len(), 1);
         }
         let Ok(entries) = fs::read_dir(path) else {
             self.warnings
@@ -52,12 +59,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn hard_links_and_repeated_roots_count_once() {
+    fn repeated_roots_count_once() {
         let dir = tempfile::tempdir().unwrap();
         let a = dir.path().join("a");
         fs::create_dir(&a).unwrap();
         fs::write(a.join("f"), vec![0u8; 100]).unwrap();
-        fs::hard_link(a.join("f"), a.join("g")).unwrap();
         let mut meter = Meter::new();
         assert_eq!(meter.measure(&a), (100, 1));
         assert_eq!(meter.measure(&a), (0, 0), "a root seen twice counts once");

@@ -220,3 +220,10 @@ pub fn sessions_job() -> Option<super::delete::JobState> {
 pub fn sessions_cancel() {
     super::delete::cancel()
 }
+
+#[tauri::command]
+pub async fn footprint_scan(
+    refresh: bool,
+) -> Result<super::footprint::model::FootprintReport, String> {
+    blocking(move || Ok(super::footprint::scan_cached(refresh)?.report.clone())).await
+}

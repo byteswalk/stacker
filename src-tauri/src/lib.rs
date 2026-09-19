@@ -164,6 +164,7 @@ pub fn run() {
             sessions::commands::sessions_delete_execute,
             sessions::commands::sessions_job,
             sessions::commands::sessions_cancel,
+            sessions::commands::footprint_scan,
             sources::list_sources,
             sources::apply_source,
             sources::apply_source_scoped,

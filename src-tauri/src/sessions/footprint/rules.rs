@@ -384,6 +384,7 @@ fn claude_home(root: &Path, cx: &Context) -> Vec<Draft> {
     use FootprintKind::*;
     let running = cx.claude_cli_running();
     let mut b = Builder::new(Owner::Shared);
+    let mut caches = Vec::new();
     for path in entries(root) {
         match name(&path).as_str() {
             "projects" => b.add(
@@ -447,17 +448,18 @@ fn claude_home(root: &Path, cx: &Context) -> Vec<Draft> {
                     false,
                 );
             }
-            "cache" | "telemetry" => b.add(
-                "claude-cache",
-                Reclaimable,
-                "缓存与遥测",
-                "Claude Code 的缓存和待上传的遥测数据，删除后自动重建。",
-                vec![path],
-                running,
-            ),
+            "cache" | "telemetry" => caches.push(path),
             _ => b.other.push(path),
         }
     }
+    b.add(
+        "claude-cache",
+        Reclaimable,
+        "缓存与遥测",
+        "Claude Code 的缓存和待上传的遥测数据，删除后自动重建。",
+        caches,
+        running,
+    );
     b.finish()
 }
 
