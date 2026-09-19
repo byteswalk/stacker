@@ -237,4 +237,24 @@ describe("applyBackup", () => {
     expect((await listFolders(db)).map((f) => f.name)).toEqual(["Trips"]);
     expect(await outboxCount(db)).toBe(0);
   });
+
+  it("does not resurrect a folder or excerpt that is queued for removal but not yet flushed", async () => {
+    const folder = await createFolder(db, "Trips", 1);
+    const excerpt = await addExcerpt(db, { site: "chatgpt", conversationId: null, url: "u", pageTitle: "p", text: "tip", note: "" }, 2);
+    await clearOutbox(db);
+    await deleteFolder(db, folder.id, 3);
+    await deleteExcerpt(db, excerpt.id, 4);
+    // Stacker's backup still holds the pre-deletion copies: the outbox hasn't flushed the removals yet.
+    const counts = await applyBackup(db, {
+      accounts: [],
+      folders: [folder],
+      conversations: [],
+      excerpts: [{ ...excerpt, localUpdatedAt: 99 }],
+    });
+    expect(counts).toEqual({ accounts: 0, folders: 0, conversations: 0, excerpts: 0 });
+    expect(await listFolders(db)).toEqual([]);
+    expect(await listExcerpts(db)).toEqual([]);
+    // The pending removals are still queued, untouched by the restore.
+    expect((await readOutbox(db, 10)).map((e) => e.kind).sort()).toEqual(["removeExcerpt", "removeFolder"]);
+  });
 });

@@ -321,8 +321,14 @@ const knownSite = (site: string): site is SiteId => Object.prototype.hasOwnPrope
  * fields change only where Stacker's copy is newer. Nothing is queued, since it came from Stacker.
  */
 export async function applyBackup(db: Db, backup: Backup): Promise<RestoreCounts> {
-  const tx = db.transaction(["accounts", "folders", "conversations", "excerpts"], "readwrite");
+  const tx = db.transaction(["accounts", "folders", "conversations", "excerpts", "outbox"], "readwrite");
   const counts: RestoreCounts = { accounts: 0, folders: 0, conversations: 0, excerpts: 0 };
+  // A folder or excerpt deleted locally but not yet flushed still has a pending removal queued;
+  // Stacker's backup can still hold the pre-deletion copy, so re-adding it here would resurrect
+  // something the outbox is about to tell Stacker to delete anyway.
+  const pendingRemovals = await tx.objectStore("outbox").getAll();
+  const removedFolders = new Set(pendingRemovals.filter((e) => e.kind === "removeFolder").map((e) => e.key));
+  const removedExcerpts = new Set(pendingRemovals.filter((e) => e.kind === "removeExcerpt").map((e) => e.key));
   const accounts = tx.objectStore("accounts");
   for (const a of backup.accounts.filter((x) => knownSite(x.site))) {
     const local = await accounts.get(a.key);
@@ -334,6 +340,7 @@ export async function applyBackup(db: Db, backup: Backup): Promise<RestoreCounts
   }
   const folders = tx.objectStore("folders");
   for (const f of backup.folders) {
+    if (removedFolders.has(f.id)) continue;
     const local = await folders.get(f.id);
     if (!local) { await folders.put(f); counts.folders++; }
     else if (f.localUpdatedAt > stamp(local.localUpdatedAt)) {
@@ -352,6 +359,7 @@ export async function applyBackup(db: Db, backup: Backup): Promise<RestoreCounts
   }
   const excerpts = tx.objectStore("excerpts");
   for (const e of backup.excerpts.filter((x) => knownSite(x.site))) {
+    if (removedExcerpts.has(e.id)) continue;
     const local = await excerpts.get(e.id);
     if (!local) { await excerpts.put(e); counts.excerpts++; }
     else if (e.localUpdatedAt > stamp(local.localUpdatedAt)) {
