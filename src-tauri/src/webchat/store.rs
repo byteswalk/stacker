@@ -2,7 +2,7 @@
 //! Kept apart from `sessions.sqlite3`; bodies live in gzip files (see `bodies`).
 use super::protocol::*;
 use rusqlite::{params, Connection, OptionalExtension};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::Path;
 
@@ -550,6 +550,203 @@ fn collect_parts(conn: &Connection, chunk: &BodyChunk) -> Result<Option<Vec<WebM
     Ok(Some(all))
 }
 
+pub const WEB_PAGE_SIZE: usize = 100;
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct WebQuery {
+    pub site: String,
+    pub account: String,
+    pub search: String,
+    pub full_text: bool,
+    pub offset: usize,
+}
+
+/// A web chat for the 网页对话 tab. Times are milliseconds (browser clocks).
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebChatRow {
+    pub key: String,
+    pub site: String,
+    pub account: String,
+    pub account_name: String,
+    pub id: String,
+    pub title: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub archived: bool,
+    pub removed_at: Option<i64>,
+    pub folder: Option<String>,
+    pub tags: Vec<String>,
+    pub favorite: bool,
+    pub note: String,
+    pub body_fetched_at: Option<i64>,
+    pub body_messages: i64,
+    /// The site changed the conversation after its body was read.
+    pub body_stale: bool,
+    pub summary: Option<String>,
+    pub summary_by: String,
+    pub summary_at: i64,
+    /// A newer body arrived after the summary was written.
+    pub summary_stale: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountOption {
+    pub key: String,
+    pub site: String,
+    pub name: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebPage {
+    pub items: Vec<WebChatRow>,
+    pub total: usize,
+    pub accounts: Vec<AccountOption>,
+}
+
+const ROW_SELECT: &str = "
+SELECT c.key, c.site, c.account, COALESCE(NULLIF(a.alias,''), NULLIF(a.name,''), c.account),
+       c.id, c.title, c.created_at, c.updated_at, c.archived, c.removed_at, f.name, c.tags,
+       c.favorite, c.note, c.body_fetched_at, c.body_messages, c.body_updated_at,
+       c.summary, c.summary_by, c.summary_at, c.summary_body_at
+FROM web_conversations c
+LEFT JOIN web_accounts a ON a.key = c.account
+LEFT JOIN web_folders f ON f.id = c.folder_id AND f.deleted_at IS NULL";
+
+fn chat_row(r: &rusqlite::Row) -> rusqlite::Result<WebChatRow> {
+    let updated_at: i64 = r.get(7)?;
+    let body_updated_at: Option<i64> = r.get(16)?;
+    let summary: String = r.get(17)?;
+    let summary_body_at: Option<i64> = r.get(20)?;
+    Ok(WebChatRow {
+        key: r.get(0)?,
+        site: r.get(1)?,
+        account: r.get(2)?,
+        account_name: r.get(3)?,
+        id: r.get(4)?,
+        title: r.get(5)?,
+        created_at: r.get(6)?,
+        updated_at,
+        archived: r.get(8)?,
+        removed_at: r.get(9)?,
+        folder: r.get(10)?,
+        tags: parse_tags(&r.get::<_, String>(11)?),
+        favorite: r.get(12)?,
+        note: r.get(13)?,
+        body_fetched_at: r.get(14)?,
+        body_messages: r.get(15)?,
+        body_stale: body_updated_at.is_some_and(|at| at < updated_at),
+        summary_stale: !summary.is_empty() && summary_body_at != body_updated_at,
+        summary: Some(summary).filter(|s| !s.is_empty()),
+        summary_by: r.get(18)?,
+        summary_at: r.get(19)?,
+    })
+}
+
+fn chat_rows(conn: &Connection) -> Result<Vec<WebChatRow>, String> {
+    let mut stmt = conn
+        .prepare(&format!("{ROW_SELECT} ORDER BY c.updated_at DESC, c.key"))
+        .map_err(db_err)?;
+    let rows = stmt.query_map([], chat_row).map_err(db_err)?;
+    let out: Result<Vec<_>, _> = rows.collect();
+    out.map_err(db_err)
+}
+
+pub fn chat(conn: &Connection, key: &str) -> Result<WebChatRow, String> {
+    conn.query_row(&format!("{ROW_SELECT} WHERE c.key=?1"), [key], chat_row)
+        .optional()
+        .map_err(db_err)?
+        .ok_or_else(|| "E_NOT_FOUND".to_string())
+}
+
+pub fn body(root: &Path, row: &WebChatRow) -> Result<StoredBody, String> {
+    super::bodies::read_body(&super::bodies::body_path(
+        root,
+        &row.site,
+        &row.account,
+        &row.id,
+    ))
+}
+
+fn account_options(conn: &Connection) -> Result<Vec<AccountOption>, String> {
+    let mut stmt = conn
+        .prepare("SELECT key, site, COALESCE(NULLIF(alias,''), NULLIF(name,''), key) FROM web_accounts ORDER BY site, key")
+        .map_err(db_err)?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok(AccountOption {
+                key: r.get(0)?,
+                site: r.get(1)?,
+                name: r.get(2)?,
+            })
+        })
+        .map_err(db_err)?;
+    let out: Result<Vec<_>, _> = rows.collect();
+    out.map_err(db_err)
+}
+
+fn matches_fields(row: &WebChatRow, needle: &str) -> bool {
+    row.title.to_lowercase().contains(needle)
+        || row.note.to_lowercase().contains(needle)
+        || row.tags.iter().any(|t| t.to_lowercase().contains(needle))
+        || row
+            .summary
+            .as_deref()
+            .is_some_and(|s| s.to_lowercase().contains(needle))
+}
+
+fn body_contains(root: &Path, row: &WebChatRow, needle: &str) -> bool {
+    row.body_fetched_at.is_some()
+        && body(root, row).is_ok_and(|b| {
+            b.messages
+                .iter()
+                .any(|m| m.text.to_lowercase().contains(needle))
+        })
+}
+
+/// Newest first; searching bodies unpacks each stored body, so it runs only when asked.
+pub fn list(conn: &Connection, root: &Path, q: &WebQuery) -> Result<WebPage, String> {
+    let needle = q.search.trim().to_lowercase();
+    let matching: Vec<WebChatRow> = chat_rows(conn)?
+        .into_iter()
+        .filter(|r| q.site.is_empty() || r.site == q.site)
+        .filter(|r| q.account.is_empty() || r.account == q.account)
+        .filter(|r| {
+            needle.is_empty()
+                || matches_fields(r, &needle)
+                || (q.full_text && body_contains(root, r, &needle))
+        })
+        .collect();
+    Ok(WebPage {
+        total: matching.len(),
+        items: matching
+            .into_iter()
+            .skip(q.offset)
+            .take(WEB_PAGE_SIZE)
+            .collect(),
+        accounts: account_options(conn)?,
+    })
+}
+
+/// Saves a summary and remembers which body it was written from.
+pub fn save_summary(
+    conn: &Connection,
+    key: &str,
+    text: &str,
+    by: &str,
+    at: i64,
+) -> Result<(), String> {
+    conn.execute(
+        "UPDATE web_conversations SET summary=?2, summary_by=?3, summary_at=?4, summary_body_at=body_updated_at WHERE key=?1",
+        params![key, text, by, at],
+    )
+    .map(|_| ())
+    .map_err(db_err)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -828,5 +1025,144 @@ mod tests {
             put_body_chunk(&conn, dir.path(), &wrong_key).unwrap_err(),
             "E_REQUEST"
         );
+    }
+
+    fn seed(conn: &Connection, root: &Path) {
+        let account = |key: &str, site: &str, remote: &str, name: &str, alias: &str| WebAccount {
+            key: key.into(),
+            site: site.into(),
+            remote_id: remote.into(),
+            name: name.into(),
+            alias: alias.into(),
+            last_seen: 1,
+            local_updated_at: 1,
+        };
+        upsert_accounts(
+            conn,
+            &[
+                account("chatgpt:u1", "chatgpt", "u1", "Ada", "Work"),
+                account("claude:o1", "claude", "o1", "Claude", ""),
+            ],
+        )
+        .unwrap();
+        upsert_folders(
+            conn,
+            &[WebFolder {
+                id: "f1".into(),
+                name: "Trips".into(),
+                created_at: 1,
+                local_updated_at: 1,
+            }],
+        )
+        .unwrap();
+        let mut a = conv("a", 10, 10);
+        a.title = "Trip plan".into();
+        a.folder_id = Some("f1".into());
+        a.tags = vec!["travel".into()];
+        a.updated_at = 20;
+        let b = WebConversation {
+            key: "claude:b".into(),
+            site: "claude".into(),
+            account: "claude:o1".into(),
+            id: "b".into(),
+            title: "Rust lifetimes".into(),
+            note: "borrowck".into(),
+            updated_at: 30,
+            listed_at: 10,
+            ..Default::default()
+        };
+        upsert_conversations(conn, &[a, b]).unwrap();
+        let mut body = chunk(0, 1, 25, "We should visit Kyoto");
+        body.updated_at = 20;
+        put_body_chunk(conn, root, &body).unwrap();
+    }
+
+    fn keys(page: &WebPage) -> Vec<&str> {
+        page.items.iter().map(|r| r.key.as_str()).collect()
+    }
+
+    #[test]
+    fn lists_newest_first_with_names_and_filters() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(dir.path()).unwrap();
+        seed(&conn, dir.path());
+        let all = list(&conn, dir.path(), &WebQuery::default()).unwrap();
+        assert_eq!(keys(&all), vec!["claude:b", "chatgpt:a"]);
+        assert_eq!(all.total, 2);
+        let a = &all.items[1];
+        assert_eq!(
+            (a.account_name.as_str(), a.folder.as_deref()),
+            ("Work", Some("Trips"))
+        );
+        assert_eq!(a.body_messages, 1);
+        assert_eq!(all.items[0].account_name, "Claude");
+        assert_eq!(all.accounts.len(), 2);
+        let site = WebQuery {
+            site: "chatgpt".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            keys(&list(&conn, dir.path(), &site).unwrap()),
+            vec!["chatgpt:a"]
+        );
+        let account = WebQuery {
+            account: "claude:o1".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            keys(&list(&conn, dir.path(), &account).unwrap()),
+            vec!["claude:b"]
+        );
+    }
+
+    #[test]
+    fn search_matches_titles_notes_tags_and_bodies_when_asked() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(dir.path()).unwrap();
+        seed(&conn, dir.path());
+        let search = |text: &str, full_text: bool| {
+            let q = WebQuery {
+                search: text.into(),
+                full_text,
+                ..Default::default()
+            };
+            keys(&list(&conn, dir.path(), &q).unwrap())
+                .into_iter()
+                .map(String::from)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(search("BORROWCK", false), vec!["claude:b"]);
+        assert_eq!(search("travel", false), vec!["chatgpt:a"]);
+        assert!(search("kyoto", false).is_empty());
+        assert_eq!(search("kyoto", true), vec!["chatgpt:a"]);
+    }
+
+    #[test]
+    fn stale_bodies_and_summaries_are_flagged() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(dir.path()).unwrap();
+        seed(&conn, dir.path());
+        assert!(!chat(&conn, "chatgpt:a").unwrap().body_stale);
+        save_summary(
+            &conn,
+            "chatgpt:a",
+            "Go to Kyoto",
+            "claude / sonnet / low",
+            50,
+        )
+        .unwrap();
+        let summarized = chat(&conn, "chatgpt:a").unwrap();
+        assert_eq!(summarized.summary.as_deref(), Some("Go to Kyoto"));
+        assert!(!summarized.summary_stale);
+        let mut newer = conv("a", 40, 0);
+        newer.updated_at = 40;
+        upsert_conversations(&conn, &[newer]).unwrap();
+        assert!(chat(&conn, "chatgpt:a").unwrap().body_stale);
+        let mut fresh = chunk(0, 1, 60, "Now Osaka");
+        fresh.updated_at = 40;
+        put_body_chunk(&conn, dir.path(), &fresh).unwrap();
+        let after = chat(&conn, "chatgpt:a").unwrap();
+        assert!(!after.body_stale && after.summary_stale);
+        assert_eq!(chat(&conn, "chatgpt:zzz").unwrap_err(), "E_NOT_FOUND");
     }
 }

@@ -29,8 +29,6 @@ mod space_analysis;
 mod storage;
 mod update;
 mod versions;
-// Wired into bridge mode (Task 7) and Tauri commands (Task 9); the allow goes away in Task 9.
-#[allow(dead_code)]
 mod webchat;
 mod winadmin;
 mod winenv;
@@ -193,6 +191,14 @@ pub fn run() {
             sessions::commands::migration_move_back,
             sessions::commands::migration_job,
             sessions::commands::migration_cancel,
+            webchat::commands::webchat_status,
+            webchat::commands::webchat_connect,
+            webchat::commands::webchat_disconnect,
+            webchat::commands::webchat_open,
+            webchat::commands::webchat_list,
+            webchat::commands::webchat_read,
+            webchat::commands::webchat_summarize,
+            webchat::commands::webchat_summary_cancel,
             sources::list_sources,
             sources::apply_source,
             sources::apply_source_scoped,

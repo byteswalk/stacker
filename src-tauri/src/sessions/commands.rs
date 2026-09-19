@@ -24,7 +24,7 @@ pub struct RootsView {
     pub export_dir: String,
 }
 
-async fn blocking<T: Send + 'static>(
+pub(crate) async fn blocking<T: Send + 'static>(
     work: impl FnOnce() -> Result<T, String> + Send + 'static,
 ) -> Result<T, String> {
     tauri::async_runtime::spawn_blocking(work)
@@ -154,7 +154,7 @@ pub fn sessions_favorite(ids: Vec<String>, favorite: bool) -> Result<(), String>
     Ok(())
 }
 
-fn explorer(arg: impl AsRef<std::ffi::OsStr>) -> Result<(), String> {
+pub(crate) fn explorer(arg: impl AsRef<std::ffi::OsStr>) -> Result<(), String> {
     let mut cmd = std::process::Command::new("explorer.exe");
     cmd.arg(arg);
     super::codex_rpc::hidden(&mut cmd);
