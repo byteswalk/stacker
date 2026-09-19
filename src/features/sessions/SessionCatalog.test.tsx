@@ -104,7 +104,7 @@ describe("status filter", () => {
     await mount();
     const trigger = [...host.querySelectorAll("button")].find((b) => b.textContent?.trim() === "全部状态");
     await click(trigger);
-    const option = [...document.querySelectorAll("[role=option], button, div")].find((el) => el.textContent?.trim() === "进行中" && el !== trigger);
+    const option = [...document.querySelectorAll("[role=option], button, div")].find((el) => el.textContent?.trim() === "未归档" && el !== trigger);
     await click(option);
     await act(async () => { await vi.advanceTimersByTimeAsync(350); });
     const last = vi.mocked(invoke).mock.calls.filter(([c]) => c === "sessions_list").pop();

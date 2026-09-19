@@ -18,11 +18,12 @@ Claude 桌面端的 Code 页与 CLI 共用 `~/.claude/projects`，Codex 桌面�
 
 - 标题优先级：客户端标题（Claude 桌面端侧栏标题；Codex 重命名后的 `name`，否则首条消息）→ Claude `custom-title` → `summary` → 首条用户消息（80 字）。
 - Codex 子智能体与审查线程挂到最上层父会话的「子任务」下，不单独成行，也不参与批量选择。找不到父会话的子线程与审查线程归为自动化运行，并标注「父会话已不存在」。
+- 来源：桌面端、终端、IDE（Codex 的 VS Code 插件，Claude 的 VS Code / JetBrains 插件），以及自动化。
 - Codex `codex exec` 运行与 Claude SDK 会话属于自动化运行，默认隐藏，勾选「包含自动化运行」后显示。
 - 状态：
   - 已归档：Codex `archived = 1`，或 Claude 桌面端索引 `isArchived`。
   - 孤儿：Claude 桌面端创建、但已不在桌面端侧栏中的会话（在桌面端删除后文件残留）；或项目目录已不存在。
-  - 其余为进行中。
+  - 其余为未归档。终端会话没有归档概念，只要项目目录还在就一直是未归档，不代表正在运行。
 - 项目：按工作目录归类（忽略大小写和尾部分隔符）。Claude worktree 会话（`<仓库>\.claude\worktrees\<名称>`）归到主仓库。Codex 会话优先使用 Codex 桌面端的项目名。
 
 ## 删除

@@ -12,7 +12,8 @@ export const CLIENT_LABEL: Record<ClientTag, string> = {
 };
 
 export const STATUS_LABEL: Record<SessionStatus, string> = {
-  active: "进行中",
+  // Not archived; terminal sessions have no archive, so they are never "in progress" as such.
+  active: "未归档",
   archived: "已归档",
   orphaned: "孤儿",
 };

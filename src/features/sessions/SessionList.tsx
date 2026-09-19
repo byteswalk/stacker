@@ -8,7 +8,7 @@ import { PAGE_SIZE, type AgentName, type ClientTag, type ProjectRow, type Sessio
 /** Client tags each agent can produce (Codex: desktop, CLI, IDE, exec; Claude: desktop, CLI, SDK). */
 function clientsFor(agent: string): ClientTag[] {
   if (agent === "codex") return ["desktop", "terminal", "ide", "automation"];
-  if (agent === "claude") return ["desktop", "terminal", "sdk"];
+  if (agent === "claude") return ["desktop", "terminal", "ide", "sdk"];
   return ["desktop", "terminal", "ide", "automation", "sdk"];
 }
 

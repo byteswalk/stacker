@@ -312,6 +312,7 @@ fn session_from(
     let client = match head.entrypoint.as_str() {
         "claude-desktop" => ClientTag::Desktop,
         "cli" => ClientTag::Terminal,
+        e if e.contains("vscode") || e.contains("jetbrains") => ClientTag::Ide,
         e if e.starts_with("sdk") => ClientTag::Sdk,
         _ => ClientTag::Unknown,
     };

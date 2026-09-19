@@ -201,4 +201,3 @@ pub async fn gateway_test(agent: String, model: Option<String>) -> Result<TestRe
     .await
     .map_err(|e| e.to_string())?
 }
-

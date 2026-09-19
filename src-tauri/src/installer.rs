@@ -648,14 +648,24 @@ fn powershell_launch_script(cwd: &str, command: Option<&str>) -> String {
     }
 }
 
-/// 打开一个终端窗口（powershell / gitbash / cmd），工作目录默认 Stacker 所在目录。
+/// A new terminal starts in the user's home folder, not next to Stacker's executable, so
+/// agents started there do not file their sessions under Stacker's install folder.
+fn home_or_app_dir() -> String {
+    dirs::home_dir()
+        .map(|path| path.to_string_lossy().into_owned())
+        .unwrap_or_else(app_dir)
+}
+
+/// 打开一个终端窗口（powershell / gitbash / cmd），工作目录默认用户主目录。
 #[tauri::command]
 pub fn open_shell(
     kind: String,
     cwd: Option<String>,
     command: Option<String>,
 ) -> Result<(), String> {
-    let cwd = cwd.filter(|s| !s.trim().is_empty()).unwrap_or_else(app_dir);
+    let cwd = cwd
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(home_or_app_dir);
     let command = command
         .as_deref()
         .map(str::trim)
@@ -668,7 +678,7 @@ pub fn open_shell(
 #[tauri::command]
 pub fn open_ecosystem_verify_shell(kind: String, ecosystem: String) -> Result<(), String> {
     let command = verification_command(&kind, &ecosystem)?;
-    launch_shell(&kind, &app_dir(), Some(&command))
+    launch_shell(&kind, &home_or_app_dir(), Some(&command))
 }
 
 fn launch_shell(kind: &str, cwd: &str, command: Option<&str>) -> Result<(), String> {
