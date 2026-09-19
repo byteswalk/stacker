@@ -197,3 +197,6 @@
 
 .a .extension-steps{margin:0;padding-left:18px}
 .a .extension-steps li{margin:2px 0}
+
+.a .web-chat-row{display:grid;grid-template-columns:minmax(160px,1fr) auto 90px;align-items:center;gap:10px;min-height:56px;padding:8px 10px;box-sizing:border-box}
+.a .web-chat-row:hover{background:var(--card)}

@@ -11,10 +11,11 @@ import { currentSelection } from "./sessionsView";
 import { SettingsPanel } from "./SettingsPanel";
 import { SummaryDialog } from "./SummaryDialog";
 import { EMPTY_PAGE, EMPTY_QUERY, errorMessage, type ProjectRow, type Session, type SessionPage, type SessionQuery } from "./types";
+import { WebChatPanel } from "./WebChatPanel";
 import "./sessions.css";
 
-type Tab = "sessions" | "projects" | "footprint" | "sources";
-const TABS: [Tab, string, string][] = [["sessions", "会话", "ti-messages"], ["projects", "项目", "ti-folders"], ["footprint", "占用", "ti-chart-pie"], ["sources", "设置", "ti-settings"]];
+type Tab = "sessions" | "projects" | "web" | "footprint" | "sources";
+const TABS: [Tab, string, string][] = [["sessions", "会话", "ti-messages"], ["projects", "项目", "ti-folders"], ["web", "网页对话", "ti-world"], ["footprint", "占用", "ti-chart-pie"], ["sources", "设置", "ti-settings"]];
 
 // Survive page switches within one app session.
 let lastTab: Tab = "sessions";
@@ -38,6 +39,7 @@ export function SessionCatalog({ onCleanup }: { onCleanup: () => void }) {
   const [summarizing, setSummarizing] = useState<{ kind: "summary"; ids: string[] } | { kind: "handoff"; project: string } | null>(null);
   const request = useRef(0);
   const queryRef = useRef(query);
+  const [webRefresh, setWebRefresh] = useState(0);
 
   useEffect(() => { lastTab = tab; }, [tab]);
 
@@ -86,7 +88,7 @@ export function SessionCatalog({ onCleanup }: { onCleanup: () => void }) {
       </div>
       <div className="session-actions">
         <button className="gh sm" onClick={onCleanup}><i className="ti ti-device-desktop-analytics" />{t("检查磁盘空间")}</button>
-        <button className="gh sm" disabled={loading} onClick={() => void load()}><i className={`ti ${loading ? "ti-loader spin" : "ti-refresh"}`} />{t("刷新")}</button>
+        <button className="gh sm" disabled={loading} onClick={() => { if (tab === "web") setWebRefresh((n) => n + 1); else void load(); }}><i className={`ti ${loading ? "ti-loader spin" : "ti-refresh"}`} />{t("刷新")}</button>
       </div>
     </div>
     {warnings.map((w) => <div key={w} role="alert" className="session-error"><i className="ti ti-alert-triangle" />{w}</div>)}
@@ -95,6 +97,7 @@ export function SessionCatalog({ onCleanup }: { onCleanup: () => void }) {
       onSelect={setSelected} onFilter={filter} onPage={(offset) => setQuery((q) => ({ ...q, offset }))}
       onOpen={setDetail} onFavorite={(ids, value) => void favorite(ids, value)} onDelete={() => setDeleting([...selected])} onSummarize={() => setSummarizing({ kind: "summary", ids: [...selected] })} />}
     {tab === "projects" && <ProjectList rows={projects} loading={loading} onPick={(project) => { filter({ project }); setTab("sessions"); }} onHandoff={(project) => setSummarizing({ kind: "handoff", project })} />}
+    {tab === "web" && <WebChatPanel refresh={webRefresh} />}
     {tab === "footprint" && <FootprintPanel onShowSessions={(agent) => { filter({ agent, sort: "bytes" }); setTab("sessions"); }} />}
     {tab === "sources" && <SettingsPanel onSaved={() => { toast(t("已保存"), "ok"); void load(); }} />}
     {detail && <SessionDetail session={detail} onClose={() => setDetail(null)} onSummarize={() => { setDetail(null); setSummarizing({ kind: "summary", ids: [detail.id] }); }} />}
