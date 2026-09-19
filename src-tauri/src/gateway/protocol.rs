@@ -1,26 +1,22 @@
 //! OpenAI Chat Completions and Anthropic Messages, text only, over a stateless runner.
-use crate::sessions::model::Agent;
 use serde_json::{json, Value};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ModelSpec {
-    pub agent: Agent,
+    /// Runner backend id (`codex`, `claude`, `pi`, …).
+    pub backend: String,
     pub model: Option<String>,
 }
 
 impl ModelSpec {
-    /// `codex`, `claude`, `codex/<model>`, `claude/<model>`.
+    /// `<backend>` or `<backend>/<model>`; the model part may itself contain `/`.
     pub fn parse(name: &str) -> Option<Self> {
-        let (agent, model) = match name.trim().split_once('/') {
+        let (backend, model) = match name.trim().split_once('/') {
             Some((a, m)) => (a, Some(m.trim().to_string()).filter(|m| !m.is_empty())),
             None => (name.trim(), None),
         };
-        let agent = match agent.to_ascii_lowercase().as_str() {
-            "codex" => Agent::Codex,
-            "claude" => Agent::Claude,
-            _ => return None,
-        };
-        Some(Self { agent, model })
+        let backend = crate::runner::backends::get(backend)?.id.to_string();
+        Some(Self { backend, model })
     }
 }
 
@@ -109,7 +105,7 @@ fn model_of(v: &Value) -> Result<(String, ModelSpec), ApiError> {
             404,
             "not_found_error",
             format!(
-                "Unknown model \"{name}\". Use codex, claude, codex/<model> or claude/<model>."
+                "Unknown model \"{name}\". Use <agent> or <agent>/<model>, e.g. codex or claude/sonnet."
             ),
         )
     })?;
@@ -273,16 +269,7 @@ pub fn anthropic_sse(id: &str, model: &str, text: &str, prompt: &str) -> String 
     out
 }
 
-/// `extra` are `agent/model` ids; each agent's bare name is listed before its models.
-pub fn models_list(created: u64, extra: &[String]) -> Value {
-    let mut ids: Vec<String> = Vec::new();
-    for id in extra {
-        let agent = id.split('/').next().unwrap_or("").to_string();
-        if !ids.contains(&agent) {
-            ids.push(agent);
-        }
-        ids.push(id.clone());
-    }
+pub fn models_list(created: u64, ids: &[String]) -> Value {
     json!({ "object": "list", "data": ids.iter().map(|id| json!({ "id": id, "object": "model", "created": created, "owned_by": "stacker" })).collect::<Vec<_>>() })
 }
 
@@ -295,14 +282,14 @@ mod tests {
         assert_eq!(
             ModelSpec::parse("claude"),
             Some(ModelSpec {
-                agent: Agent::Claude,
+                backend: "claude".into(),
                 model: None
             })
         );
         assert_eq!(
             ModelSpec::parse("codex/gpt-5.6-sol"),
             Some(ModelSpec {
-                agent: Agent::Codex,
+                backend: "codex".into(),
                 model: Some("gpt-5.6-sol".into())
             })
         );

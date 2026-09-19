@@ -84,16 +84,28 @@ fn live_runner() -> Runner {
     Arc::new(crate::runner::run)
 }
 
-/// A bare `codex` / `claude` uses the summary settings' model and effort.
+/// Codex and Claude fall back to the summary settings' model and effort; other backends
+/// to the CLI's own defaults.
 pub(crate) fn live_defaults() -> Defaults {
     Arc::new(|chat: &protocol::ChatRequest| {
-        let settings = crate::sessions::annotations::connect()
-            .map(|c| crate::sessions::summary::load_settings(&c))
-            .unwrap_or_default();
-        let base = crate::sessions::summary::choice_for(&settings, chat.model.agent);
+        let agent = match chat.model.backend.as_str() {
+            "codex" => Some(crate::sessions::model::Agent::Codex),
+            "claude" => Some(crate::sessions::model::Agent::Claude),
+            _ => None,
+        };
+        let (model, effort) = match agent {
+            Some(agent) => {
+                let settings = crate::sessions::annotations::connect()
+                    .map(|c| crate::sessions::summary::load_settings(&c))
+                    .unwrap_or_default();
+                let base = crate::sessions::summary::choice_for(&settings, agent);
+                (base.model, base.effort)
+            }
+            None => (None, None),
+        };
         (
-            chat.model.model.clone().or(base.model),
-            chat.effort.clone().or(base.effort),
+            chat.model.model.clone().or(model),
+            chat.effort.clone().or(effort),
         )
     })
 }

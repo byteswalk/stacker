@@ -32,7 +32,7 @@ pub struct LogEntry {
 pub struct Shared {
     pub token: String,
     /// Agents the user allows through the gateway; changed live from the page.
-    pub enabled: Mutex<std::collections::HashSet<crate::sessions::model::Agent>>,
+    pub enabled: Mutex<std::collections::HashSet<String>>,
     pub runner: Runner,
     pub defaults: Defaults,
     pub recent: Mutex<VecDeque<LogEntry>>,
@@ -45,12 +45,10 @@ impl Shared {
         Arc::new(Self {
             token,
             enabled: Mutex::new(
-                [
-                    crate::sessions::model::Agent::Codex,
-                    crate::sessions::model::Agent::Claude,
-                ]
-                .into_iter()
-                .collect(),
+                crate::runner::backends::all()
+                    .iter()
+                    .map(|b| b.id.to_string())
+                    .collect(),
             ),
             runner,
             defaults,
@@ -183,17 +181,19 @@ fn runner_error(code: &str) -> ApiError {
     }
 }
 
-/// `codex/<slug>` from Codex's model cache and `claude/<alias>`.
-fn known_models(enabled: &std::collections::HashSet<crate::sessions::model::Agent>) -> Vec<String> {
-    let codex_home = crate::sessions::roots::resolve(&Default::default()).codex;
-    crate::runner::options::options(std::path::Path::new(&codex_home))
-        .into_iter()
-        .filter(|o| enabled.contains(&o.agent))
-        .flat_map(|o| {
-            let agent = o.agent.as_str();
-            o.models
-                .into_iter()
-                .map(move |m| format!("{agent}/{}", m.id))
+/// Each enabled backend's bare id followed by its `<backend>/<model>` ids.
+fn known_models(enabled: &std::collections::HashSet<String>) -> Vec<String> {
+    crate::runner::backends::all()
+        .iter()
+        .filter(|b| enabled.contains(b.id))
+        .flat_map(|b| {
+            let mut ids = vec![b.id.to_string()];
+            ids.extend(
+                (b.models)()
+                    .into_iter()
+                    .map(|m| format!("{}/{}", b.id, m.id)),
+            );
+            ids
         })
         .collect()
 }
@@ -300,7 +300,7 @@ fn handle(mut req: Request, shared: &Shared) {
             let allowed = shared
                 .enabled
                 .lock()
-                .map(|e| e.contains(&chat.model.agent))
+                .map(|e| e.contains(&chat.model.backend))
                 .unwrap_or(false);
             if !allowed {
                 return respond(
@@ -312,7 +312,7 @@ fn handle(mut req: Request, shared: &Shared) {
                             "permission_error",
                             format!(
                                 "{} is turned off in Stacker's API service.",
-                                chat.model.agent.as_str()
+                                chat.model.backend
                             ),
                         ),
                     ),
@@ -359,7 +359,7 @@ fn run_chat(chat: &ChatRequest, shared: &Shared) -> Result<(String, String), Str
     let (model, effort) = (shared.defaults)(chat);
     let prompt = protocol::render_prompt(chat);
     let req = RunRequest {
-        agent: chat.model.agent,
+        backend: chat.model.backend.clone(),
         model,
         effort,
         prompt: prompt.clone(),
@@ -409,7 +409,7 @@ mod tests {
             Ok(RunOutput {
                 text: format!(
                     "echo:{}:{}",
-                    req.agent.as_str(),
+                    req.backend,
                     req.effort.clone().unwrap_or_default()
                 ),
             })
@@ -524,11 +524,14 @@ mod tests {
     fn live_gateway() {
         let runner: Runner = Arc::new(crate::runner::run);
         let defaults: Defaults = Arc::new(|c: &ChatRequest| {
-            let settings = crate::sessions::summary::SummarySettings::default();
-            let base = crate::sessions::summary::choice_for(&settings, c.model.agent);
+            let fallback = if c.model.backend == "claude" {
+                Some("sonnet".to_string())
+            } else {
+                None
+            };
             (
-                c.model.model.clone().or(base.model),
-                c.effort.clone().or(base.effort),
+                c.model.model.clone().or(fallback),
+                c.effort.clone().or(Some("low".into())),
             )
         });
         let server = start(0, Shared::new("sk-live".into(), runner, defaults)).unwrap();

@@ -9,10 +9,10 @@ vi.mock("../../invoke", () => ({ invoke: vi.fn(), reportFrontendWarning: vi.fn()
 
 const cards: AgentCard[] = [
   { id: "codex", name: "Codex CLI", installed: true, version: "0.155.1", supported: true, reason: "", enabled: true,
-    login: { state: "logged_in", method: "ChatGPT" }, defaultModel: null, defaultEffort: "low",
+    login: { state: "logged_in", method: "ChatGPT" }, defaultModel: null, defaultEffort: "low", efforts: ["low", "high"],
     models: [{ call: "codex/gpt-5.6-sol", label: "GPT-5.6-Sol", efforts: ["low", "high"], defaultEffort: "low" }] },
   { id: "kimi", name: "Kimi Code CLI", installed: true, version: "1.0", supported: false, reason: "not verified", enabled: false,
-    login: null, defaultModel: null, defaultEffort: null, models: [] },
+    login: null, defaultModel: null, defaultEffort: null, efforts: [], models: [] },
 ];
 
 let host: HTMLDivElement;

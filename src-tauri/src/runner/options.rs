@@ -75,7 +75,7 @@ pub fn codex_models(cache_json: &str) -> Vec<ModelOption> {
         .unwrap_or_default()
 }
 
-fn union_efforts(models: &[ModelOption]) -> Vec<String> {
+pub(crate) fn union_efforts(models: &[ModelOption]) -> Vec<String> {
     let order = ["minimal", "low", "medium", "high", "xhigh", "max"];
     order
         .iter()

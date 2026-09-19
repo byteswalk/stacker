@@ -180,7 +180,7 @@ fn call(
         return Err("E_CANCELLED".into());
     }
     let req = RunRequest {
-        agent: choice.agent,
+        backend: choice.agent.as_str().into(),
         model: choice.model.clone(),
         effort: choice.effort.clone(),
         prompt,

@@ -118,7 +118,7 @@ pub fn compose(
         .map(|s| s.project.name.clone())
         .unwrap_or_else(|| project.to_string());
     let req = RunRequest {
-        agent: choice.agent,
+        backend: choice.agent.as_str().into(),
         model: choice.model.clone(),
         effort: choice.effort.clone(),
         prompt: prompt(&name, &sessions, locale),

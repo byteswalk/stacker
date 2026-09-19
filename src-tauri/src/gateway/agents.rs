@@ -1,17 +1,15 @@
 //! Per-agent view of the API service: installed, signed in, models, efforts, on/off, test.
 use super::{live_defaults, load, protocol, save, GatewayConfig, Shared, STATE};
+use crate::runner::backends;
 use crate::runner::login::LoginStatus;
-use crate::sessions::model::Agent;
 use serde::Serialize;
-
-/// Agents the service can run today (verified stateless and tool-less).
-pub const SUPPORTED: [Agent; 2] = [Agent::Codex, Agent::Claude];
 
 pub fn apply_enabled(shared: &Shared, config: &GatewayConfig) {
     if let Ok(mut enabled) = shared.enabled.lock() {
-        *enabled = SUPPORTED
-            .into_iter()
-            .filter(|a| !config.disabled_agents.iter().any(|d| d == a.as_str()))
+        *enabled = backends::all()
+            .iter()
+            .filter(|b| !config.disabled_agents.iter().any(|d| d == b.id))
+            .map(|b| b.id.to_string())
             .collect();
     }
 }
@@ -41,17 +39,29 @@ pub struct AgentCard {
     /// Used when a request names only the agent.
     pub default_model: Option<String>,
     pub default_effort: Option<String>,
+    /// Reasoning levels usable without naming a model.
+    pub efforts: Vec<String>,
     pub models: Vec<AgentModel>,
+}
+
+fn defaults_for(id: &str) -> (Option<String>, Option<String>) {
+    let chat = protocol::ChatRequest {
+        model_name: id.into(),
+        model: protocol::ModelSpec {
+            backend: id.into(),
+            model: None,
+        },
+        system: String::new(),
+        turns: Vec::new(),
+        stream: false,
+        effort: None,
+    };
+    live_defaults()(&chat)
 }
 
 /// Every agent CLI Stacker knows, with what the API service can do with it.
 pub fn agent_cards() -> Vec<AgentCard> {
     let config = load();
-    let settings = crate::sessions::annotations::connect()
-        .map(|c| crate::sessions::summary::load_settings(&c))
-        .unwrap_or_default();
-    let codex_home = crate::sessions::roots::resolve(&Default::default()).codex;
-    let options = crate::runner::options::options(std::path::Path::new(&codex_home));
     let mut seen = std::collections::HashSet::new();
     let mut cards = Vec::new();
     for tool in crate::agents::last_scan_or_scan() {
@@ -61,47 +71,49 @@ pub fn agent_cards() -> Vec<AgentCard> {
         if !seen.insert(cli_id.clone()) {
             continue;
         }
-        let agent = SUPPORTED.into_iter().find(|a| a.as_str() == cli_id);
+        let backend = backends::get(&cli_id);
         let installed = tool.cli.installed;
-        let reason = match (agent, installed) {
-            (_, false) => "未安装",
-            (None, true) => "尚未验证能否在不留会话、不开放工具的前提下调用，暂未接入",
-            (Some(_), true) => "",
-        };
         let mut card = AgentCard {
             id: cli_id.clone(),
             name: tool.cli.label.clone(),
             installed,
             version: tool.cli.version.clone(),
-            supported: agent.is_some() && installed,
-            reason: reason.into(),
+            supported: false,
+            reason: String::new(),
             login: None,
             enabled: false,
             default_model: None,
             default_effort: None,
+            efforts: Vec::new(),
             models: Vec::new(),
         };
-        if let Some(agent) = agent.filter(|_| installed) {
-            let choice = crate::sessions::summary::choice_for(&settings, agent);
-            card.enabled = !config.disabled_agents.contains(&cli_id);
-            card.login = Some(crate::runner::login::login_status(agent));
-            card.default_model = choice.model;
-            card.default_effort = choice.effort;
-            card.models = options
-                .iter()
-                .find(|o| o.agent == agent)
-                .map(|o| {
-                    o.models
-                        .iter()
-                        .map(|m| AgentModel {
-                            call: format!("{}/{}", agent.as_str(), m.id),
-                            label: m.label.clone(),
-                            efforts: m.efforts.clone(),
-                            default_effort: m.default_effort.clone(),
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
+        match (backend, installed) {
+            (_, false) => card.reason = "未安装".into(),
+            (None, true) => {
+                card.reason = "尚未验证能否在不留会话、不开放工具的前提下调用，暂未接入".into()
+            }
+            (Some(b), true) => {
+                let login = (b.login)();
+                if login.state == "logged_out" {
+                    card.reason = "未登录：请在终端运行该智能体并完成登录".into();
+                }
+                card.supported = login.state != "logged_out";
+                card.login = Some(login);
+                card.enabled = card.supported && !config.disabled_agents.contains(&cli_id);
+                let (model, effort) = defaults_for(b.id);
+                card.default_model = model;
+                card.default_effort = effort;
+                card.efforts = (b.efforts)();
+                card.models = (b.models)()
+                    .into_iter()
+                    .map(|m| AgentModel {
+                        call: format!("{}/{}", b.id, m.id),
+                        label: m.label,
+                        efforts: m.efforts,
+                        default_effort: m.default_effort,
+                    })
+                    .collect();
+            }
         }
         cards.push(card);
     }
@@ -146,14 +158,11 @@ pub struct TestResult {
 #[tauri::command]
 pub async fn gateway_test(agent: String, model: Option<String>) -> Result<TestResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let agent = SUPPORTED
-            .into_iter()
-            .find(|a| a.as_str() == agent)
-            .ok_or("E_REQUEST")?;
+        let backend = backends::get(&agent).ok_or("E_REQUEST")?;
         let chat = protocol::ChatRequest {
-            model_name: agent.as_str().into(),
+            model_name: backend.id.into(),
             model: protocol::ModelSpec {
-                agent,
+                backend: backend.id.into(),
                 model: model.filter(|m| !m.is_empty()),
             },
             system: String::new(),
@@ -165,7 +174,7 @@ pub async fn gateway_test(agent: String, model: Option<String>) -> Result<TestRe
         let started = std::time::Instant::now();
         let result = crate::runner::run(
             &crate::runner::RunRequest {
-                agent,
+                backend: backend.id.into(),
                 model: model.clone(),
                 effort: effort.clone(),
                 prompt: protocol::render_prompt(&chat),

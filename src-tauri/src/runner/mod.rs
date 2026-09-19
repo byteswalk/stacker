@@ -1,11 +1,11 @@
 //! Runs the user's signed-in agent CLIs statelessly, in an empty folder, without tools.
 //! Prompts and answers are never logged.
+pub mod backends;
 pub mod claude;
 pub mod codex;
 pub mod login;
 pub mod options;
 
-use crate::sessions::model::Agent;
 use std::io::{Read, Write};
 use std::path::Path;
 use std::process::{Command, ExitStatus, Stdio};
@@ -17,7 +17,8 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(300);
 
 #[derive(Clone, Debug)]
 pub struct RunRequest {
-    pub agent: Agent,
+    /// Backend id (`codex`, `claude`, …), see `backends`.
+    pub backend: String,
     pub model: Option<String>,
     pub effort: Option<String>,
     pub prompt: String,
@@ -124,7 +125,7 @@ fn looks_unauthenticated(text: &str) -> bool {
 }
 
 /// Maps a finished process to text or a stable error code.
-fn finish(status: ExitStatus, stdout: &str, stderr: &str) -> Result<(), String> {
+pub(crate) fn finish(status: ExitStatus, stdout: &str, stderr: &str) -> Result<(), String> {
     if status.success() {
         return Ok(());
     }
@@ -142,40 +143,20 @@ pub fn run(req: &RunRequest, cancel: &CancelFlag) -> Result<RunOutput, String> {
         .map_err(|_| "E_STORAGE".to_string())?;
     let model = req.model.as_deref().filter(|m| !m.trim().is_empty());
     let effort = req.effort.as_deref().filter(|e| !e.trim().is_empty());
-    let result = match req.agent {
-        Agent::Codex => {
-            let out = tmp.path().join("out.md");
-            let mut cmd = crate::sessions::codex_rpc::command()
-                .map_err(|_| "E_RUNNER_MISSING".to_string())?;
-            cmd.args(codex::codex_args(
-                tmp.path(),
-                &out,
-                model,
-                effort,
-                &codex::disabled_features(),
-            ));
-            let (status, stdout, stderr) =
-                run_program(cmd, &req.prompt, tmp.path(), req.timeout, cancel)?;
-            finish(status, &stdout, &stderr)?;
-            std::fs::read_to_string(&out).map_err(|_| "E_RUNNER_EMPTY".to_string())
-        }
-        Agent::Claude => {
-            let program = crate::agents::process::resolve_command(&["claude.exe", "claude.cmd"])
-                .ok_or("E_RUNNER_MISSING")?;
-            let mut cmd = Command::new(program);
-            cmd.args(claude::claude_args(model, effort));
-            let run = run_program(cmd, &req.prompt, tmp.path(), req.timeout, cancel);
-            claude::remove_project_leftover(tmp.path());
-            let (status, stdout, stderr) = run?;
-            finish(status, &stdout, &stderr)?;
-            claude::parse_claude(&stdout)
-        }
-    };
+    let backend = backends::get(&req.backend).ok_or("E_RUNNER_MISSING")?;
+    let result = (backend.run)(&backends::Ctx {
+        tmp: tmp.path(),
+        model,
+        effort,
+        prompt: &req.prompt,
+        timeout: req.timeout,
+        cancel,
+    });
     let elapsed_ms = started.elapsed().as_millis() as u64;
     log::info!(
         target: "stacker::runner",
         "agent={} model={} effort={} elapsed_ms={} result={}",
-        req.agent.as_str(),
+        backend.id,
         model.unwrap_or("default"),
         effort.unwrap_or("default"),
         elapsed_ms,
@@ -253,19 +234,19 @@ mod tests {
     #[test]
     #[ignore]
     fn live_runner() {
-        for (agent, model, effort) in [
-            (Agent::Codex, None, Some("low")),
-            (Agent::Claude, Some("sonnet"), Some("low")),
+        for (backend, model, effort) in [
+            ("codex", None, Some("low")),
+            ("claude", Some("sonnet"), Some("low")),
         ] {
             let req = RunRequest {
-                agent,
+                backend: backend.into(),
                 model: model.map(str::to_string),
                 effort: effort.map(str::to_string),
                 prompt: "Reply with one number only: 2+3=?".into(),
                 timeout: DEFAULT_TIMEOUT,
             };
             let out = run(&req, &CancelFlag::default());
-            println!("{} -> {:?}", agent.as_str(), out);
+            println!("{backend} -> {out:?}");
             assert_eq!(out.unwrap().text, "5");
         }
     }

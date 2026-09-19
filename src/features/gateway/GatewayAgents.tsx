@@ -8,7 +8,7 @@ type AgentModel = { call: string; label: string; efforts: string[]; defaultEffor
 export type AgentCard = {
   id: string; name: string; installed: boolean; version: string | null;
   supported: boolean; reason: string; login: LoginStatus | null; enabled: boolean;
-  defaultModel: string | null; defaultEffort: string | null; models: AgentModel[];
+  defaultModel: string | null; defaultEffort: string | null; efforts: string[]; models: AgentModel[];
 };
 type TestResult = { ok: boolean; reply: string; error: string; elapsedMs: number; model: string; effort: string };
 
@@ -83,6 +83,7 @@ export function GatewayAgents() {
         <p className="proxy-note">
           {t("请求里写")} <code>{card.id}</code> {t("时使用默认")}：<b>{card.defaultModel ?? t("CLI 默认模型")}</b> · <b>{card.defaultEffort ?? t("CLI 默认推理")}</b>{t("（在「会话数据 → 数据来源 → 摘要」中修改）。也可以写下表中的调用名指定模型，并用 reasoning_effort 指定推理档位（Anthropic 风格请求用默认档位）。")}
         </p>
+        {!!card.efforts.length && <p className="proxy-note gw-efforts">{t("只写智能体名时可用的推理档位")}：{card.efforts.map((e) => <span key={e} className={"chip" + (e === card.defaultEffort ? " auto" : "")}>{e}</span>)}</p>}
         <div className="gw-models">
           <div className="gw-model head"><span>{t("调用名")}</span><span>{t("模型")}</span><span>{t("可用推理档位")}</span><span /></div>
           {card.models.map((m) => <div className="gw-model" key={m.call}>
