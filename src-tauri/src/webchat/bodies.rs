@@ -1,6 +1,7 @@
 //! Conversation bodies as gzip JSON: `<root>/webchat/bodies/<site>/<account>/<id>.json.gz`.
 use super::protocol::StoredBody;
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
+use sha2::{Digest, Sha256};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
@@ -9,7 +10,17 @@ const RESERVED: [&str; 22] = [
     "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
 ];
 
-/// One safe path component: ASCII letters, digits, `.`, `_`, `-`; never empty, `.`, `..` or a device name.
+/// 8 hex characters of a stable hash of `raw`, so two different ids that clean to the same safe
+/// string (e.g. "a/b" and "a_b") never collide on disk.
+fn short_hash(raw: &str) -> String {
+    let digest = Sha256::digest(raw.as_bytes());
+    digest[..4].iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// One safe path component: ASCII letters, digits, `.`, `_`, `-`; never empty, `.`, `..` or a device
+/// name. An id that had to be cleaned or cut keeps a `-<hash>` suffix of the original so it can't
+/// collide with a different id that cleans to the same string; an id that passes through unchanged
+/// keeps today's plain name.
 pub fn component(raw: &str) -> String {
     let cleaned: String = raw
         .chars()
@@ -23,14 +34,21 @@ pub fn component(raw: &str) -> String {
         })
         .collect();
     let trimmed = cleaned.trim_end_matches('.');
-    if trimmed.is_empty() {
-        return "_".into();
-    }
-    let stem = trimmed.split('.').next().unwrap_or("").to_ascii_uppercase();
-    if RESERVED.contains(&stem.as_str()) {
-        format!("_{trimmed}")
+    let base = if trimmed.is_empty() {
+        "_".to_string()
     } else {
         trimmed.to_string()
+    };
+    let stem = base.split('.').next().unwrap_or("").to_ascii_uppercase();
+    let safe = if RESERVED.contains(&stem.as_str()) {
+        format!("_{base}")
+    } else {
+        base
+    };
+    if safe == raw {
+        safe
+    } else {
+        format!("{safe}-{}", short_hash(raw))
     }
 }
 
@@ -72,14 +90,36 @@ mod tests {
 
     #[test]
     fn path_components_are_safe() {
-        assert_eq!(component(".."), "_");
-        assert_eq!(component(""), "_");
-        assert_eq!(component("."), "_");
-        assert_eq!(component("a/b\\c:d"), "a_b_c_d");
-        assert_eq!(component("CON"), "_CON");
-        assert_eq!(component("con.txt"), "_con.txt");
+        // Already-safe ids pass through unchanged.
         assert_eq!(component("abc-DEF_1.2"), "abc-DEF_1.2");
-        assert_eq!(component(&"x".repeat(500)).len(), 120);
+        // Anything that had to be cleaned or cut keeps a `-<8 hex chars>` suffix of the original.
+        assert!(component("..").starts_with("_-"));
+        assert!(component("").starts_with("_-"));
+        assert!(component(".").starts_with("_-"));
+        assert!(component("a/b\\c:d").starts_with("a_b_c_d-"));
+        assert!(component("CON").starts_with("_CON-"));
+        assert!(component("con.txt").starts_with("_con.txt-"));
+        let long = component(&"x".repeat(500));
+        assert!(long.starts_with(&"x".repeat(120)));
+        assert_eq!(long.len(), 120 + 1 + 8);
+    }
+
+    #[test]
+    fn cleaned_ids_get_a_hash_suffix_so_distinct_ids_cannot_collide() {
+        // Before the fix both of these cleaned to the plain string "a_b", colliding on disk.
+        let cleaned = component("a/b");
+        let already_safe = component("a_b");
+        assert_eq!(
+            already_safe, "a_b",
+            "an id that needs no cleaning keeps its plain name"
+        );
+        assert_ne!(cleaned, already_safe);
+        assert!(cleaned.starts_with("a_b-"));
+        assert_eq!(cleaned.len(), "a_b-".len() + 8);
+        // The hash is stable for the same input.
+        assert_eq!(component("a/b"), cleaned);
+        // And different inputs that clean the same way get different hashes.
+        assert_ne!(component("a/b"), component("a\\b"));
     }
 
     #[test]
