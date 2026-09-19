@@ -56,4 +56,10 @@ describe("site client", () => {
     expect(api.canArchive("chatgpt")).toBe(true);
     expect(api.canArchive("claude")).toBe(false);
   });
+  it("refuses to remove from an unverified site without sending anything", async () => {
+    const t = tabs([{ id: 1 }], { ok: true, value: null });
+    await expect(createSiteApi({ tabs: t }).remove("grok", "x")).rejects.toThrow("E_BROKEN");
+    expect(t.query).not.toHaveBeenCalled();
+    expect(t.sendMessage).not.toHaveBeenCalled();
+  });
 });

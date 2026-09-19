@@ -42,7 +42,12 @@ export function createSiteApi(chromeApi: Pick<typeof chrome, "tabs"> = chrome): 
     account: (site) => call(site, "account", null),
     list: (site, cursor) => call(site, "list", cursor),
     read: (site, id) => call(site, "read", id),
-    remove: async (site, id) => { await call(site, "remove", id); },
+    remove: async (site, id) => {
+      // Defence in depth: the UI already keeps unverified-site conversations out of the delete flow,
+      // but refuse here too before anything is sent, in case a caller skips that check.
+      if (!SITES[site].verified) throw new SiteError("E_BROKEN", "unverified site");
+      await call(site, "remove", id);
+    },
     archive: async (site, id) => { await call(site, "archive", id); },
     canArchive: (site) => site === "chatgpt",
   };

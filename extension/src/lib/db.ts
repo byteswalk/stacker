@@ -132,7 +132,10 @@ export async function putBody(db: Db, key: string, body: RemoteBody, now: number
   const tx = db.transaction(["bodies", "conversations"], "readwrite");
   await tx.objectStore("bodies").put({ ...body, key });
   const c = await tx.objectStore("conversations").get(key);
-  if (c) await tx.objectStore("conversations").put({ ...c, bodyFetchedAt: now, bodyUpdatedAt: body.updatedAt });
+  // The body was just fetched live, so it is at least as new as whatever updatedAt the listing
+  // held then: some sites (Grok, Gemini) compute the listing's updatedAt from a different field
+  // than the body's own latest-message time, so the two can otherwise never agree.
+  if (c) await tx.objectStore("conversations").put({ ...c, bodyFetchedAt: now, bodyUpdatedAt: Math.max(body.updatedAt, c.updatedAt) });
   await tx.done;
 }
 

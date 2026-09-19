@@ -33,8 +33,11 @@ export const SITES: Record<SiteId, SiteInfo> = {
   gemini: {
     label: "Gemini", factory: gemini, origin: "https://gemini.google.com", match: "https://gemini.google.com/*", verified: true,
     idOfPath: (path) => {
-      const hex = /\/app\/([0-9a-f]+)/.exec(path)?.[1];
-      return hex ? `c_${hex}` : null;
+      // A gem's own chat lives at /gem/<gemId>/<chatId>; the chat id is what the site's
+      // interfaces address it by, same as a plain /app/<chatId> conversation.
+      const gemChat = /\/gem\/[^/]+\/([A-Za-z0-9_-]+)/.exec(path)?.[1];
+      const id = gemChat ?? /\/app\/([A-Za-z0-9_-]+)/.exec(path)?.[1];
+      return id ? `c_${id}` : null;
     },
     urlOf: geminiUrl,
   },

@@ -18,6 +18,10 @@ describe("registry", () => {
     expect(conversationIdOfUrl("gemini", "https://gemini.google.com/app/aaa111?hl=en")).toBe("c_aaa111");
     expect(conversationIdOfUrl("gemini", "https://gemini.google.com/app")).toBeNull();
     expect(conversationUrl("gemini", "c_aaa111")).toBe("https://gemini.google.com/app/aaa111");
+    // Ids can now carry the wider set of characters seen live, and a gem's own chat is
+    // addressed by the chat id from /gem/<gemId>/<chatId>, same as a plain /app/ conversation.
+    expect(conversationIdOfUrl("gemini", "https://gemini.google.com/app/Aa1_-2")).toBe("c_Aa1_-2");
+    expect(conversationIdOfUrl("gemini", "https://gemini.google.com/gem/gem-1/chat-2?hl=en")).toBe("c_chat-2");
     expect(siteOfUrl("https://grok.com/c/0f3e-11")).toBe("grok");
     expect(conversationIdOfUrl("grok", "https://grok.com/c/0f3e-11?rid=x")).toBe("0f3e-11");
     expect(conversationIdOfUrl("grok", "https://grok.com/")).toBeNull();

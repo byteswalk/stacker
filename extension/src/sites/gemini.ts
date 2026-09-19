@@ -37,7 +37,18 @@ function stamp(v: unknown, path: string): number {
 function turnMessages(turn: unknown, path: string): Message[] {
   const at = stamp(dig(turn, path, 4), `${path}[4]`);
   const prompt = str(dig(turn, path, 2, 0, 0), `${path}[2][0][0]`).trim();
-  const answer = str(dig(turn, path, 3, 0, 0, 1, 0), `${path}[3][0][0][1][0]`).trim();
+  // turn[3] holds the answer's candidates; keep requiring it to be an array (a real structure
+  // change there should still stop the read), but tolerate whatever shape — or absence — the
+  // text itself has underneath: a turn whose answer text is missing must not fail the whole
+  // read, it just keeps the user message.
+  arr(dig(turn, path, 3), `${path}[3]`);
+  let answerRaw: unknown;
+  try {
+    answerRaw = dig(turn, path, 3, 0, 0, 1, 0);
+  } catch {
+    answerRaw = undefined;
+  }
+  const answer = optStr(answerRaw).trim();
   const out: Message[] = [];
   if (prompt) out.push({ role: "user", text: prompt, at, attachments: [] });
   if (answer) out.push({ role: "assistant", text: answer, at, attachments: [] });

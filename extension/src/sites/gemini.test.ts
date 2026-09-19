@@ -135,4 +135,13 @@ describe("gemini adapter", () => {
     await expect(gemini(fake(() => "<html></html>")).list(null)).rejects.toThrow("E_BROKEN");
     await expect(gemini(fake(() => batchReply("hNvQHb", [[chatNewestFirst[0].slice(0, 3)], null]))).read("c_aaa111")).rejects.toThrow("E_BROKEN");
   });
+
+  it("keeps the user message when a turn's answer text is missing, but still requires turn[3] to be an array", async () => {
+    const noAnswer = [["c_aaa111", "r_1"], ["c_aaa111", "r_1", "rc_1"], [["Only a question?"], 1, null, 0], [], [1_789_000_000, 0]];
+    const body = await gemini(fake(({ id }) => batchReply(id, [[noAnswer], null]))).read("c_aaa111");
+    expect(body.messages.map((m) => [m.role, m.text])).toEqual([["user", "Only a question?"]]);
+
+    const notArray = [["c_aaa111", "r_1"], ["c_aaa111", "r_1", "rc_1"], [["Only a question?"], 1, null, 0], "nope", [1_789_000_000, 0]];
+    await expect(gemini(fake(({ id }) => batchReply(id, [[notArray], null]))).read("c_aaa111")).rejects.toThrow("E_BROKEN");
+  });
 });

@@ -52,6 +52,18 @@ describe("db", () => {
     expect((await listConversations(db))[0].removedAt).toBe(11);
   });
 
+  it("becomes fresh after putBody even when the listing's updatedAt outruns the body's own (Grok-shaped gap)", async () => {
+    // Grok and Gemini derive the listing's updatedAt from a different field than the body's
+    // latest-message time, so a live-fetched body can carry an updatedAt earlier than what the
+    // listing already held for that conversation.
+    const account = await upsertAccount(db, "grok", { remoteId: "u", label: "Grok" }, 1);
+    await mergeListing(db, account, [item("a", 20)], true, 1);
+    await putBody(db, "grok:a", { id: "a", title: "A", updatedAt: 5, messages: [] }, 9);
+    const c = (await getConversation(db, "grok:a"))!;
+    expect(c.bodyUpdatedAt).toBe(20);
+    expect(bodyIsFresh(c)).toBe(true);
+  });
+
   it("clears a deleted folder from its conversations and stores excerpts", async () => {
     const account = await upsertAccount(db, "chatgpt", { remoteId: "u", label: "ChatGPT" }, 1);
     await mergeListing(db, account, [item("a")], true, 1);
