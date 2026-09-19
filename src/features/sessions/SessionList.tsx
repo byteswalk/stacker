@@ -3,7 +3,14 @@ import { useI18n } from "../../i18n";
 import { Select } from "../../Select";
 import { formatSpaceBytes as bytes } from "../space-analysis/components/SpaceOverview";
 import { AGENT_LABEL, CLIENT_LABEL, STATUS_LABEL, formatAge, toggleSelection } from "./sessionsView";
-import { PAGE_SIZE, type ProjectRow, type Session, type SessionPage, type SessionQuery } from "./types";
+import { PAGE_SIZE, type AgentName, type ClientTag, type ProjectRow, type Session, type SessionPage, type SessionQuery } from "./types";
+
+/** Client tags each agent can produce (Codex: desktop, CLI, IDE, exec; Claude: desktop, CLI, SDK). */
+function clientsFor(agent: string): ClientTag[] {
+  if (agent === "codex") return ["desktop", "terminal", "ide", "automation"];
+  if (agent === "claude") return ["desktop", "terminal", "sdk"];
+  return ["desktop", "terminal", "ide", "automation", "sdk"];
+}
 
 type Props = {
   page: SessionPage;
@@ -27,6 +34,14 @@ export function SessionList({ page, query, projects, loading, selected, onSelect
   const allPage = page.items.length > 0 && page.items.every((s) => selected.includes(s.id));
   const selectedBytes = page.items.filter((s) => selected.includes(s.id)).reduce((sum, s) => sum + s.bytes, 0);
   const selectedFavorite = page.items.filter((s) => selected.includes(s.id)).every((s) => s.favorite);
+  // Cascade: only projects that have sessions of the chosen agent.
+  const agentProjects = query.agent ? projects.filter((p) => p.agents.includes(query.agent as AgentName)) : projects;
+  const clients = clientsFor(query.agent);
+  const pickAgent = (agent: string) => onFilter({
+    agent,
+    project: !agent || !query.project || projects.some((p) => p.project.key === query.project && p.agents.includes(agent as AgentName)) ? query.project : "",
+    client: clientsFor(agent).includes(query.client as ClientTag) ? query.client : "",
+  });
   const togglePage = () => onSelect(allPage
     ? selected.filter((id) => !page.items.some((s) => s.id === id))
     : Array.from(new Set([...selected, ...page.items.map((s) => s.id)])));
@@ -35,10 +50,10 @@ export function SessionList({ page, query, projects, loading, selected, onSelect
     <div className="session-filters">
       <label className="session-search"><i className="ti ti-search" /><input value={query.search} aria-label={t("搜索会话")} placeholder={t("搜索标题、项目或摘要")} onChange={(e) => onFilter({ search: e.target.value })} /></label>
       <label className="session-check"><input type="checkbox" checked={query.fullText} onChange={(e) => onFilter({ fullText: e.target.checked })} />{t("搜索原文")}</label>
-      <Select value={query.agent} onChange={(agent) => onFilter({ agent })} options={[{ value: "", label: t("全部智能体") }, { value: "codex", label: "Codex" }, { value: "claude", label: "Claude" }]} />
-      <Select value={query.project} onChange={(project) => onFilter({ project })} options={[{ value: "", label: t("全部项目") }, ...projects.map((p) => ({ value: p.project.key, label: p.project.name, title: p.project.path }))]} />
+      <Select value={query.agent} onChange={pickAgent} options={[{ value: "", label: t("全部智能体") }, { value: "codex", label: "Codex" }, { value: "claude", label: "Claude" }]} />
+      <Select value={query.project} onChange={(project) => onFilter({ project })} options={[{ value: "", label: t("全部项目") }, ...agentProjects.map((p) => ({ value: p.project.key, label: p.project.name, title: p.project.path }))]} />
       <Select value={query.status} onChange={(status) => onFilter({ status })} options={[{ value: "", label: t("全部状态") }, ...(["active", "archived", "orphaned"] as const).map((value) => ({ value, label: t(STATUS_LABEL[value]) }))]} />
-      <Select value={query.client} onChange={(client) => onFilter({ client })} options={[{ value: "", label: t("全部来源") }, ...(["desktop", "terminal", "ide", "automation", "sdk"] as const).map((value) => ({ value, label: t(CLIENT_LABEL[value]) }))]} />
+      <Select value={query.client} onChange={(client) => onFilter({ client })} options={[{ value: "", label: t("全部来源") }, ...clients.map((value) => ({ value, label: t(CLIENT_LABEL[value]) }))]} />
       <Select value={query.updatedAfter ? String(Math.round((now - query.updatedAfter) / 86400)) : ""} onChange={(days) => onFilter({ updatedAfter: days ? now - Number(days) * 86400 : 0 })} options={[{ value: "", label: t("全部时间") }, ...[7, 30, 90].map((days) => ({ value: String(days), label: `${t("最近")} ${days} ${t("天")}` }))]} />
       <Select value={query.sort} onChange={(sort) => onFilter({ sort: sort as SessionQuery["sort"] })} options={[{ value: "", label: t("最近活动优先") }, { value: "bytes", label: t("占用最大优先") }]} />
       <label className="session-check"><input type="checkbox" checked={query.favoritesOnly} onChange={(e) => onFilter({ favoritesOnly: e.target.checked })} />{t("仅收藏")}</label>

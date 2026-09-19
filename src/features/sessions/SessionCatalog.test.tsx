@@ -80,3 +80,21 @@ describe("session catalog", () => {
     expect((last?.[1] as { query: { project: string } }).query.project).toBe(session.project.key);
   });
 });
+
+describe("project filter", () => {
+  it("only offers projects of the chosen agent and clears a project that no longer fits", async () => {
+    const { SessionList } = await import("./SessionList");
+    const onFilter = vi.fn();
+    const projects = [
+      { project: { key: "a", name: "only-codex", path: "A", exists: true }, agents: ["codex"], sessions: 1, orphans: 0, bytes: 1, updatedAt: 1 },
+      { project: { key: "b", name: "only-claude", path: "B", exists: true }, agents: ["claude"], sessions: 1, orphans: 0, bytes: 1, updatedAt: 1 },
+    ] as const;
+    const query = { agent: "codex", project: "", status: "", client: "", search: "", fullText: false, includeAutomation: false, favoritesOnly: false, updatedAfter: 0, sort: "" as const, offset: 0 };
+    await act(async () => { root.render(<SessionList page={{ items: [], total: 0, ids: [], totalBytes: 0, warnings: [] }} query={query} projects={[...projects]} loading={false} selected={[]}
+      onSelect={() => {}} onFilter={onFilter} onPage={() => {}} onOpen={() => {}} onFavorite={() => {}} onDelete={() => {}} onSummarize={() => {}} />); });
+    const selects = [...host.querySelectorAll("button")].filter((b) => b.textContent?.includes("全部项目"));
+    await click(selects[0]);
+    expect(host.textContent).toContain("only-codex");
+    expect(host.textContent).not.toContain("only-claude");
+  });
+});
