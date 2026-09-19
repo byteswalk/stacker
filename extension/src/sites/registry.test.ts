@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { conversationIdOfUrl, conversationUrl, siteOfUrl } from "./registry";
+import type { SiteId } from "../shared/types";
+import { conversationIdOfUrl, conversationUrl, siteOfUrl, SITES } from "./registry";
+
+/** One conversation id per site, in the form its adapter uses. */
+const SAMPLE_ID: Record<SiteId, string> = { chatgpt: "abc-1", claude: "k1" };
 
 describe("registry", () => {
   it("recognises sites and conversation ids from URLs", () => {
@@ -10,5 +14,18 @@ describe("registry", () => {
     expect(conversationIdOfUrl("claude", "https://claude.ai/chat/k1")).toBe("k1");
     expect(conversationIdOfUrl("claude", "https://claude.ai/new")).toBeNull();
     expect(conversationUrl("chatgpt", "abc")).toBe("https://chatgpt.com/c/abc");
+  });
+
+  it("finds every site's conversation id in the URL it builds for it", () => {
+    for (const site of Object.keys(SITES) as SiteId[]) {
+      const url = conversationUrl(site, SAMPLE_ID[site]);
+      expect(siteOfUrl(url)).toBe(site);
+      expect(conversationIdOfUrl(site, url)).toBe(SAMPLE_ID[site]);
+    }
+  });
+
+  it("marks which sites were checked on a real account", () => {
+    const verified = Object.fromEntries((Object.keys(SITES) as SiteId[]).map((s) => [s, SITES[s].verified]));
+    expect(verified).toEqual({ chatgpt: true, claude: true });
   });
 });
