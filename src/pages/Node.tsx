@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "../invoke";
 import { open } from "@tauri-apps/plugin-dialog";
-import { useToast, Modal, ConfirmModal, useBusy, Loading, ErrorState, operationWasCancelled } from "../ui";
+import { useToast, Modal, ConfirmModal, useBusy, useBusyRead, Loading, ErrorState, operationWasCancelled } from "../ui";
 import { SourcesPanel } from "../SourcesPanel";
 import { StorageLocations } from "../StorageLocations";
 import { TerminalBar } from "../TerminalBar";
@@ -69,6 +69,7 @@ const cmpVer = (a: string, b: string) => {
 export default function Node() {
   const toast = useToast();
   const runBusy = useBusy();
+  const read = useBusyRead();
   const notices = useNotifications();
   const [st, setSt] = useState<FnmStatus | null>(null);
   const [avail, setAvail] = useState<Shells>({ powershell: true, gitbash: false, cmd: true });
@@ -148,7 +149,7 @@ export default function Node() {
     }).catch(() => {});
     setSrcRefresh((n) => n + 1);
   }, [refreshBinaryMirrors, toast]);
-  useEffect(() => { load().catch(() => setLoadErr(true)); }, [load]);
+  useEffect(() => { read("正在读取 Node 状态", load).catch(() => setLoadErr(true)); }, [load, read]);
 
   function sourceName(id: string) {
     return downloadSources.find((s) => s.id === id)?.name ?? id;

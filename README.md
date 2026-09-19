@@ -20,10 +20,10 @@ Stacker manages that local layer without requiring a model connection or uploadi
 
 - **Environment visibility** — verify the effective Git, Python, Node.js, Java, Maven, Gradle, Go, Rust, package-manager, proxy, and cache state.
 - **Runtime lifecycle** — discover, install, switch, verify, and remove local toolchain versions.
-- **AI agent lifecycle** — inspect supported CLI and desktop products, distinguish regional editions, install or update supported surfaces, and copy an installed-agent summary for AI use.
-- **Local conversation workspace** — index supported Codex and Claude records, search and group conversations, export readable archives and handoff notes, and perform guarded native operations where the installed client exposes a verified interface.
+- **Agent management** — inspect supported CLI and desktop products, distinguish regional editions, verify that installs actually run, and install, update, uninstall or repair them as parallel background tasks with one-click update.
+- **Agent session data** — list the Codex and Claude sessions you actually see in each client, group them by project, find orphaned records, and delete them in bulk with a slim Markdown export.
 - **Git account isolation** — use separate terminal contexts and repository-level commit identities for GitHub, Gitee, GitLab, Gitea, Forgejo, Codeup, enterprise, and generic HTTPS Git services.
-- **Source and network control** — test latency, select download and repository sources, manage terminal proxy settings, and preserve local custom sources.
+- **Source and network control** — test latency, select download and repository sources, and preserve local custom sources. The proxy overview shows where terminal, Git, npm, Yarn, Maven and Gradle proxies come from; by default Stacker is hands-off and only ever syncs entries it wrote itself.
 - **Package storage placement** — move or reset Maven, Gradle, npm, pnpm, pip, Composer, Go, Cargo, and rustup download or build stores without deleting the old location automatically.
 - **Developer disk intelligence** — scan selected folders or disks, recognize development projects and agent traces, locate large files, review rebuildable artifacts by project, and remove only classified targets after confirmation.
 - **Recoverable changes** — back up supported configuration before writing and restore it from local history.
@@ -36,15 +36,15 @@ Run an on-demand check of the commands, runtimes, package managers, build tools,
 
 ![Stacker programming ecosystem check](assets/screenshots/environment-check.png)
 
-### AI Agent Catalog
+### Agent Install & Update
 
-Review supported AI coding-agent CLI and desktop installations from one page. The catalog currently covers Claude Code, Codex, Antigravity, OpenCode, ZCode, Kimi, WorkBuddy, Qoder regional editions, TRAE regional editions, DeepSeek Harness, OpenClaw, and Hermes Agent. Availability and automated lifecycle actions vary by vendor surface.
+Review supported AI coding-agent CLI and desktop installations from one page. The catalog currently covers Claude Code, Codex, Antigravity, OpenCode, ZCode, Kimi, WorkBuddy regional editions, Qoder regional editions, TRAE regional editions, DeepSeek Harness, OpenClaw, Hermes Agent, and pi. Broken installs, such as placeholders left by a failed install, are flagged and can be repaired when a healthy install exists. Updates can be queued in one click and run in the background. Availability and automated lifecycle actions vary by vendor surface.
 
 ![Stacker AI work agents](assets/screenshots/work-agents.png)
 
-### Conversation And Project Workspace
+### Agent Session Data
 
-Build a local index of supported Codex and Claude records without copying the full transcript into the database. Filter, search, group, export, summarize with an explicitly configured compatible endpoint, and review the project paths associated with each conversation. Source-changing operations are capability-gated, previewed, and backed up before execution.
+Reads Codex's state database and Claude's desktop session index directly, so titles, archive state and projects match the clients. Sub-agent runs fold into their parent session and automated runs stay hidden by default. Claude sessions already deleted in the desktop app show up as orphans. Bulk deletion is previewed and re-verified; by default each session is saved as slim Markdown first, Codex sessions are deleted through the Codex App Server, and Claude sessions still shown in the desktop sidebar are never deleted.
 
 ### Git Account Environments
 
@@ -75,7 +75,7 @@ Storage-location controls are available where the ecosystem provides a stable us
 ## Security and Privacy
 
 - Project files, machine summaries, and Git access tokens are not uploaded by Stacker.
-- Conversation indexing stays local. Summaries leave the machine only after the configured destination and payload preview are approved.
+- Session data is read locally and never sent anywhere.
 - Git tokens are stored through Windows Credential Manager.
 - System-level environment changes and protected-directory scans require explicit Windows UAC approval.
 - Uncertain disk items remain view-only; cleanup is limited to classified targets and requires confirmation.
@@ -127,9 +127,14 @@ Build the Windows installer, portable package, and checksum file:
 npm run release:windows
 ```
 
+## Browser Chat Extension
+
+A Chromium browser extension (Chrome, Edge, and other Chromium-based browsers) manages ChatGPT and Claude web conversations independently of the desktop app: organize, search, export, and delete them, with data kept on the local machine only. See the [extension guide](extension/README.md) for installation and usage.
+
 ## Project Documentation
 
-- [Conversation workspace behavior and safety boundaries](docs/conversations.md)
+- [Session data behavior and safety boundaries](docs/sessions.md)
+- [Local gateway](docs/gateway.md)
 - [Development, verification, cleanup, and maintainer handoff](docs/development.md)
 
 ## License

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "./invoke";
-import { ConfirmModal, Modal, operationWasCancelled, useBusy, useToast } from "./ui";
+import { ConfirmModal, Modal, operationWasCancelled, useBusy, useBusyRead, useToast } from "./ui";
 
 type StorageLocation = {
   id: string;
@@ -36,6 +36,7 @@ function sourceLabel(source: StorageLocation["source"]) {
 export function StorageLocations({ ecosystem }: { ecosystem: string }) {
   const toast = useToast();
   const runBusy = useBusy();
+  const read = useBusyRead();
   const [rows, setRows] = useState<StorageLocation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -47,13 +48,13 @@ export function StorageLocations({ ecosystem }: { ecosystem: string }) {
     setLoading(true);
     setError("");
     try {
-      setRows(await invoke<StorageLocation[]>("storage_locations", { ecosystem }));
+      setRows(await read("正在读取存储配置", () => invoke<StorageLocation[]>("storage_locations", { ecosystem })));
     } catch (cause) {
       setError(String(cause));
     } finally {
       setLoading(false);
     }
-  }, [ecosystem]);
+  }, [ecosystem, read]);
 
   useEffect(() => { void load(); }, [load]);
 

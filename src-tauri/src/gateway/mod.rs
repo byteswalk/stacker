@@ -1,0 +1,220 @@
+//! Local-only OpenAI / Anthropic style gateway over the agent runner.
+pub mod agents;
+pub mod protocol;
+pub mod server;
+
+use serde::{Deserialize, Serialize};
+use server::{Defaults, LogEntry, Runner, Running, Shared};
+use std::sync::{Arc, Mutex};
+
+pub const DEFAULT_PORT: u16 = 8765;
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct GatewayConfig {
+    pub enabled: bool,
+    pub port: u16,
+    pub token: String,
+    /// Agents turned off on the page (missing = on).
+    pub disabled_agents: Vec<String>,
+}
+
+impl Default for GatewayConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            port: DEFAULT_PORT,
+            token: String::new(),
+            disabled_agents: Vec::new(),
+        }
+    }
+}
+
+fn new_token() -> String {
+    use std::hash::{BuildHasher, Hasher};
+    let part = || {
+        let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+        h.write_u128(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0),
+        );
+        h.finish()
+    };
+    format!("sk-stacker-{:016x}{:016x}", part(), part())
+}
+
+pub(crate) fn load() -> GatewayConfig {
+    let mut config: GatewayConfig = crate::sessions::annotations::connect()
+        .ok()
+        .and_then(|c| crate::sessions::annotations::setting(&c, "gateway"))
+        .and_then(|v| serde_json::from_str(&v).ok())
+        .unwrap_or_default();
+    if config.token.is_empty() {
+        config.token = new_token();
+        let _ = save(&config);
+    }
+    if config.port == 0 {
+        config.port = DEFAULT_PORT;
+    }
+    config
+}
+
+pub(crate) fn save(config: &GatewayConfig) -> Result<(), String> {
+    let conn = crate::sessions::annotations::connect()?;
+    crate::sessions::annotations::set_setting(
+        &conn,
+        "gateway",
+        &serde_json::to_string(config).map_err(crate::sessions::err)?,
+    )
+}
+
+pub(crate) struct State {
+    pub(crate) running: Option<(Running, Arc<Shared>)>,
+    error: String,
+}
+
+pub(crate) static STATE: Mutex<State> = Mutex::new(State {
+    running: None,
+    error: String::new(),
+});
+
+fn live_runner() -> Runner {
+    Arc::new(crate::runner::run)
+}
+
+/// Codex and Claude fall back to the summary settings' model and effort; other backends
+/// to the CLI's own defaults.
+pub(crate) fn live_defaults() -> Defaults {
+    Arc::new(|chat: &protocol::ChatRequest| {
+        let agent = match chat.model.backend.as_str() {
+            "codex" => Some(crate::sessions::model::Agent::Codex),
+            "claude" => Some(crate::sessions::model::Agent::Claude),
+            _ => None,
+        };
+        let (model, effort) = match agent {
+            Some(agent) => {
+                let settings = crate::sessions::annotations::connect()
+                    .map(|c| crate::sessions::summary::load_settings(&c))
+                    .unwrap_or_default();
+                let base = crate::sessions::summary::choice_for(&settings, agent);
+                (base.model, base.effort)
+            }
+            None => (None, None),
+        };
+        (
+            chat.model.model.clone().or(model),
+            chat.effort.clone().or(effort),
+        )
+    })
+}
+
+fn stop_locked(state: &mut State) {
+    if let Some((running, _)) = state.running.take() {
+        running.stop();
+    }
+}
+
+fn start_locked(state: &mut State, config: &GatewayConfig) {
+    stop_locked(state);
+    state.error.clear();
+    let shared = Shared::new(config.token.clone(), live_runner(), live_defaults());
+    agents::apply_enabled(&shared, config);
+    match server::start(config.port, shared.clone()) {
+        Ok(running) => {
+            log::info!(target: "stacker::gateway", "listening on 127.0.0.1:{}", running.port);
+            state.running = Some((running, shared));
+        }
+        Err(code) => state.error = code,
+    }
+}
+
+/// Startup: resume the gateway if it was on.
+pub fn restore() {
+    let config = load();
+    if config.enabled {
+        if let Ok(mut state) = STATE.lock() {
+            start_locked(&mut state, &config);
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GatewayStatus {
+    pub enabled: bool,
+    pub running: bool,
+    pub port: u16,
+    pub token: String,
+    pub error: String,
+    pub recent: Vec<LogEntry>,
+}
+
+pub fn status() -> GatewayStatus {
+    let config = load();
+    let state = STATE.lock().unwrap_or_else(|e| e.into_inner());
+    GatewayStatus {
+        enabled: config.enabled,
+        running: state.running.is_some(),
+        port: state
+            .running
+            .as_ref()
+            .map(|(r, _)| r.port)
+            .unwrap_or(config.port),
+        token: config.token,
+        error: state.error.clone(),
+        recent: state
+            .running
+            .as_ref()
+            .and_then(|(_, s)| s.recent.lock().ok().map(|r| r.iter().cloned().collect()))
+            .unwrap_or_default(),
+    }
+}
+
+#[tauri::command]
+pub fn gateway_status() -> GatewayStatus {
+    status()
+}
+
+#[tauri::command]
+pub async fn gateway_set(enabled: bool, port: u16) -> Result<GatewayStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if port < 1024 {
+            return Err("E_PORT".to_string());
+        }
+        let mut config = load();
+        config.enabled = enabled;
+        config.port = port;
+        save(&config)?;
+        {
+            let mut state = STATE.lock().map_err(crate::sessions::err)?;
+            if enabled {
+                start_locked(&mut state, &config);
+            } else {
+                stop_locked(&mut state);
+                state.error.clear();
+            }
+        }
+        Ok(status())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn gateway_new_token() -> Result<GatewayStatus, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let mut config = load();
+        config.token = new_token();
+        save(&config)?;
+        let mut state = STATE.lock().map_err(crate::sessions::err)?;
+        if state.running.is_some() {
+            start_locked(&mut state, &config);
+        }
+        drop(state);
+        Ok(status())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}

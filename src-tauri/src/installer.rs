@@ -36,11 +36,57 @@ pub(crate) fn diagnostic_excerpt(text: &str) -> String {
 fn process_log_line(msg: impl AsRef<str>) {
     log::debug!(target: "stacker::installer", "{}", msg.as_ref());
 }
+/// Cancel flag and log sink of a background agent task running on the current thread.
+#[derive(Clone)]
+pub struct TaskContext {
+    pub cancel: std::sync::Arc<AtomicBool>,
+    pub log: std::sync::Arc<dyn Fn(&str) + Send + Sync>,
+}
+
+thread_local! {
+    static TASK_CONTEXT: std::cell::RefCell<Option<TaskContext>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Runs `work` with a task-scoped cancel flag and log sink. Installer helpers called inside
+/// it report to this task instead of the single global operation.
+pub fn with_task_context<R>(context: TaskContext, work: impl FnOnce() -> R) -> R {
+    struct Restore(Option<TaskContext>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            let previous = self.0.take();
+            TASK_CONTEXT.with(|slot| *slot.borrow_mut() = previous);
+        }
+    }
+    let previous = TASK_CONTEXT.with(|slot| slot.borrow_mut().replace(context));
+    let _restore = Restore(previous);
+    work()
+}
+
+pub fn current_task_context() -> Option<TaskContext> {
+    TASK_CONTEXT.with(|slot| slot.borrow().clone())
+}
+
+/// Sends a progress line to the current task; returns false outside a task.
+pub fn task_log(line: &str) -> bool {
+    match current_task_context() {
+        Some(context) => {
+            (context.log)(line);
+            true
+        }
+        None => false,
+    }
+}
+
 pub fn op_reset() {
-    OP_CANCEL.store(false, Ordering::SeqCst);
+    if current_task_context().is_none() {
+        OP_CANCEL.store(false, Ordering::SeqCst);
+    }
 }
 pub fn op_cancelled() -> bool {
-    OP_CANCEL.load(Ordering::SeqCst)
+    match current_task_context() {
+        Some(context) => context.cancel.load(Ordering::SeqCst),
+        None => OP_CANCEL.load(Ordering::SeqCst),
+    }
 }
 
 /// 取消当前下载 / 安装。
@@ -602,14 +648,24 @@ fn powershell_launch_script(cwd: &str, command: Option<&str>) -> String {
     }
 }
 
-/// 打开一个终端窗口（powershell / gitbash / cmd），工作目录默认 Stacker 所在目录。
+/// A new terminal starts in the user's home folder, not next to Stacker's executable, so
+/// agents started there do not file their sessions under Stacker's install folder.
+fn home_or_app_dir() -> String {
+    dirs::home_dir()
+        .map(|path| path.to_string_lossy().into_owned())
+        .unwrap_or_else(app_dir)
+}
+
+/// 打开一个终端窗口（powershell / gitbash / cmd），工作目录默认用户主目录。
 #[tauri::command]
 pub fn open_shell(
     kind: String,
     cwd: Option<String>,
     command: Option<String>,
 ) -> Result<(), String> {
-    let cwd = cwd.filter(|s| !s.trim().is_empty()).unwrap_or_else(app_dir);
+    let cwd = cwd
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(home_or_app_dir);
     let command = command
         .as_deref()
         .map(str::trim)
@@ -622,7 +678,7 @@ pub fn open_shell(
 #[tauri::command]
 pub fn open_ecosystem_verify_shell(kind: String, ecosystem: String) -> Result<(), String> {
     let command = verification_command(&kind, &ecosystem)?;
-    launch_shell(&kind, &app_dir(), Some(&command))
+    launch_shell(&kind, &home_or_app_dir(), Some(&command))
 }
 
 fn launch_shell(kind: &str, cwd: &str, command: Option<&str>) -> Result<(), String> {
@@ -734,85 +790,6 @@ fn launch_shell_titled(
     }
     c.spawn().map_err(|e| e.to_string())?;
     Ok(())
-}
-
-pub(crate) fn launch_managed_shell(
-    kind: &str,
-    cwd: &Path,
-    program: &Path,
-    environment: &[(String, String)],
-    agent_name: &str,
-) -> Result<(), String> {
-    if !cwd.is_dir() {
-        return Err("The selected project folder no longer exists.".into());
-    }
-    if !program.is_file() {
-        return Err("The selected work agent CLI no longer exists.".into());
-    }
-    for (name, value) in environment {
-        if !name
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || character == '_')
-            || value.contains(['\r', '\n', '\0'])
-        {
-            return Err("The managed environment contains an invalid value.".into());
-        }
-    }
-
-    let program_text = program.to_string_lossy();
-    let command = match kind {
-        "powershell" => {
-            let mut rows = environment
-                .iter()
-                .map(|(name, value)| format!("$env:{name}='{}'", value.replace('\'', "''")))
-                .collect::<Vec<_>>();
-            rows.push(format!(
-                "Write-Host 'Stacker managed session: {}' -ForegroundColor Cyan",
-                agent_name.replace('\'', "''")
-            ));
-            rows.push("Write-Host 'Environment is scoped to this terminal only.' -ForegroundColor DarkGray".into());
-            rows.push(format!("& '{}'", program_text.replace('\'', "''")));
-            rows.join("\n")
-        }
-        "cmd" => {
-            let mut rows = environment
-                .iter()
-                .map(|(name, value)| format!("set \"{name}={value}\""))
-                .collect::<Vec<_>>();
-            rows.push(format!("echo Stacker managed session: {agent_name}"));
-            rows.push("echo Environment is scoped to this terminal only.".into());
-            rows.push(format!("call \"{program_text}\""));
-            rows.join(" & ")
-        }
-        "gitbash" => {
-            let mut rows = environment
-                .iter()
-                .map(|(name, value)| {
-                    let value = value.replace('\'', "'\\''");
-                    if name == "PATH" {
-                        format!("export PATH=\"$(cygpath -p -u '{value}')\"")
-                    } else {
-                        format!("export {name}='{value}'")
-                    }
-                })
-                .collect::<Vec<_>>();
-            let program = program_text.replace('\\', "/").replace('\'', "'\\''");
-            rows.push(format!(
-                "printf '%s\\n' 'Stacker managed session: {agent_name}'"
-            ));
-            rows.push("printf '%s\\n' 'Environment is scoped to this terminal only.'".into());
-            rows.push(format!("\"$(cygpath -u '{program}')\""));
-            rows.join("; ")
-        }
-        _ => return Err("Unknown shell type.".into()),
-    };
-
-    launch_shell_titled(
-        kind,
-        &cwd.to_string_lossy(),
-        Some(&command),
-        "Stacker Work Session",
-    )
 }
 
 fn verification_command(kind: &str, ecosystem: &str) -> Result<String, String> {
@@ -1170,10 +1147,14 @@ fn validate_shell_launch_command(command: &str) -> Result<String, String> {
     if command.len() > 80 {
         return Err("启动命令过长".into());
     }
-    if command
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
-    {
+    // Plain words separated by single spaces, e.g. `dsh web`; no shell syntax.
+    let plain_word = |word: &str| {
+        !word.is_empty()
+            && word
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    };
+    if command.split(' ').all(plain_word) {
         Ok(command.to_string())
     } else {
         Err("启动命令包含不支持的字符".into())
@@ -1513,6 +1494,50 @@ mod tests {
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::time::Duration;
+
+    #[test]
+    fn shell_launch_commands_allow_plain_subcommands_only() {
+        use super::validate_shell_launch_command;
+        assert_eq!(validate_shell_launch_command("dsh web").unwrap(), "dsh web");
+        assert!(validate_shell_launch_command("claude").is_ok());
+        for bad in [
+            "dsh  web",
+            " dsh",
+            "dsh web;calc",
+            "a && b",
+            "x | y",
+            "$(calc)",
+        ] {
+            assert!(validate_shell_launch_command(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn task_context_isolates_cancellation_and_logs() {
+        use super::{op_cancel, op_cancelled, task_log, with_task_context, TaskContext};
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::{Arc, Mutex};
+
+        let cancel = Arc::new(AtomicBool::new(false));
+        let lines = Arc::new(Mutex::new(Vec::<String>::new()));
+        let sink = lines.clone();
+        let context = TaskContext {
+            cancel: cancel.clone(),
+            log: Arc::new(move |line: &str| sink.lock().unwrap().push(line.to_string())),
+        };
+        op_cancel();
+        let observed = with_task_context(context, || {
+            assert!(!op_cancelled(), "global cancel must not leak into a task");
+            assert!(task_log("hello"));
+            cancel.store(true, Ordering::SeqCst);
+            op_cancelled()
+        });
+        assert!(observed);
+        assert_eq!(*lines.lock().unwrap(), vec!["hello".to_string()]);
+        assert!(op_cancelled(), "outside the task the global flag applies");
+        assert!(!task_log("ignored"));
+        op_reset();
+    }
 
     fn download_test_server(bodies: Vec<&'static [u8]>, declared_length: usize) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();

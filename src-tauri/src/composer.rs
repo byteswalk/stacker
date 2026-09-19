@@ -53,7 +53,7 @@ fn first_command_path(name: &str) -> Option<PathBuf> {
 
 fn php_executable() -> Option<PathBuf> {
     first_command_path("php").or_else(|| {
-        crate::env::env_state()
+        crate::env::env_state_blocking()
             .into_iter()
             .find(|group| group.kind == "php")
             .and_then(|group| {
@@ -93,7 +93,13 @@ fn composer_version(entry: &Path) -> String {
 }
 
 #[tauri::command]
-pub fn composer_status() -> ComposerStatus {
+pub async fn composer_status() -> ComposerStatus {
+    tauri::async_runtime::spawn_blocking(composer_status_blocking)
+        .await
+        .expect("blocking command worker panicked")
+}
+
+pub(crate) fn composer_status_blocking() -> ComposerStatus {
     let home = composer_home();
     let managed = managed_entry();
     let entry = composer_entry();
@@ -213,26 +219,30 @@ fn composer_install_impl(window: tauri::Window) -> Result<ComposerStatus, String
 }
 
 #[tauri::command]
-pub fn composer_clear() -> Result<ComposerStatus, String> {
-    let home = composer_home();
-    let bin = home.join("bin");
-    let entry = bin.join("composer.bat");
-    if !entry.exists() {
-        return Err("当前 Composer 不是由 Stacker 安装，不能在此卸载。".into());
-    }
-
-    backup::backup_env(
-        winenv::Hive::User,
-        "composer-remove",
-        &["COMPOSER_HOME", "Path"],
-    );
-    winenv::remove_path_in(winenv::Hive::User, &bin.to_string_lossy())?;
-    for path in [entry, bin.join("composer.phar")] {
-        if path.exists() {
-            backup::backup_file(&path);
-            fs::remove_file(&path)
-                .map_err(|error| format!("无法删除 {}：{error}", path.display()))?;
+pub async fn composer_clear() -> Result<ComposerStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let home = composer_home();
+        let bin = home.join("bin");
+        let entry = bin.join("composer.bat");
+        if !entry.exists() {
+            return Err("当前 Composer 不是由 Stacker 安装，不能在此卸载。".into());
         }
-    }
-    Ok(composer_status())
+
+        backup::backup_env(
+            winenv::Hive::User,
+            "composer-remove",
+            &["COMPOSER_HOME", "Path"],
+        );
+        winenv::remove_path_in(winenv::Hive::User, &bin.to_string_lossy())?;
+        for path in [entry, bin.join("composer.phar")] {
+            if path.exists() {
+                backup::backup_file(&path);
+                fs::remove_file(&path)
+                    .map_err(|error| format!("无法删除 {}：{error}", path.display()))?;
+            }
+        }
+        Ok(composer_status_blocking())
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }

@@ -1,0 +1,43 @@
+.a .task-center{ position:relative; margin-left:auto; }
+.a .task-center-btn .task-count{ margin-left:4px; min-width:16px; padding:0 5px; border-radius:8px;
+  background:var(--acc); color:#fff; font-size:10px; line-height:16px; text-align:center; }
+.a .task-panel{ position:absolute; right:0; top:calc(100% + 6px); width:440px; max-height:440px; overflow:auto;
+  background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:6px; z-index:40;
+  box-shadow:0 12px 32px rgba(0,0,0,.35); }
+.a .task-row{ display:flex; gap:8px; align-items:center; padding:8px; border-radius:8px; }
+.a .task-row + .task-row{ border-top:1px solid var(--bd); }
+.a .task-main{ flex:1; min-width:0; }
+.a .task-title{ font-size:13px; display:flex; gap:8px; align-items:center; color:var(--tx); }
+.a .task-state{ font-size:11px; color:var(--mut); }
+.a .task-row.running .task-state{ color:var(--blue); }
+.a .task-row.failed .task-state{ color:var(--red); }
+.a .task-row.succeeded .task-state{ color:var(--green); }
+.a .task-line{ font-size:11px; color:var(--mut); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.a .task-actions{ display:flex; gap:4px; flex-shrink:0; }
+.a .task-log{ max-height:60vh; overflow:auto; font-size:12px; white-space:pre-wrap; margin:0; }
+.a .surface-task{ font-size:11px; color:var(--blue); display:flex; gap:4px; align-items:center; margin-top:2px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.a .surface-note{ font-size:11px; color:var(--mut); margin-top:2px; }
+.a .bd.e{ background:rgba(229,72,77,.14); color:#e5484d; }
+.a .surface-warn{ color:var(--amber); }
+
+/* 一键更新 plan */
+.a .update-plan{ font-size:13px; }
+.a .update-plan ul{ list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:6px; }
+.a .plan-row{ display:flex; align-items:center; gap:11px; padding:9px 12px; border-radius:10px;
+  background:var(--card); border:1px solid var(--bd); }
+.a .plan-icon{ width:30px; height:30px; flex-shrink:0; border-radius:8px; display:flex; align-items:center;
+  justify-content:center; background:rgba(255,255,255,.06); }
+.a .plan-icon img{ width:20px; height:20px; object-fit:contain; }
+.a .plan-name{ display:flex; flex-direction:column; gap:2px; min-width:0; flex:1; }
+.a .plan-name b{ font-weight:600; color:var(--tx); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.a .plan-name small{ font-size:11.5px; color:var(--mut); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.a .plan-row.manual .plan-name small{ color:var(--amber); }
+.a .plan-versions{ display:flex; align-items:center; gap:6px; flex-shrink:0; font-family:var(--font-mono); font-size:11.5px; }
+.a .plan-versions .ti{ color:#5f6774; font-size:15px; }
+.a .plan-ver{ padding:2px 7px; border-radius:6px; color:var(--mut); background:rgba(255,255,255,.05); }
+.a .plan-ver.next{ color:#f5a45a; background:rgba(245,130,31,.14); }
+.a .plan-group{ display:flex; align-items:center; gap:6px; margin:14px 2px 8px; font-size:12px; font-weight:600; color:#aab1bc; }
+.a .plan-group span{ padding:0 6px; border-radius:999px; background:rgba(255,255,255,.08); color:var(--mut); font-weight:500; }
+.a .plan-empty{ display:flex; align-items:center; gap:8px; padding:14px 12px; border-radius:10px; background:var(--card); color:var(--mut); }
+.a .plan-empty .ti{ color:var(--green); font-size:16px; }

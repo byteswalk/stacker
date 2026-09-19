@@ -648,17 +648,13 @@ pub async fn git_auto_migrate_repository(
 pub async fn git_apply_proxy() -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(|| {
         ensure_git()?;
-        let (host, port) = crate::settings::proxy_addr();
-        if host.trim().is_empty() || port == 0 {
-            return Err(
-                "当前未配置显式代理地址。Git 将使用 Windows 当前网络路由，无需单独设置代理。"
-                    .into(),
-            );
-        }
-        let http = format!("http://{host}:{port}");
-        git_config_set("http.proxy", &http)?;
-        git_config_set("https.proxy", &http)?;
-        Ok(())
+        crate::proxy_ledger::write_location(crate::proxy_ledger::Location::Git).map_err(|e| {
+            if e == "E_PROXY_ADDR" {
+                "当前没有可用的代理地址。Git 将使用 Windows 当前网络路由，无需单独设置代理。".into()
+            } else {
+                e
+            }
+        })
     })
     .await
     .map_err(|e| e.to_string())?
@@ -668,35 +664,28 @@ pub async fn git_apply_proxy() -> Result<(), String> {
 pub async fn git_clear_proxy() -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(|| {
         ensure_git()?;
-        git_config_unset("http.proxy")?;
-        git_config_unset("https.proxy")?;
-        Ok(())
+        crate::proxy_ledger::clear_location(crate::proxy_ledger::Location::Git)
     })
     .await
     .map_err(|e| e.to_string())?
 }
 
-pub(crate) fn sync_existing_proxy(host: Option<&str>, port: u16) -> Result<bool, String> {
+pub(crate) fn proxy_get() -> Option<String> {
+    crate::env::resolve_fresh("git.exe")?;
+    git_config_get("http.proxy").or_else(|| git_config_get("https.proxy"))
+}
+
+pub(crate) fn proxy_set(endpoint: &str) -> Result<(), String> {
+    git_config_set("http.proxy", endpoint)?;
+    git_config_set("https.proxy", endpoint)
+}
+
+pub(crate) fn proxy_clear() -> Result<(), String> {
     if crate::env::resolve_fresh("git.exe").is_none() {
-        return Ok(false);
+        return Ok(());
     }
-    let has_proxy =
-        git_config_get("http.proxy").is_some() || git_config_get("https.proxy").is_some();
-    if !has_proxy {
-        return Ok(false);
-    }
-    if let Some(host) = host
-        .map(str::trim)
-        .filter(|host| !host.is_empty() && port > 0)
-    {
-        let endpoint = format!("http://{host}:{port}");
-        git_config_set("http.proxy", &endpoint)?;
-        git_config_set("https.proxy", &endpoint)?;
-    } else {
-        git_config_unset("http.proxy")?;
-        git_config_unset("https.proxy")?;
-    }
-    Ok(true)
+    git_config_unset("http.proxy")?;
+    git_config_unset("https.proxy")
 }
 
 pub(crate) fn status_snapshot() -> GitStatus {

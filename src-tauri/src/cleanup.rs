@@ -110,8 +110,15 @@ fn is_link_or_reparse_point(path: &Path) -> bool {
     false
 }
 
+/// 测量全部已知缓存需要遍历多 GB 目录，放后台线程执行。
 #[tauri::command]
-pub fn cleanup_scan() -> Vec<CacheItem> {
+pub async fn cleanup_scan() -> Vec<CacheItem> {
+    tauri::async_runtime::spawn_blocking(cleanup_scan_blocking)
+        .await
+        .unwrap_or_default()
+}
+
+pub(crate) fn cleanup_scan_blocking() -> Vec<CacheItem> {
     scan_known_candidates(&CancellationToken::default(), |_| {})
         .map(|result| result.items.into_iter().map(CacheItem::from).collect())
         .unwrap_or_default()
@@ -241,14 +248,20 @@ pub struct AgedStats {
 
 /// 统计 path 下"超过 days 天没被访问过"的文件数与总大小（用于谨慎项智能清理）。
 #[tauri::command]
-pub fn cleanup_aged_stats(path: String, days: u64) -> Result<AgedStats, String> {
+pub async fn cleanup_aged_stats(path: String, days: u64) -> Result<AgedStats, String> {
+    tauri::async_runtime::spawn_blocking(move || aged_stats(path, days))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+fn aged_stats(path: String, days: u64) -> Result<AgedStats, String> {
     if !is_known(&path)? {
         return Err(format!("未知路径：{path}"));
     }
     if is_link_or_reparse_point(Path::new(&path)) {
         return Err(format!("拒绝扫描链接或目录联接：{path}"));
     }
-    let older = Duration::from_secs(days * 86400);
+    let older = Duration::from_secs(days.saturating_mul(86400));
     let now = SystemTime::now();
     let (mut count, mut size) = (0u64, 0u64);
     for entry in jwalk::WalkDir::new(&path)
@@ -279,14 +292,20 @@ pub fn cleanup_aged_stats(path: String, days: u64) -> Result<AgedStats, String> 
 
 /// 删除 path 下超过 days 天未访问的文件，返回释放字节。
 #[tauri::command]
-pub fn cleanup_delete_aged(path: String, days: u64) -> Result<u64, String> {
+pub async fn cleanup_delete_aged(path: String, days: u64) -> Result<u64, String> {
+    tauri::async_runtime::spawn_blocking(move || delete_aged(path, days))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+fn delete_aged(path: String, days: u64) -> Result<u64, String> {
     if !is_known(&path)? {
         return Err(format!("未知路径：{path}"));
     }
     if is_link_or_reparse_point(Path::new(&path)) {
         return Err(format!("拒绝清理链接或目录联接：{path}"));
     }
-    let older = Duration::from_secs(days * 86400);
+    let older = Duration::from_secs(days.saturating_mul(86400));
     let now = SystemTime::now();
     let mut freed = 0u64;
     for entry in jwalk::WalkDir::new(&path)

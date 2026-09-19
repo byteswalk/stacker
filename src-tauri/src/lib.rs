@@ -1,3 +1,4 @@
+mod agents;
 mod backup;
 mod binary;
 mod bundle;
@@ -5,11 +6,11 @@ mod catalog;
 mod checkup;
 mod cleanup;
 mod composer;
-mod conversations;
 mod custom;
 mod dpapi;
 mod env;
 mod fnm;
+mod gateway;
 mod git;
 mod gradle;
 mod installer;
@@ -17,18 +18,19 @@ mod jdk;
 mod logging;
 mod profile;
 mod proxy;
+mod proxy_ledger;
 mod pyenv;
+mod runner;
 mod rustup;
+mod sessions;
 mod settings;
 mod sources;
 mod space_analysis;
 mod storage;
 mod update;
 mod versions;
-mod vibe;
 mod winadmin;
 mod winenv;
-mod work_session;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -68,6 +70,16 @@ pub fn run() {
         .manage(space_analysis::CleanupTaskManager::default())
         .manage(space_analysis::SpaceMonitorManager::default())
         .setup(|app| {
+            {
+                use tauri::{Emitter, Manager};
+                let handle = app.handle().clone();
+                app.manage(agents::tasks::AgentTaskManager::new(
+                    std::sync::Arc::new(agents::tasks::runner::ProductionRunner),
+                    std::sync::Arc::new(move |task: &agents::tasks::AgentTask| {
+                        let _ = handle.emit("agent-task", task);
+                    }),
+                ));
+            }
             let app_settings = settings::load();
             let log_target = logging::target(settings::logs_dir())?;
             app.handle().plugin(
@@ -98,12 +110,8 @@ pub fn run() {
             );
             settings::init();
             settings::start_log_retention_worker();
-            if let Err(error) = settings::settings_set_proxy_mode(app_settings.proxy_mode.clone()) {
-                log::warn!(
-                    target: "stacker::proxy",
-                    "failed to reconcile persisted proxy settings during startup: {error}"
-                );
-            }
+            proxy_ledger::reconcile_on_startup();
+            gateway::restore();
             binary::migrate_legacy_envs();
             build_tray(app.handle())?;
             Ok(())
@@ -132,24 +140,49 @@ pub fn run() {
                                 );
                             }
                         }
-                        settings::CloseBehavior::Exit => {}
+                        settings::CloseBehavior::Exit => {
+                            use tauri::Manager;
+                            if running_agent_tasks(window.app_handle()) > 0 {
+                                api.prevent_close();
+                                confirm_exit(window.app_handle().clone());
+                            }
+                        }
                     }
                 }
             }
         })
         .invoke_handler(tauri::generate_handler![
-            conversations::conversations_list,
-            conversations::conversations_read,
-            conversations::conversations_sources,
-            conversations::conversations_save_settings,
-            conversations::conversations_annotate,
-            conversations::conversations_job,
-            conversations::conversations_cancel,
-            conversations::conversations_start,
-            conversations::conversations_prepare_summary,
-            conversations::conversations_preview,
-            conversations::conversations_execute,
-            conversations::conversations_open,
+            sessions::commands::sessions_list,
+            sessions::commands::sessions_projects,
+            sessions::commands::sessions_read,
+            sessions::commands::sessions_roots,
+            sessions::commands::sessions_set_roots,
+            sessions::commands::sessions_favorite,
+            sessions::commands::sessions_open,
+            sessions::commands::sessions_delete_preview,
+            sessions::commands::sessions_delete_execute,
+            sessions::commands::sessions_job,
+            sessions::commands::sessions_cancel,
+            sessions::commands::footprint_scan,
+            sessions::commands::footprint_preview,
+            sessions::commands::footprint_execute,
+            sessions::commands::footprint_job,
+            sessions::commands::runner_options,
+            sessions::commands::summary_settings,
+            sessions::commands::summary_save_settings,
+            sessions::commands::summary_preview,
+            sessions::commands::summary_start,
+            sessions::commands::summary_job,
+            sessions::commands::summary_cancel,
+            sessions::commands::handoff_preview,
+            sessions::commands::handoff_start,
+            sessions::commands::migration_status,
+            sessions::commands::migration_check,
+            sessions::commands::migration_start,
+            sessions::commands::migration_delete_backup,
+            sessions::commands::migration_move_back,
+            sessions::commands::migration_job,
+            sessions::commands::migration_cancel,
             sources::list_sources,
             sources::apply_source,
             sources::apply_source_scoped,
@@ -324,25 +357,31 @@ pub fn run() {
             settings::settings_set_proxy_mode,
             settings::settings_sync_system_proxy,
             settings::settings_set_proxy_manual,
+            proxy_ledger::proxy_overview,
+            gateway::gateway_status,
+            gateway::gateway_set,
+            gateway::gateway_new_token,
+            gateway::agents::gateway_agents,
+            gateway::agents::gateway_set_agent,
+            gateway::agents::gateway_test,
+            proxy_ledger::proxy_location_write,
+            proxy_ledger::proxy_location_clear,
+            proxy_ledger::proxy_clear_stale,
             settings::os_info,
-            vibe::vibe_catalog,
-            vibe::vibe_tools,
-            vibe::vibe_tools_refresh,
-            vibe::vibe_tool,
-            vibe::vibe_environment_prompt,
-            vibe::vibe_tool_action,
-            vibe::vibe_open_desktop,
-            vibe::vibe_agent_activity,
-            vibe::vibe_agent_environment,
-            work_session::work_environment_contract,
-            work_session::work_session_tracking_roots,
-            work_session::work_session_launch,
-            work_session::work_session_desktop_candidates,
-            work_session::work_session_desktop_launch,
-            work_session::work_session_desktop_process_status,
-            work_session::work_session_report_save,
-            work_session::work_session_report_list,
-            work_session::work_session_report_delete,
+            agents::commands::vibe_catalog,
+            agents::commands::vibe_tools,
+            agents::commands::vibe_tools_refresh,
+            agents::commands::vibe_tool,
+            agents::commands::vibe_environment_prompt,
+            agents::commands::vibe_tool_action,
+            agents::commands::vibe_open_desktop,
+            agents::commands::agent_task_start,
+            agents::commands::agent_task_cancel,
+            agents::commands::agent_task_retry,
+            agents::commands::agent_tasks,
+            agents::commands::agent_task_log,
+            agents::commands::agent_update_plan,
+            agents::commands::agent_update_all,
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -389,7 +428,13 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
                     crate::proxy::enable(&st.host, st.port, false, st.no_proxy_manual)
                 };
             }
-            "quit" => app.exit(0),
+            "quit" => {
+                if running_agent_tasks(app) == 0 {
+                    app.exit(0);
+                } else {
+                    confirm_exit(app.clone());
+                }
+            }
             _ => {}
         })
         .on_tray_icon_event(move |tray, event| {
@@ -456,4 +501,33 @@ pub(crate) fn refresh_tray_menu(app: &tauri::AppHandle) -> Result<(), String> {
             .map_err(|error| error.to_string())?;
     }
     Ok(())
+}
+
+fn running_agent_tasks(app: &tauri::AppHandle) -> usize {
+    use tauri::Manager;
+    app.try_state::<agents::tasks::AgentTaskManager>()
+        .map_or(0, |manager| manager.running_count())
+}
+
+/// Asks before quitting while agent installs are still running, then cancels them.
+fn confirm_exit(app: tauri::AppHandle) {
+    std::thread::spawn(move || {
+        use tauri::Manager;
+        use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
+        let running = running_agent_tasks(&app);
+        let confirmed = app
+            .dialog()
+            .message(format!(
+                "还有 {running} 个智能体任务正在执行，退出会中断这些任务。确定退出吗？"
+            ))
+            .buttons(MessageDialogButtons::OkCancelCustom(
+                "退出".into(),
+                "取消".into(),
+            ))
+            .blocking_show();
+        if confirmed {
+            app.state::<agents::tasks::AgentTaskManager>().cancel_all();
+            app.exit(0);
+        }
+    });
 }

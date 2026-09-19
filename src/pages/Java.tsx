@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "../invoke";
 import { open } from "@tauri-apps/plugin-dialog";
-import { useToast, Modal, useBusy, Loading, ErrorState, operationWasCancelled } from "../ui";
+import { useToast, Modal, useBusy, useBusyRead, Loading, ErrorState, operationWasCancelled } from "../ui";
 import { TerminalBar } from "../TerminalBar";
 import { EcoActions, type Shells, summaryLine } from "../EcoActions";
 import { useNotifications } from "../notifications";
@@ -40,6 +40,7 @@ function normalizeJavaVersion(version: string) {
 export default function Java() {
   const toast = useToast();
   const runBusy = useBusy();
+  const read = useBusyRead();
   const notices = useNotifications();
   const [grp, setGrp] = useState<SdkGroup | null>(null);
   const [eff, setEff] = useState<JavaEff | null>(null);
@@ -131,7 +132,7 @@ export default function Java() {
     invoke<JavaEff>("env_java_effective").then(setEff).catch(() => setEff(null));
     invoke<Shells>("shells_available").then(setShells).catch(() => {});
   }
-  useEffect(() => { load().catch(() => setLoadErr(true)); }, []);
+  useEffect(() => { read("正在读取 Java 状态", load).catch(() => setLoadErr(true)); }, [read]);
 
   const versions = scanned ?? grp?.versions ?? [];
   const current = versions.find((v) => v.current);

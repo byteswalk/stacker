@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { invoke } from "./invoke";
 import { ecosystemUpdateFromInfo, type VersionUpdateInfo } from "./updateHelpers";
+import { runVibeCheck, subscribeVibe, vibeSnapshot } from "./features/agents/catalogStore";
 
 type UpdateInfo = {
   current: string;
@@ -36,7 +37,7 @@ type RustupStatus = {
 type GitStatus = { installed: boolean };
 type CheckItem = { id: string; sev: string; title: string; desc: string; page: string; action: string };
 type VibeSurface = { label: string; version?: string | null; latest?: string | null; update_available: boolean };
-type VibeTool = { id: string; name: string; cli: VibeSurface; desktop: VibeSurface };
+type VibeTool = { id: string; name: string; cli_id?: string | null; cli: VibeSurface; desktop: VibeSurface };
 
 export type NotificationPrefs = {
   enabled: boolean;
@@ -57,7 +58,7 @@ type EcosystemUpdate = {
   source: string;
 };
 type AiToolUpdate = {
-  page: "vibe";
+  page: "agents";
   id: string;
   name: string;
   current: string;
@@ -369,14 +370,20 @@ async function checkEcosystemUpdates(onlyId?: string): Promise<EcosystemUpdate[]
   return updates;
 }
 
-async function checkAiToolUpdates(): Promise<AiToolUpdate[]> {
-  const tools = await invoke<VibeTool[]>("vibe_tools");
+/** Agent update notices, derived from the same catalog the 安装更新 cards show. */
+export function aiToolUpdatesFrom(tools: VibeTool[]): AiToolUpdate[] {
+  // A CLI shared by several product cards is one install and one update.
+  const seenCli = new Set<string>();
   return tools.flatMap((tool) => {
     const rows: AiToolUpdate[] = [];
     for (const surface of [tool.cli, tool.desktop]) {
       if (!surface.update_available) continue;
+      if (surface === tool.cli && tool.cli_id) {
+        if (seenCli.has(tool.cli_id)) continue;
+        seenCli.add(tool.cli_id);
+      }
       rows.push({
-        page: "vibe",
+        page: "agents",
         id: `${tool.id}:${surface.label}`,
         name: `${tool.name} ${surface.label}`,
         current: surface.version || "已安装",
@@ -385,6 +392,11 @@ async function checkAiToolUpdates(): Promise<AiToolUpdate[]> {
     }
     return rows;
   });
+}
+
+async function checkAiToolUpdates(): Promise<AiToolUpdate[]> {
+  await runVibeCheck();
+  return aiToolUpdatesFrom(vibeSnapshot().tools);
 }
 
 function ecosystemIssueItems(items: CheckItem[]) {
@@ -402,7 +414,7 @@ async function attempt<T>(task: Promise<T>): Promise<Attempt<T>> {
 
 function reasonPage(reason?: string) {
   const page = reason?.split("-", 1)[0] ?? "";
-  return page === "vibe" || ECOSYSTEM_PAGES.has(page) ? page : null;
+  return page === "agents" || ECOSYSTEM_PAGES.has(page) ? page : null;
 }
 
 const NotificationCtx = createContext<NotificationContextValue>({
@@ -431,8 +443,14 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   const [sourceUpdate, setSourceUpdate] = useState<MirrorsUpdateCheck | null>(null);
   const [cleanupBytes, setCleanupBytes] = useState(0);
   const [ecosystemUpdates, setEcosystemUpdates] = useState<EcosystemUpdate[]>([]);
-  const [aiToolUpdates, setAiToolUpdates] = useState<AiToolUpdate[]>([]);
+  const [aiToolUpdates, setAiToolUpdates] = useState<AiToolUpdate[]>(() =>
+    vibeSnapshot().checked ? aiToolUpdatesFrom(vibeSnapshot().tools) : []);
   const [environmentIssues, setEnvironmentIssues] = useState<CheckItem[]>([]);
+  // Agent notices follow every catalog change, e.g. a card refreshed after an update task.
+  useEffect(() => subscribeVibe((catalog) => {
+    if (!prefs.ecosystemUpdate) setAiToolUpdates([]);
+    else if (catalog.checked) setAiToolUpdates(aiToolUpdatesFrom(catalog.tools));
+  }), [prefs.ecosystemUpdate]);
   const runRef = useRef<Promise<void> | null>(null);
   const queuedReasonsRef = useRef<string[]>([]);
   const checkNowRef = useRef<(reason?: string) => Promise<void>>(async () => {});
@@ -483,7 +501,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
           succeeded = true;
         }
       }
-      if (prefs.ecosystemUpdate && (full || sourcesChanged || (page && page !== "vibe"))) {
+      if (prefs.ecosystemUpdate && (full || sourcesChanged || (page && page !== "agents"))) {
         const target = full || sourcesChanged ? undefined : page ?? undefined;
         const result = await attempt(checkEcosystemUpdates(target));
         if (result.ok) {
@@ -493,7 +511,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
           succeeded = true;
         }
       }
-      if (prefs.ecosystemUpdate && (full || page === "vibe")) {
+      if (prefs.ecosystemUpdate && (full || page === "agents")) {
         const result = await attempt(checkAiToolUpdates());
         if (result.ok) {
           setAiToolUpdates(result.value);

@@ -1,0 +1,133 @@
+import { SiteError, type Message, type RemoteConversation, type Role } from "../shared/types";
+import { arr, bool, obj, optStr, str, time } from "./guards";
+import { expectOk, type FetchInit } from "./http";
+import type { AdapterFactory } from "./types";
+
+const ORIGIN = "https://chatgpt.com";
+const PAGE = 100;
+const ROLES: Role[] = ["user", "assistant", "system", "tool"];
+
+/** Maps an asset-pointer part's content_type to the attachment label it stands for; other object parts are ignored. */
+function assetLabel(contentType: string): string | null {
+  if (contentType === "image_asset_pointer") return "image";
+  if (contentType === "audio_asset_pointer" || contentType === "real_time_user_audio_video_asset_pointer") return "audio";
+  return null;
+}
+
+/** Messages from the root to the node on screen; other branches are left out. */
+export function currentBranch(mappingValue: unknown, currentNode: string): Message[] {
+  const mapping = obj(mappingValue, "mapping");
+  const chain: Record<string, unknown>[] = [];
+  const seen = new Set<string>();
+  let id: string | null = currentNode;
+  while (id && !seen.has(id)) {
+    seen.add(id);
+    const node = obj(mapping[id], `mapping.${id}`);
+    chain.push(node);
+    id = typeof node.parent === "string" ? node.parent : null;
+  }
+  return chain.reverse().flatMap((node): Message[] => {
+    if (node.message == null) return [];
+    const message = obj(node.message, "message");
+    const metadata = typeof message.metadata === "object" && message.metadata ? (message.metadata as Record<string, unknown>) : {};
+    if (metadata.is_visually_hidden_from_conversation === true) return [];
+    const role = str(obj(message.author, "message.author").role, "message.author.role") as Role;
+    if (!ROLES.includes(role)) throw new SiteError("E_BROKEN", "message.author.role");
+    const content = obj(message.content, "message.content");
+    const parts = Array.isArray(content.parts) ? content.parts : [];
+    const attachmentNames = Array.isArray(metadata.attachments)
+      ? metadata.attachments.map((a) => optStr((a as Record<string, unknown>)?.name)).filter(Boolean)
+      : [];
+    const textParts: string[] = [];
+    const extraLabels: string[] = [];
+    for (const part of parts) {
+      if (typeof part === "string") { textParts.push(part); continue; }
+      if (typeof part !== "object" || part === null) continue;
+      const partObj = part as Record<string, unknown>;
+      const contentType = optStr(partObj.content_type);
+      if (contentType === "audio_transcription") { textParts.push(optStr(partObj.text)); continue; }
+      const label = assetLabel(contentType);
+      if (label && !attachmentNames.length) extraLabels.push(label);
+    }
+    const text = [...textParts, optStr(content.text)].filter(Boolean).join("\n").trim();
+    const attachments = [...attachmentNames, ...Array.from(new Set(extraLabels))];
+    if (!text && !attachments.length) return [];
+    return [{ role, text, at: message.create_time == null ? null : time(message.create_time, "message.create_time"), attachments }];
+  });
+}
+
+export const chatgpt: AdapterFactory = (fetchJson) => {
+  let token: string | null = null;
+
+  async function readSession(): Promise<{ token: string; userId: string; name: string }> {
+    const session = obj(expectOk(await fetchJson(`${ORIGIN}/api/auth/session`)), "session");
+    if (typeof session.accessToken !== "string" || !session.accessToken) throw new SiteError("E_AUTH", "no session");
+    const user = obj(session.user, "session.user");
+    const userId = str(user.id, "session.user.id");
+    token = session.accessToken;
+    return { token: session.accessToken, userId, name: optStr(user.name) };
+  }
+
+  async function auth(): Promise<string> {
+    if (token) return token;
+    const { token: newToken } = await readSession();
+    return newToken;
+  }
+
+  async function api(path: string, init: FetchInit = {}): Promise<unknown> {
+    const bearer = await auth();
+    return expectOk(await fetchJson(`${ORIGIN}${path}`, { ...init, headers: { ...init.headers, Authorization: `Bearer ${bearer}` } }));
+  }
+
+  return {
+    site: "chatgpt",
+    origin: ORIGIN,
+    conversationUrl: (id) => `${ORIGIN}/c/${id}`,
+
+    async account() {
+      const { userId, name } = await readSession();
+      return { remoteId: userId, label: name || "ChatGPT" };
+    },
+
+    /** Cursor is `live:<offset>` or `archived:<offset>`; live pages come first. */
+    async list(cursor) {
+      const [phase, offsetText] = (cursor ?? "live:0").split(":");
+      const offset = Number(offsetText) || 0;
+      const archived = phase === "archived";
+      const page = obj(await api(`/backend-api/conversations?offset=${offset}&limit=${PAGE}&order=updated${archived ? "&is_archived=true" : ""}`), "page");
+      const items: RemoteConversation[] = arr(page.items, "page.items").map((raw, i) => {
+        const item = obj(raw, `items[${i}]`);
+        return {
+          id: str(item.id, `items[${i}].id`),
+          title: optStr(item.title),
+          createdAt: time(item.create_time, `items[${i}].create_time`),
+          updatedAt: time(item.update_time, `items[${i}].update_time`),
+          archived: archived || bool(item.is_archived),
+        };
+      });
+      // Without a total, a full page means there may be more.
+      const more = items.length > 0 && (typeof page.total === "number" ? offset + items.length < page.total : items.length === PAGE);
+      const next = more ? `${phase}:${offset + items.length}` : archived ? null : "archived:0";
+      return { items, next };
+    },
+
+    async read(id) {
+      const conv = obj(await api(`/backend-api/conversation/${encodeURIComponent(id)}`), "conversation");
+      return {
+        id,
+        title: optStr(conv.title),
+        updatedAt: time(conv.update_time, "conversation.update_time"),
+        messages: currentBranch(conv.mapping, str(conv.current_node, "conversation.current_node")),
+      };
+    },
+
+    async remove(id) {
+      const res = await api(`/backend-api/conversation/${encodeURIComponent(id)}`, { method: "PATCH", body: { is_visible: false } });
+      if (typeof res !== "object" || res === null || (res as Record<string, unknown>).success !== true) throw new SiteError("E_BROKEN", "remove response");
+    },
+
+    async archive(id) {
+      await api(`/backend-api/conversation/${encodeURIComponent(id)}`, { method: "PATCH", body: { is_archived: true } });
+    },
+  };
+};

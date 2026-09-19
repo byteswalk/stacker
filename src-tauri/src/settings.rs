@@ -34,10 +34,15 @@ pub struct AppSettings {
     pub minimize_to_tray: bool,
     #[serde(default = "default_theme")]
     pub theme: String, // "dark" | "light" | "system"
-    /// "system" | "manual" | "off"。旧版配置缺少此字段时按 system 迁移，
-    /// 避免继续使用代理软件已经废弃的本地端口。
+    /// "hands_off"（不干预，默认）| "system"（跟随系统）| "manual"（手动）。
     #[serde(default = "default_proxy_mode")]
     pub proxy_mode: String,
+    /// 1 表示已从旧的 system/manual/off 模式迁移到带「不干预」的新模式。
+    #[serde(default)]
+    pub proxy_mode_version: u8,
+    /// Stacker 写入过代理的位置及写入值（host:port，空串表示已按跟随系统清除但仍归 Stacker 管理）。
+    #[serde(default)]
+    pub proxy_managed: std::collections::BTreeMap<String, String>,
     #[serde(default = "default_proxy_host")]
     pub proxy_host: String,
     #[serde(default = "default_proxy_port")]
@@ -109,11 +114,13 @@ impl Default for AppSettings {
             snapshot_retention_days: default_snapshot_retention_days(),
             snapshot_max_per_target: default_snapshot_max_per_target(),
             common_scan_directories: Vec::new(),
+            proxy_mode_version: 1,
+            proxy_managed: Default::default(),
         }
     }
 }
 fn default_proxy_mode() -> String {
-    "system".into()
+    "hands_off".into()
 }
 fn parse_proxy_addr(raw: &str) -> Option<(String, u16)> {
     let rest = raw
@@ -153,7 +160,7 @@ fn windows_system_proxy_addr() -> Option<(String, u16)> {
     }
     None
 }
-fn detected_proxy_addr() -> Option<(String, u16)> {
+pub(crate) fn detected_proxy_addr() -> Option<(String, u16)> {
     #[cfg(windows)]
     {
         if let Some(addr) = windows_system_proxy_addr() {
@@ -161,6 +168,15 @@ fn detected_proxy_addr() -> Option<(String, u16)> {
         }
     }
     None
+}
+/// Old settings: only an explicit "manual" choice survives; the old default "system"
+/// and "off" become "hands_off" so Stacker stops rewriting proxies on its own.
+fn normalize_proxy_mode(mode: &str, version: u8) -> &'static str {
+    match (mode.trim().to_ascii_lowercase().as_str(), version) {
+        ("manual", _) => "manual",
+        ("system", 1) => "system",
+        _ => "hands_off",
+    }
 }
 fn default_proxy_host() -> String {
     String::new()
@@ -174,12 +190,9 @@ fn normalize(mut s: AppSettings) -> AppSettings {
     if s.theme.trim().is_empty() {
         s.theme = default_theme();
     }
-    s.proxy_mode = match s.proxy_mode.trim().to_ascii_lowercase().as_str() {
-        "manual" => "manual".into(),
-        "off" => "off".into(),
-        _ => "system".into(),
-    };
-    if s.proxy_mode == "system" {
+    s.proxy_mode = normalize_proxy_mode(&s.proxy_mode, s.proxy_mode_version).into();
+    s.proxy_mode_version = 1;
+    if s.proxy_mode != "manual" {
         if let Some((host, port)) = detected_proxy_addr() {
             s.proxy_host = host;
             s.proxy_port = port;
@@ -187,9 +200,6 @@ fn normalize(mut s: AppSettings) -> AppSettings {
             s.proxy_host.clear();
             s.proxy_port = 0;
         }
-    } else if s.proxy_mode == "off" {
-        s.proxy_host.clear();
-        s.proxy_port = 0;
     }
     s.log_level = normalize_log_level(&s.log_level).to_string();
     if s.log_retention_days == 0 {
@@ -274,6 +284,8 @@ pub fn load() -> AppSettings {
             snapshot_retention_days: default_snapshot_retention_days(),
             snapshot_max_per_target: default_snapshot_max_per_target(),
             common_scan_directories: Vec::new(),
+            proxy_mode_version: 1,
+            proxy_managed: Default::default(),
         });
     normalize(s)
 }
@@ -506,8 +518,12 @@ fn cleanup_expired_logs(retention_days: u16) -> Result<LogCleanupResult, String>
 }
 
 #[tauri::command]
-pub fn settings_clear_old_logs() -> Result<LogCleanupResult, String> {
-    cleanup_logs_before(chrono::Local::now().date_naive())
+pub async fn settings_clear_old_logs() -> Result<LogCleanupResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        cleanup_logs_before(chrono::Local::now().date_naive())
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -573,42 +589,46 @@ pub fn settings_open_logs_dir() -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn settings_read_log(offset: u64) -> Result<LogChunk, String> {
-    const MAX_CHUNK: u64 = 256 * 1024;
-    let path = current_log_path();
-    let path_text = path.to_string_lossy().to_string();
-    if !path.exists() {
-        return Ok(LogChunk {
+pub async fn settings_read_log(offset: u64) -> Result<LogChunk, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        const MAX_CHUNK: u64 = 256 * 1024;
+        let path = current_log_path();
+        let path_text = path.to_string_lossy().to_string();
+        if !path.exists() {
+            return Ok(LogChunk {
+                path: path_text,
+                content: String::new(),
+                offset: 0,
+                truncated: false,
+            });
+        }
+
+        let mut file = std::fs::File::open(&path).map_err(|e| format!("读取日志失败：{e}"))?;
+        let len = file
+            .metadata()
+            .map_err(|e| format!("读取日志信息失败：{e}"))?
+            .len();
+        let requested = offset.min(len);
+        let start = if len.saturating_sub(requested) > MAX_CHUNK {
+            len.saturating_sub(MAX_CHUNK)
+        } else {
+            requested
+        };
+        file.seek(SeekFrom::Start(start))
+            .map_err(|e| format!("定位日志内容失败：{e}"))?;
+        let mut bytes = Vec::with_capacity((len - start) as usize);
+        file.read_to_end(&mut bytes)
+            .map_err(|e| format!("读取日志内容失败：{e}"))?;
+
+        Ok(LogChunk {
             path: path_text,
-            content: String::new(),
-            offset: 0,
-            truncated: false,
-        });
-    }
-
-    let mut file = std::fs::File::open(&path).map_err(|e| format!("读取日志失败：{e}"))?;
-    let len = file
-        .metadata()
-        .map_err(|e| format!("读取日志信息失败：{e}"))?
-        .len();
-    let requested = offset.min(len);
-    let start = if len.saturating_sub(requested) > MAX_CHUNK {
-        len.saturating_sub(MAX_CHUNK)
-    } else {
-        requested
-    };
-    file.seek(SeekFrom::Start(start))
-        .map_err(|e| format!("定位日志内容失败：{e}"))?;
-    let mut bytes = Vec::with_capacity((len - start) as usize);
-    file.read_to_end(&mut bytes)
-        .map_err(|e| format!("读取日志内容失败：{e}"))?;
-
-    Ok(LogChunk {
-        path: path_text,
-        content: String::from_utf8_lossy(&bytes).into_owned(),
-        offset: len,
-        truncated: start > requested,
+            content: String::from_utf8_lossy(&bytes).into_owned(),
+            offset: len,
+            truncated: start > requested,
+        })
     })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 pub fn proxy_addr() -> (String, u16) {
@@ -646,7 +666,7 @@ pub fn settings_set_proxy_manual(manual: Vec<String>) -> Result<Vec<String>, Str
 }
 
 #[tauri::command]
-pub fn settings_set_proxy_addr(host: String, port: u16) -> Result<(), String> {
+pub fn settings_set_proxy_addr(host: String, port: u16) -> Result<AppSettings, String> {
     let host = host.trim().to_string();
     if host.is_empty() {
         return Err("代理主机不能为空".into());
@@ -654,78 +674,48 @@ pub fn settings_set_proxy_addr(host: String, port: u16) -> Result<(), String> {
     if port == 0 {
         return Err("代理端口无效".into());
     }
-    let current_proxy = crate::proxy::status();
     let mut s = load();
     s.proxy_mode = "manual".into();
     s.proxy_host = host;
     s.proxy_port = port;
     save(&s)?;
-    if current_proxy.enabled {
-        crate::proxy::enable(
-            &s.proxy_host,
-            s.proxy_port,
-            false,
-            current_proxy.no_proxy_manual,
-        )?;
-    }
-    crate::proxy::sync_existing_explicit_proxies(Some(&s.proxy_host), s.proxy_port)?;
-    Ok(())
+    crate::proxy_ledger::reconcile()?;
+    Ok(load())
 }
 
 #[tauri::command]
 pub fn settings_set_proxy_mode(mode: String) -> Result<AppSettings, String> {
     let mode = match mode.trim().to_ascii_lowercase().as_str() {
+        "hands_off" => "hands_off",
         "system" => "system",
         "manual" => "manual",
-        "off" => "off",
         _ => return Err("无效的代理模式".into()),
     };
-    let current = crate::proxy::status();
     let mut settings = load();
     settings.proxy_mode = mode.into();
-
-    match mode {
-        "system" => {
-            if let Some((host, port)) = detected_proxy_addr() {
-                settings.proxy_host = host;
-                settings.proxy_port = port;
-            } else {
-                settings.proxy_host.clear();
-                settings.proxy_port = 0;
-            }
-        }
-        "off" => {
-            settings.proxy_host.clear();
-            settings.proxy_port = 0;
-        }
-        _ => {}
-    }
+    settings.proxy_mode_version = 1;
     save(&settings)?;
-
-    if current.enabled {
-        if settings.proxy_mode == "off"
-            || settings.proxy_host.is_empty()
-            || settings.proxy_port == 0
-        {
-            crate::proxy::disable(false)?;
-        } else {
-            crate::proxy::enable(
-                &settings.proxy_host,
-                settings.proxy_port,
-                false,
-                current.no_proxy_manual,
-            )?;
-        }
-    }
-    let host = (!settings.proxy_host.trim().is_empty() && settings.proxy_port > 0)
-        .then_some(settings.proxy_host.as_str());
-    crate::proxy::sync_existing_explicit_proxies(host, settings.proxy_port)?;
+    crate::proxy_ledger::reconcile()?;
     Ok(load())
 }
 
+/// Re-reads the Windows proxy and syncs Stacker-managed entries (follow-system / manual only).
 #[tauri::command]
 pub fn settings_sync_system_proxy() -> Result<AppSettings, String> {
-    settings_set_proxy_mode("system".into())
+    crate::proxy_ledger::reconcile()?;
+    Ok(load())
+}
+
+pub(crate) fn proxy_managed() -> std::collections::BTreeMap<String, String> {
+    load().proxy_managed
+}
+
+pub(crate) fn save_proxy_managed(
+    managed: std::collections::BTreeMap<String, String>,
+) -> Result<(), String> {
+    let mut s = load();
+    s.proxy_managed = managed;
+    save(&s)
 }
 
 #[derive(Serialize)]
@@ -773,6 +763,24 @@ pub fn os_info() -> OsInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn old_proxy_modes_become_hands_off_unless_manual() {
+        assert_eq!(
+            normalize_proxy_mode("system", 0),
+            "hands_off",
+            "old default"
+        );
+        assert_eq!(normalize_proxy_mode("off", 0), "hands_off");
+        assert_eq!(normalize_proxy_mode("manual", 0), "manual");
+        assert_eq!(normalize_proxy_mode("", 0), "hands_off");
+        assert_eq!(
+            normalize_proxy_mode("system", 1),
+            "system",
+            "chosen after the upgrade"
+        );
+        assert_eq!(normalize_proxy_mode("hands_off", 1), "hands_off");
+    }
 
     fn settings_with_threshold(large_file_threshold_bytes: u64) -> AppSettings {
         let mut settings: AppSettings = serde_json::from_str("{}").unwrap();

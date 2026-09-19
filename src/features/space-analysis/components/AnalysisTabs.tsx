@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useI18n } from "../../../i18n";
 import { invoke } from "../../../invoke";
-import { useToast } from "../../../ui";
+import { useBusyRead, useToast } from "../../../ui";
 import type { AnalysisSummary, ScanRequest, SnapshotMetadata, VolumeInfo } from "../types";
 import { loadCleanupCandidates, prepareCleanupPlan, useCleanupStore } from "../cleanupStore";
 import { startScan } from "../store";
@@ -39,6 +39,7 @@ export function matchedFreeBytes(request: ScanRequest, volumes: readonly VolumeI
 export function AnalysisTabs({ taskId, request }: { taskId: string; request: ScanRequest }) {
   const { t, tr } = useI18n();
   const toast = useToast();
+  const read = useBusyRead();
   const cleanup = useCleanupStore();
   const [activeTab, setActiveTab] = useState<AnalysisTab>("overview");
   const [summary, setSummary] = useState<AnalysisSummary | null>(null);
@@ -61,7 +62,7 @@ export function AnalysisTabs({ taskId, request }: { taskId: string; request: Sca
       request.mode === "drives" ? invoke<VolumeInfo[]>("space_fixed_volumes") : Promise.resolve([]),
       invoke<SpaceAnalysisSettings>("settings_get"),
     ];
-    void Promise.allSettled(requests).then(([summaryResult, volumeResult, settingsResult]) => {
+    void read("正在读取分析结果", () => Promise.allSettled(requests)).then(([summaryResult, volumeResult, settingsResult]) => {
       if (!current) return;
       if (summaryResult.status === "rejected") {
         setError(tr("无法读取本次空间分析结果，请重新扫描。"));
@@ -79,9 +80,9 @@ export function AnalysisTabs({ taskId, request }: { taskId: string; request: Sca
       if (settingsResult.status === "fulfilled") setLargeFileThreshold(Math.max(1, settingsResult.value.large_file_threshold_bytes));
       setLoading(false);
     });
-    void loadCleanupCandidates(taskId);
+    void read("正在读取可清理项", () => loadCleanupCandidates(taskId));
     return () => { current = false; };
-  }, [request, taskId, tr]);
+  }, [read, request, taskId, tr]);
 
   if (loading) return <div className="space-analysis-state" aria-live="polite"><i className="ti ti-loader spin" /><span>{tr("正在读取分析结果…")}</span></div>;
   if (error || !summary) return <div className="space-analysis-state error" role="alert"><i className="ti ti-alert-triangle" /><span>{error ?? tr("本次空间分析结果不可用，请重新扫描。")}</span></div>;
@@ -117,7 +118,7 @@ export function AnalysisTabs({ taskId, request }: { taskId: string; request: Sca
           title={tr(cleanupTabActive ? "核对所选项目后进入清理确认" : "请在“开发产物”或“缓存与下载”页面选择需要清理的项目")}
           onClick={async () => {
             try {
-              await prepareCleanupPlan();
+              await read("正在准备清理", prepareCleanupPlan);
             } catch (error) {
               toast(`${tr("无法准备清理：")}${String(error)}`, "err");
             }

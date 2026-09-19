@@ -165,7 +165,13 @@ fn effective_builtin_snapshot() -> update::RemoteList {
 }
 
 #[tauri::command]
-pub fn source_catalog_status() -> SourceCatalogStatus {
+pub async fn source_catalog_status() -> SourceCatalogStatus {
+    tauri::async_runtime::spawn_blocking(source_catalog_status_blocking)
+        .await
+        .expect("blocking command worker panicked")
+}
+
+pub(crate) fn source_catalog_status_blocking() -> SourceCatalogStatus {
     let meta = tool_meta();
     let current = current_map();
     let remote = update::remote_snapshot();
@@ -254,7 +260,7 @@ pub fn source_catalog_status() -> SourceCatalogStatus {
 
 #[tauri::command]
 pub fn source_catalog_export(path: String, include_server: bool) -> Result<(), String> {
-    let status = source_catalog_status();
+    let status = source_catalog_status_blocking();
     let file = SourceCatalogFile {
         format: "stacker-source-catalog".into(),
         version: 1,

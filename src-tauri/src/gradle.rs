@@ -180,75 +180,86 @@ pub fn gradle_wrapper_state(path: String) -> Result<GradleWrapperState, String> 
 }
 
 #[tauri::command]
-pub fn gradle_wrapper_scan(root: String) -> Result<Vec<GradleWrapperState>, String> {
-    let root = PathBuf::from(root);
-    if !root.is_dir() {
-        return Err("请选择项目目录或包含项目的父目录".into());
-    }
-    let mut out = Vec::new();
-    let mut stack = vec![root];
-    let mut visited = 0usize;
-    while let Some(dir) = stack.pop() {
-        visited += 1;
-        if visited > 20_000 || out.len() >= 100 {
-            break;
+pub async fn gradle_wrapper_scan(root: String) -> Result<Vec<GradleWrapperState>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let root = PathBuf::from(root);
+        if !root.is_dir() {
+            return Err("请选择项目目录或包含项目的父目录".into());
         }
-        let Ok(rd) = std::fs::read_dir(&dir) else {
-            continue;
-        };
-        for entry in rd.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                if !skip_dir(&path) {
-                    stack.push(path);
-                }
+        let mut out = Vec::new();
+        let mut stack = vec![root];
+        let mut visited = 0usize;
+        while let Some(dir) = stack.pop() {
+            visited += 1;
+            if visited > 20_000 || out.len() >= 100 {
+                break;
+            }
+            let Ok(rd) = std::fs::read_dir(&dir) else {
                 continue;
-            }
-            if path
-                .file_name()
-                .and_then(|s| s.to_str())
-                .map(|s| s.eq_ignore_ascii_case("gradle-wrapper.properties"))
-                .unwrap_or(false)
-            {
-                if let Ok(text) = read_wrapper(&path) {
-                    out.push(state_from_text(&path, &text));
+            };
+            for entry in rd.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    if !skip_dir(&path) {
+                        stack.push(path);
+                    }
+                    continue;
+                }
+                if path
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .map(|s| s.eq_ignore_ascii_case("gradle-wrapper.properties"))
+                    .unwrap_or(false)
+                {
+                    if let Ok(text) = read_wrapper(&path) {
+                        out.push(state_from_text(&path, &text));
+                    }
                 }
             }
         }
-    }
-    Ok(out)
+        Ok(out)
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
-pub fn gradle_wrapper_apply(path: String, source_id: String) -> Result<GradleWrapperState, String> {
-    let path = PathBuf::from(path);
-    if !path.is_file() {
-        return Err("请选择有效的 gradle-wrapper.properties 文件".into());
-    }
-    let source = source_by_id(&source_id).ok_or_else(|| "未知 Gradle 下载源".to_string())?;
-    let text = read_wrapper(&path)?;
-    let (line_idx, current) =
-        distribution_line(&text).ok_or_else(|| "未找到 distributionUrl 配置".to_string())?;
-    let file =
-        dist_file_name(&current).ok_or_else(|| "无法识别 Gradle 发行包文件名".to_string())?;
-    if !file.starts_with("gradle-") || !file.ends_with(".zip") {
-        return Err("distributionUrl 不是标准 Gradle 发行包地址".into());
-    }
-    let (version, _) = parse_dist_file(&file);
-    let next_url = wrapper_url(source, &version, &file)?;
-    let next_line = format!("distributionUrl={}", encode_property_url(&next_url));
+pub async fn gradle_wrapper_apply(
+    path: String,
+    source_id: String,
+) -> Result<GradleWrapperState, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = PathBuf::from(path);
+        if !path.is_file() {
+            return Err("请选择有效的 gradle-wrapper.properties 文件".into());
+        }
+        let source = source_by_id(&source_id).ok_or_else(|| "未知 Gradle 下载源".to_string())?;
+        let text = read_wrapper(&path)?;
+        let (line_idx, current) =
+            distribution_line(&text).ok_or_else(|| "未找到 distributionUrl 配置".to_string())?;
+        let file =
+            dist_file_name(&current).ok_or_else(|| "无法识别 Gradle 发行包文件名".to_string())?;
+        if !file.starts_with("gradle-") || !file.ends_with(".zip") {
+            return Err("distributionUrl 不是标准 Gradle 发行包地址".into());
+        }
+        let (version, _) = parse_dist_file(&file);
+        let next_url = wrapper_url(source, &version, &file)?;
+        let next_line = format!("distributionUrl={}", encode_property_url(&next_url));
 
-    let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
-    if line_idx >= lines.len() {
-        return Err("无法定位 distributionUrl 配置行".into());
-    }
-    lines[line_idx] = next_line;
-    let mut next = lines.join("\n");
-    if text.ends_with('\n') {
-        next.push('\n');
-    }
-    crate::backup::backup_file(&path);
-    std::fs::write(&path, next).map_err(|e| format!("写入 Gradle Wrapper 配置失败：{e}"))?;
-    let text = read_wrapper(&path)?;
-    Ok(state_from_text(&path, &text))
+        let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
+        if line_idx >= lines.len() {
+            return Err("无法定位 distributionUrl 配置行".into());
+        }
+        lines[line_idx] = next_line;
+        let mut next = lines.join("\n");
+        if text.ends_with('\n') {
+            next.push('\n');
+        }
+        crate::backup::backup_file(&path);
+        std::fs::write(&path, next).map_err(|e| format!("写入 Gradle Wrapper 配置失败：{e}"))?;
+        let text = read_wrapper(&path)?;
+        Ok(state_from_text(&path, &text))
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }

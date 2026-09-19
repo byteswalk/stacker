@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../../../i18n";
 import { invoke } from "../../../invoke";
-import { useToast } from "../../../ui";
+import { useBusyRead, useToast } from "../../../ui";
 import type { LargeFileRow, Paged } from "../types";
 import { formatSpaceBytes } from "./SpaceOverview";
 
@@ -60,6 +60,7 @@ function formatModified(value: string | null, locale: string, unavailable: strin
 export function LargeFiles({ taskId, thresholdBytes }: { taskId: string; thresholdBytes: number }) {
   const { locale, tr } = useI18n();
   const toast = useToast();
+  const read = useBusyRead();
   const activeRequest = useRef<LargeFileRequestIdentity>({
     taskId,
     thresholdBytes,
@@ -83,12 +84,12 @@ export function LargeFiles({ taskId, thresholdBytes }: { taskId: string; thresho
     setError(null);
 
     requestPending.current = true;
-    void invoke<Paged<LargeFileRow>>("space_scan_large_files", {
+    void read("正在读取大文件", () => invoke<Paged<LargeFileRow>>("space_scan_large_files", {
       taskId: requested.taskId,
       minBytes: thresholdBytes,
       offset: 0,
       limit: PAGE_SIZE,
-    }).then((result) => {
+    })).then((result) => {
       if (!sameLargeFileRequest(activeRequest.current, requested)) return;
       setPage(mergeLargeFilePage({ items: [], total: 0, nextOffset: 0 }, result));
     }).catch(() => {
@@ -105,7 +106,7 @@ export function LargeFiles({ taskId, thresholdBytes }: { taskId: string; thresho
         requestPending.current = false;
       }
     };
-  }, [taskId, thresholdBytes, tr]);
+  }, [read, taskId, thresholdBytes, tr]);
 
   async function loadMore() {
     if (requestPending.current || (page.items.length > 0 && page.nextOffset >= page.total)) return;
@@ -115,12 +116,12 @@ export function LargeFiles({ taskId, thresholdBytes }: { taskId: string; thresho
     const requested = activeRequest.current;
     const offset = page.items.length === 0 ? 0 : page.nextOffset;
     try {
-      const result = await invoke<Paged<LargeFileRow>>("space_scan_large_files", {
+      const result = await read("正在读取大文件", () => invoke<Paged<LargeFileRow>>("space_scan_large_files", {
         taskId: requested.taskId,
         minBytes: requested.thresholdBytes,
         offset,
         limit: PAGE_SIZE,
-      });
+      }));
       if (!sameLargeFileRequest(activeRequest.current, requested)) return;
       setPage((current) => mergeLargeFilePage(current, result));
     } catch {

@@ -17,7 +17,12 @@ function memoryStorage(initialValue: string | null = null) {
 describe("page state", () => {
   it("restores a supported page", () => {
     expect(readLastPage(memoryStorage("cleanup"))).toBe("cleanup");
-    expect(readLastPage(memoryStorage("agent-space"))).toBe("agent-space");
+  });
+
+  it("maps legacy agent page ids to the new pages", () => {
+    expect(readLastPage(memoryStorage("vibe"))).toBe("agents");
+    expect(readLastPage(memoryStorage("agent-space"))).toBe("agent-data");
+    expect(readLastPage(memoryStorage("agent-data"))).toBe("agent-data");
   });
 
   it("falls back when persisted data is missing or obsolete", () => {

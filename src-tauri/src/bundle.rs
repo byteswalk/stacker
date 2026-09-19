@@ -27,36 +27,44 @@ pub struct ImportResult {
 }
 
 #[tauri::command]
-pub fn bundle_export(
+pub async fn bundle_export(
     path: String,
     frontend_settings: BTreeMap<String, String>,
 ) -> Result<(), String> {
-    let b = Bundle {
-        version: 2,
-        app: "stacker".into(),
-        profiles: profile::export_all(),
-        customs: custom::export_all(),
-        frontend_settings,
-    };
-    let s = serde_json::to_string_pretty(&b).map_err(|e| e.to_string())?;
-    std::fs::write(&path, s).map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        let b = Bundle {
+            version: 2,
+            app: "stacker".into(),
+            profiles: profile::export_all(),
+            customs: custom::export_all(),
+            frontend_settings,
+        };
+        let s = serde_json::to_string_pretty(&b).map_err(|e| e.to_string())?;
+        std::fs::write(&path, s).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
-pub fn bundle_import(path: String) -> Result<ImportResult, String> {
-    let s = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    let b: Bundle = serde_json::from_str(&s)
-        .map_err(|_| "文件格式无法识别（需 Stacker 导出的配置 JSON）".to_string())?;
-    if b.app != "stacker" {
-        return Err("这不是 Stacker 配置文件".into());
-    }
-    let profiles = profile::import_merge(b.profiles)?;
-    let customs = custom::import_merge(b.customs)?;
-    Ok(ImportResult {
-        profiles,
-        customs,
-        frontend_settings: b.frontend_settings,
+pub async fn bundle_import(path: String) -> Result<ImportResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let s = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        let b: Bundle = serde_json::from_str(&s)
+            .map_err(|_| "文件格式无法识别（需 Stacker 导出的配置 JSON）".to_string())?;
+        if b.app != "stacker" {
+            return Err("这不是 Stacker 配置文件".into());
+        }
+        let profiles = profile::import_merge(b.profiles)?;
+        let customs = custom::import_merge(b.customs)?;
+        Ok(ImportResult {
+            profiles,
+            customs,
+            frontend_settings: b.frontend_settings,
+        })
     })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[cfg(test)]

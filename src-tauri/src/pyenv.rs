@@ -343,9 +343,13 @@ pub async fn pyenv_set_global(version: String) -> Result<(), String> {
 /// 重写 pyenv 的「集成」：把 PYENV/PYENV_HOME/PYENV_ROOT 变量 + bin/shims 重新写进用户级 PATH。
 /// pyenv 靠 PATH 生效（不用 shell 钩子），这个用于修复终端里 pyenv/python 找不到（PATH 被改乱）的情况。
 #[tauri::command]
-pub fn pyenv_write_integration() -> Result<(), String> {
-    let root = pyenv_root().ok_or("未找到 pyenv（未安装或 PATH 未刷新）")?;
-    write_pyenv_integration_for_root(&root)
+pub async fn pyenv_write_integration() -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let root = pyenv_root().ok_or("未找到 pyenv（未安装或 PATH 未刷新）")?;
+        write_pyenv_integration_for_root(&root)
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 fn write_pyenv_integration_for_root(root: &str) -> Result<(), String> {
@@ -2173,37 +2177,44 @@ pub async fn pyenv_install_version(
 }
 
 #[tauri::command]
-pub fn pyenv_uninstall_version(version: String) -> Result<(), String> {
-    if version.is_empty()
-        || version
-            .chars()
-            .any(|ch| !(ch.is_ascii_alphanumeric() || ch == '.' || ch == '-' || ch == '_'))
-    {
-        return Err("Python 版本号异常，已拒绝卸载".into());
-    }
-    let root = pyenv_root().ok_or("未找到 pyenv（未安装或 PATH 未刷新）")?;
-    let versions_dir = Path::new(&root).join("versions");
-    let target = versions_dir.join(&version);
-    if !target.starts_with(&versions_dir) {
-        return Err("Python 版本目录异常，已拒绝卸载".into());
-    }
-    if pyenv_global_version()
-        .as_deref()
-        .is_some_and(|default| default.eq_ignore_ascii_case(&version))
-    {
-        let _ = run_pyenv(&["global", "system"]);
-    }
-    if target.exists() {
-        std::fs::remove_dir_all(&target).map_err(|e| format!("删除 Python 版本目录失败：{e}"))?;
-    }
-    cleanup_python_registry_for_version(&version, &target)?;
-    let _ = run_pyenv(&["rehash"]);
-    Ok(())
+pub async fn pyenv_uninstall_version(version: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if version.is_empty()
+            || version
+                .chars()
+                .any(|ch| !(ch.is_ascii_alphanumeric() || ch == '.' || ch == '-' || ch == '_'))
+        {
+            return Err("Python 版本号异常，已拒绝卸载".into());
+        }
+        let root = pyenv_root().ok_or("未找到 pyenv（未安装或 PATH 未刷新）")?;
+        let versions_dir = Path::new(&root).join("versions");
+        let target = versions_dir.join(&version);
+        if !target.starts_with(&versions_dir) {
+            return Err("Python 版本目录异常，已拒绝卸载".into());
+        }
+        if pyenv_global_version()
+            .as_deref()
+            .is_some_and(|default| default.eq_ignore_ascii_case(&version))
+        {
+            let _ = run_pyenv(&["global", "system"]);
+        }
+        if target.exists() {
+            std::fs::remove_dir_all(&target)
+                .map_err(|e| format!("删除 Python 版本目录失败：{e}"))?;
+        }
+        cleanup_python_registry_for_version(&version, &target)?;
+        let _ = run_pyenv(&["rehash"]);
+        Ok(())
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
-pub fn pyenv_cleanup_stale_registrations() -> Result<usize, String> {
-    cleanup_stale_python_registrations()
+pub async fn pyenv_cleanup_stale_registrations() -> Result<usize, String> {
+    tauri::async_runtime::spawn_blocking(cleanup_stale_python_registrations)
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]

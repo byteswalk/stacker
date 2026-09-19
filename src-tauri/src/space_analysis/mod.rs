@@ -165,22 +165,37 @@ pub fn space_cleanup_plan(
     manager.create_cleanup_plan(&scan_task_id, &node_ids)
 }
 
+/// Runs blocking filesystem work off the main thread so the WebView stays responsive.
+async fn blocking<T, F>(work: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|error| error.to_string())?
+}
+
 #[tauri::command]
-pub fn space_cleanup_start(
+pub async fn space_cleanup_start(
     plan_id: String,
     node_ids: Vec<String>,
-    scan_manager: tauri::State<'_, SpaceTaskManager>,
-    cleanup_manager: tauri::State<'_, CleanupTaskManager>,
+    app: tauri::AppHandle,
     window: tauri::Window,
 ) -> Result<String, String> {
-    use tauri::Emitter;
+    use tauri::{Emitter, Manager};
 
-    let plan = scan_manager.cleanup_plan_record(&plan_id)?;
+    let plan = app
+        .state::<SpaceTaskManager>()
+        .cleanup_plan_record(&plan_id)?;
     let needs_elevation = plan.plan.items.iter().any(|item| {
         item.requires_elevation && node_ids.iter().any(|node_id| node_id == &item.node_id)
     });
     if needs_elevation {
-        let result = elevated::run_cleanup(plan, &node_ids)?;
+        // Waits for UAC and the elevated helper; must not run on the main thread.
+        let selected = node_ids.clone();
+        let result = blocking(move || elevated::run_cleanup(plan, &selected)).await?;
+        let cleanup_manager = app.state::<CleanupTaskManager>();
         let task_id = cleanup_manager.import_completed(result);
         let progress = cleanup_manager.status(&task_id)?;
         if let Err(error) = window.emit("space-cleanup-progress", &progress) {
@@ -192,15 +207,16 @@ pub fn space_cleanup_start(
         }
         return Ok(task_id);
     }
-    cleanup_manager.start(plan, &node_ids, move |progress| {
-        if let Err(error) = window.emit("space-cleanup-progress", progress) {
-            log::warn!(
-                "failed to emit progress for space cleanup task {}: {}",
-                progress.task_id,
-                error
-            );
-        }
-    })
+    app.state::<CleanupTaskManager>()
+        .start(plan, &node_ids, move |progress| {
+            if let Err(error) = window.emit("space-cleanup-progress", progress) {
+                log::warn!(
+                    "failed to emit progress for space cleanup task {}: {}",
+                    progress.task_id,
+                    error
+                );
+            }
+        })
 }
 
 #[tauri::command]
@@ -228,36 +244,40 @@ pub fn space_cleanup_result(
 }
 
 #[tauri::command]
-pub fn space_snapshot_save(
+pub async fn space_snapshot_save(
     task_id: String,
-    manager: tauri::State<'_, SpaceTaskManager>,
+    app: tauri::AppHandle,
 ) -> Result<Option<SnapshotMetadata>, String> {
-    snapshots::save_completed(&manager, &task_id)
+    blocking(move || {
+        use tauri::Manager;
+        snapshots::save_completed(&app.state::<SpaceTaskManager>(), &task_id)
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn space_snapshot_list() -> Result<Vec<SnapshotMetadata>, String> {
-    snapshots::list()
+pub async fn space_snapshot_list() -> Result<Vec<SnapshotMetadata>, String> {
+    blocking(snapshots::list).await
 }
 
 #[tauri::command]
-pub fn space_snapshot_compare(
+pub async fn space_snapshot_compare(
     base_id: String,
     current_id: String,
     offset: u64,
     limit: u64,
 ) -> Result<SnapshotComparison, String> {
-    snapshots::compare(&base_id, &current_id, offset, limit)
+    blocking(move || snapshots::compare(&base_id, &current_id, offset, limit)).await
 }
 
 #[tauri::command]
-pub fn space_snapshot_delete(id: String) -> Result<(), String> {
-    snapshots::delete(&id)
+pub async fn space_snapshot_delete(id: String) -> Result<(), String> {
+    blocking(move || snapshots::delete(&id)).await
 }
 
 #[tauri::command]
-pub fn space_snapshot_clear() -> Result<(), String> {
-    snapshots::clear()
+pub async fn space_snapshot_clear() -> Result<(), String> {
+    blocking(snapshots::clear).await
 }
 
 fn directory_to_open(path: &std::path::Path) -> Result<std::path::PathBuf, String> {

@@ -13,8 +13,8 @@
 | --- | --- | --- | --- |
 | 编程生态与安装 | `src/pages/*`、`src/VersionManager.tsx` | `installer.rs`、`versions.rs`、各生态模块 | 发现、安装、切换和验证运行时及构建工具 |
 | 依赖存储位置 | `src/StorageLocations.tsx` | `storage.rs`、`storage/maven.rs` | 管理 Maven、Gradle、npm、pnpm、pip、Composer、Go、Cargo、rustup 存储位置 |
-| AI 智能体目录 | `src/pages/Vibe.tsx` | `vibe.rs` | 智能体产品形态、版本检测及受支持的生命周期操作 |
-| 会话与项目空间 | `src/pages/AgentSpace.tsx`、`src/features/conversations` | `conversations/` | 本地索引、筛选、批量操作、导出、摘要和交接资料 |
+| 智能体管理 · 安装更新 | `src/pages/Agents.tsx`、`src/features/agents`、`src/features/agent-tasks` | `agents/` | 注册表（`agents/registry.rs` 是智能体的唯一数据源）、健康检查、安装更新卸载修复、后台任务、一键更新 |
+| 智能体管理 · 会话数据 | `src/pages/AgentData.tsx`、`src/features/sessions` | `sessions/` | 读取 Codex、Claude 会话元数据，项目归类，收藏，精简导出与批量删除 |
 | 磁盘分析 | `src/features/space-analysis` | `space_analysis/` | 后台扫描、项目识别、空间变化、清理计划和提权执行 |
 | 代理、源与设置 | `src/pages/Proxy.tsx`、`src/pages/Settings.tsx` | `proxy.rs`、`sources.rs`、`settings.rs` | 只管理明确选择的终端和开发工具配置，不检测或配置 TUN/VPN |
 | 桌面生命周期 | `src/App.tsx`、`src/main.tsx` | `lib.rs`、`logging.rs` | 单实例、窗口恢复、托盘、首次关闭选择、统一日志和错误边界 |
@@ -24,7 +24,7 @@ IPC 命令集中注册在 `src-tauri/src/lib.rs`。新命令需要同时补充 R
 ## 本地数据与安全边界
 
 - 日志、设置、备份、会话索引和任务报告使用 Tauri 解析出的应用数据目录；便携版使用程序旁的数据目录。不要把用户数据写进源码目录。
-- 会话索引只保存元数据、用户标注和摘要，不复制完整原文。原文按需读取，来源能力和破坏性操作边界见 [conversations.md](conversations.md)。
+- 会话列表直接读取智能体自己的元数据，Stacker 只保存收藏、摘要和数据来源设置。分类规则与删除边界见 [sessions.md](sessions.md)。
 - Git 凭据使用 Windows 凭据管理器；兼容摘要接口的可选密钥使用 Windows DPAPI。日志和诊断不得记录聊天正文、访问令牌、密钥或授权头。
 - 存储位置迁移先备份配置，再复制到空目录，最后写入配置。旧目录始终保留，不能自动删除。
 - 磁盘清理只能执行后端生成并再次校验的计划。未知目录、源码、配置、工作树和无法证明可重建的内容保持只读。
@@ -51,7 +51,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 ```
 
-`conversations::reader::tests::local_source_compatibility` 和 `conversations::codex::tests::isolated_codex_archive_delete_lifecycle` 默认忽略。前者只读抽样本机格式；后者必须使用临时 `CODEX_HOME`，禁止指向真实用户数据。
+`sessions::catalog::tests::live_catalog` 和 `sessions::codex_rpc::tests::isolated_codex_delete` 默认忽略。前者只读列出本机会话数量；后者必须使用临时 `CODEX_HOME`，禁止指向真实用户数据。
 
 ## 构建、发布与清理
 
@@ -82,8 +82,9 @@ cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 ## 已知限制与后续优先级
 
 - 智能体厂商的安装入口、注册表名称和版本源会变化，产品检测需要持续用真实安装样本回归。
-- 智能体更新目前仍是单任务交互；“全部更新”、多个并发后台任务和完成 Toast 尚未形成统一任务中心。
-- WorkBuddy 当前只有一组产品卡；国内/国际产品拆分和各自官方安装源仍需核实后实现。
+- 智能体安装、更新、卸载、修复已作为后台任务并行执行（`agents/tasks`），有一键更新与完成提示；其他生态页面的安装仍使用单任务弹窗。
+- 新增或调整智能体只改 `agents/registry.rs`：产品、共享 CLI、版本、图标、进程特征和数据目录都在这里登记。
+- WorkBuddy 中国版 / 国际版官网没有可静默安装的稳定直链，桌面端只提供官网下载；两版共用 CodeBuddy CLI。
 - 会话摘要当前使用用户明确配置并批准的兼容接口。直接选择本机已安装智能体执行摘要尚未实现，也不能读取其他智能体的登录凭据。
 - Claude 来源目前按已识别的本地记录只读处理；云端账号间迁移、厂商私有项目结构和完整原生删除语义不在当前能力范围。
 - Stacker 可以导出会话、摘要和项目路径作为可阅读交接资料，但不能把一个厂商账号的云端会话无损写入另一个账号或另一个厂商。

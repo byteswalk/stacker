@@ -6,7 +6,7 @@ use ini::Ini;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Default)]
 pub struct Mirror {
     pub id: String,
     pub name: String,
@@ -118,6 +118,12 @@ fn rust_runtime_mirrors_builtin() -> Vec<Mirror> {
             "https://mirrors.ustc.edu.cn/rust-static",
             "mirrors.ustc.edu.cn",
         ),
+        m(
+            "sjtug",
+            "上海交大",
+            "https://mirrors.sjtug.sjtu.edu.cn/rust-static",
+            "mirrors.sjtug.sjtu.edu.cn",
+        ),
     ]
 }
 
@@ -168,12 +174,6 @@ fn python_runtime_mirrors_builtin() -> Vec<Mirror> {
             "https://mirrors.bfsu.edu.cn/python/{version}/{filename}",
             "mirrors.bfsu.edu.cn",
         ),
-        m(
-            "nju",
-            "南京大学",
-            "https://mirror.nju.edu.cn/python/{version}/{filename}",
-            "mirror.nju.edu.cn",
-        ),
     ]
 }
 
@@ -207,28 +207,16 @@ fn node_runtime_mirrors_builtin() -> Vec<Mirror> {
             "repo.huaweicloud.com",
         ),
         m(
-            "tuna",
-            "清华",
-            "https://mirrors.tuna.tsinghua.edu.cn/nodejs-release",
-            "mirrors.tuna.tsinghua.edu.cn",
+            "aliyun",
+            "阿里云",
+            "https://mirrors.aliyun.com/nodejs-release",
+            "mirrors.aliyun.com",
         ),
         m(
-            "bfsu",
-            "北外",
-            "https://mirrors.bfsu.edu.cn/nodejs-release",
-            "mirrors.bfsu.edu.cn",
-        ),
-        m(
-            "nju",
-            "南京大学",
-            "https://mirror.nju.edu.cn/nodejs-release",
-            "mirror.nju.edu.cn",
-        ),
-        m(
-            "sjtug",
-            "上交",
-            "https://mirrors.sjtug.sjtu.edu.cn/nodejs-release",
-            "mirrors.sjtug.sjtu.edu.cn",
+            "ustc",
+            "中科大",
+            "https://mirrors.ustc.edu.cn/node",
+            "mirrors.ustc.edu.cn",
         ),
     ]
 }
@@ -266,6 +254,18 @@ fn git_runtime_mirrors_builtin() -> Vec<Mirror> {
             "华为云",
             "https://repo.huaweicloud.com/git-for-windows/",
             "repo.huaweicloud.com",
+        ),
+        m(
+            "ustc",
+            "中科大",
+            "https://mirrors.ustc.edu.cn/github-release/git-for-windows/git/",
+            "mirrors.ustc.edu.cn",
+        ),
+        m(
+            "bfsu",
+            "北外",
+            "https://mirrors.bfsu.edu.cn/github-release/git-for-windows/git/",
+            "mirrors.bfsu.edu.cn",
         ),
     ]
 }
@@ -321,6 +321,12 @@ fn maven_runtime_mirrors_builtin() -> Vec<Mirror> {
             "腾讯云",
             "https://mirrors.cloud.tencent.com/apache/maven",
             "mirrors.cloud.tencent.com",
+        ),
+        m(
+            "bfsu",
+            "北外",
+            "https://mirrors.bfsu.edu.cn/apache/maven",
+            "mirrors.bfsu.edu.cn",
         ),
     ]
 }
@@ -475,6 +481,24 @@ pub fn hardcoded() -> Vec<Tool> {
                     "https://mirrors.cloud.tencent.com/pypi/simple",
                     "mirrors.cloud.tencent.com",
                 ),
+                m(
+                    "huawei",
+                    "华为云",
+                    "https://repo.huaweicloud.com/repository/pypi/simple",
+                    "repo.huaweicloud.com",
+                ),
+                m(
+                    "bfsu",
+                    "北外",
+                    "https://mirrors.bfsu.edu.cn/pypi/web/simple",
+                    "mirrors.bfsu.edu.cn",
+                ),
+                m(
+                    "volces",
+                    "火山引擎",
+                    "https://mirrors.volces.com/pypi/simple",
+                    "mirrors.volces.com",
+                ),
             ],
         ),
         mk(
@@ -502,6 +526,12 @@ pub fn hardcoded() -> Vec<Tool> {
                     "https://mirrors.cloud.tencent.com/npm/",
                     "mirrors.cloud.tencent.com",
                 ),
+                m(
+                    "huawei",
+                    "华为云",
+                    "https://repo.huaweicloud.com/repository/npm/",
+                    "repo.huaweicloud.com",
+                ),
             ],
         ),
         mk(
@@ -518,10 +548,10 @@ pub fn hardcoded() -> Vec<Tool> {
                     "repo.packagist.org",
                 ),
                 m(
-                    "aliyun",
-                    "阿里云",
-                    "https://mirrors.aliyun.com/composer/",
-                    "mirrors.aliyun.com",
+                    "huawei",
+                    "华为云",
+                    "https://repo.huaweicloud.com/repository/php/",
+                    "repo.huaweicloud.com",
                 ),
             ],
         ),
@@ -544,6 +574,18 @@ pub fn hardcoded() -> Vec<Tool> {
                     "https://registry.npmmirror.com/",
                     "registry.npmmirror.com",
                 ),
+                m(
+                    "tencent",
+                    "腾讯云",
+                    "https://mirrors.cloud.tencent.com/npm/",
+                    "mirrors.cloud.tencent.com",
+                ),
+                m(
+                    "huawei",
+                    "华为云",
+                    "https://repo.huaweicloud.com/repository/npm/",
+                    "repo.huaweicloud.com",
+                ),
             ],
         ),
         mk(
@@ -558,12 +600,6 @@ pub fn hardcoded() -> Vec<Tool> {
                     "官方 proxy",
                     "https://proxy.golang.org,direct",
                     "",
-                ),
-                m(
-                    "goproxyio",
-                    "goproxy.io",
-                    "https://goproxy.io,direct",
-                    "goproxy.io",
                 ),
                 m(
                     "goproxycn",
@@ -582,6 +618,12 @@ pub fn hardcoded() -> Vec<Tool> {
                     "腾讯云",
                     "https://mirrors.tencent.com/go/,direct",
                     "mirrors.tencent.com",
+                ),
+                m(
+                    "huawei",
+                    "华为云",
+                    "https://repo.huaweicloud.com/repository/goproxy/,direct",
+                    "repo.huaweicloud.com",
                 ),
             ],
         ),
@@ -668,10 +710,16 @@ pub fn hardcoded() -> Vec<Tool> {
                     "mirrors.tuna.tsinghua.edu.cn",
                 ),
                 m(
-                    "ustc",
-                    "中科大",
-                    "https://mirrors.ustc.edu.cn/anaconda",
-                    "mirrors.ustc.edu.cn",
+                    "zju",
+                    "浙江大学",
+                    "https://mirrors.zju.edu.cn/anaconda",
+                    "mirrors.zju.edu.cn",
+                ),
+                m(
+                    "sjtug",
+                    "上海交大",
+                    "https://mirror.sjtu.edu.cn/anaconda",
+                    "mirror.sjtu.edu.cn",
                 ),
             ],
         ),
@@ -700,6 +748,24 @@ pub fn hardcoded() -> Vec<Tool> {
                     "清华大学",
                     "sparse+https://mirrors.tuna.tsinghua.edu.cn/crates.io-index/",
                     "mirrors.tuna.tsinghua.edu.cn",
+                ),
+                m(
+                    "aliyun",
+                    "阿里云",
+                    "sparse+https://mirrors.aliyun.com/crates.io-index/",
+                    "mirrors.aliyun.com",
+                ),
+                m(
+                    "sjtug",
+                    "上海交大",
+                    "sparse+https://mirrors.sjtug.sjtu.edu.cn/crates.io-index/",
+                    "mirrors.sjtug.sjtu.edu.cn",
+                ),
+                m(
+                    "bfsu",
+                    "北外",
+                    "sparse+https://mirrors.bfsu.edu.cn/crates.io-index/",
+                    "mirrors.bfsu.edu.cn",
                 ),
             ],
         ),
@@ -894,43 +960,6 @@ fn write_line_key(p: &Path, key: &str, value: &str, quoted: bool) -> Result<(), 
     write_text(p, &out)
 }
 
-fn sync_line_proxy_keys(path: &Path, quoted: bool, endpoint: Option<&str>) -> Result<bool, String> {
-    let existing = read_text(path).unwrap_or_default();
-    let keys = ["proxy", "https-proxy"];
-    let has_managed_proxy = existing.lines().any(|line| {
-        let line = line.trim_start();
-        keys.iter()
-            .any(|key| line.starts_with(&format!("{key}=")) || line.starts_with(&format!("{key} ")))
-    });
-    if !has_managed_proxy {
-        return Ok(false);
-    }
-
-    backup::backup_file(path);
-    let mut out = String::new();
-    for line in existing.lines() {
-        let trimmed = line.trim_start();
-        let is_proxy = keys.iter().any(|key| {
-            trimmed.starts_with(&format!("{key}=")) || trimmed.starts_with(&format!("{key} "))
-        });
-        if !is_proxy {
-            out.push_str(line);
-            out.push('\n');
-        }
-    }
-    if let Some(endpoint) = endpoint {
-        for key in keys {
-            if quoted {
-                out.push_str(&format!("{key} \"{endpoint}\"\n"));
-            } else {
-                out.push_str(&format!("{key}={endpoint}\n"));
-            }
-        }
-    }
-    write_text(path, &out)?;
-    Ok(true)
-}
-
 // ── 模板 ──
 fn cargo_template(url: &str) -> String {
     format!(
@@ -1049,68 +1078,12 @@ fn maven_settings_template(
     out
 }
 
-const MAVEN_PROXY_FLAGS: [&str; 6] = [
-    "-Dhttp.proxyHost",
-    "-Dhttp.proxyPort",
-    "-Dhttps.proxyHost",
-    "-Dhttps.proxyPort",
-    "-Dhttp.nonProxyHosts",
-    "-Dhttps.nonProxyHosts",
-];
-
-pub(crate) fn strip_maven_legacy_proxy_opts(raw: &str) -> String {
-    raw.split_whitespace()
-        .filter(|t| !MAVEN_PROXY_FLAGS.iter().any(|p| t.starts_with(p)))
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-fn has_maven_legacy_proxy_opts(raw: &str) -> bool {
-    MAVEN_PROXY_FLAGS.iter().any(|p| raw.contains(p))
-}
-
-pub(crate) fn clear_maven_legacy_proxy_opts() -> Result<bool, String> {
-    let user_raw = winenv::get_user_raw("MAVEN_OPTS").unwrap_or_default();
-    let process_raw = std::env::var("MAVEN_OPTS").unwrap_or_default();
-    let user_has = has_maven_legacy_proxy_opts(&user_raw);
-    let process_has = has_maven_legacy_proxy_opts(&process_raw);
-    if !user_has && !process_has {
-        return Ok(false);
-    }
-
-    if process_has {
-        let keep = strip_maven_legacy_proxy_opts(&process_raw);
-        if keep.trim().is_empty() {
-            std::env::remove_var("MAVEN_OPTS");
-        } else {
-            std::env::set_var("MAVEN_OPTS", keep);
-        }
-    }
-
-    if !user_has {
-        return Ok(true);
-    }
-
-    if user_raw.trim().is_empty() {
-        return Ok(true);
-    }
-    backup::backup_env(winenv::Hive::User, "maven-proxy", &["MAVEN_OPTS"]);
-    let keep = strip_maven_legacy_proxy_opts(&user_raw);
-    if keep.trim().is_empty() {
-        winenv::remove_user("MAVEN_OPTS")?;
-    } else {
-        winenv::set_user("MAVEN_OPTS", &keep)?;
-    }
-    Ok(true)
-}
-
 fn maven_apply(
     path: PathBuf,
     mirror: &Mirror,
     proxy: Option<&ToolProxy>,
     _proxy_requested: bool,
 ) -> Result<(), String> {
-    clear_maven_legacy_proxy_opts()?;
     let local_repository = maven_local_repository(&path);
     backup::backup_file(&path);
     if mirror.id == "official" && proxy.is_none() {
@@ -1135,15 +1108,6 @@ fn maven_proxy_has_at(path: &Path) -> bool {
         .map(|text| {
             let low = text.to_lowercase();
             low.contains("<proxies>") && low.contains("<active>true</active>")
-        })
-        .unwrap_or(false)
-}
-
-fn maven_stacker_proxy_has_at(path: &Path) -> bool {
-    read_text(path)
-        .map(|text| {
-            let low = text.to_lowercase();
-            low.contains("<id>stacker-http</id>") || low.contains("<id>stacker-https</id>")
         })
         .unwrap_or(false)
 }
@@ -1233,56 +1197,6 @@ fn configured_mirror(tool_id: &str, path: &Path) -> Option<Mirror> {
         .find(|mirror| mirror.id == current)
         .or_else(|| tool.mirrors.iter().find(|mirror| mirror.id == "official"))
         .cloned()
-}
-
-/// 同步已经存在的、由 Stacker 管理的工具代理。没有显式端点时会移除旧代理，
-/// 但保留 registry、镜像仓库和本地缓存目录等其他配置。
-pub(crate) fn sync_existing_tool_proxies(
-    host: Option<&str>,
-    port: u16,
-) -> Result<Vec<String>, String> {
-    let endpoint = host
-        .map(str::trim)
-        .filter(|host| !host.is_empty() && port > 0)
-        .map(|host| format!("http://{host}:{port}"));
-    let mut changed = Vec::new();
-
-    if sync_line_proxy_keys(&npmrc_path(), false, endpoint.as_deref())? {
-        changed.push("npm / pnpm".into());
-    }
-    if sync_line_proxy_keys(&yarnrc_path(), true, endpoint.as_deref())? {
-        changed.push("Yarn".into());
-    }
-
-    let maven = maven_path();
-    if maven_stacker_proxy_has_at(&maven) {
-        if let Some(mirror) = configured_mirror("maven", &maven) {
-            let proxy = endpoint.as_ref().and_then(|_| {
-                host.map(|host| ToolProxy {
-                    host: host.to_string(),
-                    port,
-                })
-            });
-            maven_apply(maven, &mirror, proxy.as_ref(), true)?;
-            changed.push("Maven".into());
-        }
-    }
-
-    let gradle = gradle_path();
-    if gradle_proxy_has_at(&gradle) {
-        if let Some(mirror) = configured_mirror("gradle", &gradle) {
-            let proxy = endpoint.as_ref().and_then(|_| {
-                host.map(|host| ToolProxy {
-                    host: host.to_string(),
-                    port,
-                })
-            });
-            gradle_apply(gradle, &mirror, proxy.as_ref(), true)?;
-            changed.push("Gradle".into());
-        }
-    }
-
-    Ok(changed)
 }
 
 fn match_url(tool: &Tool, cur: &str) -> Option<String> {
@@ -1570,12 +1484,15 @@ pub fn apply_source(
         .find(|m| m.id == mirror_id)
         .ok_or("未知镜像")?;
     let proxy = parse_proxy(proxy_enabled, proxy_host, proxy_port);
+    let written = proxy.as_ref().map(|p| format!("{}:{}", p.host, p.port));
     match tool.handler.as_str() {
         "maven_settings" if proxy_enabled.is_some() => {
-            maven_apply(maven_path(), mirror, proxy.as_ref(), true)?
+            maven_apply(maven_path(), mirror, proxy.as_ref(), true)?;
+            crate::proxy_ledger::record(crate::proxy_ledger::Location::Maven, written.as_deref())?;
         }
         "gradle_init" if proxy_enabled.is_some() => {
-            gradle_apply(gradle_path(), mirror, proxy.as_ref(), true)?
+            gradle_apply(gradle_path(), mirror, proxy.as_ref(), true)?;
+            crate::proxy_ledger::record(crate::proxy_ledger::Location::Gradle, written.as_deref())?;
         }
         _ => apply(tool, mirror)?,
     }
@@ -2038,5 +1955,221 @@ mod tests {
         ] {
             assert!(ids.iter().any(|id| id == expected), "missing {expected}");
         }
+    }
+}
+
+// ── Proxy locations used by the proxy ledger ──
+
+fn line_proxy(path: &Path, quoted: bool) -> Option<String> {
+    read_text(path)?.lines().find_map(|line| {
+        let t = line.trim_start();
+        let rest = if quoted {
+            t.strip_prefix("proxy ")?
+        } else {
+            t.strip_prefix("proxy=")?
+        };
+        let value = rest.trim().trim_matches('"').to_string();
+        (!value.is_empty()).then_some(value)
+    })
+}
+
+/// Replaces only the `proxy` / `https-proxy` lines; `None` removes them.
+fn set_line_proxy(path: &Path, quoted: bool, endpoint: Option<&str>) -> Result<(), String> {
+    let existing = read_text(path).unwrap_or_default();
+    if existing.is_empty() && endpoint.is_none() {
+        return Ok(());
+    }
+    backup::backup_file(path);
+    let keys = ["proxy", "https-proxy"];
+    let mut out = String::new();
+    for line in existing.lines() {
+        let trimmed = line.trim_start();
+        let is_proxy = keys.iter().any(|key| {
+            trimmed.starts_with(&format!("{key}=")) || trimmed.starts_with(&format!("{key} "))
+        });
+        if !is_proxy {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    if let Some(endpoint) = endpoint {
+        for key in keys {
+            if quoted {
+                out.push_str(&format!("{key} \"{endpoint}\"\n"));
+            } else {
+                out.push_str(&format!("{key}={endpoint}\n"));
+            }
+        }
+    }
+    write_text(path, &out)
+}
+
+pub(crate) fn npm_proxy() -> Option<String> {
+    line_proxy(&npmrc_path(), false)
+}
+
+pub(crate) fn yarn_proxy() -> Option<String> {
+    line_proxy(&yarnrc_path(), true)
+}
+
+pub(crate) fn set_npm_proxy(endpoint: Option<&str>) -> Result<(), String> {
+    set_line_proxy(&npmrc_path(), false, endpoint)
+}
+
+pub(crate) fn set_yarn_proxy(endpoint: Option<&str>) -> Result<(), String> {
+    set_line_proxy(&yarnrc_path(), true, endpoint)
+}
+
+fn xml_value<'a>(text: &'a str, tag: &str) -> Option<&'a str> {
+    let open = format!("<{tag}>");
+    let start = text.find(&open)? + open.len();
+    let end = text[start..].find(&format!("</{tag}>"))? + start;
+    Some(text[start..end].trim())
+}
+
+fn maven_proxy_at(path: &Path) -> Option<String> {
+    let text = read_text(path)?;
+    let start = text.find("<id>stacker-http</id>")?;
+    let block = &text[start..];
+    let block = &block[..block.find("</proxy>").unwrap_or(block.len())];
+    Some(format!(
+        "{}:{}",
+        xml_value(block, "host")?,
+        xml_value(block, "port")?
+    ))
+}
+
+pub(crate) fn maven_proxy() -> Option<String> {
+    maven_proxy_at(&maven_path())
+}
+
+/// Stacker rewrites the whole settings.xml, so it only does so for files it generated.
+fn maven_file_is_stacker(path: &Path) -> bool {
+    match read_text(path) {
+        None => true,
+        Some(text) => {
+            text.contains("<id>stacker-")
+                || text.trim()
+                    == maven_settings_template(
+                        &Mirror {
+                            id: "official".into(),
+                            ..Default::default()
+                        },
+                        None,
+                        maven_local_repository(path).as_deref(),
+                    )
+                    .trim()
+        }
+    }
+}
+
+pub(crate) fn set_maven_proxy(proxy: Option<(&str, u16)>) -> Result<(), String> {
+    let path = maven_path();
+    if !maven_file_is_stacker(&path) {
+        return Err("E_EXTERNAL_FILE".into());
+    }
+    let mirror = configured_mirror("maven", &path).ok_or("E_REQUEST")?;
+    let proxy = proxy.map(|(host, port)| ToolProxy {
+        host: host.to_string(),
+        port,
+    });
+    maven_apply(path, &mirror, proxy.as_ref(), true)
+}
+
+fn gradle_proxy_at(path: &Path) -> Option<String> {
+    let text = read_text(path)?;
+    let value = |key: &str| {
+        text.lines().find_map(|l| {
+            let rest = l
+                .trim_start()
+                .strip_prefix(&format!("System.setProperty('{key}', '"))?;
+            Some(rest.split('\'').next()?.to_string())
+        })
+    };
+    Some(format!(
+        "{}:{}",
+        value("http.proxyHost")?,
+        value("http.proxyPort")?
+    ))
+}
+
+pub(crate) fn gradle_proxy() -> Option<String> {
+    gradle_proxy_at(&gradle_path())
+}
+
+pub(crate) fn set_gradle_proxy(proxy: Option<(&str, u16)>) -> Result<(), String> {
+    let path = gradle_path();
+    let mirror = configured_mirror("gradle", &path).ok_or("E_REQUEST")?;
+    let proxy = proxy.map(|(host, port)| ToolProxy {
+        host: host.to_string(),
+        port,
+    });
+    gradle_apply(path, &mirror, proxy.as_ref(), true)
+}
+
+#[cfg(test)]
+mod proxy_location_tests {
+    use super::*;
+
+    #[test]
+    fn npm_and_yarn_lines_keep_everything_else() {
+        let dir = tempfile::tempdir().unwrap();
+        let npmrc = dir.path().join(".npmrc");
+        std::fs::write(&npmrc, "registry=https://r.example/\nproxy=http://old:1\n").unwrap();
+        assert_eq!(line_proxy(&npmrc, false).as_deref(), Some("http://old:1"));
+        set_line_proxy(&npmrc, false, Some("http://127.0.0.1:7890")).unwrap();
+        let text = std::fs::read_to_string(&npmrc).unwrap();
+        assert!(text.contains("registry=https://r.example/"));
+        assert!(
+            text.contains("proxy=http://127.0.0.1:7890")
+                && text.contains("https-proxy=http://127.0.0.1:7890")
+        );
+        assert!(!text.contains("old:1"));
+        set_line_proxy(&npmrc, false, None).unwrap();
+        assert_eq!(line_proxy(&npmrc, false), None);
+        assert!(std::fs::read_to_string(&npmrc)
+            .unwrap()
+            .contains("registry="));
+
+        let yarnrc = dir.path().join(".yarnrc");
+        set_line_proxy(&yarnrc, true, Some("http://h:2")).unwrap();
+        assert_eq!(line_proxy(&yarnrc, true).as_deref(), Some("http://h:2"));
+        let missing = dir.path().join("none");
+        set_line_proxy(&missing, false, None).unwrap();
+        assert!(!missing.exists());
+    }
+
+    #[test]
+    fn maven_and_gradle_proxies_are_read_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let settings = dir.path().join("settings.xml");
+        let mirror = Mirror {
+            id: "official".into(),
+            ..Default::default()
+        };
+        let proxy = ToolProxy {
+            host: "127.0.0.1".into(),
+            port: 7890,
+        };
+        std::fs::write(
+            &settings,
+            maven_settings_template(&mirror, Some(&proxy), None),
+        )
+        .unwrap();
+        assert_eq!(maven_proxy_at(&settings).as_deref(), Some("127.0.0.1:7890"));
+        assert!(maven_file_is_stacker(&settings));
+        std::fs::write(
+            &settings,
+            "<settings><servers><server><id>corp</id></server></servers></settings>",
+        )
+        .unwrap();
+        assert!(
+            !maven_file_is_stacker(&settings),
+            "a user's own settings.xml is never rewritten"
+        );
+
+        let init = dir.path().join("init.gradle");
+        std::fs::write(&init, gradle_init_template(&mirror, Some(&proxy))).unwrap();
+        assert_eq!(gradle_proxy_at(&init).as_deref(), Some("127.0.0.1:7890"));
     }
 }

@@ -329,48 +329,57 @@ fn maven_clear_proxy() -> Result<(), String> {
     }
 }
 
-fn maven_has_proxy() -> bool {
-    let user = winenv::get_user_raw("MAVEN_OPTS").unwrap_or_default();
-    let process = std::env::var("MAVEN_OPTS").unwrap_or_default();
-    MAVEN_PROXY_FLAGS
-        .iter()
-        .any(|flag| user.contains(flag) || process.contains(flag))
+// ── Proxy locations used by the proxy ledger ──
+
+pub(crate) fn env_proxy() -> Option<String> {
+    winenv::get_user_raw("HTTP_PROXY").filter(|v| !v.trim().is_empty())
 }
 
-/// 将已经启用过的显式代理同步到当前端点。Windows 没有提供端点时，
-/// 会清除 Stacker 管理的旧代理，但不会更改镜像源和缓存位置。
-pub(crate) fn sync_existing_explicit_proxies(
-    host: Option<&str>,
-    port: u16,
-) -> Result<Vec<String>, String> {
-    let host = host
-        .map(str::trim)
-        .filter(|host| !host.is_empty() && port > 0);
-    let mut changed = crate::sources::sync_existing_tool_proxies(host, port)?;
+fn host_port(host: Option<String>, port: Option<String>) -> Option<String> {
+    Some(format!("{}:{}", host?.trim(), port?.trim())).filter(|v| v != ":")
+}
 
-    if crate::git::sync_existing_proxy(host, port)? {
-        changed.push("Git".into());
-    }
+pub(crate) fn maven_opts_proxy() -> Option<String> {
+    let raw = winenv::get_user_raw("MAVEN_OPTS").unwrap_or_default();
+    let flag = |name: &str| {
+        raw.split_whitespace().find_map(|t| {
+            t.strip_prefix(&format!("{name}="))
+                .map(|v| v.trim_matches('"').to_string())
+        })
+    };
+    host_port(flag("-Dhttp.proxyHost"), flag("-Dhttp.proxyPort"))
+}
 
-    let no_proxy = auto_no_proxy();
-    if gradle_has_proxy() {
-        if let Some(host) = host {
-            gradle_set_proxy(host, port, &no_proxy)?;
-        } else {
-            gradle_clear_proxy()?;
-        }
-        changed.push("Gradle JVM".into());
-    }
-    if maven_has_proxy() {
-        if let Some(host) = host {
-            maven_set_proxy(host, port, &no_proxy)?;
-        } else {
-            maven_clear_proxy()?;
-        }
-        changed.push("Maven JVM".into());
-    }
+pub(crate) fn set_maven_opts_proxy(host: &str, port: u16) -> Result<(), String> {
+    backup::backup_env(winenv::Hive::User, "proxy", &["MAVEN_OPTS"]);
+    maven_set_proxy(host, port, &auto_no_proxy())
+}
 
-    Ok(changed)
+pub(crate) fn clear_maven_opts_proxy() -> Result<(), String> {
+    backup::backup_env(winenv::Hive::User, "proxy", &["MAVEN_OPTS"]);
+    maven_clear_proxy()
+}
+
+pub(crate) fn gradle_props_proxy() -> Option<String> {
+    let text = read_file(&gradle_props_path())?;
+    let value = |key: &str| {
+        text.lines().find_map(|l| {
+            let (k, v) = l.split_once('=')?;
+            (k.trim() == key).then(|| v.trim().to_string())
+        })
+    };
+    host_port(
+        value("systemProp.http.proxyHost"),
+        value("systemProp.http.proxyPort"),
+    )
+}
+
+pub(crate) fn set_gradle_props_proxy(host: &str, port: u16) -> Result<(), String> {
+    gradle_set_proxy(host, port, &auto_no_proxy())
+}
+
+pub(crate) fn clear_gradle_props_proxy() -> Result<(), String> {
+    gradle_clear_proxy()
 }
 
 // ── Tauri 命令 ──
@@ -386,10 +395,15 @@ pub fn proxy_enable(
     also_jvm: bool,
     manual: Vec<String>,
 ) -> Result<(), String> {
-    enable(&host, port, also_jvm, manual)
+    enable(&host, port, also_jvm, manual)?;
+    crate::proxy_ledger::record(
+        crate::proxy_ledger::Location::Env,
+        Some(&format!("{host}:{port}")),
+    )
 }
 
 #[tauri::command]
 pub fn proxy_disable(also_jvm: bool) -> Result<(), String> {
-    disable(also_jvm)
+    disable(also_jvm)?;
+    crate::proxy_ledger::record(crate::proxy_ledger::Location::Env, None)
 }

@@ -26,10 +26,10 @@ Stacker 管理的正是这一层，并且不要求接入大模型，也不会上
 
 - **环境可见**：检查 Git、Python、Node.js、Java、Maven、Gradle、Go、Rust、包管理器、代理和缓存的实际生效状态。
 - **运行时管理**：发现、安装、切换、验证和删除本机工具链版本。
-- **AI 智能体管理**：集中查看支持的 CLI 与桌面产品，区分国内版和国际版，安装或更新已支持的产品形态，并复制本机智能体摘要供 AI 使用。
-- **本机会话与项目整理**：索引受支持的 Codex、Claude 本地记录，搜索、分组、批量导出会话与交接资料，并仅在本机客户端提供且通过能力检查时操作原会话。
+- **智能体管理**：集中查看支持的 CLI 与桌面产品，区分国内版和国际版，检查安装是否真正可用；安装、更新、卸载和修复在后台并行执行，支持一键更新并在完成时提示。
+- **智能体会话数据**：列出你在 Codex、Claude 客户端中实际看到的会话，按项目归类，识别孤儿记录，并在精简导出后批量删除。
 - **Git 多账号隔离**：为 GitHub、Gitee、GitLab、Gitea、Forgejo、Codeup、企业和通用 HTTPS Git 服务提供独立终端上下文与仓库级提交身份。
-- **下载与网络管理**：测速并选择下载源和仓库源，管理终端代理，保留本机自定义源。
+- **下载与网络管理**：测速并选择下载源和仓库源，保留本机自定义源；代理总览显示终端、Git、npm、Yarn、Maven、Gradle 的代理来源，默认「不干预」，只同步 Stacker 自己写入的条目。
 - **依赖与缓存位置管理**：调整或恢复 Maven、Gradle、npm、pnpm、pip、Composer、Go、Cargo 和 rustup 的下载、依赖或构建存储位置。
 - **开发磁盘分析**：扫描指定目录或磁盘，识别开发项目、智能体痕迹和可重建产物，按项目核对空间占用，并在确认后删除已分类目标。
 - **配置可恢复**：支持的配置写入前自动备份，可从本地历史中恢复。
@@ -42,15 +42,15 @@ Stacker 管理的正是这一层，并且不要求接入大模型，也不会上
 
 ![Stacker 编程生态体检](assets/screenshots/zh-CN/environment-check.png)
 
-### AI 智能体目录
+### 智能体安装更新
 
-集中查看受支持的 AI 编程智能体 CLI、桌面端安装状态。当前目录覆盖 Claude Code、Codex、Antigravity、OpenCode、ZCode、Kimi、WorkBuddy、Qoder 国内/国际版、TRAE 国内/国际版、DeepSeek Harness、OpenClaw 和 Hermes Agent。不同厂商产品形态支持的自动安装、更新和卸载能力并不完全相同。
+集中查看受支持的 AI 编程智能体 CLI、桌面端安装状态。当前目录覆盖 Claude Code、Codex、Antigravity、OpenCode、ZCode、Kimi、WorkBuddy 国内/国际版、Qoder 国内/国际版、TRAE 国内/国际版、DeepSeek Harness、OpenClaw、Hermes Agent 和 pi。安装损坏（例如失败留下的占位程序）会被标出，并在本机另有健康安装时提供修复。更新可以一键批量提交，在后台并行执行。不同厂商产品形态支持的自动安装、更新和卸载能力并不完全相同。
 
 ![Stacker AI 工作智能体](assets/screenshots/zh-CN/work-agents.png)
 
-### 会话与项目空间
+### 会话数据
 
-在本机建立受支持 Codex、Claude 记录的元数据索引，不把完整原文复制进数据库。可按智能体、项目、时间和状态筛选，搜索原文，整理项目归属，导出阅读包或交接资料，并在明确预览发送内容后使用兼容接口生成摘要。修改原会话的操作必须通过本机能力检查，并在执行前创建备份。
+直接读取 Codex 状态数据库和 Claude 桌面端会话索引，标题、归档状态和项目与客户端一致。子智能体运行归入父会话，自动化运行默认隐藏；已在 Claude 桌面端删除但文件仍在的会话标为孤儿。批量删除先预览、执行前再次核对，默认先把每个会话精简导出为 Markdown；Codex 会话通过 Codex App Server 删除，仍在 Claude 桌面端侧栏中的会话不会被删除。
 
 ### Git 账号执行环境
 
@@ -81,7 +81,7 @@ Stacker 管理的正是这一层，并且不要求接入大模型，也不会上
 ## 安全与隐私
 
 - Stacker 不上传项目文件、本机摘要或 Git 访问令牌。
-- 会话索引保存在本机；只有用户核对并批准目标地址与发送内容后，摘要数据才会离开本机。
+- 会话数据只在本机读取，不会发送到任何地方。
 - Git 令牌通过 Windows 凭据管理器保存。
 - 系统级环境修改和受保护目录扫描需要明确的 Windows UAC 授权。
 - 无法确认的磁盘内容只展示；清理仅处理已分类目标，并要求用户确认。
@@ -127,9 +127,14 @@ cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 npm run release:windows
 ```
 
+## 网页对话浏览器插件
+
+一个 Chromium 内核浏览器插件（Chrome、Edge 等），独立于桌面客户端运行，用于整理、搜索、导出和清理 ChatGPT、Claude 网页版对话，数据只存在本机。安装与使用说明见 [插件说明](extension/README.md)。
+
 ## 项目文档
 
-- [会话与项目空间的行为和安全边界](docs/conversations.md)
+- [会话数据的行为和安全边界](docs/sessions.md)
+- [接口服务（本机网关）](docs/gateway.md)
 - [开发、验证、清理与维护交接](docs/development.md)
 
 ## 许可证

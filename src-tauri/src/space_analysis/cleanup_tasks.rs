@@ -512,6 +512,7 @@ struct DeleteEntry {
     path: PathBuf,
     expanded: bool,
     remove_directory: bool,
+    is_root: bool,
 }
 
 fn delete_validated_path(
@@ -524,6 +525,7 @@ fn delete_validated_path(
         path: path.to_path_buf(),
         expanded: false,
         remove_directory: remove_root,
+        is_root: true,
     }];
     let mut released_bytes = 0u64;
 
@@ -545,10 +547,22 @@ fn delete_validated_path(
             }
         };
         if is_link_or_reparse_point(&metadata) {
-            return DeleteOutcome {
-                released_bytes,
-                reason_key: Some(REASON_LINK),
-            };
+            // Symlinks and junctions inside a validated artifact (e.g. pnpm node_modules) are
+            // removed as links, never followed. Other reparse points (cloud placeholders,
+            // dedup) and a root that became a link stop the item.
+            if entry.is_root || !metadata.file_type().is_symlink() {
+                return DeleteOutcome {
+                    released_bytes,
+                    reason_key: Some(REASON_LINK),
+                };
+            }
+            if let Err(error) = remove_link(&entry.path) {
+                return DeleteOutcome {
+                    released_bytes,
+                    reason_key: Some(map_delete_error(&error)),
+                };
+            }
+            continue;
         }
         if metadata.is_dir() {
             if entry.expanded {
@@ -564,6 +578,7 @@ fn delete_validated_path(
                 path: entry.path.clone(),
                 expanded: true,
                 remove_directory: entry.remove_directory,
+                is_root: entry.is_root,
             });
             let children = match fs::read_dir(&entry.path) {
                 Ok(children) => children,
@@ -588,6 +603,7 @@ fn delete_validated_path(
                     path: child.path(),
                     expanded: false,
                     remove_directory: true,
+                    is_root: false,
                 });
             }
         } else {
@@ -596,7 +612,7 @@ fn delete_validated_path(
             } else {
                 0
             };
-            if let Err(error) = fs::remove_file(&entry.path) {
+            if let Err(error) = remove_file_clearing_read_only(&entry.path, &metadata) {
                 return DeleteOutcome {
                     released_bytes,
                     reason_key: Some(map_delete_error(&error)),
@@ -609,6 +625,27 @@ fn delete_validated_path(
     DeleteOutcome {
         released_bytes,
         reason_key: None,
+    }
+}
+
+/// Removes a symlink or junction itself. Directory links need `remove_dir` on Windows.
+fn remove_link(path: &Path) -> std::io::Result<()> {
+    fs::remove_dir(path).or_else(|_| fs::remove_file(path))
+}
+
+fn remove_file_clearing_read_only(path: &Path, metadata: &fs::Metadata) -> std::io::Result<()> {
+    match fs::remove_file(path) {
+        Err(error)
+            if error.kind() == std::io::ErrorKind::PermissionDenied
+                && metadata.permissions().readonly() =>
+        {
+            let mut permissions = metadata.permissions();
+            #[allow(clippy::permissions_set_readonly_false)]
+            permissions.set_readonly(false);
+            fs::set_permissions(path, permissions)?;
+            fs::remove_file(path)
+        }
+        result => result,
     }
 }
 
@@ -830,6 +867,34 @@ mod tests {
         assert_eq!(result.items[0].reason_key.as_deref(), Some(REASON_LINK));
         assert!(outside.path().join("keep.bin").exists());
         fs::remove_dir(&link).unwrap();
+    }
+
+    #[test]
+    fn inner_links_are_unlinked_without_following_and_read_only_files_are_removed() {
+        let scan_root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        fs::write(outside.path().join("keep.bin"), b"keep").unwrap();
+        let target = scan_root.path().join("target");
+        fs::create_dir_all(&target).unwrap();
+        // pnpm-style layout: the artifact contains junctions pointing elsewhere.
+        create_directory_link(outside.path(), &target.join("linked"));
+        let read_only = target.join("read-only.bin");
+        fs::write(&read_only, b"locked").unwrap();
+        let mut permissions = fs::metadata(&read_only).unwrap().permissions();
+        permissions.set_readonly(true);
+        fs::set_permissions(&read_only, permissions).unwrap();
+        let plan = rust_plan(scan_root.path(), &["target"]);
+
+        let result = execute_plan(
+            "cleanup-1",
+            plan,
+            &CancellationToken::default(),
+            |_, _, _| {},
+        );
+
+        assert_eq!(result.items[0].state, CleanupItemState::Completed);
+        assert!(!target.exists());
+        assert!(outside.path().join("keep.bin").exists());
     }
 
     #[cfg(windows)]

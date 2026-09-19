@@ -41,10 +41,11 @@ url = "2"
 regex = "1"
 ureq = "2"
 zip = "2"
+tiny_http = "0.12"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
-winapi = { version = "0.3", features = ["winuser", "fileapi", "shellapi", "synchapi", "processthreadsapi", "handleapi", "winbase", "dpapi", "wincrypt", "minwindef", "winnt", "errhandlingapi"] }
+winapi = { version = "0.3", features = ["winuser", "fileapi", "shellapi", "synchapi", "processthreadsapi", "handleapi", "winbase", "dpapi", "wincrypt", "minwindef", "winnt", "errhandlingapi", "tlhelp32"] }
 
 [profile.dev]
 debug = 1

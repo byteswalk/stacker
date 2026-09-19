@@ -1,7 +1,8 @@
 export const PAGE_IDS = [
   "overview",
-  "vibe",
-  "agent-space",
+  "agents",
+  "agent-data",
+  "gateway",
   "git",
   "python",
   "php",
@@ -31,10 +32,13 @@ function browserStorage(): PageStorage | null {
   return window.localStorage;
 }
 
+// Page ids renamed in the agent pages rebuild; restored navigation state still uses them.
+const LEGACY_PAGE_IDS: Record<string, Page> = { vibe: "agents", "agent-space": "agent-data" };
+
 export function normalizePage(value: unknown): Page {
-  return typeof value === "string" && PAGE_ID_SET.has(value)
-    ? value as Page
-    : DEFAULT_PAGE;
+  if (typeof value !== "string") return DEFAULT_PAGE;
+  const mapped = LEGACY_PAGE_IDS[value] ?? value;
+  return PAGE_ID_SET.has(mapped) ? mapped as Page : DEFAULT_PAGE;
 }
 
 export function readLastPage(storage: PageStorage | null = browserStorage()): Page {
