@@ -64,6 +64,27 @@ static BACKENDS: &[Backend] = &[
         models: super::extra::qoder_models,
         efforts: super::extra::qoder_efforts,
     },
+    Backend {
+        id: "agy",
+        run: super::cmdline::run_agy,
+        login: super::cmdline::agy_login,
+        models: super::cmdline::agy_models,
+        efforts: super::cmdline::agy_efforts,
+    },
+    Backend {
+        id: "dsh",
+        run: super::cmdline::run_dsh,
+        login: super::cmdline::dsh_login,
+        models: super::cmdline::dsh_models,
+        efforts: super::cmdline::dsh_efforts,
+    },
+    Backend {
+        id: "hermes",
+        run: super::cmdline::run_hermes,
+        login: super::cmdline::hermes_login,
+        models: super::cmdline::hermes_models,
+        efforts: super::cmdline::hermes_efforts,
+    },
 ];
 
 fn codex_home() -> std::path::PathBuf {

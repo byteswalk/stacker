@@ -1,6 +1,6 @@
 # 智能体管理：接口服务
 
-「接口服务」把本机已安装并登录的智能体（目前为 Codex、Claude、CodeBuddy、Qoder）以 OpenAI 与 Anthropic 风格的 HTTP 接口提供给你自己的工具。它复用会话摘要使用的执行器：每次请求在临时空目录中无状态运行，没有任何工具，不能读写文件或执行命令，也不会在智能体中留下会话。
+「接口服务」把本机已安装并登录的智能体（目前为 Codex、Claude、CodeBuddy、Qoder、Antigravity、DeepSeek Harness、Hermes）以 OpenAI 与 Anthropic 风格的 HTTP 接口提供给你自己的工具。它复用会话摘要使用的执行器：每次请求在临时空目录中无状态运行，没有任何工具，不能读写文件或执行命令，也不会在智能体中留下会话。
 
 ## 接入
 
@@ -9,11 +9,11 @@
 | OpenAI base URL | `http://127.0.0.1:<端口>/v1`（默认端口 8765） |
 | Anthropic base URL | `http://127.0.0.1:<端口>` |
 | 密钥 | 页面显示的 `sk-stacker-…`，放在 `Authorization: Bearer` 或 `x-api-key` |
-| 模型 | `codex`、`claude`、`codebuddy`、`qoder`，或 `<智能体>/<模型>`（调用名见页面上各智能体的模型表） |
+| 模型 | `codex`、`claude`、`codebuddy`、`qoder`、`agy`、`dsh`、`hermes`，或 `<智能体>/<模型>`（调用名见页面上各智能体的模型表） |
 
 接口：`GET /v1/models`、`POST /v1/chat/completions`、`POST /v1/messages`、`GET /health`（无需密钥）。
 
-- 只写 `codex` / `claude` 时，使用「会话数据 → 数据来源 → 摘要」中该智能体的默认模型与推理强度；只写 `codebuddy` / `qoder` 时使用该 CLI 自己的默认模型；OpenAI 请求的 `reasoning_effort` 可覆盖推理强度。
+- 只写 `codex` / `claude` 时，使用「会话数据 → 数据来源 → 摘要」中该智能体的默认模型与推理强度；其他智能体只写名字时使用该 CLI 自己的默认模型（DeepSeek Harness 为 deepseek-v4-flash）；OpenAI 请求的 `reasoning_effort` 可覆盖推理强度。
 - 每次请求把 system 与全部消息渲染为一段对话交给执行器，多轮对话由客户端自己携带历史。
 - 只支持文本；带 `tools` 或图片的请求返回 400。
 - `stream: true` 会在生成完成后以一个内容块返回完整 SSE。
@@ -31,4 +31,7 @@
 
 - **CodeBuddy**：没有查询登录状态的命令，页面显示「登录状态未知」，用「测试」确认是否可用。模型列表由 CLI 按账号返回，每 30 分钟刷新一次。运行后删除它为临时目录写的日志。
 - **Qoder**：关闭全部插件与钩子运行（否则每次请求都会执行插件命令）；运行后删除它为临时目录写的事件日志。未知模型名会被 Qoder 自动换成 `Auto`。
+- **Antigravity (agy)**：每次运行使用一个临时主目录，其中拒绝全部权限并用钩子拒绝每一次工具调用（否则无头模式仍能读取任意文件、联网搜索）；登录不受影响。运行后删除临时主目录。提问经命令行传入，上限约 3 万字。
+- **DeepSeek Harness (dsh)**：用补丁关闭全部工具插件，会话与设置写在临时目录；直接用 node 启动，不经过 cmd。没有查询登录状态的命令，页面显示「登录状态未知」。推理档位 off / low / high / max。提问上限约 3 万字。
+- **Hermes**：使用不含任何工具的工具集 `context_engine`，会话标为 tool 来源，运行后立即删除该会话。调用名为 `hermes/<服务商>/<模型>`，模型来自已登录服务商的缓存列表；推理档位只能在 Hermes 自己的配置里设置。提问上限约 3 万字。
 - **暂不支持**：TRAE（不能关闭全部工具、不能不保存会话）、Kimi（每次调用都会在会话列表留下会话）、OpenCode 与 Pi（本机未登录可用的服务商）。未接入的智能体会在页面底部列出原因。

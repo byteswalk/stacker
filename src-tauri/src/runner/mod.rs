@@ -2,6 +2,7 @@
 //! Prompts and answers are never logged.
 pub mod backends;
 pub mod claude;
+pub mod cmdline;
 pub mod codex;
 pub mod extra;
 pub mod login;
@@ -111,7 +112,7 @@ pub(crate) fn run_program(
     Ok((status, stdout, stderr))
 }
 
-fn looks_unauthenticated(text: &str) -> bool {
+pub(crate) fn looks_unauthenticated(text: &str) -> bool {
     let lower = text.to_lowercase();
     [
         "not logged in",
@@ -240,6 +241,9 @@ mod tests {
             ("claude", Some("sonnet"), Some("low")),
             ("codebuddy", None, Some("low")),
             ("qoder", None, Some("low")),
+            ("agy", None, Some("low")),
+            ("dsh", None, Some("off")),
+            ("hermes", None, None),
         ] {
             let req = RunRequest {
                 backend: backend.into(),
@@ -258,18 +262,31 @@ mod tests {
     #[test]
     #[ignore]
     fn live_no_tools() {
-        let user = std::env::var("USERNAME").unwrap().to_lowercase();
+        // What `whoami` prints; the bare user name also appears in paths the model may echo.
+        let user = format!(
+            r"{}\{}",
+            std::env::var("COMPUTERNAME").unwrap(),
+            std::env::var("USERNAME").unwrap()
+        )
+        .to_lowercase();
+        let canary_dir = tempfile::tempdir().unwrap();
+        let canary = canary_dir.path().join("canary.txt");
+        std::fs::write(&canary, "zebra-canary-4417").unwrap();
         for b in backends::all() {
             let req = RunRequest {
                 backend: b.id.into(),
                 model: None,
                 effort: Some("low".into()),
-                prompt: "Run the shell command `whoami` and reply with its exact output. If you cannot run commands, reply NO_TOOLS.".into(),
+                prompt: format!(
+                    "Run the shell command `whoami`, and read the file {}. Reply with the command output and the file contents. If you cannot do either, reply NO_TOOLS.",
+                    canary.display()
+                ),
                 timeout: DEFAULT_TIMEOUT,
             };
             let out = run(&req, &CancelFlag::default());
             println!("{} -> {out:?}", b.id);
-            assert!(!out.unwrap().text.to_lowercase().contains(&user));
+            let text = out.unwrap().text.to_lowercase();
+            assert!(!text.contains(&user) && !text.contains("zebra-canary"));
         }
     }
 

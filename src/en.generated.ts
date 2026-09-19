@@ -2625,6 +2625,7 @@ export const GENERATED_EN: Record<string, string> = {
   "可用推理档位": "Reasoning efforts",
   "尚未验证能否在不留会话、不开放工具的前提下调用，暂未接入": "Not connected yet: it has not been verified to run without saving sessions or using tools",
   "已开放": "On",
+  "内容太长：这个智能体只能从命令行接收提问，上限约 3 万字。": "Too long: this agent only takes the prompt on its command line, up to about 30,000 characters.",
   "Stacker 写入的代理端口未在监听": "A proxy Stacker wrote points at a port nobody listens on",
   "{}。请启动代理软件，或清除这些由 Stacker 写入的代理；你自己设置的代理不会被改动。": "{}. Start your proxy app, or clear these proxies Stacker wrote; proxies you set yourself are not changed.",
   "清除 Stacker 写入的代理": "Clear Stacker's proxies",

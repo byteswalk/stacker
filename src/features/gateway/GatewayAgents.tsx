@@ -25,6 +25,7 @@ const RUN_ERRORS: Record<string, string> = {
   E_RUNNER_AUTH: "未登录：请在终端运行该智能体并完成登录。",
   E_RUNNER_MISSING: "未找到命令行程序。",
   E_RUNNER_TIMEOUT: "5 分钟内没有回复。",
+  E_PROMPT_TOO_LONG: "内容太长：这个智能体只能从命令行接收提问，上限约 3 万字。",
 };
 
 /** One block per agent: can it be used, is it signed in, which models and efforts, on/off, test. */
