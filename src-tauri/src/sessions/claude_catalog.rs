@@ -358,6 +358,7 @@ fn session_from(
         summary_stale: false,
         summary_by: String::new(),
         summary_at: 0,
+        copies: Vec::new(),
     })
 }
 
@@ -381,7 +382,44 @@ pub fn load(root: &Path, desktop_index: &Path) -> Result<Vec<Session>, String> {
             }
         }
     }
-    Ok(sessions)
+    Ok(merge_copies(sessions))
+}
+
+/// One session per id: the most recently written transcript is the session, the others
+/// are copies left in other worktree folders. Sizes and sub-agents add up.
+pub fn merge_copies(sessions: Vec<Session>) -> Vec<Session> {
+    let mut by_id: HashMap<String, Vec<Session>> = HashMap::new();
+    let mut order = Vec::new();
+    for s in sessions {
+        if !by_id.contains_key(&s.id) {
+            order.push(s.id.clone());
+        }
+        by_id.entry(s.id.clone()).or_default().push(s);
+    }
+    order
+        .into_iter()
+        .filter_map(|id| {
+            let mut group = by_id.remove(&id)?;
+            group.sort_by_key(|s| {
+                std::cmp::Reverse(fs::metadata(&s.path).and_then(|m| m.modified()).ok())
+            });
+            let mut primary = group.remove(0);
+            for copy in group {
+                primary.bytes += copy.bytes;
+                primary.copies.push(copy.path);
+                for child in copy.children {
+                    if !primary
+                        .children
+                        .iter()
+                        .any(|c| c.id == child.id && c.path == child.path)
+                    {
+                        primary.children.push(child);
+                    }
+                }
+            }
+            Some(primary)
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -481,6 +519,31 @@ mod tests {
             .iter()
             .any(|p| p.ends_with(Path::new("file-history").join("s-cli"))));
         assert!(cli.bytes >= 5);
+    }
+
+    #[test]
+    fn worktree_copies_are_one_session() {
+        let home = tempfile::tempdir().unwrap();
+        let root = home.path().join(".claude");
+        let cwd = home.path().to_string_lossy().into_owned();
+        let body = line(
+            serde_json::json!({"type":"user","sessionId":"s1","cwd":cwd,"entrypoint":"cli","message":{"content":"hi"}}),
+        );
+        for (slug, size) in [("repo", 1usize), ("repo-worktree", 3usize)] {
+            let dir = root.join("projects").join(slug);
+            fs::create_dir_all(&dir).unwrap();
+            fs::write(dir.join("s1.jsonl"), body.repeat(size)).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let sessions = load(&root, &home.path().join("none")).unwrap();
+        assert_eq!(sessions.len(), 1);
+        let s = &sessions[0];
+        assert!(
+            s.path.contains("repo-worktree"),
+            "latest transcript is the session"
+        );
+        assert_eq!(s.copies.len(), 1);
+        assert_eq!(s.bytes as usize, body.len() * 4);
     }
 
     #[test]

@@ -175,6 +175,7 @@ pub(crate) mod tests_support {
             summary_stale: false,
             summary_by: String::new(),
             summary_at: 0,
+            copies: Vec::new(),
         }
     }
 }
@@ -311,6 +312,51 @@ mod tests {
         assert_eq!(p2.updated_at, 4);
         let p1 = rows.iter().find(|r| r.project.key == "p1").unwrap();
         assert_eq!(p1.sessions, 1, "automation runs do not count as sessions");
+    }
+
+    /// Live, read-only: `cargo test --lib live_status_filter -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn live_status_filter() {
+        let roots = super::super::roots::resolve(&Roots::default());
+        let catalog = load(&roots);
+        let q = SessionQuery {
+            agent: "claude".into(),
+            status: "active".into(),
+            sort: "bytes".into(),
+            ..Default::default()
+        };
+        for s in filter(&catalog.sessions, &q).iter().take(6) {
+            println!("{:?} {:?} {} {}", s.status, s.client, s.title, s.bytes);
+        }
+        let q: SessionQuery = serde_json::from_str(r#"{"agent":"claude","project":"","status":"active","client":"","search":"","fullText":false,"includeAutomation":false,"favoritesOnly":false,"updatedAfter":0,"sort":"bytes","offset":0}"#).unwrap();
+        println!("deserialized status={:?} sort={:?}", q.status, q.sort);
+        let all = filter(
+            &catalog.sessions,
+            &SessionQuery {
+                agent: "claude".into(),
+                ..Default::default()
+            },
+        );
+        let active = filter(
+            &catalog.sessions,
+            &SessionQuery {
+                agent: "claude".into(),
+                status: "active".into(),
+                ..Default::default()
+            },
+        );
+        println!("claude all={} active={}", all.len(), active.len());
+        let mut seen = std::collections::HashMap::new();
+        for s in &catalog.sessions {
+            *seen.entry(s.id.clone()).or_insert(0) += 1;
+        }
+        for (id, n) in seen.iter().filter(|(_, n)| **n > 1) {
+            println!("DUP {id} x{n}");
+            for s in catalog.sessions.iter().filter(|s| &s.id == id) {
+                println!("   {:?} {}", s.status, s.path);
+            }
+        }
     }
 
     #[test]

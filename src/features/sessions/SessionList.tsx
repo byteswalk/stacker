@@ -77,6 +77,7 @@ export function SessionList({ page, query, projects, loading, selected, onSelect
             <span className="session-tags">
               <span className={`session-tag agent-${s.agent}`}>{AGENT_LABEL[s.agent]}</span>
               <span className="session-tag">{t(CLIENT_LABEL[s.client])}</span>
+              {!!s.copies.length && <span className="session-tag" title={t("这个会话切换过工作目录，Claude 在其他 worktree 目录里另存了记录；占用已合并计算，删除时一起删除。")}>{t("副本")} {s.copies.length}</span>}
               {!!s.children.length && <button className="session-tag link" aria-expanded={expanded === s.id} onClick={() => setExpanded(expanded === s.id ? null : s.id)}>{t("子任务")} {s.children.length}</button>}
             </span>
             <span className={`session-status ${s.status}`}>{t(STATUS_LABEL[s.status])}{s.parentMissing && <small>{t("父会话已不存在")}</small>}</span>

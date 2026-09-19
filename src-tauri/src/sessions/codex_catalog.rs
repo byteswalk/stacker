@@ -250,6 +250,7 @@ pub fn sessions_from_db(conn: &Connection) -> Result<Vec<Session>, String> {
             summary_stale: false,
             summary_by: String::new(),
             summary_at: 0,
+            copies: Vec::new(),
         });
     }
     for session in &mut sessions {

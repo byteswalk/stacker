@@ -30,6 +30,8 @@ export type Session = {
   summaryStale: boolean;
   summaryBy: string;
   summaryAt: number;
+  /** Older transcripts of the same session in other worktree folders. */
+  copies: string[];
 };
 
 export type SessionQuery = {

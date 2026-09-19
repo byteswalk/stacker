@@ -130,13 +130,28 @@ pub fn plan(
             Agent::Claude => {
                 let root = Path::new(&roots.claude);
                 let transcript = Path::new(&session.path);
+                let transcripts: Vec<&Path> = std::iter::once(session.path.as_str())
+                    .chain(session.copies.iter().map(String::as_str))
+                    .map(Path::new)
+                    .collect();
+                let newest = transcripts
+                    .iter()
+                    .map(|p| modified_secs(p))
+                    .max()
+                    .unwrap_or(0);
                 if session.in_desktop_index {
                     blocked.push(block("E_IN_DESKTOP"));
-                } else if now.saturating_sub(modified_secs(transcript)) < IN_USE_SECONDS {
+                } else if now.saturating_sub(newest) < IN_USE_SECONDS {
                     blocked.push(block("E_IN_USE"));
                 } else {
-                    let paths =
-                        super::claude_catalog::related_paths(root, transcript, &session.native_id);
+                    let mut paths = Vec::new();
+                    for t in &transcripts {
+                        for p in super::claude_catalog::related_paths(root, t, &session.native_id) {
+                            if !paths.contains(&p) {
+                                paths.push(p);
+                            }
+                        }
+                    }
                     if is_link(transcript) || paths.iter().any(|p| is_link(p) || !inside(root, p)) {
                         blocked.push(block("E_LINK"));
                     } else {

@@ -94,6 +94,10 @@ pub struct Session {
     /// "codex / <model> / <effort>" of the run that wrote the summary.
     pub summary_by: String,
     pub summary_at: u64,
+    /// Older transcripts of the same session (Claude writes one per working directory
+    /// when a session moves between worktrees); deleted together with `path`.
+    #[serde(default)]
+    pub copies: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]

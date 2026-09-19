@@ -14,7 +14,7 @@ const session: Session = {
   project: { key: "d:\\repo", name: "repo", path: "D:\\repo", exists: true }, client: "desktop",
   createdAt: 1, updatedAt: 2, archived: false, pinned: false, status: "active",
   children: [{ id: "claude:s1:agent-1", kind: "subagent", title: "查找调用点", bytes: 1, path: "D:\\x" }],
-  bytes: 10, path: "D:\\x.jsonl", inDesktopIndex: true, parentMissing: false, favorite: false, summary: null, summaryStale: false, summaryBy: "", summaryAt: 0,
+  bytes: 10, path: "D:\\x.jsonl", inDesktopIndex: true, parentMissing: false, favorite: false, summary: null, summaryStale: false, summaryBy: "", summaryAt: 0, copies: [],
 };
 
 let host: HTMLDivElement;
@@ -96,5 +96,18 @@ describe("project filter", () => {
     await click(selects[0]);
     expect(host.textContent).toContain("only-codex");
     expect(host.textContent).not.toContain("only-claude");
+  });
+});
+
+describe("status filter", () => {
+  it("sends the chosen status to the backend", async () => {
+    await mount();
+    const trigger = [...host.querySelectorAll("button")].find((b) => b.textContent?.trim() === "全部状态");
+    await click(trigger);
+    const option = [...document.querySelectorAll("[role=option], button, div")].find((el) => el.textContent?.trim() === "进行中" && el !== trigger);
+    await click(option);
+    await act(async () => { await vi.advanceTimersByTimeAsync(350); });
+    const last = vi.mocked(invoke).mock.calls.filter(([c]) => c === "sessions_list").pop();
+    expect((last?.[1] as { query: { status: string } }).query.status).toBe("active");
   });
 });
