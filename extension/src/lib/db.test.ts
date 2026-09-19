@@ -1,9 +1,11 @@
 import "fake-indexeddb/auto";
+import { openDB } from "idb";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
-  accountDisplayName, addExcerpt, addTag, bodyIsFresh, createFolder, deleteFolder, getBody, getConversation,
-  listAccounts, listConversations, listExcerpts, markRemoved, mergeListing, openDb, putBody, renameAccount,
-  updateLocal, upsertAccount, type Account, type Db,
+  accountDisplayName, addExcerpt, addTag, applyBackup, bodyIsFresh, createFolder, deleteExcerpt, deleteFolder, dropOutbox,
+  enqueueAll, getBody, getConversation, listAccounts, listConversations, listExcerpts, listFolders, markRemoved, mergeListing,
+  onOutboxChange, openDb, outboxCount, putBody, readOutbox, renameAccount, renameFolder, updateLocal, upsertAccount,
+  type Account, type Db,
 } from "./db";
 
 let db: Db;
@@ -120,5 +122,119 @@ describe("db", () => {
     expect(migratedCustom).toMatchObject({ alias: "My Work Claude", name: "Claude" });
     expect(accountDisplayName(migratedAuto)).toBe("ChatGPT");
     expect(accountDisplayName(migratedCustom)).toBe("My Work Claude");
+  });
+});
+
+const clearOutbox = async (d: Db) => dropOutbox(d, (await readOutbox(d, 1000)).map((e) => e.seq!));
+
+describe("outbox", () => {
+  it("upgrades a version 1 database and queues everything for the first sync", async () => {
+    const name = `v1-${n++}`;
+    const old = await openDB(name, 1, {
+      upgrade(d) {
+        d.createObjectStore("accounts", { keyPath: "key" });
+        d.createObjectStore("conversations", { keyPath: "key" }).createIndex("account", "account");
+        d.createObjectStore("bodies", { keyPath: "key" });
+        d.createObjectStore("folders", { keyPath: "id" });
+        d.createObjectStore("excerpts", { keyPath: "id" }).createIndex("conversation", ["site", "conversationId"]);
+      },
+    });
+    await old.put("conversations", {
+      key: "chatgpt:a", site: "chatgpt", account: "chatgpt:u", id: "a", title: "A", createdAt: 1, updatedAt: 2,
+      archived: false, folderId: null, tags: [], favorite: false, note: "kept", bodyFetchedAt: null, bodyUpdatedAt: null, removedAt: null,
+    });
+    old.close();
+    const upgraded = await openDb(name);
+    expect((await readOutbox(upgraded, 10)).map((e) => e.kind)).toEqual(["all"]);
+    expect((await getConversation(upgraded, "chatgpt:a"))?.note).toBe("kept");
+  });
+
+  it("queues every local change, and only real changes", async () => {
+    await clearOutbox(db);
+    const account = await upsertAccount(db, "chatgpt", { remoteId: "u", label: "Ada" }, 1);
+    await upsertAccount(db, "chatgpt", { remoteId: "u", label: "Ada" }, 2);
+    await renameAccount(db, account.key, "Work", 3);
+    await mergeListing(db, account, [item("a"), item("b")], true, 4);
+    await mergeListing(db, account, [item("a"), item("b")], true, 5);
+    await updateLocal(db, ["chatgpt:a"], { note: "x" }, 6);
+    await addTag(db, ["chatgpt:a"], "t", 7);
+    await addTag(db, ["chatgpt:a"], "t", 8);
+    await putBody(db, "chatgpt:a", { id: "a", title: "A", updatedAt: 2, messages: [] }, 9);
+    const folder = await createFolder(db, "F", 10);
+    await renameFolder(db, folder.id, "G", 11);
+    await deleteFolder(db, folder.id, 12);
+    const excerpt = await addExcerpt(db, { site: "chatgpt", conversationId: "a", url: "u", pageTitle: "p", text: "t", note: "" }, 13);
+    await deleteExcerpt(db, excerpt.id, 14);
+    await markRemoved(db, "chatgpt:b", 15);
+    expect((await readOutbox(db, 100)).map((e) => `${e.kind}:${e.key}`)).toEqual([
+      "account:chatgpt:u", "account:chatgpt:u",
+      "conversation:chatgpt:a", "conversation:chatgpt:b",
+      "conversation:chatgpt:a", "conversation:chatgpt:a",
+      "body:chatgpt:a",
+      `folder:${folder.id}`, `folder:${folder.id}`, `removeFolder:${folder.id}`,
+      `excerpt:${excerpt.id}`, `removeExcerpt:${excerpt.id}`,
+      "conversation:chatgpt:b",
+    ]);
+    const a = (await getConversation(db, "chatgpt:a"))!;
+    expect([a.listedAt, a.localUpdatedAt]).toEqual([5, 7]);
+    expect((await getConversation(db, "chatgpt:b"))?.listedAt).toBe(15);
+    expect((await listAccounts(db))[0].localUpdatedAt).toBe(3);
+  });
+
+  it("queues the conversations a deleted folder releases", async () => {
+    const account = await upsertAccount(db, "chatgpt", { remoteId: "u", label: "Ada" }, 1);
+    await mergeListing(db, account, [item("a")], true, 1);
+    const folder = await createFolder(db, "F", 2);
+    await updateLocal(db, ["chatgpt:a"], { folderId: folder.id }, 3);
+    await clearOutbox(db);
+    await deleteFolder(db, folder.id, 4);
+    expect((await readOutbox(db, 10)).map((e) => e.kind)).toEqual(["removeFolder", "conversation"]);
+    expect((await getConversation(db, "chatgpt:a"))?.localUpdatedAt).toBe(4);
+  });
+
+  it("keeps at most one 'send everything' entry waiting", async () => {
+    await enqueueAll(db, 1);
+    await enqueueAll(db, 2);
+    expect((await readOutbox(db, 10)).map((e) => e.kind)).toEqual(["all"]);
+  });
+
+  it("tells the registered listener after a queued change", async () => {
+    let calls = 0;
+    onOutboxChange(() => { calls++; });
+    await createFolder(db, "F", 1);
+    onOutboxChange(null);
+    await createFolder(db, "G", 2);
+    expect(calls).toBe(1);
+  });
+});
+
+describe("applyBackup", () => {
+  const wire = (id: string) => ({
+    key: `chatgpt:${id}`, site: "chatgpt" as const, account: "chatgpt:u", id, title: id, createdAt: 1, updatedAt: 2,
+    archived: false, removedAt: null, listedAt: 1, folderId: null, tags: [] as string[], favorite: false, note: "", localUpdatedAt: 0,
+  });
+
+  it("adds what is missing and takes only newer local fields, without queueing", async () => {
+    const account = await upsertAccount(db, "chatgpt", { remoteId: "u", label: "Ada" }, 1);
+    await mergeListing(db, account, [item("a")], true, 1);
+    await updateLocal(db, ["chatgpt:a"], { note: "local newer" }, 50);
+    await clearOutbox(db);
+    const counts = await applyBackup(db, {
+      accounts: [{ key: "chatgpt:u", site: "chatgpt", remoteId: "u", name: "Ada", alias: "Work", lastSeen: 1, localUpdatedAt: 40 }],
+      folders: [{ id: "f1", name: "Trips", createdAt: 1, localUpdatedAt: 1 }],
+      conversations: [
+        { ...wire("a"), note: "from stacker", localUpdatedAt: 10 },
+        { ...wire("b"), folderId: "f1", tags: ["travel"], localUpdatedAt: 20 },
+        { ...wire("x"), key: "elsewhere:x", site: "elsewhere" as never },
+      ],
+      excerpts: [{ id: "e1", site: "chatgpt", conversationId: "b", url: "u", pageTitle: "p", text: "tip", note: "", createdAt: 1, localUpdatedAt: 1 }],
+    });
+    expect(counts).toEqual({ accounts: 1, folders: 1, conversations: 1, excerpts: 1 });
+    expect((await getConversation(db, "chatgpt:a"))?.note).toBe("local newer");
+    expect(await getConversation(db, "chatgpt:b")).toMatchObject({ folderId: "f1", tags: ["travel"], bodyFetchedAt: null, bodyUpdatedAt: null });
+    expect(await getConversation(db, "elsewhere:x")).toBeUndefined();
+    expect((await listAccounts(db))[0].alias).toBe("Work");
+    expect((await listFolders(db)).map((f) => f.name)).toEqual(["Trips"]);
+    expect(await outboxCount(db)).toBe(0);
   });
 });

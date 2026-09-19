@@ -4,7 +4,8 @@ import { allTags, applyFilter, bodyText, EMPTY_FILTER } from "./search";
 
 const c = (id: string, patch: Partial<Conversation> = {}): Conversation => ({
   key: `chatgpt:${id}`, site: "chatgpt", account: "chatgpt:u", id, title: id, createdAt: 0, updatedAt: 0, archived: false,
-  folderId: null, tags: [], favorite: false, note: "", bodyFetchedAt: null, bodyUpdatedAt: null, removedAt: null, ...patch,
+  folderId: null, tags: [], favorite: false, note: "", bodyFetchedAt: null, bodyUpdatedAt: null, removedAt: null,
+  listedAt: 0, localUpdatedAt: 0, ...patch,
 });
 
 describe("search", () => {

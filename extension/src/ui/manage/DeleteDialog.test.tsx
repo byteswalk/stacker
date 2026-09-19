@@ -12,6 +12,7 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const conv = (id: string, account = "chatgpt:u", site: SiteId = "chatgpt"): Conversation => ({
   key: `${site}:${id}`, site, account, id, title: id, createdAt: 0, updatedAt: 0, archived: false,
   folderId: null, tags: [], favorite: false, note: "", bodyFetchedAt: null, bodyUpdatedAt: null, removedAt: null,
+  listedAt: 0, localUpdatedAt: 0,
 });
 let host: HTMLDivElement;
 afterEach(() => host?.remove());

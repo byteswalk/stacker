@@ -6,6 +6,7 @@ const conv: Conversation = {
   key: "chatgpt:abcdef123456", site: "chatgpt", account: "chatgpt:u", id: "abcdef123456", title: "Kyoto: plan/2",
   createdAt: Date.UTC(2026, 8, 1), updatedAt: Date.UTC(2026, 8, 2), archived: false,
   folderId: null, tags: ["travel"], favorite: false, note: "", bodyFetchedAt: 1, bodyUpdatedAt: 1, removedAt: null,
+  listedAt: 1, localUpdatedAt: 0,
 };
 const body: StoredBody = {
   key: conv.key, id: conv.id, title: conv.title, updatedAt: 1,

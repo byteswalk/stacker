@@ -12,7 +12,7 @@ describe("manifest", () => {
     expect(manifest.host_permissions).toEqual(SITE_MATCHES);
     expect(manifest.content_scripts).toEqual([{ matches: SITE_MATCHES, js: ["content.js"], run_at: "document_idle" }]);
     expect(JSON.stringify(manifest)).not.toContain("<all_urls>");
-    expect(manifest.permissions).toEqual(["storage", "downloads"]);
+    expect(manifest.permissions).toEqual(["storage", "downloads", "nativeMessaging"]);
   });
   it("covers exactly the sites in the registry", () => {
     expect(Object.values(SITES).map((s) => s.match)).toEqual(SITE_MATCHES);

@@ -10,6 +10,7 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const conv = (id: string): Conversation => ({
   key: `claude:${id}`, site: "claude", account: "claude:o", id, title: `T ${id}`, createdAt: 0, updatedAt: 0, archived: false,
   folderId: null, tags: ["x"], favorite: false, note: "", bodyFetchedAt: 1, bodyUpdatedAt: 0, removedAt: null,
+  listedAt: 0, localUpdatedAt: 0,
 });
 
 describe("ConversationList", () => {
