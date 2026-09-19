@@ -129,7 +129,7 @@ npm run release:windows
 
 ## 网页对话浏览器插件
 
-一个 Chromium 内核浏览器插件（Chrome、Edge 等），独立于桌面客户端运行，用于整理、搜索、导出和清理 ChatGPT、Claude 网页版对话，数据只存在本机。安装与使用说明见 [插件说明](extension/README.md)。
+一个 Chromium 内核浏览器插件（Chrome、Edge 等），独立于桌面客户端运行，用于整理、搜索、导出和清理 ChatGPT、Claude、Gemini、Grok、DeepSeek 网页版对话，数据只存在本机。安装与使用说明见 [插件说明](extension/README.md)。
 
 ## 项目文档
 
