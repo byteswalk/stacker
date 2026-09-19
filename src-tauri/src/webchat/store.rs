@@ -52,16 +52,29 @@ pub fn open(root: &Path) -> Result<Connection, String> {
     Ok(conn)
 }
 
+// BEGIN IMMEDIATE takes the write lock before anything is read, so two connections opening the
+// same brand-new database at once cannot both see user_version = 0 and both try to create the
+// same tables: the second one blocks (via busy_timeout) until the first commits, then re-reads
+// user_version inside its own transaction and finds there is nothing left to do.
 fn migrate(conn: &Connection) -> Result<(), String> {
+    conn.execute_batch("BEGIN IMMEDIATE").map_err(db_err)?;
+    let outcome = run_pending_migrations(conn);
+    if outcome.is_ok() {
+        conn.execute_batch("COMMIT").map_err(db_err)?;
+    } else {
+        let _ = conn.execute_batch("ROLLBACK");
+    }
+    outcome
+}
+
+fn run_pending_migrations(conn: &Connection) -> Result<(), String> {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .map_err(db_err)?;
     for (i, sql) in MIGRATIONS.iter().enumerate().skip(version.max(0) as usize) {
-        let tx = conn.unchecked_transaction().map_err(db_err)?;
-        tx.execute_batch(sql).map_err(db_err)?;
-        tx.execute_batch(&format!("PRAGMA user_version = {}", i + 1))
+        conn.execute_batch(sql).map_err(db_err)?;
+        conn.execute_batch(&format!("PRAGMA user_version = {}", i + 1))
             .map_err(db_err)?;
-        tx.commit().map_err(db_err)?;
     }
     Ok(())
 }
@@ -778,6 +791,30 @@ mod tests {
         set_meta(&conn, "last_sync_at", 42).unwrap();
         assert_eq!(meta(&conn, "last_sync_at"), Some(42));
         assert_eq!(meta(&conn, "missing"), None);
+    }
+
+    /// A UI process and the bridge can both open a brand-new database at the same moment. Without
+    /// BEGIN IMMEDIATE, both can read user_version = 0 before either creates the tables, and the
+    /// second one then fails with "table already exists". With it, the second one waits and finds
+    /// the tables already there.
+    #[test]
+    fn two_connections_opening_the_same_new_database_do_not_race() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().to_path_buf();
+        let b = dir.path().to_path_buf();
+        let t1 = std::thread::spawn(move || open(&a));
+        let t2 = std::thread::spawn(move || open(&b));
+        let conn1 = t1.join().unwrap().unwrap();
+        let conn2 = t2.join().unwrap().unwrap();
+        for conn in [&conn1, &conn2] {
+            let version: i64 = conn
+                .query_row("PRAGMA user_version", [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(version, MIGRATIONS.len() as i64);
+        }
+        // Both connections agree on one, unduplicated schema.
+        set_meta(&conn1, "k", 1).unwrap();
+        assert_eq!(meta(&conn2, "k"), Some(1));
     }
 
     #[test]
