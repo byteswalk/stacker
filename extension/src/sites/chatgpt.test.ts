@@ -1,0 +1,56 @@
+import { describe, expect, it, vi } from "vitest";
+import type { FetchInit, FetchResult } from "./http";
+import { chatgpt } from "./chatgpt";
+import { conversation, listPage, session } from "./fixtures/chatgpt";
+
+function fake(routes: Record<string, unknown>, calls: [string, FetchInit | undefined][] = []) {
+  return vi.fn(async (url: string, init?: FetchInit): Promise<FetchResult> => {
+    calls.push([url, init]);
+    const key = Object.keys(routes).find((k) => url.includes(k));
+    return key ? { status: 200, json: routes[key], retryAfter: null } : { status: 404, json: null, retryAfter: null };
+  });
+}
+
+describe("chatgpt adapter", () => {
+  it("names the account by user id and never keeps the email", async () => {
+    const a = chatgpt(fake({ "/api/auth/session": session }));
+    const account = await a.account();
+    expect(account).toEqual({ remoteId: "user-abc", label: "ChatGPT" });
+    expect(JSON.stringify(account)).not.toContain("example.com");
+  });
+
+  it("lists live then archived pages with the bearer token", async () => {
+    const calls: [string, FetchInit | undefined][] = [];
+    const a = chatgpt(fake({ "/api/auth/session": session, "is_archived=true": { items: [], total: 0 }, "/backend-api/conversations": listPage }, calls));
+    const first = await a.list(null);
+    expect(first.items.map((i) => [i.id, i.archived])).toEqual([["c1", false], ["c2", false]]);
+    expect(first.items[1].updatedAt).toBe(1_788_100_000_500);
+    expect(first.next).toBe("archived:0");
+    const second = await a.list(first.next);
+    expect(second).toEqual({ items: [], next: null });
+    const listCall = calls.find(([url]) => url.includes("/backend-api/conversations"))!;
+    expect(listCall[1]?.headers?.Authorization).toBe("Bearer tok");
+  });
+
+  it("reads only the branch on screen, skipping hidden messages", async () => {
+    const a = chatgpt(fake({ "/api/auth/session": session, "/backend-api/conversation/c1": conversation }));
+    const body = await a.read("c1");
+    expect(body.messages.map((m) => [m.role, m.text])).toEqual([["user", "Where to go?"], ["assistant", "Try Kyoto."], ["tool", "print(1)"]]);
+    expect(body.messages[0].attachments).toEqual(["map.png"]);
+  });
+
+  it("deletes and archives with PATCH", async () => {
+    const calls: [string, FetchInit | undefined][] = [];
+    const a = chatgpt(fake({ "/api/auth/session": session, "/backend-api/conversation/c1": { success: true } }, calls));
+    await a.remove("c1");
+    await a.archive!("c1");
+    const patches = calls.filter(([, init]) => init?.method === "PATCH").map(([, init]) => init?.body);
+    expect(patches).toEqual([{ is_visible: false }, { is_archived: true }]);
+  });
+
+  it("treats a missing token as signed out and a changed shape as broken", async () => {
+    await expect(chatgpt(fake({ "/api/auth/session": {} })).account()).rejects.toThrow("E_AUTH");
+    const a = chatgpt(fake({ "/api/auth/session": session, "/backend-api/conversations": { conversations: [] } }));
+    await expect(a.list(null)).rejects.toThrow("E_BROKEN");
+  });
+});
