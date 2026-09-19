@@ -112,6 +112,7 @@ export const EN: Record<string, string> = {
   "已中止": "Aborted",
   "对话不存在": "Conversation not found",
   "网络或网站错误": "Network or site error",
+  "正文为空，未删除": "Conversation body is empty; not deleted",
 };
 
 export function t(text: string): string {

@@ -67,6 +67,13 @@ describe("delete job", () => {
     expect(texts[0]).not.toContain("old cached");
     expect((await getBody(db, "chatgpt:a"))?.messages[0].text).toBe("live text");
   });
+  it("marks an item failed with E_EMPTY and skips export/delete when the freshly read body has no messages, then keeps processing", async () => {
+    const { deps, api, items } = await setup(["a", "b"]);
+    (api.read as ReturnType<typeof vi.fn>).mockImplementationOnce(async (_s: string, id: string) => ({ id, title: id, updatedAt: 2, messages: [] }));
+    const results = await run(items, "slim", deps);
+    expect(results.map((r) => [r.status, r.error])).toEqual([["failed", "E_EMPTY"], ["done", ""]]);
+    expect(api.remove).toHaveBeenCalledTimes(1);
+  });
   it("never deletes when the export fails", async () => {
     const { deps, api, items } = await setup(["a"]);
     deps.save = async () => { throw new Error("disk full"); };

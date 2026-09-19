@@ -29,6 +29,7 @@ export async function runDeleteJob(items: Conversation[], mode: DeleteMode, deps
   async function exportOne(c: Conversation): Promise<void> {
     // Always the live body: the conversation may have new messages since the last read.
     const fresh = await withPacing(deps.pacer, () => deps.api.read(c.site, c.id), signal);
+    if (fresh.messages.length === 0) throw new SiteError("E_EMPTY");
     await putBody(deps.db, c.key, fresh, deps.now());
     const body: StoredBody = { ...fresh, key: c.key };
     const url = conversationUrl(c.site, c.id);

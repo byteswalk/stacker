@@ -12,6 +12,7 @@ export const ERROR_TEXT: Record<string, string> = {
   E_NOT_FOUND: "对话不存在",
   E_HTTP: "网络或网站错误",
   E_NET: "网络或网站错误",
+  E_EMPTY: "正文为空，未删除",
 };
 
 export function errorText(e: unknown): string {

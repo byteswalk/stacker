@@ -9,7 +9,7 @@ export interface ListPage { items: RemoteConversation[]; next: string | null }
 
 export type ErrorCode =
   | "E_BROKEN" | "E_RATE" | "E_AUTH" | "E_NOT_FOUND" | "E_HTTP" | "E_NET"
-  | "E_NO_TAB" | "E_NO_AGENT" | "E_ACCOUNT" | "E_CANCELLED";
+  | "E_NO_TAB" | "E_NO_AGENT" | "E_ACCOUNT" | "E_CANCELLED" | "E_EMPTY";
 
 export class SiteError extends Error {
   code: ErrorCode;
