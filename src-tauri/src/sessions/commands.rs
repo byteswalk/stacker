@@ -74,7 +74,11 @@ pub async fn sessions_list(query: SessionQuery) -> Result<SessionPage, String> {
                 })
                 .collect();
             filtered.extend(extra);
-            filtered.sort_by_key(|s| std::cmp::Reverse(s.updated_at));
+            if query.sort == "bytes" {
+                filtered.sort_by_key(|s| std::cmp::Reverse(s.bytes));
+            } else {
+                filtered.sort_by_key(|s| std::cmp::Reverse(s.updated_at));
+            }
         }
         Ok(catalog::page(filtered, query.offset, warnings))
     })

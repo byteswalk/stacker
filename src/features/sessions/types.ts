@@ -40,6 +40,7 @@ export type SessionQuery = {
   includeAutomation: boolean;
   favoritesOnly: boolean;
   updatedAfter: number;
+  sort: "" | "bytes";
   offset: number;
 };
 
@@ -66,7 +67,7 @@ export type DeleteJob = { id: string; state: string; done: number; total: number
 
 export const EMPTY_QUERY: SessionQuery = {
   agent: "", project: "", status: "", client: "", search: "", fullText: false,
-  includeAutomation: false, favoritesOnly: false, updatedAfter: 0, offset: 0,
+  includeAutomation: false, favoritesOnly: false, updatedAfter: 0, sort: "", offset: 0,
 };
 export const EMPTY_PAGE: SessionPage = { items: [], total: 0, ids: [], totalBytes: 0, warnings: [] };
 export const PAGE_SIZE = 40;

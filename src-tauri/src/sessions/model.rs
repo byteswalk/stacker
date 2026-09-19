@@ -109,6 +109,8 @@ pub struct SessionQuery {
     pub include_automation: bool,
     pub favorites_only: bool,
     pub updated_after: u64,
+    /// "" (most recent first) | "bytes" (largest first)
+    pub sort: String,
     pub offset: usize,
 }
 

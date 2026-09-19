@@ -2377,4 +2377,6 @@ export const GENERATED_EN: Record<string, string> = {
   "- 原始记录：": "- Original record: ",
   "…（已截断）": "… (truncated)",
   "最近": "Last",
+  "最近活动优先": "Most recent first",
+  "占用最大优先": "Largest first",
 };

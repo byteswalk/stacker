@@ -103,7 +103,11 @@ pub fn filter(sessions: &[Session], q: &SessionQuery) -> Vec<Session> {
         })
         .cloned()
         .collect();
-    out.sort_by_key(|s| std::cmp::Reverse(s.updated_at));
+    if q.sort == "bytes" {
+        out.sort_by_key(|s| std::cmp::Reverse(s.bytes));
+    } else {
+        out.sort_by_key(|s| std::cmp::Reverse(s.updated_at));
+    }
     out
 }
 
@@ -276,6 +280,23 @@ mod tests {
             }),
             vec!["a"]
         );
+    }
+
+    #[test]
+    fn sorts_by_size_when_asked() {
+        let mut list = sample();
+        list[3].bytes = 99;
+        let ids: Vec<_> = filter(
+            &list,
+            &SessionQuery {
+                sort: "bytes".into(),
+                ..Default::default()
+            },
+        )
+        .into_iter()
+        .map(|s| s.id)
+        .collect();
+        assert_eq!(ids[0], "d");
     }
 
     #[test]
