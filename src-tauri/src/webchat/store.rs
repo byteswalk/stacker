@@ -3,6 +3,7 @@
 use super::protocol::*;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
+use serde_json::Value;
 use std::path::Path;
 
 const FILE: &str = "webchat.sqlite3";
@@ -381,6 +382,59 @@ pub fn counts(conn: &Connection) -> Result<Counts, String> {
     .map_err(db_err)
 }
 
+/// Bytes of JSON per `pullBackup` page, well under the 1 MiB message limit.
+pub const PULL_BUDGET: usize = 800_000;
+
+#[derive(Debug, Serialize)]
+pub struct PullPage {
+    pub items: Vec<Value>,
+    pub next: Option<usize>,
+}
+
+/// Items from `offset` until `budget` bytes of JSON; always at least one so paging moves on.
+pub fn page_by_bytes(all: Vec<Value>, offset: usize, budget: usize) -> PullPage {
+    let total = all.len();
+    let mut used = 0;
+    let mut items = Vec::new();
+    for value in all.into_iter().skip(offset) {
+        let size = value.to_string().len() + 1;
+        if !items.is_empty() && used + size > budget {
+            break;
+        }
+        used += size;
+        items.push(value);
+    }
+    let end = offset + items.len();
+    PullPage {
+        next: if end < total { Some(end) } else { None },
+        items,
+    }
+}
+
+fn to_values<T: Serialize>(items: Vec<T>) -> Vec<Value> {
+    items
+        .into_iter()
+        .filter_map(|i| serde_json::to_value(i).ok())
+        .collect()
+}
+
+/// One page of Stacker's copy of the extension's organizing data, for 「从 Stacker 恢复」.
+pub fn pull(
+    conn: &Connection,
+    section: &str,
+    offset: usize,
+    budget: usize,
+) -> Result<PullPage, String> {
+    let all = match section {
+        "accounts" => to_values(accounts(conn)?),
+        "folders" => to_values(folders(conn)?),
+        "conversations" => to_values(conversations(conn)?),
+        "excerpts" => to_values(excerpts(conn)?),
+        _ => return Err("E_REQUEST".into()),
+    };
+    Ok(page_by_bytes(all, offset, budget))
+}
+
 /// Most pieces one body may be split into (about 57 MB of messages).
 pub const MAX_CHUNKS: usize = 64;
 
@@ -413,6 +467,10 @@ pub fn put_body_chunk(conn: &Connection, root: &Path, chunk: &BodyChunk) -> Resu
         return Ok(false);
     }
     let messages = if chunk.chunks == 1 {
+        // A single-chunk read needs no staging, but an earlier multi-chunk read of the
+        // same key may have left parts behind; clear them so they never linger.
+        conn.execute("DELETE FROM web_body_parts WHERE key=?1", [&chunk.key])
+            .map_err(db_err)?;
         chunk.messages.clone()
     } else {
         match collect_parts(conn, chunk)? {
