@@ -19,3 +19,55 @@ export const conversation = {
     n4: { id: "n4", parent: "n3", message: { author: { role: "tool" }, create_time: 1_788_000_030, content: { content_type: "code", text: "print(1)" } } },
   },
 };
+export const voiceConversation = {
+  title: "Voice chat",
+  update_time: 1_788_300_000,
+  current_node: "v2",
+  mapping: {
+    root: { id: "root", parent: null, message: null },
+    v1: {
+      id: "v1", parent: "root",
+      message: {
+        author: { role: "user" }, create_time: 1_788_300_000,
+        content: {
+          content_type: "multimodal_text",
+          parts: [
+            { content_type: "audio_transcription", text: "Where should I go?", direction: "in", decoding_id: null },
+            { content_type: "audio_asset_pointer", asset_pointer: "file-service://abc", size_bytes: 1000, format: "wav" },
+          ],
+        },
+      },
+    },
+    v2: {
+      id: "v2", parent: "v1",
+      message: {
+        author: { role: "assistant" }, create_time: 1_788_300_010,
+        content: {
+          content_type: "multimodal_text",
+          parts: [{ content_type: "audio_transcription", text: "Try Kyoto.", direction: "out", decoding_id: null }],
+        },
+      },
+    },
+  },
+};
+export const imageConversation = {
+  title: "Photo share",
+  update_time: 1_788_400_000,
+  current_node: "i1",
+  mapping: {
+    root: { id: "root", parent: null, message: null },
+    i1: {
+      id: "i1", parent: "root",
+      message: {
+        author: { role: "user" }, create_time: 1_788_400_000,
+        content: {
+          content_type: "multimodal_text",
+          parts: [
+            "Look at this",
+            { content_type: "image_asset_pointer", asset_pointer: "file-service://img1", size_bytes: 2000, format: "png" },
+          ],
+        },
+      },
+    },
+  },
+};

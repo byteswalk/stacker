@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { FetchInit, FetchResult } from "./http";
 import { chatgpt } from "./chatgpt";
-import { conversation, listPage, session } from "./fixtures/chatgpt";
+import { conversation, imageConversation, listPage, session, voiceConversation } from "./fixtures/chatgpt";
 
 function fake(routes: Record<string, unknown>, calls: [string, FetchInit | undefined][] = []) {
   return vi.fn(async (url: string, init?: FetchInit): Promise<FetchResult> => {
@@ -37,6 +37,22 @@ describe("chatgpt adapter", () => {
     const body = await a.read("c1");
     expect(body.messages.map((m) => [m.role, m.text])).toEqual([["user", "Where to go?"], ["assistant", "Try Kyoto."], ["tool", "print(1)"]]);
     expect(body.messages[0].attachments).toEqual(["map.png"]);
+  });
+
+  it("turns a voice conversation's audio_transcription parts into text", async () => {
+    const a = chatgpt(fake({ "/api/auth/session": session, "/backend-api/conversation/c1": voiceConversation }));
+    const body = await a.read("c1");
+    expect(body.messages.map((m) => [m.role, m.text])).toEqual([
+      ["user", "Where should I go?"],
+      ["assistant", "Try Kyoto."],
+    ]);
+    expect(body.messages[0].attachments).toEqual(["audio"]);
+  });
+
+  it("turns an image_asset_pointer part into an image attachment", async () => {
+    const a = chatgpt(fake({ "/api/auth/session": session, "/backend-api/conversation/c1": imageConversation }));
+    const body = await a.read("c1");
+    expect(body.messages).toEqual([{ role: "user", text: "Look at this", at: 1_788_400_000_000, attachments: ["image"] }]);
   });
 
   it("deletes and archives with PATCH", async () => {

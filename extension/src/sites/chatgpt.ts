@@ -7,6 +7,13 @@ const ORIGIN = "https://chatgpt.com";
 const PAGE = 100;
 const ROLES: Role[] = ["user", "assistant", "system", "tool"];
 
+/** Maps an asset-pointer part's content_type to the attachment label it stands for; other object parts are ignored. */
+function assetLabel(contentType: string): string | null {
+  if (contentType === "image_asset_pointer") return "image";
+  if (contentType === "audio_asset_pointer" || contentType === "real_time_user_audio_video_asset_pointer") return "audio";
+  return null;
+}
+
 /** Messages from the root to the node on screen; other branches are left out. */
 export function currentBranch(mappingValue: unknown, currentNode: string): Message[] {
   const mapping = obj(mappingValue, "mapping");
@@ -28,10 +35,22 @@ export function currentBranch(mappingValue: unknown, currentNode: string): Messa
     if (!ROLES.includes(role)) throw new SiteError("E_BROKEN", "message.author.role");
     const content = obj(message.content, "message.content");
     const parts = Array.isArray(content.parts) ? content.parts : [];
-    const text = [...parts.filter((p): p is string => typeof p === "string"), optStr(content.text)].filter(Boolean).join("\n").trim();
-    const attachments = Array.isArray(metadata.attachments)
+    const attachmentNames = Array.isArray(metadata.attachments)
       ? metadata.attachments.map((a) => optStr((a as Record<string, unknown>)?.name)).filter(Boolean)
       : [];
+    const textParts: string[] = [];
+    const extraLabels: string[] = [];
+    for (const part of parts) {
+      if (typeof part === "string") { textParts.push(part); continue; }
+      if (typeof part !== "object" || part === null) continue;
+      const partObj = part as Record<string, unknown>;
+      const contentType = optStr(partObj.content_type);
+      if (contentType === "audio_transcription") { textParts.push(optStr(partObj.text)); continue; }
+      const label = assetLabel(contentType);
+      if (label && !attachmentNames.length) extraLabels.push(label);
+    }
+    const text = [...textParts, optStr(content.text)].filter(Boolean).join("\n").trim();
+    const attachments = [...attachmentNames, ...Array.from(new Set(extraLabels))];
     if (!text && !attachments.length) return [];
     return [{ role, text, at: message.create_time == null ? null : time(message.create_time, "message.create_time"), attachments }];
   });
