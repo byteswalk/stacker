@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../../../i18n";
 import { invoke } from "../../../invoke";
-import { useToast } from "../../../ui";
+import { useBusyRead, useToast } from "../../../ui";
 import { layoutTreemap } from "../treemap";
 import type { AnalysisSummary, DirectoryNode, Paged } from "../types";
 
@@ -44,6 +44,7 @@ export function SpaceOverview({
 }) {
   const { tr } = useI18n();
   const toast = useToast();
+  const read = useBusyRead();
   const treemapRef = useRef<HTMLDivElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const requestGeneration = useRef(0);
@@ -122,12 +123,12 @@ export function SpaceOverview({
     const generation = ++requestGeneration.current;
     setLoadingNodeId(node.nodeId);
     try {
-      const page = await invoke<Paged<DirectoryNode>>("space_scan_children", {
+      const page = await read("正在读取子目录", () => invoke<Paged<DirectoryNode>>("space_scan_children", {
         taskId,
         parentId: node.nodeId,
         offset: 0,
         limit: 200,
-      });
+      }));
       if (generation !== requestGeneration.current) return;
       if (page.items.length === 0) {
         toast(tr("该目录没有可继续查看的子目录。"), "info");

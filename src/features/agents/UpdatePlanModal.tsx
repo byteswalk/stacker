@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { invoke } from "../../invoke";
-import { Loading, Modal, useToast } from "../../ui";
+import { Loading, Modal, useBusyRead, useToast } from "../../ui";
 import { vibeSnapshot } from "./catalogStore";
 import type { AgentTask } from "../agent-tasks/taskStore";
 
@@ -38,20 +38,21 @@ function PlanRow({ item, icons }: { item: PlanItem; icons: Map<string, string> }
 /** Lists what 一键更新 will run in the background and what needs the user. */
 export function UpdatePlanModal({ onClose }: { onClose: () => void }) {
   const toast = useToast();
+  const read = useBusyRead();
   const [plan, setPlan] = useState<UpdatePlan | null>(null);
   const [starting, setStarting] = useState(false);
   const icons = new Map(vibeSnapshot().tools.map((tool) => [tool.id, tool.icon ?? ""]));
 
   useEffect(() => {
     let active = true;
-    invoke<UpdatePlan>("agent_update_plan")
+    read("正在读取更新计划", () => invoke<UpdatePlan>("agent_update_plan"))
       .then((next) => { if (active) setPlan(next); })
       .catch((error) => {
         toast(`读取更新计划失败：${error}`, "err");
         onClose();
       });
     return () => { active = false; };
-  }, [onClose, toast]);
+  }, [onClose, read, toast]);
 
   async function start() {
     setStarting(true);

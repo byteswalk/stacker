@@ -2,7 +2,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../../../i18n";
 import { invoke } from "../../../invoke";
-import { Modal, operationWasCancelled, useToast } from "../../../ui";
+import { Modal, operationWasCancelled, useBusyRead, useToast } from "../../../ui";
 import { scanSnapshotIsActive, startScan, useSpaceScan } from "../store";
 import {
   loadRememberedTargets,
@@ -39,6 +39,7 @@ function formatBytes(bytes: number) {
 export function ScanLauncher({ disabled = false }: { disabled?: boolean }) {
   const { tr } = useI18n();
   const toast = useToast();
+  const read = useBusyRead();
   const scan = useSpaceScan();
   const [rememberTargets, setRememberTargets] = useState<boolean | null>(null);
   const [commonDirectories, setCommonDirectories] = useState<string[]>([]);
@@ -165,7 +166,7 @@ export function ScanLauncher({ disabled = false }: { disabled?: boolean }) {
     setVolumeError(false);
     setVolumeLoading(true);
     try {
-      const available = await invoke<VolumeInfo[]>("space_fixed_volumes");
+      const available = await read("正在读取本地磁盘", () => invoke<VolumeInfo[]>("space_fixed_volumes"));
       const remembered = kind === "drives" ? loadRememberedTargets("drives") : [];
       const state = createDiskSelectorState(kind, available, remembered);
       if (!diskSelectorResponseIsCurrent(selectorRequest.current, request)) return;

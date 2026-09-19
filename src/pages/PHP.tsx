@@ -3,7 +3,7 @@ import { invoke } from "../invoke";
 import { VersionManager } from "../VersionManager";
 import { StorageLocations } from "../StorageLocations";
 import { SourcesPanel } from "../SourcesPanel";
-import { ConfirmModal, useBusy, useToast, operationWasCancelled } from "../ui";
+import { ConfirmModal, useBusy, useBusyRead, useToast, operationWasCancelled } from "../ui";
 import { useNotifications } from "../notifications";
 
 type ComposerStatus = {
@@ -26,6 +26,7 @@ const PHP_SOURCES = [
 export default function PHP() {
   const toast = useToast();
   const runBusy = useBusy();
+  const read = useBusyRead();
   const notices = useNotifications();
   const [composer, setComposer] = useState<ComposerStatus | null>(null);
   const [composerError, setComposerError] = useState("");
@@ -41,7 +42,7 @@ export default function PHP() {
     }
   }, []);
 
-  useEffect(() => { void loadComposer(); }, [loadComposer]);
+  useEffect(() => { void read("正在读取 Composer 状态", loadComposer); }, [loadComposer, read]);
 
   async function installComposer() {
     try {

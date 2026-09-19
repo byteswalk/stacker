@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "../invoke";
 import type { Page } from "../pageState";
-import { useBusy, useToast } from "../ui";
+import { useBusy, useBusyRead, useToast } from "../ui";
 import { useNotifications } from "../notifications";
 
 type Mirror = { id: string; name: string; url: string; host: string };
@@ -166,6 +166,7 @@ function runOverviewCheck() {
 export default function Overview({ goto }: { goto: (p: Page) => void }) {
   const toast = useToast();
   const runBusy = useBusy();
+  const read = useBusyRead();
   const notices = useNotifications();
   const [tools, setTools] = useState<ToolState[] | null>(overviewCache.tools);
   const [extra, setExtra] = useState<CheckItem[]>(overviewCache.extra);
@@ -190,7 +191,7 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
   async function reloadAll() {
     const wasChecked = hasChecked;
     try {
-      await load();
+      await read("正在体检开发环境", load, "检测运行时、包管理器、构建工具、代理与缓存状态。");
       toast(wasChecked ? "开发环境体检已完成" : "开发环境体检完成", "ok");
     } catch (e) {
       toast("体检失败：" + e, "err");
@@ -244,9 +245,11 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
     const page = overviewCache.extra.find((item) => item.id === key)?.page;
     await runRowTask(`extra:${key}`, async () => {
       try {
-        const msg = await fixer();
+        const [msg, refreshed] = await runBusy({ title: "正在处理" }, async () => {
+          const result = await fixer();
+          return [result, page ? await invoke<CheckItem[]>("checkup_page", { page }) : []] as const;
+        });
         if (page) {
-          const refreshed = await invoke<CheckItem[]>("checkup_page", { page });
           publishOverview({
             extra: [
               ...overviewCache.extra.filter((item) => item.page !== page),
@@ -268,11 +271,13 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
     setBusy(true);
     let done = 0;
     try {
-      for (const e of batchExtra) {
-        const f = extraFixer(e.id);
-        if (f) { await f(); done++; }
-      }
-      await load();
+      await runBusy({ title: "一键修复" }, async () => {
+        for (const e of batchExtra) {
+          const f = extraFixer(e.id);
+          if (f) { await f(); done++; }
+        }
+        await load();
+      });
       notices.checkNow("node-overview-fix").catch(() => undefined);
       toast(`已修复 ${done} 项`, "ok");
     } catch (e) { toast("一键修复未完成：" + e, "err"); } finally { setBusy(false); }

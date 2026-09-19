@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "../invoke";
 import { enable as autostartEnable, disable as autostartDisable, isEnabled as autostartIsEnabled } from "@tauri-apps/plugin-autostart";
-import { ConfirmModal, Modal, useBusy, useToast } from "../ui";
+import { ConfirmModal, Modal, useBusy, useBusyRead, useToast } from "../ui";
 import { Select } from "../Select";
 import { SourceManagerModal } from "../SourceManagerModal";
 import { getTheme, setTheme, type Theme } from "../theme";
@@ -65,6 +65,7 @@ export default function Settings() {
   const { locale, setLocale, tr } = useI18n();
   const toast = useToast();
   const busy = useBusy();
+  const read = useBusyRead();
   const notices = useNotifications();
   const checkNotifications = notices.checkNow;
   const [noBackend, setNoBackend] = useState(false);
@@ -285,7 +286,7 @@ export default function Settings() {
   async function checkAppUpdate() {
     setAppUpdBusy(true);
     try {
-      const u = await invoke<UpdateInfo>("app_check_update");
+      const u = await read("正在检查 Stacker 更新", () => invoke<UpdateInfo>("app_check_update"));
       if (u.has_update) setUpdateInfo(u);
       else toast(`已是最新（v${u.current}）`, "ok");
     } catch (e) {
@@ -331,7 +332,7 @@ export default function Settings() {
     if (!target) return;
     setSourceUpdBusy(true);
     try {
-      const s = await invoke<{ local_version: string | null; tools: number }>("mirrors_update", { url: target.url });
+      const s = await busy({ title: "正在更新公共源清单" }, () => invoke<{ local_version: string | null; tools: number }>("mirrors_update", { url: target.url }));
       setSourceUpdate(null);
       refreshSourceSummary();
       notices.checkNow("source-updated").catch(() => {});
@@ -533,7 +534,7 @@ export default function Settings() {
           <div className="s dim">启动后和固定周期检查程序更新、源清单、生态版本、失效环境和清理阈值；仅显示红点，不自动弹窗。</div>
         </div>
         <span className="s dim">{notices.checking ? "检查中…" : notices.lastChecked ? `上次检查 ${new Date(notices.lastChecked).toLocaleTimeString()}` : "尚未检查"}</span>
-        <button className="gh sm" disabled={notices.checking} onClick={() => notices.checkNow("manual")}>
+        <button className="gh sm" disabled={notices.checking} onClick={() => read("正在检查更新与提醒", () => notices.checkNow("manual"))}>
           <i className={"ti " + (notices.checking ? "ti-loader spin" : "ti-refresh")} /> 立即检查
         </button>
         <label className="sw sm2"><input type="checkbox" checked={notices.prefs.enabled} onChange={(e) => updatePrefs({ enabled: e.target.checked })} /><span className="tk" /></label>

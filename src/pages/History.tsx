@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { invoke } from "../invoke";
-import { useToast, ConfirmModal, Loading, Modal, ErrorState } from "../ui";
+import { useToast, useBusyRead, ConfirmModal, Loading, Modal, ErrorState } from "../ui";
 
 type BackupEntry = { file: string; path: string; origin: string; time: string };
 type BackupDetailItem = { label: string; value: string };
@@ -31,6 +31,7 @@ function kindLabel(kind: string) {
 
 export default function History() {
   const toast = useToast();
+  const read = useBusyRead();
   const [items, setItems] = useState<BackupEntry[] | null>(null);
   const [loadErr, setLoadErr] = useState(false);
   const [confirm, setConfirm] = useState<BackupEntry | null>(null);
@@ -40,12 +41,12 @@ export default function History() {
   const [busy, setBusy] = useState("");
 
   async function load() { setItems(await invoke<BackupEntry[]>("list_backups")); }
-  useEffect(() => { load().catch(() => setLoadErr(true)); }, []);
+  useEffect(() => { read("正在读取备份记录", load).catch(() => setLoadErr(true)); }, [read]);
 
   async function openDetail(item: BackupEntry) {
     setBusy("detail:" + item.path);
     try {
-      setDetail(await invoke<BackupDetail>("backup_detail", { path: item.path, origin: item.origin }));
+      setDetail(await read("正在读取备份详情", () => invoke<BackupDetail>("backup_detail", { path: item.path, origin: item.origin })));
     } catch (e) {
       toast("读取备份详情失败：" + e, "err");
     } finally {

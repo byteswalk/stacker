@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "../invoke";
-import { ConfirmModal, useToast } from "../ui";
+import { ConfirmModal, useBusyRead, useToast } from "../ui";
 import { useNotifications } from "../notifications";
 import { translateText, useI18n } from "../i18n";
 import { Select } from "../Select";
@@ -120,6 +120,7 @@ export function SurfaceState({ surface }: { surface: VibeSurface }) {
 export default function Agents() {
   const { locale } = useI18n();
   const toast = useToast();
+  const read = useBusyRead();
   const notices = useNotifications();
   const [tools, setTools] = useState<VibeTool[]>(vibeSnapshot().tools);
   const [loading, setLoading] = useState(vibeSnapshot().loading);
@@ -155,7 +156,7 @@ export default function Agents() {
 
   async function refreshAgents() {
     try {
-      await load(true);
+      await read("正在刷新智能体状态", () => load(true), "逐个检测已安装的智能体与最新版本。");
       notices.checkNow("agents").catch(() => undefined);
       toast("智能体状态已刷新", "ok");
     } catch (e) {
@@ -166,7 +167,7 @@ export default function Agents() {
   async function checkOne(tool: VibeTool) {
     setCheckingTool(tool.id);
     try {
-      await refreshOneTool(tool.id);
+      await read("正在检测智能体环境", () => refreshOneTool(tool.id));
       toast(`${tool.name} 环境检测完成`, "ok");
     } catch (e) {
       toast(`${tool.name} 环境检测失败：` + e, "err");
@@ -215,7 +216,7 @@ export default function Agents() {
   async function generatePrompt(copyNow = true) {
     setPromptBusy(true);
     try {
-      const text = await invoke<string>("vibe_environment_prompt");
+      const text = await read("正在生成智能体摘要", () => invoke<string>("vibe_environment_prompt"));
       if (copyNow) {
         await navigator.clipboard.writeText(translateText(text));
         toast("已安装智能体摘要已复制", "ok");

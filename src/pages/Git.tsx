@@ -3,7 +3,7 @@ import { invoke } from "../invoke";
 import { open } from "@tauri-apps/plugin-dialog";
 import { TerminalBar } from "../TerminalBar";
 import { Select } from "../Select";
-import { ConfirmModal, ErrorState, Loading, Modal, useBusy, useToast } from "../ui";
+import { ConfirmModal, ErrorState, Loading, Modal, useBusy, useBusyRead, useToast } from "../ui";
 import { remoteRepositoryCreationHint, supportsRemoteRepositoryCreation } from "../gitCapabilities";
 import { translateText } from "../i18n";
 
@@ -97,6 +97,7 @@ function tokenExpiry(account: GitAccountProfile) {
 export default function Git() {
   const toast = useToast();
   const runBusy = useBusy();
+  const read = useBusyRead();
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [github, setGithub] = useState<GitHubAccountsState>(EMPTY_GITHUB);
   const [accounts, setAccounts] = useState<GitAccountProfile[]>([]);
@@ -159,8 +160,8 @@ export default function Git() {
   }, [loadAccounts]);
 
   useEffect(() => {
-    load().catch(() => setLoadError(true));
-  }, [load]);
+    read("正在检测 Git 环境", load).catch(() => setLoadError(true));
+  }, [load, read]);
 
   useEffect(() => {
     invoke<ToolState[]>("list_sources").then((tools) => {
@@ -262,7 +263,7 @@ export default function Git() {
 
   async function refresh() {
     try {
-      await load();
+      await read("正在检测 Git 环境", load);
       toast("Git 环境和账号状态已刷新", "ok");
     } catch (error) {
       toast("刷新 Git 状态失败：" + error, "err");
@@ -427,8 +428,10 @@ export default function Git() {
 
   async function setAccountGlobal(account: GitAccountProfile) {
     try {
-      await invoke("git_account_set_global", { platform: account.platform, username: account.username });
-      await load();
+      await runBusy({ title: "设置默认 Git 账号" }, async () => {
+        await invoke("git_account_set_global", { platform: account.platform, username: account.username });
+        await load();
+      });
       toast(`已将 ${accountPlatformName(account)} · ${account.username} 设为普通终端默认 Git 账号`, "ok");
     } catch (error) {
       toast("设置全局默认 Git 账号失败：" + error, "err");

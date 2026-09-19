@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "../invoke";
-import { useToast, Modal, ConfirmModal, useBusy, Loading, ErrorState, operationWasCancelled } from "../ui";
+import { useToast, Modal, ConfirmModal, useBusy, useBusyRead, Loading, ErrorState, operationWasCancelled } from "../ui";
 import { SourcesPanel } from "../SourcesPanel";
 import { TerminalBar } from "../TerminalBar";
 import { Select } from "../Select";
@@ -47,6 +47,7 @@ function initialBool(key: string, fallback: boolean) {
 export default function Rust() {
   const toast = useToast();
   const runBusy = useBusy();
+  const read = useBusyRead();
   const notices = useNotifications();
   const [ru, setRu] = useState<RustupStatus | null>(null);
   const [loadErr, setLoadErr] = useState(false);
@@ -94,9 +95,9 @@ export default function Rust() {
   }, [toast]);
 
   useEffect(() => {
-    load().catch(() => setLoadErr(true));
+    read("正在读取 Rust 状态", load).catch(() => setLoadErr(true));
     loadSources().catch(() => undefined);
-  }, [load, loadSources]);
+  }, [load, loadSources, read]);
 
   const sourceObj = sources.find((item) => item.id === source) ?? sources[0];
   const sourceName = (id: string) => sources.find((item) => item.id === id)?.name ?? id;

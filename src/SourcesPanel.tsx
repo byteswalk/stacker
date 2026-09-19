@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "./invoke";
 import { open } from "@tauri-apps/plugin-dialog";
-import { useBusy, useToast } from "./ui";
+import { useBusy, useBusyRead, useToast } from "./ui";
 import { Select } from "./Select";
 
 type Mirror = { id: string; name: string; url: string; host: string };
@@ -145,6 +145,7 @@ function missingText(t: ToolState) {
 export function SourcesPanel({ toolIds, refresh }: { toolIds: string[]; refresh?: number }) {
   const toast = useToast();
   const runBusy = useBusy();
+  const read = useBusyRead();
   const [tools, setTools] = useState<ToolState[] | null>(null);
   const [pipState, setPipState] = useState<PipState | null>(null);
   const [customPipPath, setCustomPipPath] = useState(() => localStorage.getItem(CUSTOM_PIP_PATH_KEY) ?? "");
@@ -262,25 +263,27 @@ export function SourcesPanel({ toolIds, refresh }: { toolIds: string[]; refresh?
     }
   }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { load().catch(() => setErr(true)); }, [refresh]);
+  useEffect(() => { read("正在读取源配置", () => load()).catch(() => setErr(true)); }, [refresh, read]);
 
   async function apply(id: string) {
     setBusy(id);
     try {
-      if (id === "go") {
-        await invoke("apply_source_scoped", { toolId: id, mirrorId: sel[id], scope: sourceScopes.go ?? "user" });
-      } else if (id === "maven" || id === "gradle") {
-        await invoke("apply_source", {
-          toolId: id,
-          mirrorId: sel[id],
-          proxyEnabled: !!sourceProxy[rowProxyKey(id)],
-          proxyHost: proxyAddr.host,
-          proxyPort: proxyAddr.port,
-        });
-      } else {
-        await invoke("apply_source", { toolId: id, mirrorId: sel[id] });
-      }
-      await load();
+      await runBusy({ title: "正在应用源配置" }, async () => {
+        if (id === "go") {
+          await invoke("apply_source_scoped", { toolId: id, mirrorId: sel[id], scope: sourceScopes.go ?? "user" });
+        } else if (id === "maven" || id === "gradle") {
+          await invoke("apply_source", {
+            toolId: id,
+            mirrorId: sel[id],
+            proxyEnabled: !!sourceProxy[rowProxyKey(id)],
+            proxyHost: proxyAddr.host,
+            proxyPort: proxyAddr.port,
+          });
+        } else {
+          await invoke("apply_source", { toolId: id, mirrorId: sel[id] });
+        }
+        await load();
+      });
       const tool = tools?.find((item) => item.id === id);
       const displayName = tool?.name ?? id;
       toast(id === "go"
@@ -443,7 +446,7 @@ export function SourcesPanel({ toolIds, refresh }: { toolIds: string[]; refresh?
       return n;
     });
     setCustomPipPath(file);
-    await load(file);
+    await read("正在读取源配置", () => load(file));
   }
 
   async function chooseCustomConfig(toolId: string) {

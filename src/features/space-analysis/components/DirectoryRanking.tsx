@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useI18n } from "../../../i18n";
 import { invoke } from "../../../invoke";
-import { useToast } from "../../../ui";
+import { useBusyRead, useToast } from "../../../ui";
 import type { DirectoryNode, Paged } from "../types";
 import { formatSpaceBytes } from "./SpaceOverview";
 
@@ -45,6 +45,7 @@ function sortedRoots(roots: readonly DirectoryNode[]) {
 export function DirectoryRanking({ taskId, roots }: { taskId: string; roots: DirectoryNode[] }) {
   const { tr } = useI18n();
   const toast = useToast();
+  const read = useBusyRead();
   const activeTask = useRef(taskId);
   const requestGeneration = useRef(0);
   const loadingNodes = useRef(new Set<string>());
@@ -82,12 +83,12 @@ export function DirectoryRanking({ taskId, roots }: { taskId: string; roots: Dir
       },
     }));
     try {
-      const page = await invoke<Paged<DirectoryNode>>("space_scan_children", {
+      const page = await read("正在读取子目录", () => invoke<Paged<DirectoryNode>>("space_scan_children", {
         taskId: requestedTask,
         parentId: node.nodeId,
         offset,
         limit: PAGE_SIZE,
-      });
+      }));
       if (activeTask.current !== requestedTask || requestGeneration.current !== generation) return;
       setPages((current) => ({
         ...current,

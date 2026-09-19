@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "../invoke";
 import { open } from "@tauri-apps/plugin-dialog";
-import { useToast, Modal, ConfirmModal, useBusy, Loading, ErrorState, operationWasCancelled } from "../ui";
+import { useToast, Modal, ConfirmModal, useBusy, useBusyRead, Loading, ErrorState, operationWasCancelled } from "../ui";
 import { SourcesPanel } from "../SourcesPanel";
 import { StorageLocations } from "../StorageLocations";
 import { TerminalBar } from "../TerminalBar";
@@ -44,6 +44,7 @@ const cmpVer = (a: string, b: string) => {
 export default function Python() {
   const toast = useToast();
   const runBusy = useBusy();
+  const read = useBusyRead();
   const notices = useNotifications();
   const [py, setPy] = useState<PyenvStatus | null>(null);
   const [avail, setAvail] = useState<Shells>({ powershell: true, gitbash: false, cmd: true });
@@ -100,7 +101,7 @@ export default function Python() {
     }).catch(() => {});
     setSrcRefresh((n) => n + 1);
   }, [toast]);
-  useEffect(() => { loadPy().catch(() => setLoadErr(true)); }, [loadPy]);
+  useEffect(() => { read("正在读取 Python 状态", loadPy).catch(() => setLoadErr(true)); }, [loadPy, read]);
 
   // 安装列表过滤：仅正式版 + 仅各 major.minor 最新
   function pyFilter(list: string[]): string[] {

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "./invoke";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { Modal, ConfirmModal, useToast } from "./ui";
+import { Modal, ConfirmModal, useBusy, useBusyRead, useToast } from "./ui";
 import { Select } from "./Select";
 
 type SourceLayer = "all" | "builtin" | "local";
@@ -80,6 +80,8 @@ function matchesCategory(row: CatalogRow, category: string) {
 
 export function SourceManagerModal({ onClose, onChanged }: { onClose: () => void; onChanged?: () => void }) {
   const toast = useToast();
+  const runBusy = useBusy();
+  const read = useBusyRead();
   const checkedRemote = useRef(false);
   const [catalog, setCatalog] = useState<CatalogStatus | null>(null);
   const [customs, setCustoms] = useState<Custom[]>([]);
@@ -99,7 +101,8 @@ export function SourceManagerModal({ onClose, onChanged }: { onClose: () => void
   const checkRemoteUpdate = useCallback(async (url: string, manual = false) => {
     setCheckingRemote(true);
     try {
-      const res = await invoke<MirrorsUpdateCheck>("mirrors_check_update", { url: url.trim() || null });
+      const check = () => invoke<MirrorsUpdateCheck>("mirrors_check_update", { url: url.trim() || null });
+      const res = await (manual ? read("正在检查公共源清单", check) : check());
       if (res.has_update) {
         setRemoteUpdate(res);
       } else if (manual) {
@@ -110,7 +113,7 @@ export function SourceManagerModal({ onClose, onChanged }: { onClose: () => void
     } finally {
       setCheckingRemote(false);
     }
-  }, [toast]);
+  }, [read, toast]);
 
   const load = useCallback(async () => {
     const next = await invoke<CatalogStatus>("source_catalog_status");
@@ -127,7 +130,7 @@ export function SourceManagerModal({ onClose, onChanged }: { onClose: () => void
     }
   }, [checkRemoteUpdate, toast]);
 
-  useEffect(() => { load().catch((e) => toast("读取源目录失败：" + e, "err")); }, [load, toast]);
+  useEffect(() => { read("正在读取源目录", load).catch((e) => toast("读取源目录失败：" + e, "err")); }, [load, read, toast]);
 
   const toolOptions = useMemo(() => {
     const map = new Map<string, string>();
@@ -247,7 +250,9 @@ export function SourceManagerModal({ onClose, onChanged }: { onClose: () => void
     if (!target) { toast("请输入服务器清单地址", "info"); return; }
     setBusy("server");
     try {
-      const s = await invoke<{ local_version: string | null; tools: number }>("mirrors_update", { url: target });
+      const pull = () => invoke<{ local_version: string | null; tools: number }>("mirrors_update", { url: target });
+      // The confirm dialog already shows its own busy state.
+      const s = await (urlOverride === undefined ? runBusy({ title: "正在拉取服务器清单" }, pull) : pull());
       setRemoteUpdate(null);
       await load();
       onChanged?.();
@@ -292,7 +297,10 @@ export function SourceManagerModal({ onClose, onChanged }: { onClose: () => void
     setPings((prev) => ({ ...prev, ...next }));
     setTesting(true);
     try {
-      const res = await invoke<HostPing[]>("speedtest_hosts", { hosts });
+      const res = await runBusy(
+        { title: "源测速", message: "正在并行测试各镜像主机连接延迟，单个主机 1500ms 无响应算超时。" },
+        () => invoke<HostPing[]>("speedtest_hosts", { hosts }),
+      );
       const done: Record<string, number | null> = {};
       res.forEach((r) => { done[r.host] = r.ms; });
       hosts.forEach((host) => { if (!(host in done)) done[host] = null; });

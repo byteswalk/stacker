@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "./invoke";
 import { open } from "@tauri-apps/plugin-dialog";
-import { useToast, Modal, useBusy, Loading, ErrorState } from "./ui";
+import { useToast, Modal, useBusy, useBusyRead, Loading, ErrorState } from "./ui";
 import { Select } from "./Select";
 import { TerminalBar } from "./TerminalBar";
 import { EcoActions, type EcosystemId, type Shells, summaryLine } from "./EcoActions";
@@ -74,6 +74,7 @@ export function VersionManager({ kind, icon, cmd, envvar, download, onChanged, o
 }) {
   const toast = useToast();
   const runBusy = useBusy();
+  const read = useBusyRead();
   const notices = useNotifications();
   const sourceKey = `stacker.${kind}.downloadSource`;
   const initialSource = () => {
@@ -112,8 +113,8 @@ export function VersionManager({ kind, icon, cmd, envvar, download, onChanged, o
   }, [kind]);
 
   useEffect(() => {
-    load().catch(() => setLoadErr(true));
-  }, [load]);
+    read("正在读取已安装版本", load).catch(() => setLoadErr(true));
+  }, [load, read]);
 
   useEffect(() => {
     invoke<Shells>("shells_available").then(setShells).catch(() => {});
