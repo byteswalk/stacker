@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
+import type { StackerCall } from "./bridgeMessages";
 import { chunkText, pickSaver, stackerSaver, type SaveFn } from "./save";
 
-type StackerFn = (call: "saveExport" | "pullBackup", payload: unknown) => Promise<unknown>;
+type StackerFn = (call: StackerCall, payload: unknown) => Promise<unknown>;
 
 describe("save", () => {
   it("never splits a surrogate pair", () => {

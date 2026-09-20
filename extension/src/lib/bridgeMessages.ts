@@ -3,14 +3,14 @@ import { outboxCount, type Db } from "./db";
 
 export interface BridgeStatus { connected: boolean; pending: number; lastSyncAt: number | null; error: string }
 /** The only Stacker requests pages may make; syncing stays inside the background. */
-export type StackerCall = "saveExport" | "pullBackup";
+export type StackerCall = "saveExport" | "pullBackup" | "distillResults";
 export type BridgeMessage =
   | { type: "bridge-status"; connect: boolean; force: boolean }
   | { type: "bridge-flush" }
   | { type: "bridge-call"; call: StackerCall; payload: unknown };
 export type BridgeReply = { ok: true; value: unknown } | { ok: false; error: string };
 
-const CALLS: StackerCall[] = ["saveExport", "pullBackup"];
+const CALLS: StackerCall[] = ["saveExport", "pullBackup", "distillResults"];
 
 export function isBridgeMessage(m: unknown): m is BridgeMessage {
   const x = m as { type?: unknown; call?: unknown } | null;

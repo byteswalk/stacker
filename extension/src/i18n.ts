@@ -84,6 +84,13 @@ export const EN: Record<string, string> = {
   "摘录": "Excerpts",
   "用户": "User",
   "助手": "Assistant",
+  "提炼结果": "Distilled results",
+  "提炼在 Stacker 里进行，这里只能查看。": "Distilling happens in Stacker; this view is read-only.",
+  "已采用": "Adopted",
+  "经验问答": "Experience Q&A",
+  "领域要求": "Domain requirements",
+  "提示词": "Reusable prompts",
+  "skill 草稿": "Skill drafts",
 
   // manage/Filters.tsx
   "搜索标题或备注": "Search title or note",

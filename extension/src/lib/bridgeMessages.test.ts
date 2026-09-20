@@ -27,6 +27,7 @@ describe("bridge messages", () => {
     expect(isBridgeMessage({ type: "bridge-status", connect: true, force: false })).toBe(true);
     expect(isBridgeMessage({ type: "bridge-flush" })).toBe(true);
     expect(isBridgeMessage({ type: "bridge-call", call: "saveExport", payload: {} })).toBe(true);
+    expect(isBridgeMessage({ type: "bridge-call", call: "distillResults", payload: {} })).toBe(true);
     expect(isBridgeMessage({ type: "bridge-call", call: "syncAccounts", payload: {} })).toBe(false);
     expect(isBridgeMessage({ type: "save-excerpt" })).toBe(false);
     expect(isBridgeMessage(null)).toBe(false);

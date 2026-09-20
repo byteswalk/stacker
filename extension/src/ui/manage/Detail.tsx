@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { t } from "../../i18n";
 import { addTag, getBody, listExcerpts, updateLocal, type Conversation, type Db, type Excerpt, type Folder, type StoredBody } from "../../lib/db";
+import { DISTILL_KIND_LABEL, distillResults, type DistillItem } from "../../lib/distill";
 import { conversationUrl } from "../../sites/registry";
 
 export function Detail({ db, conv, folders, onRead, onChanged, reading }: {
@@ -9,12 +10,14 @@ export function Detail({ db, conv, folders, onRead, onChanged, reading }: {
 }) {
   const [body, setBody] = useState<StoredBody | undefined>();
   const [excerpts, setExcerpts] = useState<Excerpt[]>([]);
+  const [distilled, setDistilled] = useState<DistillItem[]>([]);
   const [note, setNote] = useState(conv.note);
   const [tag, setTag] = useState("");
   useEffect(() => {
     setNote(conv.note);
     void getBody(db, conv.key).then(setBody);
     void listExcerpts(db, conv.site, conv.id).then(setExcerpts);
+    void distillResults(conv.site, conv.id).then(setDistilled, () => setDistilled([]));
   }, [db, conv]);
   const url = conversationUrl(conv.site, conv.id);
   const save = async (patch: Parameters<typeof updateLocal>[2]) => { await updateLocal(db, [conv.key], patch); onChanged(); };
@@ -37,6 +40,13 @@ export function Detail({ db, conv, folders, onRead, onChanged, reading }: {
     <div className="row"><button disabled={reading || conv.removedAt !== null} onClick={() => onRead(conv)}>{t(body ? "重新读取正文" : "读取正文")}</button>
       {body && <span className="mut">{t("读取于")} {new Date(conv.bodyFetchedAt ?? 0).toLocaleString()}</span>}</div>
     {excerpts.length > 0 && <><h4>{t("摘录")}</h4>{excerpts.map((x) => <div key={x.id} className="msg">{x.text}{x.note && <div className="mut">{x.note}</div>}</div>)}</>}
+    {distilled.length > 0 && <>
+      <h4>{t("提炼结果")}</h4>
+      {distilled.map((d) => <div key={d.id} className="msg">
+        <b>{t(DISTILL_KIND_LABEL[d.kind] ?? d.kind)}{d.state === "adopted" ? ` · ${t("已采用")}` : ""}</b>{"\n"}{d.title}{"\n\n"}{d.body}
+      </div>)}
+      <p className="mut">{t("提炼在 Stacker 里进行，这里只能查看。")}</p>
+    </>}
     {body?.messages.map((m, i) => <div key={i} className="msg"><b>{m.role === "user" ? t("用户") : m.role === "assistant" ? t("助手") : m.role}</b>{"\n"}{m.text}</div>)}
   </div>;
 }
