@@ -37,12 +37,21 @@ export function DistillDialog({ initial, onClose }: { initial: DistillSourceRef[
       .catch((e) => setError(errorMessage(e)));
   }, []);
 
+  // 一个任务可能是上次打开这个对话框时启动的、对话框关掉了但任务还在跑：重新打开时
+  // 先问一下有没有正在跑的任务，有就直接显示它的进度，而不是让用户点「开始提炼」时
+  // 才发现后端已经在跑，只收到一个 E_DISTILL_BUSY。
+  useEffect(() => {
+    distillJob()
+      .then((j) => { if (j?.state === "running") setJob(j); })
+      .catch((e) => setError(errorMessage(e)));
+  }, []);
+
   useEffect(() => {
     if (!settings || !sources.length) { setPreview(null); return; }
     const current = ++request.current;
     previewDistill(sources, cleanSettings(settings))
       .then((p) => { if (current === request.current) { setPreview(p); setError(""); } })
-      .catch((e) => { if (current === request.current) setError(errorMessage(e)); });
+      .catch((e) => { if (current === request.current) { setPreview(null); setError(errorMessage(e)); } });
   }, [sources, settings]);
 
   useEffect(() => {
@@ -113,6 +122,7 @@ export function DistillDialog({ initial, onClose }: { initial: DistillSourceRef[
         {preview && <div className="distill-preview-items">
           {preview.items.map((item, i) => <div key={i} className="distill-preview-item"><span title={item.title}>{item.title || t("（无标题）")}</span><small>{formatChars(item.chars, t)}</small></div>)}
         </div>}
+        {!!preview?.skipped && <p className="session-note">{preview.skipped} {t("个来源无法读取，已跳过。")}</p>}
         {preview && <p className="session-impact">
           {t("将提炼")} <b>{preview.items.length}</b> {t("份材料")} · {t("将发送约")} <b>{formatChars(preview.totalChars, t)}</b>
         </p>}
@@ -122,7 +132,8 @@ export function DistillDialog({ initial, onClose }: { initial: DistillSourceRef[
         <p className="session-impact"><b>{t(JOB_STATE[job.state] ?? job.state)}</b>{job.state === "running" ? ` · ${t(STAGE[job.stage] ?? job.stage)}` : ""} · {job.done} / {Math.max(1, job.total)}</p>
         {running && <progress max={Math.max(1, job.total)} value={job.done} />}
         {!running && <p className="session-note">{t("已保存")} <b>{job.saved}</b> {t("条")}{job.folders.length ? ` · ${t("skill 草稿")} ${job.folders.join("、")}` : ""}</p>}
-        {job.error && <p role="alert" className="session-error">{t(errorMessage(job.error))}</p>}
+        {!running && !!job.dropped && <p className="session-note">{t("另有")} <b>{job.dropped}</b> {t("条未保存（超出上限）")}</p>}
+        {job.state === "failed" && job.error && <p role="alert" className="session-error">{t(errorMessage(job.error))}</p>}
       </>}
       {error && <p role="alert" className="session-error">{t(error)}</p>}
     </div>

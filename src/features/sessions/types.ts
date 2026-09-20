@@ -240,10 +240,10 @@ export const EMPTY_DISTILL_QUERY: DistillQuery = { kind: "", state: "", search: 
 export type DistillKindCounts = { qa: number; requirement: number; prompt: number; skill: number; total: number };
 export type DistillPage = { items: DistillResult[]; total: number; counts: DistillKindCounts };
 export type DistillCandidate = { kind: DistillSourceKind; key: string; title: string; subtitle: string; available: boolean };
-export type DistillPreview = { items: { title: string; chars: number }[]; totalChars: number; runner: RunnerChoice };
+export type DistillPreview = { items: { title: string; chars: number }[]; totalChars: number; runner: RunnerChoice; skipped: number };
 export type DistillJob = {
   id: string; state: string; stage: string; done: number; total: number;
-  saved: number; folders: string[]; error: string; by: string;
+  saved: number; folders: string[]; dropped: number; error: string; by: string;
 };
 
 // Stacker 侧不枚举站点（与 webSiteLabel 一样，这张表只用于显示）。
