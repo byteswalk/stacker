@@ -29,6 +29,8 @@ pub struct DistillJob {
     pub saved: usize,
     /// 本次写出的 skill 草稿文件夹名。
     pub folders: Vec<String>,
+    /// 因超出条目上限而没有保存的条目数（正文超出单条上限只是被截断，不计入这里）。
+    pub dropped: usize,
     pub error: String,
     /// 执行者标签，例如 "claude / sonnet / low"。
     pub by: String,
@@ -74,11 +76,6 @@ pub fn start(request: StartRequest, run: Runner) -> Result<DistillJob, String> {
     {
         return Err("E_REQUEST".into());
     }
-    if job().is_some_and(|j| j.state == "running") {
-        return Err("E_DISTILL_BUSY".into());
-    }
-    let flag = CancelFlag::default();
-    *CANCEL.lock().map_err(crate::sessions::err)? = Some(flag.clone());
     let started = DistillJob {
         id: format!("distill-{}", crate::webchat::now_ms()),
         state: "running".into(),
@@ -86,15 +83,26 @@ pub fn start(request: StartRequest, run: Runner) -> Result<DistillJob, String> {
         by: request.choice.label(),
         ..Default::default()
     };
-    *JOB.lock().map_err(crate::sessions::err)? = Some(started.clone());
+    // 检查「是否在跑」和写入新任务必须是同一次加锁：分两次锁的话，两个几乎同时的 start
+    // 都能在检查时看到「没在跑」，于是都往下走，各自起一个后台线程，实际跑了两个任务。
+    {
+        let mut slot = JOB.lock().map_err(crate::sessions::err)?;
+        if slot.as_ref().is_some_and(|j| j.state == "running") {
+            return Err("E_DISTILL_BUSY".into());
+        }
+        *slot = Some(started.clone());
+    }
+    let flag = CancelFlag::default();
+    *CANCEL.lock().map_err(crate::sessions::err)? = Some(flag.clone());
     std::thread::spawn(move || {
         let outcome = run_job(&request, &flag, &run);
         let cancelled = flag.is_cancelled();
         update(|j| {
             match outcome {
-                Ok((saved, folders)) => {
+                Ok((saved, folders, dropped)) => {
                     j.saved = saved;
                     j.folders = folders;
+                    j.dropped = dropped;
                 }
                 Err(code) => j.error = code,
             }
@@ -118,8 +126,9 @@ fn run_job(
     request: &StartRequest,
     cancel: &CancelFlag,
     run: &Runner,
-) -> Result<(usize, Vec<String>), String> {
-    let units = sources::gather(&request.root, &request.sessions, &request.refs)?;
+) -> Result<(usize, Vec<String>, usize), String> {
+    // 单元测试才关心哪些来源读不出来（distill_preview 会展示），这里只取材料。
+    let (units, _skipped) = sources::gather(&request.root, &request.sessions, &request.refs)?;
     let progress = |done: usize, total: usize, stage: &str| {
         update(|j| {
             j.done = done;
@@ -127,7 +136,7 @@ fn run_job(
             j.stage = stage.to_string();
         });
     };
-    let items = pipeline::distil(
+    let (items, dropped) = pipeline::distil(
         &units,
         &request.kinds,
         &request.choice,
@@ -136,7 +145,8 @@ fn run_job(
         run.as_ref(),
         &progress,
     )?;
-    save(request, &units, &items)
+    let (saved, folders) = save(request, &units, &items)?;
+    Ok((saved, folders, dropped))
 }
 
 /// 每条结果先存库，再给 skill 草稿写文件夹：这样磁盘上永远不会出现一个没有对应
@@ -150,14 +160,21 @@ fn save(
 ) -> Result<(usize, Vec<String>), String> {
     let conn = crate::webchat::store::open(&request.root)?;
     let skills_dir = super::skills_in(&request.root);
-    let evidence: Vec<(String, String)> = units
-        .iter()
-        .flat_map(|u| {
-            u.sources
-                .iter()
-                .map(|s| (s.key.clone(), u.markdown.clone()))
-        })
-        .collect();
+    // 只有真的会写 skill 草稿时才要建这张证据表：每份材料的原文只克隆一次，
+    // 用它涉及的来源键列表去反查，而不是像以前那样按来源数量把同一份原文再克隆一遍。
+    let evidence: Vec<(Vec<String>, String)> = if items.iter().any(|i| i.kind == "skill") {
+        units
+            .iter()
+            .map(|u| {
+                (
+                    u.sources.iter().map(|s| s.key.clone()).collect(),
+                    u.markdown.clone(),
+                )
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
     let at = crate::webchat::now_ms();
     let by = request.choice.label();
     let mut folders: Vec<String> = Vec::new();
@@ -178,7 +195,7 @@ fn save(
         // 先落一行没有文件夹的记录，再尝试写文件夹；文件夹写成功了再补一次把文件夹名存回去。
         store::insert(&conn, &result)?;
         if item.kind == "skill" {
-            let name = skills::write_draft(&skills_dir, item, &evidence)?;
+            let name = skills::write_draft(&skills_dir, item, &evidence, &request.locale)?;
             result.folder = name.clone();
             store::insert(&conn, &result)?;
             folders.push(name);
@@ -308,6 +325,7 @@ mod tests {
         assert_eq!(done.folders, vec!["Plan a trip".to_string()]);
         assert!(done.total >= 1 && done.done == done.total);
         assert_eq!(done.by, "claude / sonnet / low");
+        assert_eq!(done.dropped, 0);
         let conn = web::open(dir.path()).unwrap();
         let saved = crate::distill::store::list(&conn, &Default::default()).unwrap();
         assert_eq!(saved.len(), 2);
@@ -394,6 +412,60 @@ mod tests {
             "the first item must still be reported as saved"
         );
         assert_eq!(partial.folders, vec!["First".to_string()]);
+
+        // 7) 超过 200 条上限的部分要记进 dropped，不能悄悄消失不见。
+        let many: String = (1..=205)
+            .map(|i| format!("### [QA] Q{i}\nA{i}\n"))
+            .collect();
+        let over_cap: Runner = Arc::new(move |req: &RunRequest, _: &CancelFlag| {
+            if req.prompt.contains("@merge") {
+                Ok(RunOutput {
+                    text: "no duplicates".into(),
+                })
+            } else {
+                Ok(RunOutput { text: many.clone() })
+            }
+        });
+        let mut qa_only = request(dir.path());
+        qa_only.kinds = vec!["qa".into()];
+        start(qa_only, over_cap).unwrap();
+        let capped = wait_for(|j| j.state != "running");
+        assert_eq!(capped.state, "completed", "{}", capped.error);
+        assert_eq!(capped.saved, 200);
+        assert_eq!(capped.dropped, 5);
+
+        // 8) 并发调用 start：检查「是否在跑」和写入必须是同一次加锁，否则几乎同时的
+        // 多个 start 都能看到「没在跑」，全部通过，实际跑出好几个任务。
+        let released = Arc::new(AtomicBool::new(false));
+        let waiting = released.clone();
+        let blocking_runner: Runner = Arc::new(move |_: &RunRequest, c: &CancelFlag| {
+            while !waiting.load(Ordering::SeqCst) && !c.is_cancelled() {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            Ok(RunOutput {
+                text: String::new(),
+            })
+        });
+        let barrier = Arc::new(std::sync::Barrier::new(8));
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let barrier = barrier.clone();
+                let req = request(dir.path());
+                let run = blocking_runner.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    start(req, run)
+                })
+            })
+            .collect();
+        let results: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+        let winners = results.iter().filter(|r| r.is_ok()).count();
+        assert_eq!(
+            winners, 1,
+            "exactly one concurrent start must win the running slot: {results:?}"
+        );
+        released.store(true, Ordering::SeqCst);
+        wait_for(|j| j.state != "running");
     }
 
     /// Live run: take the first web conversation with a body in the dev data dir (or a local

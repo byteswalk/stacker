@@ -58,7 +58,14 @@ fn split_tag(rest: &str) -> Option<(&str, &str)> {
 }
 
 fn finish(out: &mut Vec<DraftItem>, mut item: DraftItem) {
-    item.body = item.body.trim().chars().take(BODY_CHARS).collect();
+    let trimmed = item.body.trim();
+    let cut = trimmed.chars().count() > BODY_CHARS;
+    let mut body: String = trimmed.chars().take(BODY_CHARS).collect();
+    // 正文超出单条上限时悄悄截断过：加个「…」，读的人至少能看出这不是全文。
+    if cut {
+        body.push('…');
+    }
+    item.body = body;
     if item.title.is_empty() || item.body.is_empty() {
         return;
     }
@@ -219,6 +226,7 @@ pub fn apply_groups(items: Vec<DraftItem>, groups: &[(usize, Vec<usize>)]) -> Ve
 
 /// 一次提炼：逐份材料分段提炼，再合并去重。
 /// `progress(已完成调用数, 总调用数, 阶段)` 在每次调用之前与结束时报告。
+/// 返回值的第二项是因为超过 `MAX_ITEMS` 而没能保留的条目数（0 表示没有条目被截掉）。
 pub fn distil(
     units: &[SourceText],
     kinds: &[String],
@@ -227,7 +235,7 @@ pub fn distil(
     cancel: &CancelFlag,
     run: RunFn,
     progress: &(dyn Fn(usize, usize, &str) + Sync),
-) -> Result<Vec<DraftItem>, String> {
+) -> Result<(Vec<DraftItem>, usize), String> {
     let mut planned: Vec<(&SourceText, Vec<String>, bool)> = Vec::new();
     for unit in units {
         let text = unit.markdown.trim();
@@ -278,8 +286,9 @@ pub fn distil(
     }
     done += 1;
     progress(done, total, "saving");
+    let dropped = items.len().saturating_sub(MAX_ITEMS);
     items.truncate(MAX_ITEMS);
-    Ok(items)
+    Ok((items, dropped))
 }
 
 #[cfg(test)]
@@ -350,6 +359,24 @@ mod tests {
             "body is trimmed on both ends"
         );
         assert_eq!(items[1].kind, "requirement");
+    }
+
+    #[test]
+    fn a_body_cut_at_the_char_cap_is_marked_with_an_ellipsis() {
+        let long = "y".repeat(BODY_CHARS + 100);
+        let answer = format!("### [QA] Long one\n{long}\n### [QA] Short one\nfits fine\n");
+        let items = parse_items(&answer, &kinds(&["qa"]));
+        assert_eq!(items.len(), 2);
+        assert!(
+            items[0].body.ends_with('…'),
+            "a body cut at BODY_CHARS gets an ellipsis so the cut is visible"
+        );
+        assert_eq!(items[0].body.chars().count(), BODY_CHARS + 1);
+        assert!(
+            !items[1].body.ends_with('…'),
+            "a body under the cap keeps its own ending untouched"
+        );
+        assert_eq!(items[1].body, "fits fine");
     }
 
     #[test]
@@ -443,7 +470,7 @@ mod tests {
         let progress = |done: usize, total: usize, stage: &str| {
             seen.lock().unwrap().push((done, total, stage.to_string()));
         };
-        let items = distil(
+        let (items, dropped) = distil(
             &units,
             &kinds(&["qa"]),
             &choice,
@@ -453,6 +480,7 @@ mod tests {
             &progress,
         )
         .unwrap();
+        assert_eq!(dropped, 0);
         let n = calls.load(Ordering::SeqCst);
         assert!(
             n >= 3,
@@ -485,6 +513,36 @@ mod tests {
     }
 
     #[test]
+    fn items_beyond_max_items_are_counted_as_dropped_not_lost_silently() {
+        let choice = choose(&SummarySettings::default(), Agent::Claude);
+        let nothing = |_: usize, _: usize, _: &str| {};
+        let over_cap = (1..=MAX_ITEMS + 5)
+            .map(|i| format!("### [QA] Q{i}\nA{i}\n"))
+            .collect::<String>();
+        let run = move |req: &RunRequest, _: &CancelFlag| {
+            let text = if req.prompt.contains("@merge") {
+                "no duplicates".to_string()
+            } else {
+                over_cap.clone()
+            };
+            Ok(RunOutput { text })
+        };
+        let units = vec![unit("web:chatgpt:a", "material")];
+        let (items, dropped) = distil(
+            &units,
+            &kinds(&["qa"]),
+            &choice,
+            "en",
+            &CancelFlag::default(),
+            &run,
+            &nothing,
+        )
+        .unwrap();
+        assert_eq!(items.len(), MAX_ITEMS);
+        assert_eq!(dropped, 5);
+    }
+
+    #[test]
     fn a_failed_merge_keeps_the_items_but_a_cancel_stops_everything() {
         let choice = choose(&SummarySettings::default(), Agent::Claude);
         let nothing = |_: usize, _: usize, _: &str| {};
@@ -503,7 +561,7 @@ mod tests {
             })
         };
         let units = vec![unit("web:chatgpt:a", "one"), unit("web:chatgpt:b", "two")];
-        let items = distil(
+        let (items, dropped) = distil(
             &units,
             &kinds(&["qa"]),
             &choice,
@@ -514,6 +572,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(items.len(), 2, "a failed merge must not drop items");
+        assert_eq!(dropped, 0, "no item exceeded MAX_ITEMS here");
 
         let cancel = CancelFlag::default();
         cancel.cancel();

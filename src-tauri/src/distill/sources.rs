@@ -63,12 +63,13 @@ fn excerpt_unit(parts: Vec<(DistillSource, String)>) -> SourceText {
 }
 
 /// 把选中的来源读成若干份材料：每条网页对话、每个本机会话各一份，全部摘录合成一份。
-/// 读不出任何内容时返回 `E_NO_BODY`；读不出的单条静默跳过。
+/// 读不出任何内容时返回 `E_NO_BODY`；读不出的单条会跳过，但连同它的 ref 一起在第二个
+/// 返回值里报出来，调用方（预览界面）据此告诉用户「有几个来源没读出来」，而不是悄悄丢掉。
 pub fn gather(
     root: &Path,
     sessions: &[Session],
     refs: &[SourceRef],
-) -> Result<Vec<SourceText>, String> {
+) -> Result<(Vec<SourceText>, Vec<SourceRef>), String> {
     let conn = store::open(root)?;
     let all_excerpts = if refs.iter().any(|r| r.kind == "excerpt") {
         store::excerpts(&conn)?
@@ -77,16 +78,20 @@ pub fn gather(
     };
     let mut units: Vec<SourceText> = Vec::new();
     let mut excerpts: Vec<(DistillSource, String)> = Vec::new();
+    let mut skipped: Vec<SourceRef> = Vec::new();
     for r in refs {
         match r.kind.as_str() {
             "web" => {
                 let Ok(chat) = store::chat(&conn, &r.key) else {
+                    skipped.push(r.clone());
                     continue;
                 };
                 if chat.body_fetched_at.is_none() {
+                    skipped.push(r.clone());
                     continue;
                 }
                 let Ok(body) = store::body(root, &chat) else {
+                    skipped.push(r.clone());
                     continue;
                 };
                 let markdown = crate::webchat::commands::body_markdown(&chat.title, &body.messages);
@@ -103,9 +108,11 @@ pub fn gather(
             }
             "session" => {
                 let Some(session) = sessions.iter().find(|s| s.id == r.key) else {
+                    skipped.push(r.clone());
                     continue;
                 };
                 let Ok(markdown) = crate::sessions::summary::transcript_markdown(session) else {
+                    skipped.push(r.clone());
                     continue;
                 };
                 units.push(SourceText {
@@ -121,6 +128,7 @@ pub fn gather(
             }
             "excerpt" => {
                 let Some(e) = all_excerpts.iter().find(|e| e.id == r.key) else {
+                    skipped.push(r.clone());
                     continue;
                 };
                 let title = if e.page_title.is_empty() {
@@ -138,7 +146,10 @@ pub fn gather(
                     format!("### {title}\n\n{}\n\n{}\n", e.text, e.note),
                 ));
             }
-            _ => continue,
+            _ => {
+                skipped.push(r.clone());
+                continue;
+            }
         }
     }
     if !excerpts.is_empty() {
@@ -147,7 +158,7 @@ pub fn gather(
     if units.is_empty() {
         return Err("E_NO_BODY".into());
     }
-    Ok(units)
+    Ok((units, skipped))
 }
 
 /// 候选来源：网页对话、本机会话、摘录各最多 50 条，按这个顺序返回。
@@ -308,19 +319,20 @@ mod tests {
     fn a_web_chat_becomes_one_unit_with_its_body() {
         let dir = tempfile::tempdir().unwrap();
         seed(dir.path());
-        let units = gather(dir.path(), &[], &refs(&[("web", "chatgpt:a")])).unwrap();
+        let (units, skipped) = gather(dir.path(), &[], &refs(&[("web", "chatgpt:a")])).unwrap();
         assert_eq!(units.len(), 1);
         assert_eq!(units[0].title, "Trip plan");
         assert!(units[0].markdown.contains("Where should we go?"));
         assert_eq!(units[0].sources[0].key, "web:chatgpt:a");
         assert_eq!(units[0].sources[0].kind, "web");
+        assert!(skipped.is_empty());
     }
 
     #[test]
     fn excerpts_are_gathered_into_one_unit_and_keep_every_source() {
         let dir = tempfile::tempdir().unwrap();
         seed(dir.path());
-        let units = gather(
+        let (units, skipped) = gather(
             dir.path(),
             &[],
             &refs(&[("excerpt", "e1"), ("excerpt", "e2")]),
@@ -340,10 +352,11 @@ mod tests {
             vec!["excerpt:e1", "excerpt:e2"]
         );
         assert_eq!(units[0].sources[0].link, "https://chatgpt.com/c/a");
+        assert!(skipped.is_empty());
     }
 
     #[test]
-    fn missing_and_body_less_sources_are_skipped() {
+    fn missing_and_body_less_sources_are_skipped_but_reported() {
         let dir = tempfile::tempdir().unwrap();
         seed(dir.path());
         let mixed = refs(&[
@@ -352,7 +365,21 @@ mod tests {
             ("web", "chatgpt:gone"),
             ("nonsense", "x"),
         ]);
-        assert_eq!(gather(dir.path(), &[], &mixed).unwrap().len(), 1);
+        let (units, skipped) = gather(dir.path(), &[], &mixed).unwrap();
+        assert_eq!(units.len(), 1);
+        // 每一条读不出来的来源都要能在返回值里找到，界面据此告诉用户跳过了几条，
+        // 而不是像以前那样悄悄消失。
+        assert_eq!(
+            skipped
+                .iter()
+                .map(|r| (r.kind.as_str(), r.key.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("web", "chatgpt:nobody"),
+                ("web", "chatgpt:gone"),
+                ("nonsense", "x"),
+            ]
+        );
         assert_eq!(
             gather(dir.path(), &[], &refs(&[("web", "chatgpt:nobody")])).unwrap_err(),
             "E_NO_BODY"

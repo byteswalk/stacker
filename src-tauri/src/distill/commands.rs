@@ -1,5 +1,6 @@
 //! 「提炼」的 Tauri 命令。
 use super::job::{self, DistillJob, StartRequest};
+use super::pipeline;
 use super::prompts;
 use super::skills;
 use super::sources::{self, Candidate, SourceRef};
@@ -24,6 +25,8 @@ pub struct DistillPreview {
     pub items: Vec<PreviewItem>,
     pub total_chars: usize,
     pub runner: RunnerChoice,
+    /// 选中的来源里，有几条读不出来（已跳过，不会被提炼）。
+    pub skipped: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -74,7 +77,8 @@ pub async fn distill_preview(
     blocking(move || {
         let settings = settings_or_saved(settings)?;
         let sessions = sessions_if_needed(&sources);
-        let units = super::sources::gather(&crate::webchat::root(), &sessions, &sources)?;
+        let (units, skipped) =
+            super::sources::gather(&crate::webchat::root(), &sessions, &sources)?;
         let items: Vec<PreviewItem> = units
             .iter()
             .map(|u| PreviewItem {
@@ -86,6 +90,7 @@ pub async fn distill_preview(
             total_chars: items.iter().map(|i| i.chars).sum(),
             items,
             runner: runner_for(&settings),
+            skipped: skipped.len(),
         })
     })
     .await
@@ -147,6 +152,10 @@ pub async fn distill_save(
     body: String,
 ) -> Result<DistillResult, String> {
     blocking(move || {
+        // 编辑框没有正文/标题长度限制，落库前按提炼时用的同一套上限截断，
+        // 免得手改出一条比模型原始产出还长得多的记录。
+        let title: String = title.chars().take(pipeline::TITLE_CHARS).collect();
+        let body: String = body.chars().take(pipeline::BODY_CHARS).collect();
         let conn = crate::webchat::store::open(&crate::webchat::root())?;
         store::save_text(&conn, &id, &title, &body, crate::webchat::now_ms())?;
         store::get(&conn, &id)
@@ -175,28 +184,34 @@ pub async fn distill_delete(id: String) -> Result<(), String> {
 
 /// 当前筛选下的结果导出成一个 Markdown 文件。
 pub fn export_markdown(items: &[DistillResult], locale: &str) -> String {
+    let zh = locale.starts_with("zh");
+    let (count_label, state_label, runner_label, folder_label) = if zh {
+        ("- 数量：", "- 状态：", "- 执行者：", "- skill 文件夹：")
+    } else {
+        ("- Count: ", "- State: ", "- Runner: ", "- Skill folder: ")
+    };
     let mut out = format!(
         "# {}\n\n",
-        if locale.starts_with("zh") {
+        if zh {
             "提炼结果"
         } else {
             "Distilled results"
         }
     );
-    out.push_str(&format!("- {}\n\n", items.len()));
+    out.push_str(&format!("{count_label}{}\n\n", items.len()));
     for item in items {
         out.push_str(&format!(
             "## {} · {}\n\n",
             prompts::kind_label(&item.kind, locale),
             item.title
         ));
-        out.push_str(&format!("- {}\n", item.state));
-        out.push_str(&format!("- {}\n", item.by));
+        out.push_str(&format!("{state_label}{}\n", item.state));
+        out.push_str(&format!("{runner_label}{}\n", item.by));
         for s in &item.sources {
             out.push_str(&format!("- {} ({})\n", s.title, s.key));
         }
         if !item.folder.is_empty() {
-            out.push_str(&format!("- {}\n", item.folder));
+            out.push_str(&format!("{folder_label}{}\n", item.folder));
         }
         out.push_str(&format!("\n{}\n\n", item.body));
     }
@@ -271,16 +286,25 @@ mod tests {
 
     #[test]
     fn the_export_lists_every_result_with_its_kind_state_and_sources() {
-        let text = export_markdown(
-            &[result("qa", "Where to go"), result("skill", "Plan a trip")],
-            "en",
-        );
+        let mut skill = result("skill", "Plan a trip");
+        skill.folder = "Plan a trip".into();
+        let text = export_markdown(&[result("qa", "Where to go"), skill], "en");
         assert!(text.starts_with("# "));
         assert!(text.contains("## Experience Q&A · Where to go"));
         assert!(text.contains("## Skill drafts · Plan a trip"));
         assert!(text.contains("Trip plan (web:chatgpt:a)"));
         assert!(text.contains("claude / sonnet / low"));
         assert!(text.contains("Body."));
+        // 数量/状态/执行者/文件夹这几行以前是裸值，现在每行都带标签。
+        assert!(text.contains("- Count: 2\n\n"));
+        assert!(text.contains("- State: adopted\n"));
+        assert!(text.contains("- Runner: claude / sonnet / low\n"));
+        assert!(text.contains("- Skill folder: Plan a trip\n"));
+
+        let zh = export_markdown(&[result("qa", "Where to go")], "zh-CN");
+        assert!(zh.contains("- 数量：1\n\n"));
+        assert!(zh.contains("- 状态：adopted\n"));
+        assert!(zh.contains("- 执行者：claude / sonnet / low\n"));
     }
 
     #[test]
