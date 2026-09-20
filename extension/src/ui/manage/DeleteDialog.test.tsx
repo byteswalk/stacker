@@ -15,7 +15,9 @@ const conv = (id: string, account = "chatgpt:u", site: SiteId = "chatgpt"): Conv
   listedAt: 0, localUpdatedAt: 0,
 });
 let host: HTMLDivElement;
-afterEach(() => host?.remove());
+// Ant Design renders the dialog in a portal on document.body, not inside the mount point.
+const ui = () => document.body;
+afterEach(() => { host?.remove(); document.body.querySelectorAll(".ant-modal-root").forEach((n) => n.remove()); });
 
 const ALIAS: Record<string, string> = { "chatgpt:u": "工作号", "chatgpt:other": "私人号", "claude:o": "Claude 号" };
 function mount(onRun = vi.fn(async () => []), items = [conv("a"), conv("b", "chatgpt:other"), conv("c")], siteErrors: Partial<Record<SiteId, string>> = {}) {
@@ -25,26 +27,28 @@ function mount(onRun = vi.fn(async () => []), items = [conv("a"), conv("b", "cha
     siteErrors={siteErrors} onRun={onRun} onClose={() => {}} />));
   return onRun;
 }
-const button = (text: string) => [...host.querySelectorAll("button")].find((b) => b.textContent?.includes(text))!;
+// Ant Design widens a two-character Chinese label ("中止" -> "中 止"), so compare without spaces.
+const flat = (text: string | null) => (text ?? "").replace(/\s/g, "");
+const button = (text: string) => [...ui().querySelectorAll("button")].find((b) => flat(b.textContent).includes(flat(text)))!;
 
 describe("DeleteDialog", () => {
   it("defaults to slim export and warns about other accounts", () => {
     mount();
-    expect((host.querySelector("input[value=slim]") as HTMLInputElement).checked).toBe(true);
-    expect(host.textContent).toContain("1 条不属于当前登录的账号");
+    expect((ui().querySelector("input[value=slim]") as HTMLInputElement).checked).toBe(true);
+    expect(ui().textContent).toContain("1 条不属于当前登录的账号");
   });
   it("counts items per site and account alias", () => {
     mount();
-    const lines = [...host.querySelectorAll("ul.groups li")].map((li) => li.textContent);
+    const lines = [...ui().querySelectorAll("ul.groups li")].map((li) => li.textContent);
     expect(lines).toEqual(["ChatGPT · 工作号：2 条", "ChatGPT · 私人号：1 条 — 不是当前登录的账号，会被跳过"]);
-    expect(host.textContent).toContain("将删除 2 条对话");
+    expect(ui().textContent).toContain("将删除 2 条对话");
   });
   it("shows a failed account check for a site instead of calling it another account, and leaves those items out", async () => {
     const items = [conv("a"), conv("k", "claude:o", "claude")];
     const onRun = mount(vi.fn(async () => []), items, { claude: "请先在浏览器中打开并登录该网站" });
-    const lines = [...host.querySelectorAll("ul.groups li")].map((li) => li.textContent);
+    const lines = [...ui().querySelectorAll("ul.groups li")].map((li) => li.textContent);
     expect(lines).toEqual(["ChatGPT · 工作号：1 条", "Claude · Claude 号：1 条 — 请先在浏览器中打开并登录该网站"]);
-    expect(host.textContent).not.toContain("不属于当前登录的账号");
+    expect(ui().textContent).not.toContain("不属于当前登录的账号");
     await act(async () => button("删除 1 条").click());
     expect(onRun).toHaveBeenCalledWith([items[0]], "slim", expect.any(AbortSignal), expect.any(Function));
   });
@@ -54,10 +58,10 @@ describe("DeleteDialog", () => {
   });
   it("asks a second time before deleting without a copy", async () => {
     const onRun = mount();
-    act(() => (host.querySelector("input[value=direct]") as HTMLInputElement).click());
+    act(() => (ui().querySelector("input[value=direct]") as HTMLInputElement).click());
     await act(async () => button("删除 2 条").click());
     expect(onRun).not.toHaveBeenCalled();
-    expect(host.textContent).toContain("不会留下任何副本");
+    expect(ui().textContent).toContain("不会留下任何副本");
     await act(async () => button("确认直接删除").click());
     expect(onRun).toHaveBeenCalledWith(expect.any(Array), "direct", expect.any(AbortSignal), expect.any(Function));
   });
@@ -67,7 +71,7 @@ describe("DeleteDialog", () => {
     const trigger = button("删除 2 条");
     act(() => { trigger.click(); trigger.click(); });
     expect(onRun).toHaveBeenCalledTimes(1);
-    expect(host.textContent).toContain("正在删除");
+    expect(ui().textContent).toContain("正在删除");
     expect(button("中止")).toBeTruthy();
     expect((button("完成") as HTMLButtonElement).disabled).toBe(true);
     const leaving = new Event("beforeunload", { cancelable: true });
@@ -82,9 +86,9 @@ describe("DeleteDialog", () => {
     const reason = "未实测：该站点的接口还没有在真实账号上核对过，暂不支持删除";
     const items = [conv("a"), conv("g", "grok:default", "grok")];
     const onRun = mount(vi.fn(async () => []), items, { grok: reason });
-    const lines = [...host.querySelectorAll("ul.groups li")].map((li) => li.textContent);
+    const lines = [...ui().querySelectorAll("ul.groups li")].map((li) => li.textContent);
     expect(lines).toEqual(["ChatGPT · 工作号：1 条", `Grok · grok:default：1 条 — ${reason}`]);
-    expect(host.querySelector("ul.groups li:last-child span")?.className).toBe("err");
+    expect(ui().querySelector("ul.groups li:last-child span")?.className).toContain("ant-typography-danger");
     await act(async () => button("删除 1 条").click());
     expect(onRun).toHaveBeenCalledWith([items[0]], "slim", expect.any(AbortSignal), expect.any(Function));
   });

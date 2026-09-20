@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+Object.defineProperty(navigator, "language", { value: "zh-CN", configurable: true });
 import "fake-indexeddb/auto";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -44,6 +45,9 @@ describe("conversation detail", () => {
     ]);
     await mount();
     expect(distillResults).toHaveBeenCalledWith("chatgpt", "a");
+    // The results live behind their own tab; opening it is the only way in, and there is no
+    // control anywhere that would start a distillation from here.
+    await act(async () => [...host.querySelectorAll<HTMLElement>("[role=tab]")].find((x) => x.textContent?.includes("提炼结果"))!.click());
     expect(host.textContent).toContain("Where to go");
     expect(host.textContent).toContain("Kyoto.");
     expect([...host.querySelectorAll("button")].some((b) => b.textContent?.includes("提炼"))).toBe(false);

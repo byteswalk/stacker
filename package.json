@@ -12,6 +12,7 @@
     "check:release-metadata": "node scripts/check-release-metadata.mjs",
     "check:i18n": "node scripts/check-i18n.mjs",
     "ext:build": "vite build -c extension/vite.config.ts && vite build -c extension/vite.content.config.ts",
+    "ext:preview": "vite -c extension/vite.config.ts",
     "ext:zip": "npm run ext:build && node extension/scripts/zip.mjs",
     "clean:rust-cache": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/clean-rust-dev-cache.ps1",
     "preview": "vite preview",
@@ -19,11 +20,13 @@
     "release:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release-windows.ps1"
   },
   "dependencies": {
+    "@ant-design/icons": "^6.3.4",
     "@tabler/icons-webfont": "^3.44.0",
     "@tauri-apps/api": "^2.11.0",
     "@tauri-apps/plugin-autostart": "^2.5.1",
     "@tauri-apps/plugin-dialog": "^2.7.1",
     "@tauri-apps/plugin-log": "2.8.0",
+    "antd": "^6.6.4",
     "idb": "^8.0.3",
     "react": "^19.2.6",
     "react-dom": "^19.2.6"

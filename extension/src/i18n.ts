@@ -39,6 +39,25 @@ export const EN: Record<string, string> = {
   "未实测": "not yet verified",
   "这些站点的接口还没有在真实账号上核对过：可以刷新、读取和导出，暂不支持删除。": "These sites' interfaces haven't been checked against a real account yet: refresh, read and export work; deleting is not available yet.",
 
+  "确定": "OK",
+  "外观": "Appearance",
+  "跟随系统": "System",
+  "深色": "Dark",
+  "浅色": "Light",
+  "语言": "Language",
+  "跟随浏览器": "Browser",
+  "导出": "Export",
+  "打开网站": "Open site",
+  "设置": "Settings",
+  "请不要关闭此页": "Please don't close this page",
+  "站点": "Site",
+  "对话详情": "Conversation details",
+  "更新时间": "Updated",
+  "正文": "Body",
+  "还没有读取正文": "The body hasn't been read yet",
+  "最近同步": "Last synced",
+  "从 Stacker 恢复账号备注名、文件夹、标签、收藏、备注和摘录": "Restore account aliases, folders, tags, favorites, notes and excerpts from Stacker",
+
   // manage/siteStatus.ts
   "未实测：该站点的接口还没有在真实账号上核对过，暂不支持删除": "Not yet verified: this site's interface hasn't been checked against a real account, so deleting is not available yet",
 
@@ -146,7 +165,18 @@ export const EN: Record<string, string> = {
   "条到 Stacker 的导出目录": "item(s) to Stacker's export folder",
 };
 
+/** Set from the pages' language preference; null means follow the browser. */
+let forced: "zh" | "en" | null = null;
+
+export function setLanguage(lang: "auto" | "zh" | "en"): void {
+  forced = lang === "auto" ? null : lang;
+}
+
+export function englishUi(): boolean {
+  if (forced) return forced === "en";
+  return typeof navigator !== "undefined" && !navigator.language.toLowerCase().startsWith("zh");
+}
+
 export function t(text: string): string {
-  const english = typeof navigator !== "undefined" && !navigator.language.toLowerCase().startsWith("zh");
-  return english ? EN[text] ?? text : text;
+  return englishUi() ? EN[text] ?? text : text;
 }

@@ -1,10 +1,10 @@
 import { createRoot } from "react-dom/client";
 import { requestFlush } from "../../lib/bridgeMessages";
 import { onOutboxChange } from "../../lib/db";
-import "../style.css";
+import { Shell } from "../Shell";
 import { App } from "./App";
 
 // Local changes made on this page reach Stacker through the background.
 onOutboxChange(() => requestFlush());
 
-createRoot(document.getElementById("root")!).render(<App />);
+createRoot(document.getElementById("root")!).render(<Shell><App /></Shell>);

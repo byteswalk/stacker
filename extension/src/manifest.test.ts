@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error plain ESM script without types
 import { extensionId } from "../scripts/extension-id.mjs";
@@ -16,6 +16,14 @@ describe("manifest", () => {
   });
   it("covers exactly the sites in the registry", () => {
     expect(Object.values(SITES).map((s) => s.match)).toEqual(SITE_MATCHES);
+  });
+  it("ships Stacker's icon in every size it declares", () => {
+    const sizes = ["16", "32", "48", "128"];
+    expect(Object.keys(manifest.icons)).toEqual(sizes);
+    expect(Object.keys(manifest.action.default_icon)).toEqual(sizes);
+    for (const path of Object.values<string>({ ...manifest.icons, ...manifest.action.default_icon })) {
+      expect(existsSync(new URL(`../public/${path}`, import.meta.url))).toBe(true);
+    }
   });
   it("has a fixed ID recorded in EXTENSION_ID", () => {
     const recorded = readFileSync(new URL("../EXTENSION_ID", import.meta.url), "utf8").trim();

@@ -14,14 +14,22 @@ const conv = (id: string): Conversation => ({
 });
 
 describe("ConversationList", () => {
-  it("selects the page and every result", () => {
+  it("pages long result sets and selects a whole page at once", () => {
     const host = document.createElement("div");
+    document.body.append(host);
     const onSelect = vi.fn();
     const items = Array.from({ length: 120 }, (_, i) => conv(String(i)));
-    act(() => createRoot(host).render(<ConversationList items={items} aliasOf={() => "Personal"} selected={new Set()} onSelect={onSelect} onOpen={() => {}} active={null} />));
-    expect(host.querySelectorAll("li")).toHaveLength(50);
-    act(() => [...host.querySelectorAll("button")].find((b) => b.textContent?.includes("选中全部结果"))!.click());
-    expect(onSelect).toHaveBeenCalledWith(items.map((c) => c.key), true);
+    act(() => createRoot(host).render(<ConversationList items={items} aliasOf={() => "Personal"} selected={[]} onSelect={onSelect} onOpen={() => {}} active={null} />));
+    expect(host.querySelectorAll("tbody tr.ant-table-row")).toHaveLength(50);
+    expect(host.textContent).toContain("共 120 条");
     expect(host.textContent).toContain("Personal");
+
+    // The header checkbox takes the current page only; the link above the table takes every result.
+    act(() => (host.querySelector("thead input[type=checkbox]") as HTMLInputElement).click());
+    expect(onSelect).toHaveBeenCalledWith(items.slice(0, 50).map((c) => c.key));
+
+    act(() => [...host.querySelectorAll("button")].find((b) => b.textContent?.includes("选中全部结果"))!.click());
+    expect(onSelect).toHaveBeenLastCalledWith(items.map((c) => c.key));
+    host.remove();
   });
 });
