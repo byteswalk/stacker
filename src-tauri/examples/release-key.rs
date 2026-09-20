@@ -4,6 +4,8 @@
 //!   cargo run --example release-key -- keygen %USERPROFILE%\.stacker\release-signing.key
 //! 给文件签名，签名打到标准输出：
 //!   cargo run --example release-key -- sign %USERPROFILE%\.stacker\release-signing.key Stacker-setup.exe
+//! 上传前自检：用程序里内置的那把公钥验一遍产物和它的 .minisig：
+//!   cargo run --example release-key -- verify Stacker-setup.exe Stacker-setup.exe.minisig
 //!
 //! 私钥设了密码才会交互式询问；没设密码的私钥不打扰，脚本里也能直接跑。
 //! 也可以用环境变量 STACKER_SIGNING_PASSWORD 直接给出密码。
@@ -18,6 +20,7 @@ fn main() {
     let result = match args.first().map(String::as_str) {
         Some("keygen") if args.len() == 2 => keygen(Path::new(&args[1])),
         Some("sign") if args.len() == 3 => sign(Path::new(&args[1]), Path::new(&args[2])),
+        Some("verify") if args.len() == 3 => verify(Path::new(&args[1]), Path::new(&args[2])),
         _ => Err(usage()),
     };
     if let Err(message) = result {
@@ -102,5 +105,15 @@ fn sign(secret_path: &Path, target: &Path) -> Result<(), String> {
     let mut out = std::io::stdout();
     out.write_all(signature.to_string().as_bytes())
         .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// 用应用里内置的 RELEASE_PUBLIC_KEY 验一遍，确认用户那边装得上。
+fn verify(target: &Path, signature_path: &Path) -> Result<(), String> {
+    let bytes = std::fs::read(target).map_err(|e| format!("读不到 {}：{e}", target.display()))?;
+    let signature = std::fs::read_to_string(signature_path)
+        .map_err(|e| format!("读不到 {}：{e}", signature_path.display()))?;
+    stacker_lib::update::verify_release_signature(&bytes, &signature)?;
+    println!("OK：{} 的签名可以被内置公钥验过", target.display());
     Ok(())
 }

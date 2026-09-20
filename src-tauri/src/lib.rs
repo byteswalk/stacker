@@ -28,7 +28,7 @@ mod settings;
 mod sources;
 mod space_analysis;
 mod storage;
-mod update;
+pub mod update;
 mod versions;
 mod webchat;
 mod winadmin;

@@ -82,7 +82,8 @@ cargo test --manifest-path src-tauri/Cargo.toml -- --ignored the_local_release_k
 
 1. **先把版本号 bump 上去再跑脚本**——脚本会用刚构建出来的产物覆盖 `latest.json` 里的校验值和签名，在一个已发布的版本号上跑会把清单写成对不上的值。
 2. `resources/latest.json` 的改动要**跟发布一起提交**（`npm run check:release-metadata` 会卡住缺失或格式不对的值）。
-3. `SHA256SUMS.txt` 和两个 `.minisig` 要随安装包一起上传到 GitHub 与 Gitee 的 Release。发布后可用 `cargo test -- --ignored live_release_publishes_checksums` 核对。
+3. 上传前可以自检产物：`cargo run --manifest-path src-tauri/Cargo.toml --example release-key -- verify release/v<版本>/<安装包> release/v<版本>/<安装包>.minisig`（用的就是程序里内置的公钥）。
+4. `SHA256SUMS.txt` 和两个 `.minisig` 要随安装包一起上传到 GitHub 与 Gitee 的 Release。发布后可用 `cargo test -- --ignored live_release_publishes_checksums` 核对。
 
 因为私钥不在 CI 上，**发布由本机完成**，仓库里没有自动发布的工作流。构建产物在 `release/v<版本>/`，上传用：
 
