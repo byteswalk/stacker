@@ -48,6 +48,32 @@ pub fn exports_in(root: &Path) -> PathBuf {
     root.join("exports").join("distill")
 }
 
+/// 发给插件的只读结果：最多 20 条、正文截到 4000 字，远低于桥接一帧 1 MiB 的上限。
+pub const BRIDGE_MAX_ITEMS: usize = 20;
+pub const BRIDGE_BODY_CHARS: usize = 4_000;
+
+pub fn bridge_items(items: Vec<store::DistillResult>) -> Vec<serde_json::Value> {
+    items
+        .into_iter()
+        .take(BRIDGE_MAX_ITEMS)
+        .map(|r| {
+            let mut body: String = r.body.chars().take(BRIDGE_BODY_CHARS).collect();
+            if r.body.chars().count() > BRIDGE_BODY_CHARS {
+                body.push('…');
+            }
+            serde_json::json!({
+                "id": r.id,
+                "kind": r.kind,
+                "title": r.title,
+                "body": body,
+                "state": r.state,
+                "updatedAt": r.updated_at,
+                "sources": r.sources.iter().map(|s| s.title.clone()).collect::<Vec<_>>(),
+            })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

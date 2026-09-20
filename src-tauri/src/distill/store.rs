@@ -142,8 +142,6 @@ pub fn list(conn: &Connection, q: &DistillQuery) -> Result<Vec<DistillResult>, S
 }
 
 /// 按来源反查（插件用），走 `distill_sources` 索引。
-// 插件桥接的 `distillResults` 请求还在后续任务里接入；这里先留好函数与测试。
-#[allow(dead_code)]
 pub fn for_source(conn: &Connection, source_key: &str) -> Result<Vec<DistillResult>, String> {
     let mut stmt = conn
         .prepare(&format!(

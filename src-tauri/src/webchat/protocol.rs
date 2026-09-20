@@ -196,6 +196,14 @@ pub struct SaveExport {
     pub append: bool,
 }
 
+/// 插件按对话查提炼结果。
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct DistillLookup {
+    pub site: String,
+    pub id: String,
+}
+
 /// Site ids are plain lowercase words (`chatgpt`, `claude`, `gemini`, …); Stacker does not list them.
 pub fn is_site(site: &str) -> bool {
     !site.is_empty()

@@ -178,6 +178,16 @@ impl Context {
                 )?;
                 Ok(json!({ "path": saved.path, "fullPath": saved.full_path.to_string_lossy() }))
             }
+            // 只读：插件看某条对话的提炼结果，提炼本身只在 Stacker 里发起。
+            "distillResults" => {
+                let lookup: DistillLookup = parse(payload)?;
+                if !is_site(&lookup.site) || lookup.id.is_empty() || lookup.id.len() > 200 {
+                    return Err("E_REQUEST".into());
+                }
+                let key = format!("web:{}:{}", lookup.site, lookup.id);
+                let items = crate::distill::store::for_source(&self.conn, &key)?;
+                Ok(json!({ "items": crate::distill::bridge_items(items) }))
+            }
             _ => Err("E_UNKNOWN_TYPE".into()),
         }
     }
@@ -401,6 +411,72 @@ mod tests {
         );
         assert_eq!(out[9]["error"], "E_REQUEST");
         assert!(store::meta(&ctx.conn, "last_sync_at").is_some());
+    }
+
+    #[test]
+    fn the_extension_can_read_a_conversations_distilled_results() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = context(&dir);
+        let source = |key: &str| crate::distill::DistillSource {
+            key: key.into(),
+            kind: "web".into(),
+            title: "Trip plan".into(),
+            link: String::new(),
+        };
+        let long = "y".repeat(crate::distill::BRIDGE_BODY_CHARS + 50);
+        for (id, kind, title, body, key) in [
+            ("qa-1", "qa", "Where to go", "Kyoto.", "web:chatgpt:a"),
+            (
+                "skill-1",
+                "skill",
+                "Plan a trip",
+                long.as_str(),
+                "web:chatgpt:a",
+            ),
+            ("qa-2", "qa", "Other chat", "Nope.", "web:chatgpt:b"),
+        ] {
+            crate::distill::store::insert(
+                &ctx.conn,
+                &crate::distill::store::DistillResult {
+                    id: id.into(),
+                    kind: kind.into(),
+                    title: title.into(),
+                    body: body.into(),
+                    sources: vec![source(key)],
+                    state: "draft".into(),
+                    by: "claude / sonnet / low".into(),
+                    folder: String::new(),
+                    created_at: 1,
+                    updated_at: 2,
+                },
+            )
+            .unwrap();
+        }
+        let out = exchange(
+            &mut ctx,
+            &[
+                json!({"id": "1", "type": "distillResults", "payload": {"site": "chatgpt", "id": "a"}}),
+                json!({"id": "2", "type": "distillResults", "payload": {"site": "chatgpt", "id": "zzz"}}),
+                json!({"id": "3", "type": "distillResults", "payload": {"site": "Chat GPT", "id": "a"}}),
+                json!({"id": "4", "type": "distillResults", "payload": {"site": "chatgpt", "id": ""}}),
+            ],
+        );
+        let items = out[0]["result"]["items"].as_array().unwrap();
+        assert_eq!(items.len(), 2, "only this conversation's results");
+        let titles: Vec<&str> = items.iter().map(|i| i["title"].as_str().unwrap()).collect();
+        assert!(titles.contains(&"Where to go") && titles.contains(&"Plan a trip"));
+        assert!(!titles.contains(&"Other chat"));
+        let big = items.iter().find(|i| i["title"] == "Plan a trip").unwrap();
+        assert!(
+            big["body"].as_str().unwrap().chars().count() <= crate::distill::BRIDGE_BODY_CHARS + 1,
+            "the body has a cap so it cannot blow out one frame"
+        );
+        assert_eq!(big["kind"], "skill");
+        assert_eq!(big["state"], "draft");
+        assert_eq!(big["sources"], json!(["Trip plan"]));
+        assert_eq!(out[1]["result"]["items"], json!([]));
+        assert_eq!(out[2]["error"], "E_REQUEST");
+        assert_eq!(out[3]["error"], "E_REQUEST");
     }
 
     #[test]
