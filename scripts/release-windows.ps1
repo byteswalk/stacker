@@ -88,10 +88,23 @@ Compress-Archive -Path (Join-Path $PortableStage "*") -DestinationPath $Portable
 Remove-Item $PortableStage -Recurse -Force
 
 $ChecksumPath = Join-Path $Output "SHA256SUMS.txt"
-$Checksums = @($InstallerPath, $PortablePath) | ForEach-Object {
-    "$(Get-Sha256Hex $_) *$([System.IO.Path]::GetFileName($_))"
-}
+$InstallerHash = Get-Sha256Hex $InstallerPath
+$PortableHash = Get-Sha256Hex $PortablePath
+$Checksums = @(
+    "$InstallerHash *$InstallerName",
+    "$PortableHash *$PortableName"
+)
 $Checksums | Set-Content $ChecksumPath -Encoding ascii
+
+# 自动更新把校验值写回发布清单：应用下载更新后按它校验，不符就拒绝安装。
+# SHA256SUMS.txt 必须与安装包一起上传到 Release，走 Releases 接口的检查会读它。
+$LatestPath = Join-Path $Root "resources\latest.json"
+$LatestText = Get-Content $LatestPath -Raw -Encoding utf8
+$LatestText = [regex]::Replace($LatestText, '("installer_sha256"\s*:\s*")[0-9a-fA-F]*(")', "`${1}$InstallerHash`${2}")
+$LatestText = [regex]::Replace($LatestText, '("portable_sha256"\s*:\s*")[0-9a-fA-F]*(")', "`${1}$PortableHash`${2}")
+Set-Content $LatestPath -Value $LatestText -Encoding utf8 -NoNewline
+Invoke-Checked "Release metadata check" { & npm.cmd run check:release-metadata }
+Write-Host "resources/latest.json updated with the release checksums - commit it with the release." -ForegroundColor Yellow
 
 Write-Host "`nRelease artifacts:" -ForegroundColor Green
 Get-ChildItem $Output | Select-Object Name, Length, LastWriteTime | Format-Table -AutoSize

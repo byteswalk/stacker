@@ -57,6 +57,15 @@ cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 
 `npm run release:windows` 会校验版本元数据和国际化、执行前后端测试与 Clippy，并生成安装版、便携 ZIP 和 `SHA256SUMS.txt`。正式发布前必须同步更新 `package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json`、`resources/latest.json`，再将同一提交、标签、说明、资产和校验文件发布到 GitHub 与 Gitee。
 
+### 更新包校验（必须）
+
+应用下载到的安装包会先算 SHA-256 再比对，对不上就删除并拒绝安装；**拿不到校验值就不自动安装**，只让用户去发布页手动下载。因此发版时两件事不能漏：
+
+1. 脚本会把两个校验值写回 `resources/latest.json` 的 `installer_sha256` / `portable_sha256`，**这个改动要跟发布一起提交**（`npm run check:release-metadata` 会卡住缺失或格式不对的值）。
+2. `SHA256SUMS.txt` 必须和安装包一起上传到 GitHub 与 Gitee 的 Release——走发布接口检查更新的用户是从它里面读校验值的。`cargo test -- --ignored live_release_publishes_checksums` 可以在发布后核对这一点。
+
+校验值和下载地址来自同一份清单，所以它挡的是下载损坏、上传错文件、以及发布资产被单独替换；清单本身被篡改挡不住，那需要给安装包签名（公钥内置在程序里），尚未实现。
+
 以下目录全部可重建，不得提交：
 
 - `node_modules/`：`npm ci` 恢复。

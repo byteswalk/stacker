@@ -10,6 +10,8 @@ type UpdateInfo = {
   release_url?: string | null;
   installer_url?: string | null;
   portable_url?: string | null;
+  installer_sha256?: string | null;
+  portable_sha256?: string | null;
   published_at?: string | null;
   notes: string[];
 };

@@ -304,6 +304,9 @@ pub struct UpdateInfo {
     pub release_url: Option<String>,
     pub installer_url: Option<String>,
     pub portable_url: Option<String>,
+    /// 安装包与免安装包的 SHA-256（小写十六进制）。没有校验值就不会自动安装。
+    pub installer_sha256: Option<String>,
+    pub portable_sha256: Option<String>,
     pub published_at: Option<String>,
     pub notes: Vec<String>,
 }
@@ -311,47 +314,119 @@ pub struct UpdateInfo {
 // Stacker 自身的发布仓库（owner/repo）。发布到 GitHub Releases 后填上即可启用「检查更新」。
 const APP_REPO: &str = "byteswalk/stacker";
 
+/// 发布清单里的校验值，用来补上 Releases 接口没取到的那一份
+/// （发布页的 SHA256SUMS.txt 在部分网络下拉不到，清单走 raw/jsDelivr/Gitee，更容易通）。
+/// 只有清单描述的正是同一个版本时才采用。
+fn fill_checksums_from_manifest(info: &mut UpdateInfo) {
+    fill_checksums_with(info, fetch);
+}
+
+fn fill_checksums_with(info: &mut UpdateInfo, read: impl Fn(&str) -> Result<String, String>) {
+    if !info.has_update || info.installer_sha256.is_some() {
+        return;
+    }
+    for url in [DEFAULT_LATEST_URL, GITEE_LATEST_URL] {
+        let Ok(body) = read(url) else { continue };
+        let Ok(file) = serde_json::from_str::<LatestFile>(&body) else {
+            continue;
+        };
+        if file.version.trim().trim_start_matches('v') != info.latest {
+            continue;
+        }
+        let hash = file
+            .installer_sha256
+            .map(|h| h.trim().to_ascii_lowercase())
+            .filter(|h| is_sha256_hex(h));
+        if hash.is_some() {
+            info.installer_sha256 = hash;
+            info.portable_sha256 = file
+                .portable_sha256
+                .map(|h| h.trim().to_ascii_lowercase())
+                .filter(|h| is_sha256_hex(h));
+            return;
+        }
+    }
+}
+
+/// 检查更新的四个来源：两个发布接口 + 两份发布清单。
+#[derive(Clone, Copy)]
+enum Source {
+    GiteeRelease,
+    GiteeManifest,
+    GitHubRelease,
+    GitHubManifest,
+}
+
+impl Source {
+    fn name(self) -> &'static str {
+        match self {
+            Source::GiteeRelease => "Gitee Releases",
+            Source::GiteeManifest => "Gitee manifest",
+            Source::GitHubRelease => "GitHub Releases",
+            Source::GitHubManifest => "GitHub manifest",
+        }
+    }
+
+    fn check(self, current: &str) -> Result<UpdateInfo, String> {
+        match self {
+            Source::GiteeRelease => gitee_latest_release(GITEE_APP_REPO, current),
+            Source::GiteeManifest => latest_json_update_from(GITEE_LATEST_URL, current),
+            Source::GitHubRelease => github_latest_release(APP_REPO, current),
+            Source::GitHubManifest => latest_json_update_from(DEFAULT_LATEST_URL, current),
+        }
+    }
+}
+
 /// 按界面语言选择 GitHub/Gitee 的检查顺序。
+pub fn check_update_for(current: &str, english: bool) -> Result<UpdateInfo, String> {
+    let github = [Source::GitHubRelease, Source::GitHubManifest];
+    let gitee = [Source::GiteeRelease, Source::GiteeManifest];
+    let order: [Source; 4] = if english {
+        [github[0], github[1], gitee[0], gitee[1]]
+    } else {
+        [gitee[0], gitee[1], github[0], github[1]]
+    };
+
+    let mut errors = Vec::new();
+    for source in order {
+        match source.check(current) {
+            Ok(mut info) => {
+                fill_checksums_from_manifest(&mut info);
+                return Ok(info);
+            }
+            Err(error) => errors.push(format!("{}: {error}", source.name())),
+        }
+    }
+    Err(format!("检查更新失败：{}", errors.join("；")))
+}
+
 #[tauri::command]
 pub async fn app_check_update() -> Result<UpdateInfo, String> {
     tauri::async_runtime::spawn_blocking(|| {
         let current = env!("CARGO_PKG_VERSION").to_string();
         let english = github_first_for_locale(&crate::settings::load().locale);
-        let mut errors = Vec::new();
-
-        if !english {
-            match gitee_latest_release(GITEE_APP_REPO, &current) {
-                Ok(info) => return Ok(info),
-                Err(error) => errors.push(format!("Gitee Releases: {error}")),
-            }
-            match latest_json_update_from(GITEE_LATEST_URL, &current) {
-                Ok(info) => return Ok(info),
-                Err(error) => errors.push(format!("Gitee manifest: {error}")),
-            }
-        }
-        match github_latest_release(APP_REPO, &current) {
-            Ok(info) => return Ok(info),
-            Err(error) => errors.push(format!("GitHub Releases: {error}")),
-        }
-        match latest_json_update_from(DEFAULT_LATEST_URL, &current) {
-            Ok(info) => return Ok(info),
-            Err(error) => errors.push(format!("GitHub manifest: {error}")),
-        }
-        if english {
-            match gitee_latest_release(GITEE_APP_REPO, &current) {
-                Ok(info) => return Ok(info),
-                Err(error) => errors.push(format!("Gitee Releases: {error}")),
-            }
-            match latest_json_update_from(GITEE_LATEST_URL, &current) {
-                Ok(info) => return Ok(info),
-                Err(error) => errors.push(format!("Gitee manifest: {error}")),
-            }
-        }
-
-        Err(format!("检查更新失败：{}", errors.join("；")))
+        check_update_for(&current, english)
     })
     .await
     .map_err(|error| error.to_string())?
+}
+
+/// 流式计算文件的 SHA-256，避免把整个安装包读进内存。
+pub fn sha256_of_file(path: &std::path::Path) -> Result<String, String> {
+    use sha2::{Digest, Sha256};
+    let mut file = std::fs::File::open(path).map_err(|e| format!("无法读取更新包：{e}"))?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0u8; 256 * 1024];
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .map_err(|e| format!("无法读取更新包：{e}"))?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
 }
 
 #[tauri::command]
@@ -359,9 +434,16 @@ pub async fn app_download_update(
     window: tauri::Window,
     url: String,
     version: String,
+    sha256: String,
 ) -> Result<String, String> {
     if !url.trim().starts_with("https://") {
         return Err("更新包必须使用 HTTPS 地址".into());
+    }
+    // 没有校验值就不装：下载地址来自发布清单，校验值也来自发布产物本身，
+    // 缺一个就无法确认下载到的确实是这次发布的安装包。
+    let expected = sha256.trim().to_ascii_lowercase();
+    if !is_sha256_hex(&expected) {
+        return Err("这个版本没有提供校验值，请到发布页手动下载安装".into());
     }
     crate::installer::op_reset();
     let target = std::env::temp_dir().join(format!(
@@ -389,6 +471,17 @@ pub async fn app_download_update(
                 let _ = download_window.emit("app-update-progress", message);
             },
         )?;
+        let actual = sha256_of_file(&download_target).inspect_err(|_| {
+            let _ = std::fs::remove_file(&download_target);
+        })?;
+        if actual != expected {
+            let _ = std::fs::remove_file(&download_target);
+            log::error!(
+                target: "stacker::update",
+                "update package rejected: expected sha256 {expected}, got {actual}"
+            );
+            return Err("更新包校验不通过，已删除；请到发布页手动下载安装".into());
+        }
         let mut signature = [0u8; 2];
         std::fs::File::open(&download_target)
             .and_then(|mut input| input.read_exact(&mut signature))
@@ -471,6 +564,10 @@ struct LatestFile {
     #[serde(default)]
     released_at: Option<String>,
     #[serde(default)]
+    installer_sha256: Option<String>,
+    #[serde(default)]
+    portable_sha256: Option<String>,
+    #[serde(default)]
     notes: Vec<String>,
 }
 
@@ -511,6 +608,60 @@ fn pick_asset(assets: &[GitHubAsset], portable: bool) -> Option<String> {
         .map(|a| a.browser_download_url.clone())
 }
 
+/// 发布产物旁边的 SHA256SUMS.txt（release-windows.ps1 生成并随发布上传）。
+fn pick_checksums(assets: &[GitHubAsset]) -> Option<String> {
+    assets
+        .iter()
+        .find(|a| a.name.eq_ignore_ascii_case("SHA256SUMS.txt"))
+        .map(|a| a.browser_download_url.clone())
+}
+
+/// `<hex> *<文件名>` 或 `<hex>  <文件名>`，取出某个文件名对应的校验值。
+pub fn sha256_from_sums(text: &str, file_name: &str) -> Option<String> {
+    text.lines().find_map(|line| {
+        let (hex, name) = line.trim().split_once(char::is_whitespace)?;
+        let name = name.trim().trim_start_matches('*').trim();
+        if !name.eq_ignore_ascii_case(file_name) || !is_sha256_hex(hex) {
+            return None;
+        }
+        Some(hex.to_ascii_lowercase())
+    })
+}
+
+pub fn is_sha256_hex(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+fn file_name_of(url: &str) -> Option<&str> {
+    url.rsplit('/').next().filter(|name| !name.is_empty())
+}
+
+/// 从发布产物里读出安装包与免安装包的校验值；读不到就返回两个 None，
+/// 届时「立即更新」会拒绝自动安装，让用户去发布页手动下载。
+fn checksums_of(
+    assets: &[GitHubAsset],
+    installer: &Option<String>,
+    portable: &Option<String>,
+) -> (Option<String>, Option<String>) {
+    let Some(sums_url) = pick_checksums(assets) else {
+        log::warn!(target: "stacker::update", "release has no SHA256SUMS.txt asset");
+        return (None, None);
+    };
+    let text = match fetch(&sums_url) {
+        Ok(text) => text,
+        Err(error) => {
+            log::warn!(target: "stacker::update", "cannot read {sums_url}: {error}");
+            return (None, None);
+        }
+    };
+    let of = |url: &Option<String>| {
+        url.as_deref()
+            .and_then(file_name_of)
+            .and_then(|name| sha256_from_sums(&text, name))
+    };
+    (of(installer), of(portable))
+}
+
 fn github_latest_release(repo: &str, current: &str) -> Result<UpdateInfo, String> {
     let url = format!("https://api.github.com/repos/{repo}/releases/latest");
     let a = agent();
@@ -522,13 +673,19 @@ fn github_latest_release(repo: &str, current: &str) -> Result<UpdateInfo, String
                     let release: GitHubRelease = serde_json::from_str(&b)
                         .map_err(|e| format!("GitHub Release 格式错误：{e}"))?;
                     let latest = release.tag_name.trim_start_matches('v').trim().to_string();
+                    let installer_url = pick_asset(&release.assets, false);
+                    let portable_url = pick_asset(&release.assets, true);
+                    let (installer_sha256, portable_sha256) =
+                        checksums_of(&release.assets, &installer_url, &portable_url);
                     return Ok(UpdateInfo {
                         has_update: ver_lt(current, &latest),
                         current: current.into(),
                         latest,
                         release_url: release.html_url,
-                        installer_url: pick_asset(&release.assets, false),
-                        portable_url: pick_asset(&release.assets, true),
+                        installer_url,
+                        portable_url,
+                        installer_sha256,
+                        portable_sha256,
                         published_at: release.published_at,
                         notes: release
                             .body
@@ -558,6 +715,10 @@ fn gitee_latest_release(repo: &str, current: &str) -> Result<UpdateInfo, String>
     let release: GiteeRelease =
         serde_json::from_str(&body).map_err(|error| format!("Gitee Release 格式错误：{error}"))?;
     let latest = release.tag_name.trim_start_matches('v').trim().to_string();
+    let installer_url = pick_asset(&release.assets, false);
+    let portable_url = pick_asset(&release.assets, true);
+    let (installer_sha256, portable_sha256) =
+        checksums_of(&release.assets, &installer_url, &portable_url);
     Ok(UpdateInfo {
         has_update: ver_lt(current, &latest),
         current: current.into(),
@@ -566,8 +727,10 @@ fn gitee_latest_release(repo: &str, current: &str) -> Result<UpdateInfo, String>
             "https://gitee.com/{repo}/releases/tag/{}",
             release.tag_name
         )),
-        installer_url: pick_asset(&release.assets, false),
-        portable_url: pick_asset(&release.assets, true),
+        installer_url: installer_url.clone(),
+        portable_url: portable_url.clone(),
+        installer_sha256,
+        portable_sha256,
         published_at: release.created_at,
         notes: release
             .body
@@ -589,6 +752,8 @@ fn latest_json_update_from(url: &str, current: &str) -> Result<UpdateInfo, Strin
         release_url: file.release_url,
         installer_url: file.installer_url,
         portable_url: file.portable_url,
+        installer_sha256: file.installer_sha256.map(|h| h.trim().to_ascii_lowercase()),
+        portable_sha256: file.portable_sha256.map(|h| h.trim().to_ascii_lowercase()),
         published_at: file.published_at.or(file.released_at),
         notes: file.notes,
     })
@@ -757,6 +922,159 @@ pub async fn mirrors_update(url: Option<String>) -> Result<MirrorsStatus, String
 
 #[cfg(test)]
 mod tests {
+
+    use super::{is_sha256_hex, sha256_from_sums, sha256_of_file};
+
+    const SUMS: &str = "810b9f5b3a491506e2e7f8341f4450bab5193b0b1d0eb805905330acc0f67e0c *Stacker-0.3.3-setup-windows-x64.exe
+        9230453791e126e4b957580ccebb92fd5111f21ff34e016b9b2aac1e05be54b4 *Stacker-0.3.3-portable-windows-x64.zip
+";
+
+    /// 发布纪律：最新发布必须带 SHA256SUMS.txt，否则走 Releases 接口的用户拿不到校验值。
+    /// 需要联网，默认不跑：cargo test -- --ignored live_release_publishes_checksums
+    #[test]
+    #[ignore]
+    fn live_release_publishes_checksums() {
+        let body =
+            super::fetch("https://api.github.com/repos/byteswalk/stacker/releases/latest").unwrap();
+        let release: super::GitHubRelease = serde_json::from_str(&body).unwrap();
+        let names: Vec<&str> = release.assets.iter().map(|a| a.name.as_str()).collect();
+        assert!(
+            names
+                .iter()
+                .any(|n| n.eq_ignore_ascii_case("SHA256SUMS.txt")),
+            "assets: {names:?}"
+        );
+    }
+
+    fn info_needing_a_checksum() -> super::UpdateInfo {
+        super::UpdateInfo {
+            current: "0.3.3".into(),
+            latest: "0.3.4".into(),
+            has_update: true,
+            release_url: None,
+            installer_url: Some(
+                "https://example.invalid/Stacker-0.3.4-setup-windows-x64.exe".into(),
+            ),
+            portable_url: None,
+            installer_sha256: None,
+            portable_sha256: None,
+            published_at: None,
+            notes: Vec::new(),
+        }
+    }
+
+    fn manifest(version: &str, installer: &str) -> String {
+        format!(
+            r#"{{"version":"{version}","installer_sha256":"{installer}","portable_sha256":"{}"}}"#,
+            "b".repeat(64)
+        )
+    }
+
+    #[test]
+    fn a_checksum_is_taken_from_the_manifest_for_the_same_version() {
+        let mut info = info_needing_a_checksum();
+        let hex = "a".repeat(64);
+        super::fill_checksums_with(&mut info, |_| Ok(manifest("v0.3.4", &hex)));
+        assert_eq!(info.installer_sha256.as_deref(), Some(hex.as_str()));
+        assert_eq!(
+            info.portable_sha256.as_deref(),
+            Some("b".repeat(64).as_str())
+        );
+    }
+
+    #[test]
+    fn a_manifest_for_another_version_or_a_bad_digest_is_not_used() {
+        for body in [
+            manifest("v0.3.3", &"a".repeat(64)),
+            manifest("v0.3.4", "not-a-digest"),
+            manifest("v0.3.4", &"a".repeat(63)),
+            "{".into(),
+        ] {
+            let mut info = info_needing_a_checksum();
+            super::fill_checksums_with(&mut info, |_| Ok(body.clone()));
+            assert_eq!(info.installer_sha256, None, "body {body}");
+        }
+        // 取不到清单时保持原样，不会报错。
+        let mut info = info_needing_a_checksum();
+        super::fill_checksums_with(&mut info, |_| Err("offline".into()));
+        assert_eq!(info.installer_sha256, None);
+    }
+
+    #[test]
+    fn a_checksum_that_came_with_the_release_is_left_alone() {
+        let mut info = info_needing_a_checksum();
+        info.installer_sha256 = Some("c".repeat(64));
+        super::fill_checksums_with(&mut info, |_| panic!("must not read the manifest"));
+        assert_eq!(
+            info.installer_sha256.as_deref(),
+            Some("c".repeat(64).as_str())
+        );
+    }
+
+    #[test]
+    fn checksums_are_read_per_file_name() {
+        assert_eq!(
+            sha256_from_sums(SUMS, "Stacker-0.3.3-setup-windows-x64.exe").as_deref(),
+            Some("810b9f5b3a491506e2e7f8341f4450bab5193b0b1d0eb805905330acc0f67e0c")
+        );
+        assert_eq!(
+            sha256_from_sums(SUMS, "stacker-0.3.3-PORTABLE-windows-x64.zip").as_deref(),
+            Some("9230453791e126e4b957580ccebb92fd5111f21ff34e016b9b2aac1e05be54b4")
+        );
+        assert_eq!(
+            sha256_from_sums(SUMS, "Stacker-0.3.4-setup-windows-x64.exe"),
+            None
+        );
+        // 双空格分隔（sha256sum 的默认文本模式）同样认。
+        assert_eq!(
+            sha256_from_sums(
+                "810b9f5b3a491506e2e7f8341f4450bab5193b0b1d0eb805905330acc0f67e0c  a.exe",
+                "a.exe"
+            )
+            .as_deref(),
+            Some("810b9f5b3a491506e2e7f8341f4450bab5193b0b1d0eb805905330acc0f67e0c")
+        );
+    }
+
+    #[test]
+    fn a_line_without_a_real_checksum_is_ignored() {
+        for line in [
+            "not-a-hash *a.exe",
+            "810b9f5b3a491506e2e7f8341f4450bab5193b0b1d0eb805905330acc0f67e0 *a.exe",
+            "810b9f5b3a491506e2e7f8341f4450bab5193b0b1d0eb805905330acc0f67e0cc *a.exe",
+            "a.exe",
+        ] {
+            assert_eq!(sha256_from_sums(line, "a.exe"), None, "line {line:?}");
+        }
+    }
+
+    #[test]
+    fn only_a_full_hex_digest_counts_as_a_checksum() {
+        assert!(is_sha256_hex(&"0".repeat(64)));
+        assert!(is_sha256_hex(&"F".repeat(64)));
+        assert!(!is_sha256_hex(&"0".repeat(63)));
+        assert!(!is_sha256_hex(&"0".repeat(65)));
+        assert!(!is_sha256_hex(""));
+        assert!(!is_sha256_hex(&format!("{}g", "0".repeat(63))));
+    }
+
+    #[test]
+    fn a_files_digest_matches_the_published_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("payload.bin");
+        // 跨过 256 KiB 的读取块，确保分块累加没写错。
+        let bytes: Vec<u8> = (0..300_000u32).map(|i| (i % 251) as u8).collect();
+        std::fs::write(&path, &bytes).unwrap();
+
+        let expected = {
+            use sha2::{Digest, Sha256};
+            format!("{:x}", Sha256::digest(&bytes))
+        };
+        assert_eq!(sha256_of_file(&path).unwrap(), expected);
+
+        std::fs::write(&path, b"tampered").unwrap();
+        assert_ne!(sha256_of_file(&path).unwrap(), expected);
+    }
     use super::*;
 
     #[test]
