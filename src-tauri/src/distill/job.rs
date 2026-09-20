@@ -395,4 +395,102 @@ mod tests {
         );
         assert_eq!(partial.folders, vec!["First".to_string()]);
     }
+
+    /// Live run: take the first web conversation with a body in the dev data dir (or a local
+    /// session if there is none), distil it for real with the logged-in agent, and check it
+    /// left no session behind.
+    /// `cargo test --manifest-path src-tauri/Cargo.toml --lib live_distill -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn live_distill() {
+        let root = crate::webchat::root();
+        let conn = crate::webchat::store::open(&root).unwrap();
+        let chats = crate::webchat::store::list(&conn, &root, &Default::default()).unwrap();
+        let chat = chats
+            .items
+            .iter()
+            .find(|c| c.body_fetched_at.is_some() && c.body_messages >= 4);
+        let catalog = crate::sessions::commands::annotated_catalog().unwrap().0;
+        let before = catalog.len();
+        let (refs, sessions) = match chat {
+            Some(c) => (
+                vec![SourceRef {
+                    kind: "web".into(),
+                    key: c.key.clone(),
+                }],
+                Vec::new(),
+            ),
+            None => {
+                let session = catalog
+                    .iter()
+                    .filter(|s| !crate::sessions::catalog::is_automation(s))
+                    .find(|s| (200_000..5_000_000).contains(&s.bytes))
+                    .expect("need a web conversation with a body or a medium-sized local session")
+                    .clone();
+                (
+                    vec![SourceRef {
+                        kind: "session".into(),
+                        key: session.id.clone(),
+                    }],
+                    vec![session],
+                )
+            }
+        };
+        let request = StartRequest {
+            root: root.clone(),
+            sessions,
+            refs,
+            kinds: vec!["qa".into(), "requirement".into(), "skill".into()],
+            choice: crate::webchat::commands::runner_for(&crate::sessions::summary::load_settings(
+                &crate::sessions::annotations::connect().unwrap(),
+            )),
+            locale: "zh-CN".into(),
+        };
+        let started = std::time::Instant::now();
+        start(request, crate::sessions::summary_job::live_runner()).unwrap();
+        let done = wait_for_live(|j| j.state != "running");
+        println!(
+            "== {} stage={} {}/{} saved={} folders={:?} elapsed={:?} error={}",
+            done.by,
+            done.stage,
+            done.done,
+            done.total,
+            done.saved,
+            done.folders,
+            started.elapsed(),
+            done.error
+        );
+        assert_eq!(done.state, "completed", "{}", done.error);
+        assert!(done.saved > 0, "should distil at least one item");
+        for folder in &done.folders {
+            let dir = crate::distill::skills_in(&root).join(folder);
+            println!("-- {}", dir.display());
+            assert!(dir.join("SKILL.md").is_file() && dir.join("excerpts.md").is_file());
+        }
+        crate::sessions::catalog::invalidate();
+        let after = crate::sessions::commands::annotated_catalog()
+            .unwrap()
+            .0
+            .len();
+        assert_eq!(
+            after, before,
+            "distilling must not leave a new session behind"
+        );
+    }
+
+    /// A live run may take a few minutes, so it gets its own, longer wait.
+    fn wait_for_live(check: impl Fn(&DistillJob) -> bool) -> DistillJob {
+        for _ in 0..3600 {
+            if let Some(j) = job() {
+                if check(&j) {
+                    return j;
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+        panic!(
+            "live distillation did not finish within 30 minutes: {:?}",
+            job()
+        );
+    }
 }
