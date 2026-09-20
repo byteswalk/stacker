@@ -3,6 +3,7 @@
 //! 只写本机文件，绝不把 skill 安装到任何智能体目录。
 pub mod pipeline;
 pub mod prompts;
+pub mod sources;
 pub mod store;
 
 use serde::{Deserialize, Serialize};
