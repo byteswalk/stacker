@@ -1,6 +1,7 @@
 //! 提炼：从网页对话、本机会话与摘录里提炼可复用的经验问答、领域要求、提示词与 skill 草稿。
 //! 结果与网页对话同库（`webchat.sqlite3`），本机会话与网页对话共用一个结果库。
 //! 只写本机文件，绝不把 skill 安装到任何智能体目录。
+pub mod commands;
 pub mod job;
 pub mod pipeline;
 pub mod prompts;
@@ -37,18 +38,9 @@ pub struct DistillSource {
     pub link: String,
 }
 
-/// 提炼的数据目录：`<conversations>\distill`，随数据目录迁移。
-pub fn root() -> PathBuf {
-    crate::webchat::root().join("distill")
-}
-
-/// skill 草稿目录：只写文件，永不安装。
+/// skill 草稿目录：只写文件，永不安装。`root` 是网页对话的数据目录（`crate::webchat::root()`）。
 pub fn skills_in(root: &Path) -> PathBuf {
     root.join("distill").join("skills")
-}
-
-pub fn skills_root() -> PathBuf {
-    skills_in(&crate::webchat::root())
 }
 
 /// 提炼结果的导出目录。

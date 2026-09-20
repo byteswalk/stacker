@@ -7,8 +7,6 @@ mod checkup;
 mod cleanup;
 mod composer;
 mod custom;
-// Wired into Tauri commands in Task 7; the allow goes away then.
-#[allow(dead_code)]
 mod distill;
 mod dpapi;
 mod env;
@@ -202,6 +200,17 @@ pub fn run() {
             webchat::commands::webchat_read,
             webchat::commands::webchat_summarize,
             webchat::commands::webchat_summary_cancel,
+            distill::commands::distill_candidates,
+            distill::commands::distill_preview,
+            distill::commands::distill_start,
+            distill::commands::distill_job,
+            distill::commands::distill_cancel,
+            distill::commands::distill_list,
+            distill::commands::distill_save,
+            distill::commands::distill_state,
+            distill::commands::distill_delete,
+            distill::commands::distill_export,
+            distill::commands::distill_open,
             sources::list_sources,
             sources::apply_source,
             sources::apply_source_scoped,

@@ -2783,4 +2783,5 @@ export const GENERATED_EN: Record<string, string> = {
   "领域要求": "Domain requirements",
   "提示词": "Reusable prompts",
   "skill 草稿": "Skill drafts",
+  "提炼结果": "Distilled results",
 };
