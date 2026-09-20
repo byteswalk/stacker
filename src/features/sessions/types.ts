@@ -115,6 +115,7 @@ export const ERRORS: Record<string, string> = {
   E_NO_EXTENSION: "没有找到插件文件夹。",
   E_NO_BODY: "Stacker 还没有这条对话的正文。",
   E_SUMMARY_BUSY: "已有网页对话摘要正在生成，请等待完成。",
+  E_DISTILL_BUSY: "已有提炼任务正在执行，请等待完成或取消。",
 };
 
 export function errorMessage(error: unknown): string {
@@ -211,3 +212,53 @@ export type WebChatDetail = { chat: WebChat; messages: WebMessage[]; chars: numb
 const WEB_SITE_LABEL: Record<string, string> = { chatgpt: "ChatGPT", claude: "Claude", gemini: "Gemini", grok: "Grok", deepseek: "DeepSeek" };
 /** Site ids come from the extension; unknown ones are shown as they are. */
 export const webSiteLabel = (site: string) => WEB_SITE_LABEL[site] ?? site;
+
+export type DistillKind = "qa" | "requirement" | "prompt" | "skill";
+export const DISTILL_KINDS: DistillKind[] = ["qa", "requirement", "prompt", "skill"];
+export const DISTILL_KIND_LABEL: Record<DistillKind, string> = {
+  qa: "经验问答", requirement: "领域要求", prompt: "提示词", skill: "skill 草稿",
+};
+export type DistillSourceKind = "web" | "session" | "excerpt";
+export type DistillSourceRef = { kind: DistillSourceKind; key: string };
+/** 一条结果的来源：`web:<site>:<id>` / `session:<agent>:<nativeId>` / `excerpt:<id>`。 */
+export type DistillSource = { key: string; kind: string; title: string; link: string };
+export type DistillResult = {
+  id: string;
+  kind: DistillKind;
+  title: string;
+  body: string;
+  sources: DistillSource[];
+  state: "draft" | "adopted";
+  by: string;
+  /** skill 草稿的文件夹名，其他类型为空。 */
+  folder: string;
+  createdAt: number;
+  updatedAt: number;
+};
+export type DistillQuery = { kind: string; state: string; search: string; source: string };
+export const EMPTY_DISTILL_QUERY: DistillQuery = { kind: "", state: "", search: "", source: "" };
+export type DistillKindCounts = { qa: number; requirement: number; prompt: number; skill: number; total: number };
+export type DistillPage = { items: DistillResult[]; total: number; counts: DistillKindCounts };
+export type DistillCandidate = { kind: DistillSourceKind; key: string; title: string; subtitle: string; available: boolean };
+export type DistillPreview = { items: { title: string; chars: number }[]; totalChars: number; runner: RunnerChoice };
+export type DistillJob = {
+  id: string; state: string; stage: string; done: number; total: number;
+  saved: number; folders: string[]; error: string; by: string;
+};
+
+// Stacker 侧不枚举站点（与 webSiteLabel 一样，这张表只用于显示）。
+const WEB_SITE_URL: Record<string, (id: string) => string> = {
+  chatgpt: (id) => `https://chatgpt.com/c/${id}`,
+  claude: (id) => `https://claude.ai/chat/${id}`,
+  gemini: (id) => `https://gemini.google.com/app/${id.replace(/^c_/, "")}`,
+  grok: (id) => `https://grok.com/c/${id}`,
+  deepseek: (id) => `https://chat.deepseek.com/a/chat/s/${id}`,
+};
+/** 来源的网址；本机会话的记录路径不是网址，返回空串。 */
+export function distillSourceUrl(source: DistillSource): string {
+  if (/^https?:\/\//.test(source.link)) return source.link;
+  const [kind, site, ...rest] = source.key.split(":");
+  const id = rest.join(":");
+  if (kind !== "web" || !site || !id) return "";
+  return WEB_SITE_URL[site]?.(id) ?? "";
+}

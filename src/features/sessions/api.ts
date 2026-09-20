@@ -1,5 +1,5 @@
 import { invoke } from "../../invoke";
-import type { LocationStatus, MigrationCheck, MigrationJob, AgentOptions, SummaryJob, SummaryPreview, SummarySettings, CleanupJob, CleanupPreview, DeleteJob, DeleteMode, DeletePreview, ProjectRow, Roots, RootsView, SessionDetail, SessionPage, SessionQuery, FootprintReport, WebBrowser, WebchatStatus, WebChat, WebChatDetail, WebPage, WebQuery } from "./types";
+import type { LocationStatus, MigrationCheck, MigrationJob, AgentOptions, SummaryJob, SummaryPreview, SummarySettings, CleanupJob, CleanupPreview, DeleteJob, DeleteMode, DeletePreview, ProjectRow, Roots, RootsView, SessionDetail, SessionPage, SessionQuery, FootprintReport, WebBrowser, WebchatStatus, WebChat, WebChatDetail, WebPage, WebQuery, DistillCandidate, DistillJob, DistillPage, DistillPreview, DistillQuery, DistillResult, DistillSourceRef } from "./types";
 
 export const listSessions = (query: SessionQuery) => invoke<SessionPage>("sessions_list", { query });
 export const listProjects = () => invoke<ProjectRow[]>("sessions_projects");
@@ -41,3 +41,15 @@ export const listWebChats = (query: WebQuery) => invoke<WebPage>("webchat_list",
 export const readWebChat = (key: string) => invoke<WebChatDetail>("webchat_read", { key });
 export const summarizeWebChat = (key: string, settings: SummarySettings | null, locale: string) => invoke<WebChat>("webchat_summarize", { key, settings, locale });
 export const cancelWebSummary = () => invoke<void>("webchat_summary_cancel");
+
+export const distillCandidates = (search: string) => invoke<DistillCandidate[]>("distill_candidates", { search });
+export const previewDistill = (sources: DistillSourceRef[], settings: SummarySettings | null) => invoke<DistillPreview>("distill_preview", { sources, settings });
+export const startDistill = (sources: DistillSourceRef[], kinds: string[], settings: SummarySettings | null, locale: string) => invoke<DistillJob>("distill_start", { sources, kinds, settings, locale });
+export const distillJob = () => invoke<DistillJob | null>("distill_job");
+export const cancelDistill = () => invoke<void>("distill_cancel");
+export const listDistill = (query: DistillQuery) => invoke<DistillPage>("distill_list", { query });
+export const saveDistill = (id: string, title: string, body: string) => invoke<DistillResult>("distill_save", { id, title, body });
+export const setDistillState = (id: string, state: string) => invoke<DistillResult>("distill_state", { id, state });
+export const deleteDistill = (id: string) => invoke<void>("distill_delete", { id });
+export const exportDistill = (query: DistillQuery, locale: string) => invoke<string>("distill_export", { query, locale });
+export const openDistill = (target: "skill" | "skills" | "exports", name: string) => invoke<void>("distill_open", { target, name });
