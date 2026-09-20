@@ -5,7 +5,7 @@ import dayjs from "dayjs";
 import "dayjs/locale/zh-cn";
 import { createContext, use, useEffect, useMemo, useState, type ReactNode } from "react";
 import { englishUi, setLanguage } from "../i18n";
-import { DEFAULT_PREFS, loadPrefs, resolveMode, savePrefs, type Prefs } from "./prefs";
+import { cleanPrefs, DEFAULT_PREFS, loadPrefs, PREFS_KEY, resolveMode, savePrefs, type Prefs } from "./prefs";
 import "./style.css";
 
 /** Stacker's own palette, so the extension's pages read as the same product. */
@@ -97,6 +97,16 @@ export function Shell({ children }: { children: ReactNode }) {
     const follow = () => setSystemDark(!media.matches);
     media.addEventListener("change", follow);
     return () => media.removeEventListener("change", follow);
+  }, []);
+
+  // The manage page and the popup are separate windows; a change in one reaches the other.
+  useEffect(() => {
+    if (typeof chrome === "undefined" || !chrome.storage?.onChanged) return;
+    const follow = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
+      if (area === "local" && changes[PREFS_KEY]) setPrefs(cleanPrefs(changes[PREFS_KEY].newValue));
+    };
+    chrome.storage.onChanged.addListener(follow);
+    return () => chrome.storage.onChanged.removeListener(follow);
   }, []);
 
   const api = useMemo<PrefsApi>(() => ({

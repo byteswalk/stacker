@@ -1,6 +1,12 @@
 /* Page shell only: colours, spacing and controls come from the Ant Design theme in Shell.tsx. */
+/* The first paint happens before React reads the stored preference, so the system's own
+   light or dark setting decides it; data-theme then pins whatever the preference says. */
 :root { color-scheme: dark; background: #13161c; }
-:root[data-theme="light"] { background: #f3f4f6; }
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) { color-scheme: light; background: #f3f4f6; }
+}
+:root[data-theme="light"] { color-scheme: light; background: #f3f4f6; }
+:root[data-theme="dark"] { color-scheme: dark; background: #13161c; }
 
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }

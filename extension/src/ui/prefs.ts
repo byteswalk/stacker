@@ -6,14 +6,14 @@ export interface Prefs {
   mode: Mode;
 }
 
-const KEY = "stacker-web-chats-prefs";
-/** Stacker's own window is dark by default; its pages match. */
-export const DEFAULT_PREFS: Prefs = { lang: "auto", mode: "dark" };
+export const PREFS_KEY = "stacker-web-chats-prefs";
+/** Follow the system's light or dark setting and the browser's language until told otherwise. */
+export const DEFAULT_PREFS: Prefs = { lang: "auto", mode: "auto" };
 
 const LANGS: Lang[] = ["auto", "zh", "en"];
 const MODES: Mode[] = ["auto", "dark", "light"];
 
-function clean(value: unknown): Prefs {
+export function cleanPrefs(value: unknown): Prefs {
   const v = value as Partial<Prefs> | null;
   return {
     lang: LANGS.includes(v?.lang as Lang) ? (v!.lang as Lang) : DEFAULT_PREFS.lang,
@@ -24,9 +24,9 @@ function clean(value: unknown): Prefs {
 /** chrome.storage in the extension, localStorage in tests and the design preview. */
 export async function loadPrefs(): Promise<Prefs> {
   try {
-    if (typeof chrome !== "undefined" && chrome.storage?.local) return clean((await chrome.storage.local.get(KEY))[KEY]);
-    const text = localStorage.getItem(KEY);
-    return clean(text ? JSON.parse(text) : null);
+    if (typeof chrome !== "undefined" && chrome.storage?.local) return cleanPrefs((await chrome.storage.local.get(PREFS_KEY))[PREFS_KEY]);
+    const text = localStorage.getItem(PREFS_KEY);
+    return cleanPrefs(text ? JSON.parse(text) : null);
   } catch {
     return { ...DEFAULT_PREFS };
   }
@@ -34,8 +34,8 @@ export async function loadPrefs(): Promise<Prefs> {
 
 export async function savePrefs(prefs: Prefs): Promise<void> {
   try {
-    if (typeof chrome !== "undefined" && chrome.storage?.local) await chrome.storage.local.set({ [KEY]: prefs });
-    else localStorage.setItem(KEY, JSON.stringify(prefs));
+    if (typeof chrome !== "undefined" && chrome.storage?.local) await chrome.storage.local.set({ [PREFS_KEY]: prefs });
+    else localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
   } catch {
     /* the pages keep working with the prefs held in memory */
   }
