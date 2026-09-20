@@ -48,4 +48,24 @@ for (const field of ["installer_sha256", "portable_sha256"]) {
   }
 }
 
+// Releases from here on are signed with the release key, and the app refuses to install an
+// update it cannot verify. Earlier releases predate signing, so only newer ones are required
+// to carry a signature.
+const LAST_UNSIGNED_RELEASE = "0.3.3";
+const asNumbers = (v) => v.split(".").map(Number);
+const isAfter = (a, b) => {
+  const [x, y] = [asNumbers(a), asNumbers(b)];
+  for (let i = 0; i < Math.max(x.length, y.length); i += 1) {
+    if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) > (y[i] ?? 0);
+  }
+  return false;
+};
+
+if (isAfter(version, LAST_UNSIGNED_RELEASE)) {
+  const signature = latestMeta.installer_signature;
+  if (typeof signature !== "string" || !signature.includes("untrusted comment:")) {
+    throw new Error("latest.json installer_signature must hold the installer's minisign signature");
+  }
+}
+
 console.log(`Release metadata is consistent for v${version}.`);

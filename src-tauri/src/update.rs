@@ -307,12 +307,18 @@ pub struct UpdateInfo {
     /// 安装包与免安装包的 SHA-256（小写十六进制）。没有校验值就不会自动安装。
     pub installer_sha256: Option<String>,
     pub portable_sha256: Option<String>,
+    /// 安装包的 minisign 签名（.minisig 全文）。没有签名同样不会自动安装。
+    pub installer_signature: Option<String>,
     pub published_at: Option<String>,
     pub notes: Vec<String>,
 }
 
 // Stacker 自身的发布仓库（owner/repo）。发布到 GitHub Releases 后填上即可启用「检查更新」。
 const APP_REPO: &str = "byteswalk/stacker";
+
+/// 发布签名的公钥（minisign 格式）。私钥只在发版那台机器上，不进仓库、不进 CI。
+/// 换密钥对就换这一行：cargo run --example release-key -- keygen <私钥路径>
+const RELEASE_PUBLIC_KEY: &str = "RWRFeBheM9RE7hJRWngACNiP4WwTCpVuaU+wHV0QyARJPayvTHGs1Qmv";
 
 /// 发布清单里的校验值，用来补上 Releases 接口没取到的那一份
 /// （发布页的 SHA256SUMS.txt 在部分网络下拉不到，清单走 raw/jsDelivr/Gitee，更容易通）。
@@ -322,7 +328,7 @@ fn fill_checksums_from_manifest(info: &mut UpdateInfo) {
 }
 
 fn fill_checksums_with(info: &mut UpdateInfo, read: impl Fn(&str) -> Result<String, String>) {
-    if !info.has_update || info.installer_sha256.is_some() {
+    if !info.has_update || (info.installer_sha256.is_some() && info.installer_signature.is_some()) {
         return;
     }
     for url in [DEFAULT_LATEST_URL, GITEE_LATEST_URL] {
@@ -338,11 +344,14 @@ fn fill_checksums_with(info: &mut UpdateInfo, read: impl Fn(&str) -> Result<Stri
             .map(|h| h.trim().to_ascii_lowercase())
             .filter(|h| is_sha256_hex(h));
         if hash.is_some() {
-            info.installer_sha256 = hash;
-            info.portable_sha256 = file
-                .portable_sha256
-                .map(|h| h.trim().to_ascii_lowercase())
-                .filter(|h| is_sha256_hex(h));
+            if info.installer_sha256.is_none() {
+                info.installer_sha256 = hash;
+                info.portable_sha256 = file
+                    .portable_sha256
+                    .map(|h| h.trim().to_ascii_lowercase())
+                    .filter(|h| is_sha256_hex(h));
+            }
+            info.installer_signature = file.installer_signature;
             return;
         }
     }
@@ -429,21 +438,37 @@ pub fn sha256_of_file(path: &std::path::Path) -> Result<String, String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
+/// 用内置公钥验证安装包的 minisign 签名。清单被篡改也没用：签的是安装包的字节，
+/// 私钥只在发版那台机器上。
+pub fn verify_release_signature(bytes: &[u8], signature: &str) -> Result<(), String> {
+    let key = minisign_verify::PublicKey::from_base64(RELEASE_PUBLIC_KEY)
+        .map_err(|e| format!("内置公钥无效：{e}"))?;
+    let signature = minisign_verify::Signature::decode(signature.trim())
+        .map_err(|e| format!("签名格式不对：{e}"))?;
+    key.verify(bytes, &signature, false)
+        .map_err(|e| format!("签名验证不通过：{e}"))
+}
+
 #[tauri::command]
 pub async fn app_download_update(
     window: tauri::Window,
     url: String,
     version: String,
     sha256: String,
+    signature: String,
 ) -> Result<String, String> {
     if !url.trim().starts_with("https://") {
         return Err("更新包必须使用 HTTPS 地址".into());
     }
-    // 没有校验值就不装：下载地址来自发布清单，校验值也来自发布产物本身，
-    // 缺一个就无法确认下载到的确实是这次发布的安装包。
+    // 校验值和签名都得有才装。校验值挡下载损坏和上传错文件，签名挡发布清单被篡改
+    // （地址和校验值都来自清单，只有签名的私钥不在那里）。
     let expected = sha256.trim().to_ascii_lowercase();
     if !is_sha256_hex(&expected) {
         return Err("这个版本没有提供校验值，请到发布页手动下载安装".into());
+    }
+    let signature = signature.trim().to_string();
+    if signature.is_empty() {
+        return Err("这个版本没有提供签名，请到发布页手动下载安装".into());
     }
     crate::installer::op_reset();
     let target = std::env::temp_dir().join(format!(
@@ -482,13 +507,18 @@ pub async fn app_download_update(
             );
             return Err("更新包校验不通过，已删除；请到发布页手动下载安装".into());
         }
-        let mut signature = [0u8; 2];
-        std::fs::File::open(&download_target)
-            .and_then(|mut input| input.read_exact(&mut signature))
-            .map_err(|error| format!("无法校验更新包：{error}"))?;
-        if signature != *b"MZ" {
+        let bytes = std::fs::read(&download_target).map_err(|error| {
+            let _ = std::fs::remove_file(&download_target);
+            format!("无法读取更新包：{error}")
+        })?;
+        if !bytes.starts_with(b"MZ") {
             let _ = std::fs::remove_file(&download_target);
             return Err("下载内容不是有效的 Windows 安装程序".into());
+        }
+        if let Err(error) = verify_release_signature(&bytes, &signature) {
+            let _ = std::fs::remove_file(&download_target);
+            log::error!(target: "stacker::update", "update package rejected: {error}");
+            return Err("更新包签名验证不通过，已删除；请到发布页手动下载安装".into());
         }
         let _ = download_window.emit("app-update-progress", "更新包已下载，正在启动安装程序…");
         Ok::<(), String>(())
@@ -567,6 +597,8 @@ struct LatestFile {
     installer_sha256: Option<String>,
     #[serde(default)]
     portable_sha256: Option<String>,
+    #[serde(default)]
+    installer_signature: Option<String>,
     #[serde(default)]
     notes: Vec<String>,
 }
@@ -686,6 +718,7 @@ fn github_latest_release(repo: &str, current: &str) -> Result<UpdateInfo, String
                         portable_url,
                         installer_sha256,
                         portable_sha256,
+                        installer_signature: None,
                         published_at: release.published_at,
                         notes: release
                             .body
@@ -731,6 +764,7 @@ fn gitee_latest_release(repo: &str, current: &str) -> Result<UpdateInfo, String>
         portable_url: portable_url.clone(),
         installer_sha256,
         portable_sha256,
+        installer_signature: None,
         published_at: release.created_at,
         notes: release
             .body
@@ -754,6 +788,7 @@ fn latest_json_update_from(url: &str, current: &str) -> Result<UpdateInfo, Strin
         portable_url: file.portable_url,
         installer_sha256: file.installer_sha256.map(|h| h.trim().to_ascii_lowercase()),
         portable_sha256: file.portable_sha256.map(|h| h.trim().to_ascii_lowercase()),
+        installer_signature: file.installer_signature,
         published_at: file.published_at.or(file.released_at),
         notes: file.notes,
     })
@@ -929,6 +964,34 @@ mod tests {
         9230453791e126e4b957580ccebb92fd5111f21ff34e016b9b2aac1e05be54b4 *Stacker-0.3.3-portable-windows-x64.zip
 ";
 
+    /// 发布前自检：本机那把私钥签出来的东西，程序里内置的公钥确实认。
+    /// 需要本机有私钥，默认不跑：
+    ///   cargo test -- --ignored the_local_release_key_matches_the_built_in_one
+    #[test]
+    #[ignore]
+    fn the_local_release_key_matches_the_built_in_one() {
+        let path = std::env::var("STACKER_SIGNING_KEY").unwrap_or_else(|_| {
+            dirs::home_dir()
+                .unwrap()
+                .join(".stacker")
+                .join("release-signing.key")
+                .to_string_lossy()
+                .into_owned()
+        });
+        let text = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("cannot read the signing key {path}: {e}"));
+        let secret = minisign::SecretKeyBox::from_string(&text)
+            .unwrap()
+            .into_secret_key(std::env::var("STACKER_SIGNING_PASSWORD").ok())
+            .unwrap();
+        let payload = b"MZ pretend installer";
+        let signature = minisign::sign(None, &secret, &payload[..], Some("test"), Some("test"))
+            .unwrap()
+            .to_string();
+        super::verify_release_signature(payload, &signature)
+            .expect("the local signing key does not match RELEASE_PUBLIC_KEY");
+    }
+
     /// 发布纪律：最新发布必须带 SHA256SUMS.txt，否则走 Releases 接口的用户拿不到校验值。
     /// 需要联网，默认不跑：cargo test -- --ignored live_release_publishes_checksums
     #[test]
@@ -958,6 +1021,7 @@ mod tests {
             portable_url: None,
             installer_sha256: None,
             portable_sha256: None,
+            installer_signature: None,
             published_at: None,
             notes: Vec::new(),
         }
@@ -1001,14 +1065,30 @@ mod tests {
     }
 
     #[test]
-    fn a_checksum_that_came_with_the_release_is_left_alone() {
+    fn a_checksum_that_came_with_the_release_is_kept_while_the_signature_is_fetched() {
         let mut info = info_needing_a_checksum();
         info.installer_sha256 = Some("c".repeat(64));
-        super::fill_checksums_with(&mut info, |_| panic!("must not read the manifest"));
+        super::fill_checksums_with(&mut info, |_| {
+            Ok(format!(
+                r#"{{"version":"0.3.4","installer_sha256":"{}","installer_signature":"sig"}}"#,
+                "a".repeat(64)
+            ))
+        });
+        // 发布接口给的校验值不被清单覆盖，只是顺带把清单里的签名带回来。
         assert_eq!(
             info.installer_sha256.as_deref(),
             Some("c".repeat(64).as_str())
         );
+        assert_eq!(info.installer_signature.as_deref(), Some("sig"));
+    }
+
+    #[test]
+    fn nothing_is_fetched_once_both_the_checksum_and_the_signature_are_in() {
+        let mut info = info_needing_a_checksum();
+        info.installer_sha256 = Some("c".repeat(64));
+        info.installer_signature = Some("sig".into());
+        super::fill_checksums_with(&mut info, |_| panic!("must not read the manifest"));
+        assert_eq!(info.installer_signature.as_deref(), Some("sig"));
     }
 
     #[test]
@@ -1056,6 +1136,56 @@ mod tests {
         assert!(!is_sha256_hex(&"0".repeat(65)));
         assert!(!is_sha256_hex(""));
         assert!(!is_sha256_hex(&format!("{}g", "0".repeat(63))));
+    }
+
+    /// 用发布工具的同一套 minisign API 现签一份，确认内置公钥能验过、改一个字节就验不过。
+    fn sign_for_test(bytes: &[u8], pair: &minisign::KeyPair) -> String {
+        minisign::sign(None, &pair.sk, bytes, Some("test"), Some("test"))
+            .unwrap()
+            .to_string()
+    }
+
+    #[test]
+    fn only_the_release_key_can_sign_an_update() {
+        let installer = b"MZ fake installer bytes".to_vec();
+
+        // 换一把钥匙签的，验不过。
+        let other = minisign::KeyPair::generate_unencrypted_keypair().unwrap();
+        let forged = sign_for_test(&installer, &other);
+        assert!(super::verify_release_signature(&installer, &forged).is_err());
+
+        // 签名本身是乱的，也验不过，而且不会 panic。
+        for junk in ["", "not a signature", "untrusted comment: x"] {
+            assert!(
+                super::verify_release_signature(&installer, junk).is_err(),
+                "{junk}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_signature_covers_the_exact_bytes() {
+        // 这里用内置公钥对应的那把私钥是拿不到的，所以换一个自带的公钥来验同一套逻辑：
+        // 签名、验证、篡改后失败，三件事在 minisign 侧是同一条路径。
+        let pair = minisign::KeyPair::generate_unencrypted_keypair().unwrap();
+        let bytes = b"MZ installer".to_vec();
+        let signature = sign_for_test(&bytes, &pair);
+
+        let key = minisign_verify::PublicKey::from_base64(&pair.pk.to_base64()).unwrap();
+        let parsed = minisign_verify::Signature::decode(&signature).unwrap();
+        assert!(key.verify(&bytes, &parsed, false).is_ok());
+
+        let mut tampered = bytes.clone();
+        tampered.push(b'!');
+        assert!(key.verify(&tampered, &parsed, false).is_err());
+    }
+
+    #[test]
+    fn the_built_in_release_key_is_usable() {
+        assert!(
+            minisign_verify::PublicKey::from_base64(super::RELEASE_PUBLIC_KEY).is_ok(),
+            "RELEASE_PUBLIC_KEY must hold one minisign public key"
+        );
     }
 
     #[test]

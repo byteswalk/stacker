@@ -2255,6 +2255,7 @@ pub async fn pyenv_check_update(
             portable_url: None,
             installer_sha256: None,
             portable_sha256: None,
+            installer_signature: None,
             published_at: None,
             notes: Vec::new(),
         })

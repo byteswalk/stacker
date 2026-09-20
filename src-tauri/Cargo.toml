@@ -43,6 +43,7 @@ ureq = "2"
 zip = "2"
 flate2 = "1"
 tiny_http = "0.12"
+minisign-verify = "0.2.5"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
@@ -68,3 +69,6 @@ debug = 0
 [profile.test.build-override]
 debug = 0
 incremental = false
+
+[dev-dependencies]
+minisign = "0.9.1"

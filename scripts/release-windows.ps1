@@ -96,15 +96,34 @@ $Checksums = @(
 )
 $Checksums | Set-Content $ChecksumPath -Encoding ascii
 
-# 自动更新把校验值写回发布清单：应用下载更新后按它校验，不符就拒绝安装。
+# 用发布私钥给安装包签名。私钥只在本机，路径由 STACKER_SIGNING_KEY 指定，
+# 默认 %USERPROFILE%\.stacker\release-signing.key。私钥有密码时会交互式询问。
+$KeyPath = $env:STACKER_SIGNING_KEY
+if (-not $KeyPath) { $KeyPath = Join-Path $env:USERPROFILE ".stacker\release-signing.key" }
+if (-not (Test-Path $KeyPath)) {
+    throw "Release signing key not found: $KeyPath. Generate one with: cargo run --manifest-path src-tauri/Cargo.toml --example release-key -- keygen `"$KeyPath`""
+}
+$InstallerSig = & cargo run -q --manifest-path (Join-Path $Root "src-tauri\Cargo.toml") --example release-key -- sign $KeyPath $InstallerPath
+if ($LASTEXITCODE -ne 0 -or -not $InstallerSig) { throw "Signing the installer failed" }
+$PortableSig = & cargo run -q --manifest-path (Join-Path $Root "src-tauri\Cargo.toml") --example release-key -- sign $KeyPath $PortablePath
+if ($LASTEXITCODE -ne 0 -or -not $PortableSig) { throw "Signing the portable archive failed" }
+$InstallerSig = ($InstallerSig -join "`n").Trim()
+$PortableSig = ($PortableSig -join "`n").Trim()
+Set-Content "$InstallerPath.minisig" -Value $InstallerSig -Encoding ascii
+Set-Content "$PortablePath.minisig" -Value $PortableSig -Encoding ascii
+
+# 自动更新把校验值和签名写回发布清单：应用下载更新后先比校验值再验签，任一不符就拒绝安装。
 # SHA256SUMS.txt 必须与安装包一起上传到 Release，走 Releases 接口的检查会读它。
 $LatestPath = Join-Path $Root "resources\latest.json"
-$LatestText = Get-Content $LatestPath -Raw -Encoding utf8
-$LatestText = [regex]::Replace($LatestText, '("installer_sha256"\s*:\s*")[0-9a-fA-F]*(")', "`${1}$InstallerHash`${2}")
-$LatestText = [regex]::Replace($LatestText, '("portable_sha256"\s*:\s*")[0-9a-fA-F]*(")', "`${1}$PortableHash`${2}")
-Set-Content $LatestPath -Value $LatestText -Encoding utf8 -NoNewline
+$Latest = Get-Content $LatestPath -Raw -Encoding utf8 | ConvertFrom-Json
+$Latest.installer_sha256 = $InstallerHash
+$Latest.portable_sha256 = $PortableHash
+$Latest | Add-Member -NotePropertyName installer_signature -NotePropertyValue $InstallerSig -Force
+# Set-Content -Encoding utf8 在 Windows PowerShell 下会写 BOM，JSON 解析器不吃，必须绕开。
+$Utf8NoBom = New-Object System.Text.UTF8Encoding $false
+[System.IO.File]::WriteAllText($LatestPath, (($Latest | ConvertTo-Json -Depth 10) + "`n"), $Utf8NoBom)
 Invoke-Checked "Release metadata check" { & npm.cmd run check:release-metadata }
-Write-Host "resources/latest.json updated with the release checksums - commit it with the release." -ForegroundColor Yellow
+Write-Host "resources/latest.json updated with the release checksums and signature - commit it with the release." -ForegroundColor Yellow
 
 Write-Host "`nRelease artifacts:" -ForegroundColor Green
 Get-ChildItem $Output | Select-Object Name, Length, LastWriteTime | Format-Table -AutoSize

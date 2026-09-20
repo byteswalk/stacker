@@ -43,6 +43,7 @@ type UpdateInfo = {
   portable_url?: string | null;
   installer_sha256?: string | null;
   portable_sha256?: string | null;
+  installer_signature?: string | null;
   published_at?: string | null;
   notes: string[];
 };
@@ -319,9 +320,13 @@ export default function Settings() {
       toast("当前版本未提供 Windows 安装包", "info");
       return;
     }
-    // 没有校验值就无法确认下载到的是这次发布的安装包，不自动安装。
+    // 校验值和签名缺一个都无法确认下载到的是这次发布的安装包，不自动安装。
     if (!updateInfo.installer_sha256) {
       toast("这个版本没有提供校验值，请到发布页手动下载安装", "err");
+      return;
+    }
+    if (!updateInfo.installer_signature) {
+      toast("这个版本没有提供签名，请到发布页手动下载安装", "err");
       return;
     }
     setAppUpdBusy(true);
@@ -334,6 +339,7 @@ export default function Settings() {
         url: updateInfo.installer_url,
         version: updateInfo.latest,
         sha256: updateInfo.installer_sha256,
+        signature: updateInfo.installer_signature,
       }));
     } catch (e) {
       toast("更新失败：" + e, "err");

@@ -1018,6 +1018,7 @@ pub async fn fnm_check_update() -> Result<crate::update::UpdateInfo, String> {
             portable_url: None,
             installer_sha256: None,
             portable_sha256: None,
+            installer_signature: None,
             published_at: None,
             notes: Vec::new(),
         })

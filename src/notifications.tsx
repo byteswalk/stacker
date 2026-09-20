@@ -12,6 +12,7 @@ type UpdateInfo = {
   portable_url?: string | null;
   installer_sha256?: string | null;
   portable_sha256?: string | null;
+  installer_signature?: string | null;
   published_at?: string | null;
   notes: string[];
 };

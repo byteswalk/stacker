@@ -57,14 +57,40 @@ cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 
 `npm run release:windows` 会校验版本元数据和国际化、执行前后端测试与 Clippy，并生成安装版、便携 ZIP 和 `SHA256SUMS.txt`。正式发布前必须同步更新 `package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json`、`resources/latest.json`，再将同一提交、标签、说明、资产和校验文件发布到 GitHub 与 Gitee。
 
-### 更新包校验（必须）
+### 更新包校验与签名（必须）
 
-应用下载到的安装包会先算 SHA-256 再比对，对不上就删除并拒绝安装；**拿不到校验值就不自动安装**，只让用户去发布页手动下载。因此发版时两件事不能漏：
+应用下载到的安装包要过两关才会执行：先比 SHA-256，再用内置公钥验 minisign 签名，任一不符就删文件并拒装；**两样缺一个都不自动安装**，只让用户去发布页手动下载。
 
-1. 脚本会把两个校验值写回 `resources/latest.json` 的 `installer_sha256` / `portable_sha256`，**这个改动要跟发布一起提交**（`npm run check:release-metadata` 会卡住缺失或格式不对的值）。
-2. `SHA256SUMS.txt` 必须和安装包一起上传到 GitHub 与 Gitee 的 Release——走发布接口检查更新的用户是从它里面读校验值的。`cargo test -- --ignored live_release_publishes_checksums` 可以在发布后核对这一点。
+- 校验值挡的是下载损坏、上传错文件、发布资产被单独替换。
+- 签名挡的是发布清单被篡改——下载地址和校验值都在清单里，改清单的人能一起改掉，但签名需要私钥。
 
-校验值和下载地址来自同一份清单，所以它挡的是下载损坏、上传错文件、以及发布资产被单独替换；清单本身被篡改挡不住，那需要给安装包签名（公钥内置在程序里），尚未实现。
+**私钥只在发版这台机器上**，不进仓库、不进 CI（`.gitignore` 里已挡 `release-signing.key*`）。首次准备：
+
+```powershell
+cargo run --manifest-path src-tauri/Cargo.toml --example release-key -- keygen "$env:USERPROFILE\.stacker\release-signing.key"
+```
+
+会提示设置密码（直接回车表示不加密），并打印一行公钥；把它填进 `src-tauri/src/update.rs` 的 `RELEASE_PUBLIC_KEY`。换密钥对就是重复这一步再换掉那一行——但换了之后，**老版本的 Stacker 就验不过新版本的签名**，那些用户只能手动下载一次。
+
+发版前可以自检本机私钥和程序里的公钥是否配套：
+
+```powershell
+cargo test --manifest-path src-tauri/Cargo.toml -- --ignored the_local_release_key_matches_the_built_in_one
+```
+
+`npm run release:windows` 会自动签名并把校验值和签名写回 `resources/latest.json`（私钥路径取 `STACKER_SIGNING_KEY`，默认 `%USERPROFILE%\.stacker\release-signing.key`；私钥有密码时会交互式询问）。因此发版时：
+
+1. **先把版本号 bump 上去再跑脚本**——脚本会用刚构建出来的产物覆盖 `latest.json` 里的校验值和签名，在一个已发布的版本号上跑会把清单写成对不上的值。
+2. `resources/latest.json` 的改动要**跟发布一起提交**（`npm run check:release-metadata` 会卡住缺失或格式不对的值）。
+3. `SHA256SUMS.txt` 和两个 `.minisig` 要随安装包一起上传到 GitHub 与 Gitee 的 Release。发布后可用 `cargo test -- --ignored live_release_publishes_checksums` 核对。
+
+因为私钥不在 CI 上，**发布由本机完成**，仓库里没有自动发布的工作流。构建产物在 `release/v<版本>/`，上传用：
+
+```powershell
+gh release create v0.3.4 (Get-ChildItem release\v0.3.4 -File | ForEach-Object FullName) --title "Stacker v0.3.4" --generate-notes
+```
+
+还没做的是 Windows 代码签名证书（Authenticode）。没有它，首次安装仍会触发 SmartScreen 提示；上面这套签名只保护自动更新，不解决 SmartScreen。
 
 以下目录全部可重建，不得提交：
 
