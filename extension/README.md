@@ -98,6 +98,7 @@
 - 「从 Stacker 恢复」：重装浏览器或插件后，一键找回账号备注名、文件夹、标签、收藏、备注和摘录；这台浏览器里较新的修改会保留。
 - 浏览器只在需要同步时启动 Stacker 的后台程序（`stacker.exe`，不打开窗口），空闲 2 分钟后自动断开。
 - 在 Stacker 点「断开」会删除注册表项；两个浏览器都断开后删除登记文件。
+- 打开一条对话时，详情下方会列出 Stacker 对它的提炼结果（经验问答、领域要求、提示词、skill 草稿），只能查看；提炼在 Stacker 的「会话数据 → 提炼」里发起。
 
 开发时可以不经浏览器直接检查桥接程序：`node scripts/webchat-bridge-probe.mjs src-tauri/target/debug/stacker.exe`（只读）；加 `--write` 并把环境变量 `STACKER_WEBCHAT_DIR` 指向一个临时目录，可以把示例数据写到那个目录里检查。浏览器正在使用调试版 `stacker.exe` 时重新编译可能因文件被占用而失败，关掉管理页等 2 分钟或在 `chrome://extensions` 停用插件即可。
 
