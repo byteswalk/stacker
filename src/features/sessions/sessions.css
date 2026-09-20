@@ -216,3 +216,9 @@
 
 .a .web-chat-row{display:grid;grid-template-columns:minmax(160px,1fr) auto 90px;align-items:center;gap:10px;min-height:56px;padding:8px 10px;box-sizing:border-box}
 .a .web-chat-row:hover{background:var(--card)}
+
+.a .distill-row{display:grid;grid-template-columns:minmax(160px,1fr) auto 80px;align-items:center;gap:10px;min-height:52px;padding:8px 10px;box-sizing:border-box}
+.a .distill-row:hover{background:var(--card)}
+.a .distill-filters .gh.active{border-color:var(--acc);color:var(--tx)}
+.a .distill-body{width:100%;box-sizing:border-box;font-family:inherit;font-size:13px;line-height:1.7;resize:vertical}
+.a .distill-sources a{color:var(--link)}

@@ -10,7 +10,7 @@ import { EMPTY_WEB_QUERY, errorMessage, WEB_PAGE_SIZE, webSiteLabel, type WebCha
 let lastWebQuery = EMPTY_WEB_QUERY;
 
 /** 网页对话: conversations synced from the browser extension. */
-export function WebChatPanel({ refresh }: { refresh: number }) {
+export function WebChatPanel({ refresh, onDistill }: { refresh: number; onDistill?: (key: string) => void }) {
   const { tr: t, locale } = useI18n();
   const read = useBusyRead();
   const [query, setQuery] = useState<WebQuery>(lastWebQuery);
@@ -72,6 +72,6 @@ export function WebChatPanel({ refresh }: { refresh: number }) {
       <span>{query.offset + 1}–{Math.min(page.total, query.offset + WEB_PAGE_SIZE)} / {page.total}</span>
       <button className="gh sm" disabled={query.offset + WEB_PAGE_SIZE >= page.total} onClick={() => setQuery((q) => ({ ...q, offset: q.offset + WEB_PAGE_SIZE }))}>{t("下一页")}</button>
     </div>}
-    {open && <WebChatDetail chat={open} onClose={(changed) => { setOpen(null); if (changed) void load(query); }} />}
+    {open && <WebChatDetail chat={open} onDistill={onDistill} onClose={(changed) => { setOpen(null); if (changed) void load(query); }} />}
   </>;
 }

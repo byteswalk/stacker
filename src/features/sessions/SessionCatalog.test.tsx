@@ -91,7 +91,7 @@ describe("project filter", () => {
     ];
     const query = { agent: "codex", project: "", status: "", client: "", search: "", fullText: false, includeAutomation: false, favoritesOnly: false, updatedAfter: 0, sort: "" as const, offset: 0 };
     await act(async () => { root.render(<SessionList page={{ items: [], total: 0, ids: [], totalBytes: 0, warnings: [] }} query={query} projects={projects} loading={false} selected={[]}
-      onSelect={() => {}} onFilter={onFilter} onPage={() => {}} onOpen={() => {}} onFavorite={() => {}} onDelete={() => {}} onSummarize={() => {}} />); });
+      onSelect={() => {}} onFilter={onFilter} onPage={() => {}} onOpen={() => {}} onFavorite={() => {}} onDelete={() => {}} onSummarize={() => {}} onDistill={() => {}} />); });
     const selects = [...host.querySelectorAll("button")].filter((b) => b.textContent?.includes("全部项目"));
     await click(selects[0]);
     expect(host.textContent).toContain("only-codex");

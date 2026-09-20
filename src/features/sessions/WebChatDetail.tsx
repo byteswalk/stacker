@@ -8,7 +8,7 @@ import { errorMessage, webSiteLabel, type WebChat, type WebChatDetail as Detail 
 const ROLE: Record<string, string> = { user: "用户", assistant: "助手", tool: "工具", system: "系统" };
 
 /** One web chat: its stored body, local notes and summary. */
-export function WebChatDetail({ chat, onClose }: { chat: WebChat; onClose: (changed: boolean) => void }) {
+export function WebChatDetail({ chat, onClose, onDistill }: { chat: WebChat; onClose: (changed: boolean) => void; onDistill?: (key: string) => void }) {
   const { tr: t, locale } = useI18n();
   const read = useBusyRead();
   const busy = useBusy();
@@ -52,6 +52,7 @@ export function WebChatDetail({ chat, onClose }: { chat: WebChat; onClose: (chan
         <b>{t("摘要")}{c.summaryStale && <em>{t("已过期")}</em>}</b>
         {c.summary && c.summaryBy && <small>{c.summaryBy} · {new Date(c.summaryAt).toLocaleString(locale)}</small>}
         <button className="gh sm" disabled={!hasBody} onClick={() => setAsking(true)}><i className="ti ti-sparkles" />{t(c.summary ? "重新生成" : "生成摘要")}</button>
+        {onDistill && <button className="gh sm" disabled={!hasBody} onClick={() => { onClose(changed); onDistill(c.key); }}><i className="ti ti-bulb" />{t("提炼…")}</button>}
       </div>
       {c.summary ? <pre translate="no">{c.summary}</pre> : <p className="session-note">{t("还没有摘要。")}</p>}
     </div>

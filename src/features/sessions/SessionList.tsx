@@ -25,9 +25,10 @@ type Props = {
   onFavorite: (ids: string[], favorite: boolean) => void;
   onDelete: () => void;
   onSummarize: () => void;
+  onDistill: () => void;
 };
 
-export function SessionList({ page, query, projects, loading, selected, onSelect, onFilter, onPage, onOpen, onFavorite, onDelete, onSummarize }: Props) {
+export function SessionList({ page, query, projects, loading, selected, onSelect, onFilter, onPage, onOpen, onFavorite, onDelete, onSummarize, onDistill }: Props) {
   const { tr: t, locale } = useI18n();
   const [expanded, setExpanded] = useState<string | null>(null);
   const [now] = useState(() => Math.floor(Date.now() / 1000));
@@ -95,6 +96,7 @@ export function SessionList({ page, query, projects, loading, selected, onSelect
       <b>{t("已选")} {selected.length} {t("项")}</b>{selectedBytes > 0 && <span>{t("本页约")} {bytes(selectedBytes)}</span>}
       <button className="gh sm" onClick={() => onFavorite(selected, !selectedFavorite)}><i className="ti ti-star" />{t(selectedFavorite ? "取消收藏" : "收藏")}</button>
       <button className="gh sm" onClick={onSummarize}><i className="ti ti-sparkles" />{t("生成摘要")}</button>
+      <button className="gh sm" onClick={onDistill}><i className="ti ti-bulb" />{t("提炼…")}</button>
       <button className="pr sm danger" onClick={onDelete}><i className="ti ti-trash" />{t("删除…")}</button>
       <button className="ic" title={t("清除选择")} aria-label={t("清除选择")} onClick={() => onSelect([])}><i className="ti ti-x" /></button>
     </div>}
