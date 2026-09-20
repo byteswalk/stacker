@@ -5,7 +5,7 @@ import { enable as autostartEnable, disable as autostartDisable, isEnabled as au
 import { ConfirmModal, Modal, useBusy, useBusyRead, useToast } from "../ui";
 import { Select } from "../Select";
 import { SourceManagerModal } from "../SourceManagerModal";
-import { getTheme, setTheme, type Theme } from "../theme";
+import { getTheme, setTheme, THEME_CHANGED_EVENT, type Theme } from "../theme";
 import { formatBytes, useNotifications } from "../notifications";
 import { useI18n, type Locale } from "../i18n";
 import { disableRememberScanTargets } from "../features/space-analysis/targetStore";
@@ -148,6 +148,13 @@ export default function Settings() {
       toast("设置失败：" + e, "err");
     }
   }
+
+  // 桥接的浏览器插件也能改外观，改完这里要跟着显示。
+  useEffect(() => {
+    const follow = () => setThemeState(getTheme());
+    window.addEventListener(THEME_CHANGED_EVENT, follow);
+    return () => window.removeEventListener(THEME_CHANGED_EVENT, follow);
+  }, []);
 
   function changeTheme(t: Theme) {
     setTheme(t);
@@ -410,7 +417,7 @@ export default function Settings() {
       </div>
       <div className="srcrow">
         <span className="av st"><i className="ti ti-moon" /></span>
-        <div className="mt"><div className="t">外观</div><div className="s dim" title="选择深色、浅色或跟随系统主题。">深色 / 浅色 / 跟随系统</div></div>
+        <div className="mt"><div className="t">外观</div><div className="s dim" title="选择深色、浅色或跟随系统主题；连接浏览器插件后两边保持一致。">深色 / 浅色 / 跟随系统</div></div>
         <Select value={theme} width={130} onChange={(v) => changeTheme(v as Theme)}
           options={[{ value: "dark", label: "深色" }, { value: "light", label: "浅色" }, { value: "system", label: "跟随系统" }]} />
       </div>

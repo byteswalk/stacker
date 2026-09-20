@@ -13,7 +13,7 @@ import {
   listFolders, openDb, putBody, renameAccount, renameFolder, updateLocal, type Account, type Conversation, type Db,
   type Folder,
 } from "../../lib/db";
-import { bridgeStatus, callStacker, type BridgeStatus } from "../../lib/bridgeMessages";
+import { bridgeStatus, callStacker } from "../../lib/bridgeMessages";
 import { brokenSitesIn, createBrokenSites, type BrokenSites } from "../../lib/brokenSites";
 import { runDeleteJob } from "../../lib/deleteJob";
 import { exportFileName, toMarkdown, type ExportMode } from "../../lib/markdown";
@@ -42,7 +42,7 @@ const SITE_IDS = Object.keys(SITES) as SiteId[];
 
 export function App() {
   const { message, modal } = AntApp.useApp();
-  const { prefs, update: setPrefs } = usePrefs();
+  const { prefs, update: setPrefs, bridge, reconnect } = usePrefs();
   const [db, setDb] = useState<Db | null>(null);
   const [convs, setConvs] = useState<Conversation[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -56,7 +56,6 @@ export function App() {
   const [current, setCurrent] = useState(new Set<string>());
   const [siteErrors, setSiteErrors] = useState<Partial<Record<SiteId, string>>>({});
   const [broken, setBroken] = useState<BrokenSites>({});
-  const [bridge, setBridge] = useState<BridgeStatus | null>(null);
   // Below this the details would squeeze the list, so they move into a drawer over it.
   const [wide, setWide] = useState(() => window.innerWidth >= 1180);
 
@@ -73,14 +72,7 @@ export function App() {
     return () => window.removeEventListener("resize", measure);
   }, []);
 
-  // Poll the connection; connecting is cheap when Stacker is registered and skipped for 30 s after a failure.
-  useEffect(() => {
-    let alive = true;
-    const poll = () => void bridgeStatus(true).then((s) => { if (alive) setBridge(s); }, () => { if (alive) setBridge(null); });
-    poll();
-    const timer = setInterval(poll, 5000);
-    return () => { alive = false; clearInterval(timer); };
-  }, []);
+  // The Shell polls the connection (the appearance rides along with it); this page only reads it.
   const connectedNow = async () => (await bridgeStatus(true).catch(() => null))?.connected ?? false;
 
   useEffect(() => {
@@ -246,6 +238,9 @@ export function App() {
         onChange={(mode) => setPrefs({ mode: mode as typeof prefs.mode })}
         options={[{ value: "auto", label: t("跟随系统") }, { value: "dark", label: t("深色") }, { value: "light", label: t("浅色") }]}
       />
+      {bridge?.connected && <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+        {t("已连接 Stacker，外观两边保持一致")}
+      </Typography.Text>}
     </div>
     <div>
       <Typography.Text type="secondary">{t("语言")}</Typography.Text>
@@ -329,11 +324,7 @@ export function App() {
         {unverified.length > 0 && <Tooltip title={t("这些站点的接口还没有在真实账号上核对过：可以刷新、读取和导出，暂不支持删除。")}>
           <Tag color="warning">{unverified.map((s) => SITES[s].label).join("、")}：{t("未实测")}</Tag>
         </Tooltip>}
-        <SyncStatus
-          status={bridge} busy={!!busy}
-          onReconnect={() => void bridgeStatus(true, true).then(setBridge, () => setBridge(null))}
-          onRestore={restore}
-        />
+        <SyncStatus status={bridge} busy={!!busy} onReconnect={reconnect} onRestore={restore} />
         <Popover content={settings} trigger="click" placement="bottomRight" title={t("设置")}>
           <Button type="text" icon={<SettingOutlined />} aria-label={t("设置")} />
         </Popover>

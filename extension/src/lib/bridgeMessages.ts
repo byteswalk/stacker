@@ -1,16 +1,23 @@
 import { BridgeError, type Bridge } from "./bridge";
 import { outboxCount, type Db } from "./db";
 
-export interface BridgeStatus { connected: boolean; pending: number; lastSyncAt: number | null; error: string }
+export interface BridgeStatus {
+  connected: boolean;
+  pending: number;
+  lastSyncAt: number | null;
+  error: string;
+  /** Stacker's appearance ("dark" | "light" | "system"), so both sides can match it. */
+  theme: string | null;
+}
 /** The only Stacker requests pages may make; syncing stays inside the background. */
-export type StackerCall = "saveExport" | "pullBackup" | "distillResults";
+export type StackerCall = "saveExport" | "pullBackup" | "distillResults" | "setTheme";
 export type BridgeMessage =
   | { type: "bridge-status"; connect: boolean; force: boolean }
   | { type: "bridge-flush" }
   | { type: "bridge-call"; call: StackerCall; payload: unknown };
 export type BridgeReply = { ok: true; value: unknown } | { ok: false; error: string };
 
-const CALLS: StackerCall[] = ["saveExport", "pullBackup", "distillResults"];
+const CALLS: StackerCall[] = ["saveExport", "pullBackup", "distillResults", "setTheme"];
 
 export function isBridgeMessage(m: unknown): m is BridgeMessage {
   const x = m as { type?: unknown; call?: unknown } | null;
@@ -36,12 +43,17 @@ export function createBridgeHandler(deps: HandlerDeps) {
       }
       if (m.type === "bridge-call") return { ok: true, value: await deps.bridge.call(m.call, m.payload) };
       if (m.force) deps.bridge.reset();
-      if (m.connect && !deps.bridge.connected()) {
-        try { await deps.bridge.call("status"); } catch { /* reported below as not connected */ }
+      // One `status` answers both questions: whether Stacker is there, and what appearance it is on.
+      let theme: string | null = null;
+      if (m.connect || deps.bridge.connected()) {
+        try {
+          const reply = (await deps.bridge.call("status")) as { theme?: unknown } | null;
+          if (typeof reply?.theme === "string") theme = reply.theme;
+        } catch { /* reported below as not connected */ }
       }
       const pending = await outboxCount(await deps.openDb());
       if (pending && deps.bridge.connected()) deps.flushSoon(0);
-      const status: BridgeStatus = { connected: deps.bridge.connected(), pending, lastSyncAt: deps.lastSyncAt(), error: deps.bridge.lastError() };
+      const status: BridgeStatus = { connected: deps.bridge.connected(), pending, lastSyncAt: deps.lastSyncAt(), error: deps.bridge.lastError(), theme };
       return { ok: true, value: status };
     } catch (e) {
       return { ok: false, error: e instanceof BridgeError ? e.code : e instanceof Error ? e.message : String(e) };

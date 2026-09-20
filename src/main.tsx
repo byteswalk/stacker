@@ -4,12 +4,12 @@ import '@tabler/icons-webfont/dist/tabler-icons.min.css'
 import './styles.css'
 import App from './App.tsx'
 import LogViewer from './LogViewer.tsx'
-import { applyTheme, watchSystemTheme } from './theme'
+import { applyTheme, watchSharedTheme, watchSystemTheme } from './theme'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { LanguageProvider } from './i18n'
 import { initializeMainWindowSize } from './windowSize'
 import AppErrorBoundary from './AppErrorBoundary'
-import { reportFrontendError, reportFrontendWarning } from './invoke'
+import { invoke, reportFrontendError, reportFrontendWarning } from './invoke'
 
 const diagnosticsWindow = window as Window & { __stackerDiagnosticsInstalled?: boolean }
 if (!diagnosticsWindow.__stackerDiagnosticsInstalled) {
@@ -24,6 +24,8 @@ if (!diagnosticsWindow.__stackerDiagnosticsInstalled) {
 
 applyTheme()        // 渲染前套用已保存主题，避免闪烁
 watchSystemTheme()  // 「跟随系统」时实时响应明暗变化
+// 桥接的浏览器插件改了外观时跟上，两边保持一致
+watchSharedTheme(() => invoke<string>('settings_get_theme'))
 
 const currentWindow = getCurrentWindow()
 const isLogViewer = currentWindow.label === 'live-log'

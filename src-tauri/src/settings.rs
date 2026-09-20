@@ -187,9 +187,7 @@ fn default_proxy_port() -> u16 {
 fn normalize(mut s: AppSettings) -> AppSettings {
     s.close_behavior = normalize_close_behavior(&s.close_behavior, s.minimize_to_tray).into();
     s.minimize_to_tray = s.close_behavior == "tray";
-    if s.theme.trim().is_empty() {
-        s.theme = default_theme();
-    }
+    s.theme = normalize_theme(&s.theme);
     s.proxy_mode = normalize_proxy_mode(&s.proxy_mode, s.proxy_mode_version).into();
     s.proxy_mode_version = 1;
     if s.proxy_mode != "manual" {
@@ -371,11 +369,34 @@ pub fn settings_set_close_behavior(behavior: String) -> Result<String, String> {
     Ok(behavior.into())
 }
 
+/// 只认这三个值；其他一律按默认处理。
+pub fn normalize_theme(theme: &str) -> String {
+    match theme.trim().to_ascii_lowercase().as_str() {
+        "light" => "light".into(),
+        "system" => "system".into(),
+        "dark" => "dark".into(),
+        _ => default_theme(),
+    }
+}
+
+/// 写入外观；主窗口和浏览器插件（经桥接）共用这一个值。
+pub fn set_theme(theme: &str) -> Result<String, String> {
+    let theme = normalize_theme(theme);
+    let mut s = load();
+    s.theme = theme.clone();
+    save(&s)?;
+    Ok(theme)
+}
+
 #[tauri::command]
 pub fn settings_set_theme(theme: String) -> Result<(), String> {
-    let mut s = load();
-    s.theme = theme;
-    save(&s)
+    set_theme(&theme).map(|_| ())
+}
+
+/// 供界面定期核对：插件在桥接后也可能改过它。
+#[tauri::command]
+pub fn settings_get_theme() -> String {
+    load().theme
 }
 
 #[tauri::command]
@@ -762,6 +783,22 @@ pub fn os_info() -> OsInfo {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn only_the_three_appearances_are_accepted() {
+        for (input, want) in [
+            ("dark", "dark"),
+            ("light", "light"),
+            ("system", "system"),
+            (" System ", "system"),
+            ("LIGHT", "light"),
+            ("", "dark"),
+            ("purple", "dark"),
+            ("../../etc", "dark"),
+        ] {
+            assert_eq!(super::normalize_theme(input), want, "input {input:?}");
+        }
+    }
     use super::*;
 
     #[test]

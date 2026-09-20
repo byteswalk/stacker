@@ -1478,6 +1478,7 @@ export const GENERATED_EN: Record<string, string> = {
   "选择 settings.xml 后可单独配置 Maven 仓库镜像。": "After selecting settings.xml, you can configure the Maven warehouse image separately.",
   "选择尚未初始化 Git 的工程目录": "Select the project directory that has not yet initialized Git",
   "选择深色、浅色或跟随系统主题。": "Choose dark, light or follow the system theme.",
+  "选择深色、浅色或跟随系统主题；连接浏览器插件后两边保持一致。": "Choose dark, light or follow the system theme; once the browser extension is connected, both stay the same.",
   "选择文件": "Select file",
   "选择项目 gradle-wrapper.properties 后，可把 distributionUrl 切换到当前 Gradle 下载源。": "After selecting the project gradle-wrapper.properties, you can switch the distributionUrl to the current Gradle download source.",
   "选择项目 wrapper 文件后，可切换 Gradle 发行包下载源。": "After selecting the project wrapper file, you can switch the Gradle distribution package download source.",

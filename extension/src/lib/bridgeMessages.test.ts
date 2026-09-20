@@ -28,6 +28,7 @@ describe("bridge messages", () => {
     expect(isBridgeMessage({ type: "bridge-flush" })).toBe(true);
     expect(isBridgeMessage({ type: "bridge-call", call: "saveExport", payload: {} })).toBe(true);
     expect(isBridgeMessage({ type: "bridge-call", call: "distillResults", payload: {} })).toBe(true);
+    expect(isBridgeMessage({ type: "bridge-call", call: "setTheme", payload: { theme: "dark" } })).toBe(true);
     expect(isBridgeMessage({ type: "bridge-call", call: "syncAccounts", payload: {} })).toBe(false);
     expect(isBridgeMessage({ type: "save-excerpt" })).toBe(false);
     expect(isBridgeMessage(null)).toBe(false);
@@ -40,8 +41,26 @@ describe("bridge messages", () => {
     expect(bridge.reset).toHaveBeenCalled();
     expect(bridge.call).toHaveBeenCalledWith("status");
     // A fresh database holds the upgrade's "all" entry.
-    expect(reply).toEqual({ ok: true, value: { connected: true, pending: 1, lastSyncAt: 42, error: "" } satisfies BridgeStatus });
+    expect(reply).toEqual({ ok: true, value: { connected: true, pending: 1, lastSyncAt: 42, error: "", theme: null } satisfies BridgeStatus });
     expect(flushSoon).toHaveBeenCalledWith(0);
+  });
+
+  it("carries Stacker's appearance so the pages can match it", async () => {
+    const bridge = fakeBridge(true);
+    bridge.call = vi.fn(async (type: string) => (type === "status" ? { theme: "light" } : {}));
+    const { handle } = handler(bridge);
+    const reply = await handle({ type: "bridge-status", connect: false, force: false });
+    // Already connected: the appearance is fetched even when no connection attempt was asked for.
+    expect(bridge.call).toHaveBeenCalledWith("status");
+    expect(reply).toMatchObject({ ok: true, value: { connected: true, theme: "light" } });
+  });
+
+  it("reports no appearance when Stacker does not answer with one", async () => {
+    const bridge = fakeBridge(true);
+    bridge.call = vi.fn(async () => ({ counts: {} }));
+    const { handle } = handler(bridge);
+    expect(await handle({ type: "bridge-status", connect: false, force: false }))
+      .toMatchObject({ ok: true, value: { theme: null } });
   });
 
   it("reports standalone without trying when not asked to connect", async () => {

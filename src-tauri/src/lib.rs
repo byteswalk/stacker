@@ -373,6 +373,7 @@ pub fn run() {
             settings::settings_set_tray,
             settings::settings_set_close_behavior,
             settings::settings_set_theme,
+            settings::settings_get_theme,
             settings::settings_set_locale,
             settings::settings_set_log_level,
             settings::settings_set_log_retention_days,

@@ -77,6 +77,19 @@ if (write) {
   if (saved.ok) await expectOk("saveExport append", "saveExport", { path: saved.result.path, text: "more\n", append: true });
   const traversal = await call("saveExport", { path: "../escape.md", text: "x", append: false });
   report("traversal refused", !traversal.ok && traversal.error === "E_PATH", traversal.error);
+
+  // The appearance is shared with the app window, so it lives in the real settings.json:
+  // read it, flip it, check it came back, then put the original value back.
+  const before = (await call("status")).result?.theme;
+  const other = before === "light" ? "dark" : "light";
+  const set = await call("setTheme", { theme: other });
+  const after = (await call("status")).result?.theme;
+  report("setTheme changes the shared appearance", set.ok === true && after === other, `${before} -> ${after}`);
+  const nonsense = await call("setTheme", { theme: "chartreuse" });
+  const fallback = (await call("status")).result?.theme;
+  report("an unknown appearance falls back instead of sticking", nonsense.ok === true && ["dark", "light", "system"].includes(fallback), String(fallback));
+  await call("setTheme", { theme: before });
+  report("the original appearance is restored", (await call("status")).result?.theme === before, String(before));
 }
 for (const section of ["accounts", "folders", "conversations", "excerpts"]) {
   await expectOk(`pullBackup ${section}`, "pullBackup", { section, offset: 0 });

@@ -3,9 +3,12 @@ import enUS from "antd/locale/en_US";
 import zhCN from "antd/locale/zh_CN";
 import dayjs from "dayjs";
 import "dayjs/locale/zh-cn";
-import { createContext, use, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, use, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { englishUi, setLanguage } from "../i18n";
-import { cleanPrefs, DEFAULT_PREFS, loadPrefs, PREFS_KEY, resolveMode, savePrefs, type Prefs } from "./prefs";
+import { bridgeStatus, callStacker, type BridgeStatus } from "../lib/bridgeMessages";
+import {
+  cleanPrefs, DEFAULT_PREFS, loadPrefs, modeOfTheme, PREFS_KEY, resolveMode, savePrefs, themeOfMode, type Prefs,
+} from "./prefs";
 import "./style.css";
 
 /** Stacker's own palette, so the extension's pages read as the same product. */
@@ -77,10 +80,17 @@ function components(dark: boolean) {
 interface PrefsApi {
   prefs: Prefs;
   update: (patch: Partial<Prefs>) => void;
+  /** Stacker's connection, polled here because the appearance rides along with it. */
+  bridge: BridgeStatus | null;
+  reconnect: () => void;
 }
 
-const PrefsContext = createContext<PrefsApi>({ prefs: DEFAULT_PREFS, update: () => {} });
+const PrefsContext = createContext<PrefsApi>({
+  prefs: DEFAULT_PREFS, update: () => {}, bridge: null, reconnect: () => {},
+});
 export const usePrefs = () => use(PrefsContext);
+
+const POLL_MS = 5000;
 
 /**
  * Theme, language and antd's message/modal context for both pages. Nothing renders until the
@@ -89,6 +99,9 @@ export const usePrefs = () => use(PrefsContext);
 export function Shell({ children }: { children: ReactNode }) {
   const [prefs, setPrefs] = useState<Prefs | null>(null);
   const [systemDark, setSystemDark] = useState(() => resolveMode("auto") === "dark");
+  const [bridge, setBridge] = useState<BridgeStatus | null>(null);
+  /** The appearance sent to Stacker and not yet seen coming back. */
+  const [awaited, setAwaited] = useState<string | null>(null);
 
   useEffect(() => { void loadPrefs().then(setPrefs); }, []);
   useEffect(() => {
@@ -109,14 +122,58 @@ export function Shell({ children }: { children: ReactNode }) {
     return () => chrome.storage.onChanged.removeListener(follow);
   }, []);
 
+  // Stacker and the extension show the same appearance whenever they are bridged.
+  const poll = useCallback(async (force = false) => {
+    try {
+      setBridge(await bridgeStatus(true, force));
+    } catch {
+      setBridge(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    const tick = () => { if (alive) void poll(); };
+    tick();
+    const timer = setInterval(tick, POLL_MS);
+    return () => { alive = false; clearInterval(timer); };
+  }, [poll]);
+
+  // Adopt Stacker's appearance, except while waiting for it to confirm one sent from here:
+  // a status already in flight when it was sent would otherwise undo the user's pick.
+  useEffect(() => {
+    if (!prefs || !bridge?.connected) {
+      if (awaited !== null) setAwaited(null);
+      return;
+    }
+    if (awaited !== null) {
+      if (bridge.theme === awaited) setAwaited(null);
+      return;
+    }
+    const mode = modeOfTheme(bridge.theme);
+    if (!mode || mode === prefs.mode) return;
+    const next = { ...prefs, mode };
+    setPrefs(next);
+    void savePrefs(next);
+  }, [bridge, prefs, awaited]);
+
   const api = useMemo<PrefsApi>(() => ({
     prefs: prefs ?? DEFAULT_PREFS,
-    update: (patch) => setPrefs((old) => {
-      const next = { ...(old ?? DEFAULT_PREFS), ...patch };
+    bridge,
+    reconnect: () => void poll(true),
+    update: (patch) => {
+      const base = prefs ?? DEFAULT_PREFS;
+      const next = { ...base, ...patch };
+      setPrefs(next);
       void savePrefs(next);
-      return next;
-    }),
-  }), [prefs]);
+      if (next.mode !== base.mode) {
+        const shared = themeOfMode(next.mode);
+        setAwaited(shared);
+        // Not connected, or Stacker refused: the choice stays local and Stacker's wins again later.
+        void callStacker("setTheme", { theme: shared }).catch(() => setAwaited(null));
+      }
+    },
+  }), [prefs, bridge, poll]);
 
   const dark = prefs && prefs.mode !== "auto" ? prefs.mode === "dark" : systemDark;
   useEffect(() => {

@@ -46,3 +46,11 @@ export function resolveMode(mode: Mode): "dark" | "light" {
   if (mode !== "auto") return mode;
   return typeof matchMedia === "function" && matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
 }
+
+/** Stacker stores the same appearance as "dark" | "light" | "system". */
+export const themeOfMode = (mode: Mode): string => (mode === "auto" ? "system" : mode);
+
+export function modeOfTheme(theme: string | null): Mode | null {
+  if (theme === "system") return "auto";
+  return theme === "dark" || theme === "light" ? theme : null;
+}

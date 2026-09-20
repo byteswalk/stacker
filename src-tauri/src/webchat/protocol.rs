@@ -196,6 +196,13 @@ pub struct SaveExport {
     pub append: bool,
 }
 
+/// 插件改外观：与主窗口共用 settings.json 里的 theme。
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SetTheme {
+    pub theme: String,
+}
+
 /// 插件按对话查提炼结果。
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]

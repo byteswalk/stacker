@@ -126,7 +126,15 @@ impl Context {
                 "counts": store::counts(&self.conn)?,
                 "lastSyncAt": store::meta(&self.conn, "last_sync_at"),
                 "exportDir": self.exports.join("web").to_string_lossy(),
+                // 插件跟着这个值走，两边外观保持一致。
+                "theme": crate::settings::load().theme,
             })),
+            // 插件那边改了外观：写进同一份设置，主窗口核对后跟上。
+            "setTheme" => {
+                let request: SetTheme = parse(payload)?;
+                let theme = crate::settings::set_theme(&request.theme)?;
+                Ok(json!({ "theme": theme }))
+            }
             "syncAccounts" => {
                 let items: Items<WebAccount> = parse(payload)?;
                 let n = store::upsert_accounts(&self.conn, &batch(items)?)?;
@@ -477,6 +485,18 @@ mod tests {
         assert_eq!(out[1]["result"]["items"], json!([]));
         assert_eq!(out[2]["error"], "E_REQUEST");
         assert_eq!(out[3]["error"], "E_REQUEST");
+    }
+
+    #[test]
+    fn status_carries_the_appearance_the_extension_follows() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = context(&dir);
+        let replies = exchange(&mut ctx, &[json!({"id": "1", "type": "status"})]);
+        let theme = replies[0]["result"]["theme"].as_str().unwrap();
+        assert!(
+            ["dark", "light", "system"].contains(&theme),
+            "unexpected theme {theme}"
+        );
     }
 
     #[test]

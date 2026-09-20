@@ -41,6 +41,7 @@ export const EN: Record<string, string> = {
 
   "确定": "OK",
   "外观": "Appearance",
+  "已连接 Stacker，外观两边保持一致": "Connected to Stacker; both use the same appearance",
   "跟随系统": "System",
   "深色": "Dark",
   "浅色": "Light",
