@@ -139,7 +139,10 @@ fn run_job(
     save(request, &units, &items)
 }
 
-/// 每条结果存库；skill 草稿先写文件夹，文件夹名记在结果行上。
+/// 每条结果先存库，再给 skill 草稿写文件夹：这样磁盘上永远不会出现一个没有对应
+/// 结果行指着它的 skill 文件夹（文件夹没写成功没关系，正文已经存住了，见下）。
+/// 每条落地后立刻把已保存数与文件夹列表写回任务状态，这样中途失败时，已经落地
+/// 的部分不会凭空消失、被汇报成一次什么都没保存的失败。
 fn save(
     request: &StartRequest,
     units: &[SourceText],
@@ -160,29 +163,31 @@ fn save(
     let mut folders: Vec<String> = Vec::new();
     let mut saved = 0;
     for (i, item) in items.iter().enumerate() {
-        let folder = if item.kind == "skill" {
-            let name = skills::write_draft(&skills_dir, item, &evidence)?;
-            folders.push(name.clone());
-            name
-        } else {
-            String::new()
+        let mut result = DistillResult {
+            id: format!("{}-{}-{}", item.kind, at, i + 1),
+            kind: item.kind.clone(),
+            title: item.title.clone(),
+            body: item.body.clone(),
+            sources: item.sources.clone(),
+            state: "draft".into(),
+            by: by.clone(),
+            folder: String::new(),
+            created_at: at,
+            updated_at: at,
         };
-        store::insert(
-            &conn,
-            &DistillResult {
-                id: format!("{}-{}-{}", item.kind, at, i + 1),
-                kind: item.kind.clone(),
-                title: item.title.clone(),
-                body: item.body.clone(),
-                sources: item.sources.clone(),
-                state: "draft".into(),
-                by: by.clone(),
-                folder,
-                created_at: at,
-                updated_at: at,
-            },
-        )?;
+        // 先落一行没有文件夹的记录，再尝试写文件夹；文件夹写成功了再补一次把文件夹名存回去。
+        store::insert(&conn, &result)?;
+        if item.kind == "skill" {
+            let name = skills::write_draft(&skills_dir, item, &evidence)?;
+            result.folder = name.clone();
+            store::insert(&conn, &result)?;
+            folders.push(name);
+        }
         saved += 1;
+        update(|j| {
+            j.saved = saved;
+            j.folders = folders.clone();
+        });
     }
     Ok((saved, folders))
 }
@@ -352,5 +357,42 @@ mod tests {
         assert_eq!(empty_result.saved, 0);
         assert!(empty_result.folders.is_empty());
         assert!(empty_result.error.is_empty());
+
+        // 6) 第二条在写 skill 文件夹时失败：已经落地的第一条不能凭空消失。
+        // 把 unique_dir 的全部 99 个候选名占满，"Second" 这个 skill 就注定写不出文件夹。
+        let skills_dir = dir.path().join("distill").join("skills");
+        std::fs::create_dir_all(&skills_dir).unwrap();
+        for n in 1..100 {
+            let name = if n == 1 {
+                "Second".to_string()
+            } else {
+                format!("Second ({n})")
+            };
+            std::fs::create_dir_all(skills_dir.join(name)).unwrap();
+        }
+        let two_skills: Runner = Arc::new(|req: &RunRequest, _: &CancelFlag| {
+            if req.prompt.contains("@merge") {
+                Ok(RunOutput {
+                    text: "no duplicates".into(),
+                })
+            } else {
+                Ok(RunOutput {
+                    text: "### [SKILL] First\nDo the first thing.\n\
+                           ### [SKILL] Second\nDo the second thing.\n"
+                        .into(),
+                })
+            }
+        });
+        let mut skills_only = request(dir.path());
+        skills_only.kinds = vec!["skill".into()];
+        start(skills_only, two_skills).unwrap();
+        let partial = wait_for(|j| j.state != "running");
+        assert_eq!(partial.state, "failed");
+        assert_eq!(partial.error, "E_STORAGE");
+        assert_eq!(
+            partial.saved, 1,
+            "the first item must still be reported as saved"
+        );
+        assert_eq!(partial.folders, vec!["First".to_string()]);
     }
 }
