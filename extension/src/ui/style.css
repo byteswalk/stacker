@@ -63,3 +63,9 @@ body { font: 13px/1.55 system-ui, "Microsoft YaHei", "PingFang SC", sans-serif; 
 /* The bar that appears over the table while conversations are selected. */
 .bulkbar { margin: 10px 0 2px; padding: 8px 10px; border-radius: 8px;
   background: rgba(245, 130, 31, .09); border: 1px solid rgba(245, 130, 31, .24); }
+
+/* Sidebar section titles: centred between two rules, the list flows underneath. */
+.ant-divider.side-title { margin: 2px 0 10px; }
+.ant-divider.side-title .ant-divider-inner-text { font-size: 12px; letter-spacing: .12em; opacity: .7; padding: 0 10px; }
+.tag-flow { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag-flow .ant-tag { margin-inline-end: 0; }

@@ -6,6 +6,10 @@ import type { AdapterFactory } from "./types";
 
 const ORIGIN = "https://chat.deepseek.com";
 const PAGE = 100;
+/** What history_messages answers for a session that does not exist, or no longer does. */
+const NO_SUCH_SESSION = 1;
+/** A delete that has not shown up yet is looked at once more after this long. */
+const RECHECK_MS = 800;
 /** A failure code whose message is about the sign-in means the token is no longer accepted. */
 const AUTH_MESSAGE = /token|auth|login|sign/i;
 
@@ -55,7 +59,8 @@ export const deepseek: AdapterFactory = (fetchJson, page = NO_PAGE) => {
     return value;
   }
 
-  async function api(path: string, init: FetchInit = {}): Promise<unknown> {
+  /** `missing` names the biz_code that means "no such session" for this call, so it is not taken for a changed site. */
+  async function api(path: string, init: FetchInit = {}, missing?: number): Promise<unknown> {
     const headers = { ...init.headers, Authorization: `Bearer ${token()}`, "x-client-platform": "web" };
     const res = obj(expectOk(await fetchJson(`${ORIGIN}${path}`, { ...init, headers })), "response");
     if (res.code !== 0) {
@@ -63,8 +68,26 @@ export const deepseek: AdapterFactory = (fetchJson, page = NO_PAGE) => {
       throw new SiteError(AUTH_MESSAGE.test(msg) ? "E_AUTH" : "E_BROKEN", `code ${String(res.code)}${msg ? `: ${msg}` : ""}`);
     }
     const data = obj(res.data, "data");
+    if (missing !== undefined && data.biz_code === missing) throw new SiteError("E_NOT_FOUND", optStr(data.biz_msg));
     if (data.biz_code !== 0) throw new SiteError("E_BROKEN", `biz_code ${String(data.biz_code)}`);
     return data.biz_data;
+  }
+
+  const history = (id: string) =>
+    api(`/api/v0/chat/history_messages?chat_session_id=${encodeURIComponent(id)}`, {}, NO_SUCH_SESSION);
+
+  /** True while the session can still be read, looking twice so a delete that lands a moment late still counts. */
+  async function stillThere(id: string): Promise<boolean> {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        await history(id);
+      } catch (e) {
+        if (e instanceof SiteError && e.code === "E_NOT_FOUND") return false;
+        throw e;
+      }
+      if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, RECHECK_MS));
+    }
+    return true;
   }
 
   return {
@@ -109,7 +132,7 @@ export const deepseek: AdapterFactory = (fetchJson, page = NO_PAGE) => {
     },
 
     async read(id) {
-      const data = obj(await api(`/api/v0/chat/history_messages?chat_session_id=${encodeURIComponent(id)}`), "history_messages");
+      const data = obj(await history(id), "history_messages");
       const session = obj(data.chat_session, "chat_session");
       const all = arr(data.chat_messages, "chat_messages").map((m, i) => obj(m, `chat_messages[${i}]`));
       const leaf = session.current_message_id == null ? null : idOf(session.current_message_id, "chat_session.current_message_id");
@@ -128,8 +151,14 @@ export const deepseek: AdapterFactory = (fetchJson, page = NO_PAGE) => {
       return { id, title: optStr(session.title), updatedAt: time(session.updated_at, "chat_session.updated_at"), messages };
     },
 
+    /**
+     * The site's own delete sends a list of ids (seen in its scripts, 2026-09-21). The endpoint answers
+     * success whatever it is sent, even for an id that never existed, so the session is read back:
+     * still readable means the delete did not take, and that is reported rather than passed as done.
+     */
     async remove(id) {
-      await api("/api/v0/chat_session/delete", { method: "POST", body: { chat_session_id: id } });
+      await api("/api/v0/chat_session/delete", { method: "POST", body: { chat_session_ids: [id] } });
+      if (await stillThere(id)) throw new SiteError("E_BROKEN", "delete did not take");
     },
   };
 };

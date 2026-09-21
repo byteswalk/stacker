@@ -5,6 +5,8 @@ import { deepseek } from "./deepseek";
 import { history, ok, pageFirst, pageLast, serverError, signedOut, user } from "./fixtures/deepseek";
 
 type Call = [string, FetchInit | undefined];
+/** history_messages for a session that does not exist, as the real site answers (2026-09-21). */
+const noSuchSession = { code: 0, msg: "", data: { biz_code: 1, biz_msg: "invalid chat session id", biz_data: null } };
 
 function fake(route: (url: string, init?: FetchInit) => unknown, calls: Call[] = []) {
   return vi.fn(async (url: string, init?: FetchInit): Promise<FetchResult> => {
@@ -82,13 +84,33 @@ describe("deepseek adapter", () => {
     await expect(deepseek(fake(() => empty), signedIn).read("s-1")).rejects.toThrow("E_NOT_FOUND");
   });
 
-  it("deletes with POST and has no archive", async () => {
+  it("deletes with the id list the site itself sends, then checks the session is gone", async () => {
     const calls: Call[] = [];
-    const a = deepseek(fake(routes, calls), signedIn);
+    let deleted = false;
+    const site = (url: string) => {
+      if (url.endsWith("/chat_session/delete")) { deleted = true; return ok(null); }
+      if (url.includes("/chat/history_messages") && deleted) return noSuchSession;
+      return routes(url);
+    };
+    const a = deepseek(fake(site, calls), signedIn);
     await a.remove("s-1");
     expect(calls[0][0]).toBe("https://chat.deepseek.com/api/v0/chat_session/delete");
-    expect(calls[0][1]).toMatchObject({ method: "POST", body: { chat_session_id: "s-1" } });
+    expect(calls[0][1]).toMatchObject({ method: "POST", body: { chat_session_ids: ["s-1"] } });
+    expect(calls[1][0]).toBe("https://chat.deepseek.com/api/v0/chat/history_messages?chat_session_id=s-1");
     expect(a.archive).toBeUndefined();
     expect(a.conversationUrl("s-1")).toBe("https://chat.deepseek.com/a/chat/s/s-1");
+  });
+
+  it("reports a delete that did not take instead of passing it as done", async () => {
+    // The endpoint answers success for anything; here the session is still readable afterwards.
+    const calls: Call[] = [];
+    const a = deepseek(fake(routes, calls), signedIn);
+    await expect(a.remove("s-1")).rejects.toThrow("E_BROKEN: delete did not take");
+    // Looked twice before saying so.
+    expect(calls.filter(([url]) => url.includes("/chat/history_messages"))).toHaveLength(2);
+  });
+
+  it("reads a session the site no longer has as not found, not as a changed site", async () => {
+    await expect(deepseek(fake(() => noSuchSession), signedIn).read("gone")).rejects.toThrow("E_NOT_FOUND");
   });
 });

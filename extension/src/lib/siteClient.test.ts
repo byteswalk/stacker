@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createSiteApi } from "./siteClient";
+import { SITES } from "../sites/registry";
 
 function tabs(found: { id: number }[], reply: unknown) {
   return {
@@ -57,9 +58,16 @@ describe("site client", () => {
     expect(api.canArchive("claude")).toBe(false);
   });
   it("refuses to remove from an unverified site without sending anything", async () => {
-    const t = tabs([{ id: 1 }], { ok: true, value: null });
-    await expect(createSiteApi({ tabs: t }).remove("grok", "x")).rejects.toThrow("E_BROKEN");
-    expect(t.query).not.toHaveBeenCalled();
-    expect(t.sendMessage).not.toHaveBeenCalled();
+    // Every site is verified today; the gate must still hold for the next one added.
+    const was = SITES.grok.verified;
+    SITES.grok.verified = false;
+    try {
+      const t = tabs([{ id: 1 }], { ok: true, value: null });
+      await expect(createSiteApi({ tabs: t }).remove("grok", "x")).rejects.toThrow("E_BROKEN");
+      expect(t.query).not.toHaveBeenCalled();
+      expect(t.sendMessage).not.toHaveBeenCalled();
+    } finally {
+      SITES.grok.verified = was;
+    }
   });
 });

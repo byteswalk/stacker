@@ -21,14 +21,17 @@ function roleOf(sender: string, path: string): Role {
   throw new SiteError("E_BROKEN", path);
 }
 
-/** Response ids from the root to the last node, which is the one on screen; other branches are left out. */
+/**
+ * Response ids from the root to the last node, which is the one on screen; other branches are left out.
+ * The first message's parent is Grok's own root, which is never among the nodes, so a parent that is
+ * not listed ends the walk rather than meaning a broken reply.
+ */
 export function currentBranchIds(nodes: Record<string, unknown>[]): string[] {
   if (!nodes.length) return [];
   const parentOf = new Map(nodes.map((n, i) => [str(n.responseId, `responseNodes[${i}].responseId`), optStr(n.parentResponseId) || null]));
   const chain: string[] = [];
   let id: string | null = str(nodes[nodes.length - 1].responseId, "responseNodes[-1].responseId");
-  while (id && !chain.includes(id)) {
-    if (!parentOf.has(id)) throw new SiteError("E_BROKEN", `responseNodes.${id}`);
+  while (id && parentOf.has(id) && !chain.includes(id)) {
     chain.push(id);
     id = parentOf.get(id) ?? null;
   }

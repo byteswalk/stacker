@@ -82,9 +82,27 @@ describe("grok adapter", () => {
     await expect(grok(fake(oddSender)).read("g-1")).rejects.toThrow("E_BROKEN");
     const missing = (url: string, init?: FetchInit) => (url.endsWith("/load-responses") ? { responses: [] } : routes(url, init));
     await expect(grok(fake(missing)).read("g-1")).rejects.toThrow("E_BROKEN");
-    const dangling = (url: string, init?: FetchInit) =>
-      url.endsWith("/response-node") ? { responseNodes: [{ responseId: "r9", sender: "human", parentResponseId: "nowhere" }] } : routes(url, init);
-    await expect(grok(fake(dangling)).read("g-1")).rejects.toThrow("E_BROKEN");
+  });
+
+  it("stops at Grok's unlisted root instead of calling the reply broken", async () => {
+    // What a real two-message conversation looks like: the first node's parent is not listed.
+    const rootOnly = (url: string, init?: FetchInit) => {
+      if (url.endsWith("/response-node")) {
+        return { responseNodes: [
+          { responseId: "a", sender: "human", parentResponseId: "root-not-listed" },
+          { responseId: "b", sender: "assistant", parentResponseId: "a" },
+        ], inflightResponses: [] };
+      }
+      if (url.endsWith("/load-responses")) {
+        return { responses: [
+          { responseId: "a", message: "hihihi", sender: "human", createTime: "2026-09-21T08:43:32.285Z", parentResponseId: "root-not-listed" },
+          { responseId: "b", message: "hihihi! What's up?", sender: "assistant", createTime: "2026-09-21T08:43:32.296Z", parentResponseId: "a" },
+        ] };
+      }
+      return routes(url, init);
+    };
+    const body = await grok(fake(rootOnly)).read("g-1");
+    expect(body.messages.map((m) => [m.role, m.text])).toEqual([["user", "hihihi"], ["assistant", "hihihi! What's up?"]]);
   });
 
   it("reports a conversation with no response nodes as not found", async () => {

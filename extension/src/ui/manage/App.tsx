@@ -4,7 +4,7 @@ import {
 } from "@ant-design/icons";
 import {
   App as AntApp, Button, Divider, Drawer, Dropdown, Empty, Flex, Layout, Menu, Modal, Popover, Segmented,
-  Select, Space, Spin, Tag, Tooltip, Typography,
+  Select, Spin, Tag, Tooltip, Typography,
 } from "antd";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { t } from "../../i18n";
@@ -334,24 +334,23 @@ export function App() {
     <Layout>
       <Layout.Sider width={218} theme="light">
         <div className="pane pane-pad">
-          <Typography.Text type="secondary">{t("文件夹")}</Typography.Text>
+          <Divider plain className="side-title">{t("文件夹")}</Divider>
           <Menu
-            mode="inline" style={{ background: "transparent", borderInlineEnd: "none", marginTop: 4 }}
+            mode="inline" style={{ background: "transparent", borderInlineEnd: "none" }}
             selectedKeys={[folderKey]} items={folderItems}
             onClick={({ key }) => setFilter({ ...filter, folder: key === "all" ? "" : key })}
           />
           <Button block size="small" type="dashed" icon={<PlusOutlined />} style={{ marginTop: 8 }} onClick={() => void newFolder()}>
             {t("新建文件夹")}
           </Button>
-          <Divider style={{ margin: "14px 0 10px" }} />
-          <Typography.Text type="secondary">{t("标签")}</Typography.Text>
-          <Space size={[6, 6]} wrap style={{ marginTop: 6 }}>
+          <Divider plain className="side-title" style={{ marginTop: 22 }}>{t("标签")}</Divider>
+          <div className="tag-flow">
             <Tag.CheckableTag checked={!filter.tag} onChange={() => setFilter({ ...filter, tag: "" })}>{t("全部标签")}</Tag.CheckableTag>
             {tags.map((tag) => <Tag.CheckableTag
               key={tag} checked={filter.tag === tag}
               onChange={(on) => setFilter({ ...filter, tag: on ? tag : "" })}
             >{tag}</Tag.CheckableTag>)}
-          </Space>
+          </div>
         </div>
       </Layout.Sider>
 
