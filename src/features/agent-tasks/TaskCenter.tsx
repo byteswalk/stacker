@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Modal, useToast } from "../../ui";
 import { formatAge } from "../sessions/sessionsView";
+import { parseProgress } from "./progress";
 import { ACTION_TEXT } from "./useTaskToasts";
 import {
   agentTaskLog, cancelAgentTask, clearFinishedTasks, dismissTask, isOpenTask, retryAgentTask, subscribeTasks,
@@ -89,16 +90,21 @@ export function TaskCenter() {
   function openRow(task: AgentTask) {
     const started = secondsOf(task.startedAt) ?? secondsOf(task.createdAt) ?? now;
     const detail = task.state === "queued" ? task.waiting ?? "排队中" : task.lastLine ?? "";
+    // A real bar when the log says how far it is (Stacker's own downloads); a sliding one otherwise.
+    const progress = task.state === "running" ? parseProgress(task.lastLine) : null;
     return (
       <div className={"task-row " + task.state} key={task.id}>
         <i className={"ti task-icon " + STATE_ICON[task.state]} />
         <div className="task-main">
           <div className="task-title">
             <span className="task-name">{title(task)}</span>
-            <span className="task-time">{formatDuration(now - started)}</span>
+            {progress && <span className="task-percent">{progress.percent}%</span>}
+            <span className={"task-time" + (progress ? " after" : "")}>{formatDuration(now - started)}</span>
           </div>
           <div className="task-line mono" title={detail}>{detail}</div>
-          {task.state === "running" && <div className="task-progress"><span /></div>}
+          {task.state === "running" && (progress
+            ? <div className="task-progress measured"><span style={{ width: `${progress.percent}%` }} /></div>
+            : <div className="task-progress"><span /></div>)}
         </div>
         <div className="task-actions">
           <button className="task-icon-btn" title="日志" aria-label="日志" onClick={() => void showLog(task)}>

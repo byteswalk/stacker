@@ -32,3 +32,31 @@ describe("unavailable agent interfaces", () => {
     expect(html).toContain("另有 1 个安装");
   });
 });
+
+describe("where the latest version comes from", () => {
+  const installed = (extra: Partial<VibeSurface>): VibeSurface => ({
+    available: true, label: "ZCode 桌面端", kind: "桌面端", description: "", installed: true, status: "installed",
+    version: "3.12.3", update_available: false, install_url: "https://example.invalid", docs_url: "",
+    can_install: false, can_update: false, can_uninstall: true, can_open: true, health: "healthy", ...extra,
+  });
+
+  it("names the source of a latest version", () => {
+    const html = renderToStaticMarkup(<SurfaceState surface={installed({ latest: "3.12.3", latest_source: "WinGet", latest_checked: true })} />);
+    expect(html).toContain("最新版本：3.12.3");
+    expect(html).toContain("（WinGet）");
+  });
+
+  it("says there is no public source instead of repeating the installed version", () => {
+    const html = renderToStaticMarkup(<SurfaceState surface={installed({ latest_checked: true })} />);
+    expect(html).toContain("最新版本：无公开渠道");
+    expect(html).not.toContain("最新版本：3.12.3");
+  });
+
+  it("says a failed lookup failed, and says nothing before any lookup", () => {
+    expect(renderToStaticMarkup(<SurfaceState surface={installed({ latest_checked: true, latest_error: "offline" })} />))
+      .toContain("最新版本查询失败");
+    const before = renderToStaticMarkup(<SurfaceState surface={installed({ latest_checked: false })} />);
+    expect(before).not.toContain("最新版本");
+  });
+});
+

@@ -29,6 +29,10 @@ export type VibeSurface = {
   other_installs?: InstallInfo[];
   can_repair?: boolean;
   latest_error?: string | null;
+  /** Where `latest` came from: WinGet, npm, the vendor's own feed… */
+  latest_source?: string | null;
+  /** A lookup was made; with no latest and no error the product has no public version source. */
+  latest_checked?: boolean;
 };
 export type VibeTool = {
   id: string;

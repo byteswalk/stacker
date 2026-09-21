@@ -59,6 +59,11 @@ pub struct VibeSurface {
     pub can_repair: bool,
     /// Why the latest version could not be looked up; the update state is then unknown.
     pub latest_error: Option<String>,
+    /// Where `latest` came from (WinGet, npm, the vendor's own feed…); set only with `latest`.
+    pub latest_source: Option<String>,
+    /// A lookup was made (installed, full refresh). With no `latest` and no `latest_error`,
+    /// the product has no public version source: it checks for updates itself.
+    pub latest_checked: bool,
 }
 
 #[derive(Serialize, Clone)]
@@ -229,6 +234,8 @@ pub(crate) fn pending_surface(
         other_installs: Vec::new(),
         can_repair: false,
         latest_error: None,
+        latest_source: None,
+        latest_checked: false,
     }
 }
 
@@ -285,6 +292,8 @@ pub(crate) fn unavailable_surface(
         other_installs: Vec::new(),
         can_repair: false,
         latest_error: None,
+        latest_source: None,
+        latest_checked: false,
     }
 }
 

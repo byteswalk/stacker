@@ -1,5 +1,6 @@
-//! One-click update plan: which advertised updates can run in the background and which
-//! need the user, with the reason. A shared CLI appears once.
+//! One-click update plan: which advertised updates can run in the background, which need
+//! the user, and which installs could not be checked at all, each with the reason. A shared
+//! CLI appears once.
 
 use super::Surface;
 use crate::agents::{VibeSurface, VibeTool};
@@ -22,6 +23,9 @@ pub struct PlanItem {
 pub struct UpdatePlan {
     pub auto: Vec<PlanItem>,
     pub manual: Vec<PlanItem>,
+    /// Installed, but whether an update exists is not known: no public version source, or
+    /// the lookup failed. Listed so "everything is up to date" is never claimed for them.
+    pub unknown: Vec<PlanItem>,
 }
 
 fn item(tool: &VibeTool, surface: Surface, state: &VibeSurface, reason: Option<&str>) -> PlanItem {
@@ -41,7 +45,8 @@ pub(crate) fn build_update_plan(tools: &[VibeTool]) -> UpdatePlan {
     let mut seen_cli = std::collections::HashSet::new();
     for tool in tools {
         for (surface, state) in [(Surface::Cli, &tool.cli), (Surface::Desktop, &tool.desktop)] {
-            if !state.update_available {
+            let unknown = state.installed && state.latest_checked && state.latest.is_none();
+            if !state.update_available && !unknown {
                 continue;
             }
             if surface == Surface::Cli {
@@ -50,6 +55,14 @@ pub(crate) fn build_update_plan(tools: &[VibeTool]) -> UpdatePlan {
                         continue;
                     }
                 }
+            }
+            if unknown {
+                let reason = match &state.latest_error {
+                    Some(error) => format!("查询最新版本失败：{error}"),
+                    None => "没有公开的版本号渠道，由它自己检查更新".to_string(),
+                };
+                plan.unknown.push(item(tool, surface, state, Some(&reason)));
+                continue;
             }
             if state.health == "broken" {
                 plan.manual
@@ -85,6 +98,52 @@ mod tests {
         surface.version = Some("1.0".into());
         surface.latest = Some("2.0".into());
         surface
+    }
+
+    fn unchecked(error: Option<&str>) -> VibeSurface {
+        let mut surface = crate::agents::test_surface();
+        surface.installed = true;
+        surface.latest_checked = true;
+        surface.version = Some("3.12.3".into());
+        surface.latest_error = error.map(Into::into);
+        surface
+    }
+
+    #[test]
+    fn installs_whose_latest_is_unknown_are_listed_not_passed_as_up_to_date() {
+        let idle = crate::agents::test_surface();
+        let tools = vec![
+            tool("zcode", None, idle.clone(), unchecked(None)),
+            tool(
+                "codex",
+                Some("codex"),
+                unchecked(Some("network down")),
+                idle.clone(),
+            ),
+            // Not refreshed yet: nothing is known, and nothing is claimed either way.
+            tool("qoder", None, idle.clone(), {
+                let mut s = unchecked(None);
+                s.latest_checked = false;
+                s
+            }),
+        ];
+        let plan = build_update_plan(&tools);
+        assert!(plan.auto.is_empty() && plan.manual.is_empty());
+        let reasons: Vec<_> = plan
+            .unknown
+            .iter()
+            .map(|item| (item.product_id.as_str(), item.reason.clone().unwrap()))
+            .collect();
+        assert_eq!(
+            reasons,
+            vec![
+                (
+                    "zcode",
+                    "没有公开的版本号渠道，由它自己检查更新".to_string()
+                ),
+                ("codex", "查询最新版本失败：network down".to_string()),
+            ]
+        );
     }
 
     #[test]

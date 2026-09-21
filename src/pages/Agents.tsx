@@ -79,6 +79,11 @@ function installMethodHint(surface: VibeSurface) {
   }
 }
 
+/** Checked, installed, and still no latest and no error: nothing public to read. */
+export function latestUnknown(surface: VibeSurface) {
+  return Boolean(surface.installed && surface.latest_checked && !surface.latest && !surface.latest_error);
+}
+
 function surfaceStatusText(surface: VibeSurface) {
   if (surface.status === "pending") return surface.kind === "CLI" ? "命令入口待检测" : "桌面端待检测";
   if (surface.version) return `当前版本：${surface.version}`;
@@ -104,7 +109,16 @@ export function SurfaceState({ surface }: { surface: VibeSurface }) {
           {surface.health === "broken" ? `生效入口无法运行：${surface.broken_reason ?? ""}` : surfaceStatusText(surface)}
         </span>
         {/* A lower "latest" comes from a different version scheme (e.g. Store vs WinGet); hide it. */}
-        {surface.latest && (surface.update_available || surface.latest === surface.version) ? ` · 最新版本：${surface.latest}` : ""}
+        {surface.latest && (surface.update_available || surface.latest === surface.version) && (
+          <span title={surface.latest_source ? `最新版本来自 ${surface.latest_source}` : undefined}>
+            {` · 最新版本：${surface.latest}`}{surface.latest_source ? `（${surface.latest_source}）` : ""}
+          </span>
+        )}
+        {latestUnknown(surface) && (
+          <span className="surface-muted" title="这个应用没有公开的版本号查询渠道，更新由它自己检查。Stacker 不猜版本号。">
+            {" · 最新版本：无公开渠道"}
+          </span>
+        )}
         {surface.latest_error && <span className="surface-warn" title={surface.latest_error}>{" · 最新版本查询失败"}</span>}
         {surface.path ? ` · ${surface.path}` : ""}
         {others.length > 0 && (
@@ -254,7 +268,9 @@ export default function Agents() {
     const installed = surfaceDetected(surface);
     const canOpenOfficialDownload = target === "desktop" && Boolean(surface.install_url);
     const installFromOfficialPage = !surface.can_install && canOpenOfficialDownload;
-    const updateFromOfficialPage = installed && !surface.can_update && canOpenOfficialDownload;
+    // With no public version source nothing says whether an update exists; the vendor's page does.
+    const noVersionSource = latestUnknown(surface);
+    const updateFromOfficialPage = installed && canOpenOfficialDownload && (!surface.can_update || noVersionSource);
     const installTitle = installed
       ? `${surface.label} 已安装`
       : surface.can_install
@@ -264,9 +280,13 @@ export default function Agents() {
           : surface.install_unavailable_reason || `${surface.label} 暂不支持自动安装`;
     const updateTitle = !installed
       ? `尚未安装 ${surface.label}`
+      : updateFromOfficialPage && noVersionSource
+        ? `${surface.label} 没有公开的版本号查询渠道，Stacker 判断不了是否需要更新；点击打开官方下载页，或打开应用让它自己检查`
       : updateFromOfficialPage ? `打开 ${surface.label} 官方下载页检查更新`
+      : noVersionSource ? `${surface.label} 没有公开的版本号查询渠道，Stacker 判断不了是否需要更新；它会自己检查`
+      : surface.latest_error ? `查不到 ${surface.label} 的最新版本，无法判断是否需要更新`
       : !surface.can_update ? `${surface.label} 暂无可自动执行的更新方式`
-      : !surface.update_available ? `${surface.label} 当前无需更新` : `更新 ${surface.label}`;
+      : !surface.update_available ? `${surface.label} 已是最新版本` : `更新 ${surface.label}`;
     const uninstallTitle = !installed
       ? `尚未安装 ${surface.label}`
       : surface.can_uninstall ? `卸载 ${surface.label}` : `${surface.label} 暂无可自动执行的卸载方式`;

@@ -43,13 +43,11 @@ pub(crate) fn cli_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurface {
         Some(_) => "broken",
     };
     let can_repair = health == "broken" && other_installs.iter().any(|info| info.healthy);
-    let (latest, latest_error) = if check_latest && installed {
-        match latest_for_cli(spec, method.as_deref(), version.as_deref()) {
-            Ok(latest) => (latest, None),
-            Err(error) => (None, Some(error)),
-        }
+    let latest_checked = check_latest && installed;
+    let (latest, latest_source, latest_error) = if latest_checked {
+        split_latest(latest_for_cli(spec, method.as_deref()))
     } else {
-        (None, None)
+        (None, None, None)
     };
     let update_available = installed
         && version
@@ -92,6 +90,8 @@ pub(crate) fn cli_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurface {
         other_installs,
         can_repair,
         latest_error,
+        latest_source,
+        latest_checked,
     }
 }
 
@@ -136,19 +136,11 @@ pub(crate) fn desktop_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurfac
         .as_ref()
         .and_then(|f| f.path.as_ref())
         .map(|p| p.to_string_lossy().into_owned());
-    let latest = if check_latest && installed {
-        desktop_internal_latest(spec, version.as_deref())
-            .or_else(|| desktop_release_latest(spec))
-            .or_else(|| {
-                spec.desktop.winget_id.and_then(|id| {
-                    winget_available_update(id, spec.desktop.winget_source)
-                        .ok()
-                        .flatten()
-                })
-            })
-            .or_else(|| version.clone())
+    let latest_checked = check_latest && installed;
+    let (latest, latest_source, latest_error) = if latest_checked {
+        split_latest(desktop_latest(spec, version.as_deref()))
     } else {
-        None
+        (None, None, None)
     };
     let update_available = installed
         && version
@@ -204,7 +196,21 @@ pub(crate) fn desktop_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurfac
         broken_reason,
         other_installs: Vec::new(),
         can_repair: false,
-        latest_error: None,
+        latest_error,
+        latest_source,
+        latest_checked,
+    }
+}
+
+/// A latest-version lookup: the version and where it came from, `None` when the product
+/// publishes no version anywhere Stacker can read, or why the lookup failed.
+pub(crate) type LatestLookup = Result<Option<(String, &'static str)>, String>;
+
+fn split_latest(lookup: LatestLookup) -> (Option<String>, Option<String>, Option<String>) {
+    match lookup {
+        Ok(Some((version, source))) => (Some(version), Some(source.to_string()), None),
+        Ok(None) => (None, None, None),
+        Err(error) => (None, None, Some(error)),
     }
 }
 
@@ -318,30 +324,51 @@ pub(crate) fn is_npm_shim(program: &Path, npm_package: &str) -> bool {
         .unwrap_or(false)
 }
 
-pub(crate) fn latest_for_cli(
-    spec: &ToolSpec,
-    method: Option<&str>,
-    current: Option<&str>,
-) -> Result<Option<String>, String> {
+/// Where a CLI's latest version is published.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum CliSource {
+    Winget(&'static str),
+    TraeVersionFile,
+    MimoRelease,
+    Npm(&'static str),
+    /// Nowhere Stacker can read: the product checks for updates itself.
+    None,
+}
+
+pub(crate) fn cli_source(spec: &ToolSpec, method: Option<&str>) -> CliSource {
     if let (Some("winget"), Some(id)) = (method, spec.cli.winget_id) {
-        return Ok(winget_available_update(id, None)?.or_else(|| current.map(|s| s.to_string())));
+        return CliSource::Winget(id);
     }
     if spec.vendor == Vendor::Antigravity || spec.vendor == Vendor::Hermes {
-        return Ok(current.map(|s| s.to_string()));
+        return CliSource::None;
     }
     if spec.vendor == Vendor::Trae {
-        return trae_cli_latest().map(Some);
+        return CliSource::TraeVersionFile;
     }
     if method == Some("native") && spec.vendor == Vendor::MiMo {
-        return mimo_latest().map(Some);
+        return CliSource::MimoRelease;
     }
     if method == Some("native") && spec.vendor == Vendor::Claude {
-        return Ok(current.map(|s| s.to_string()));
+        return CliSource::None;
     }
-    if let Some(pkg) = spec.cli.npm_package {
-        return npm_latest(pkg).map(Some);
+    match spec.cli.npm_package {
+        Some(pkg) => CliSource::Npm(pkg),
+        None => CliSource::None,
     }
-    Ok(current.map(|s| s.to_string()))
+}
+
+/// A CLI's latest version from where it is published. With no such place the answer is
+/// `Ok(None)`, never the installed version passed off as the latest.
+pub(crate) fn latest_for_cli(spec: &ToolSpec, method: Option<&str>) -> LatestLookup {
+    match cli_source(spec, method) {
+        CliSource::Winget(id) => winget_latest(id, None).map(|version| Some((version, "WinGet"))),
+        CliSource::TraeVersionFile => {
+            trae_cli_latest().map(|version| Some((version, "TRAE 官方版本文件")))
+        }
+        CliSource::MimoRelease => mimo_latest().map(|version| Some((version, "MiMo 官方发布"))),
+        CliSource::Npm(pkg) => npm_latest(pkg).map(|version| Some((version, "npm"))),
+        CliSource::None => Ok(None),
+    }
 }
 
 /// Latest MiMo Code release published on Xiaomi's CDN (plain text, e.g. `v0.1.14`).
@@ -359,15 +386,65 @@ pub(crate) fn mimo_latest() -> Result<String, String> {
         .map_err(|e| format!("查询最新版本失败：{e}"))
 }
 
-/// Latest version of a desktop app installed from a GitHub electron-builder release.
-pub(crate) fn desktop_release_latest(spec: &ToolSpec) -> Option<String> {
-    match direct_desktop_installer(spec.vendor)?.source {
-        InstallerSource::ElectronRelease { base_url } => {
-            super::install::direct::electron_release_latest(base_url)
-                .ok()
-                .map(|release| release.version)
+/// Where a desktop app's latest version is published.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum DesktopSource {
+    KimiDownload,
+    GithubRelease(&'static str),
+    Winget(&'static str, Option<&'static str>),
+    /// Nowhere Stacker can read: the app checks for updates itself.
+    None,
+}
+
+pub(crate) fn desktop_source(spec: &ToolSpec) -> DesktopSource {
+    if spec.vendor == Vendor::Kimi {
+        return DesktopSource::KimiDownload;
+    }
+    if let Some(installer) = direct_desktop_installer(spec.vendor) {
+        if let InstallerSource::ElectronRelease { base_url } = installer.source {
+            return DesktopSource::GithubRelease(base_url);
         }
-        InstallerSource::Fixed { .. } => None,
+    }
+    match spec.desktop.winget_id {
+        Some(id) => DesktopSource::Winget(id, spec.desktop.winget_source),
+        None => DesktopSource::None,
+    }
+}
+
+/// A desktop app's latest version: an update Claude has already downloaded first, then where
+/// the app is published. With no such place the answer is `Ok(None)`, never the installed
+/// version passed off as the latest.
+pub(crate) fn desktop_latest(spec: &ToolSpec, current: Option<&str>) -> LatestLookup {
+    if spec.vendor == Vendor::Claude {
+        if let Some(ready) = claude_desktop_ready_update(current) {
+            return Ok(Some((ready, "Claude 已下载的更新")));
+        }
+    }
+    match desktop_source(spec) {
+        DesktopSource::KimiDownload => {
+            kimi_work_latest().map(|version| Some((version, "Kimi 官方下载地址")))
+        }
+        DesktopSource::GithubRelease(base_url) => {
+            super::install::direct::electron_release_latest(base_url)
+                .map(|release| Some((release.version, "GitHub Releases")))
+        }
+        DesktopSource::Winget(id, source) => {
+            winget_latest(id, source).map(|version| Some((version, "WinGet")))
+        }
+        DesktopSource::None => Ok(None),
+    }
+}
+
+/// The version WinGet lists for a package. A listing without a usable version (the Store
+/// shows "Unknown") is a failed lookup, not a version.
+pub(crate) fn winget_latest(id: &str, source: Option<&str>) -> Result<String, String> {
+    usable_winget_version(winget_available_update(id, source)?)
+}
+
+fn usable_winget_version(listed: Option<String>) -> Result<String, String> {
+    match listed {
+        Some(version) if version.chars().any(|ch| ch.is_ascii_digit()) => Ok(version),
+        _ => Err("WinGet 没有给出版本号".into()),
     }
 }
 
@@ -388,14 +465,6 @@ pub(crate) fn trae_cli_latest() -> Result<String, String> {
         Err("TRAE CLI 最新版本响应为空。".into())
     } else {
         Ok(version.to_string())
-    }
-}
-
-pub(crate) fn desktop_internal_latest(spec: &ToolSpec, current: Option<&str>) -> Option<String> {
-    match spec.vendor {
-        Vendor::Claude => claude_desktop_ready_update(current),
-        Vendor::Kimi => kimi_work_latest().ok(),
-        _ => None,
     }
 }
 
@@ -1036,6 +1105,76 @@ pub(crate) fn npm_latest(package: &str) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn spec(id: &str) -> ToolSpec {
+        crate::agents::registry::spec_by_id(id).unwrap()
+    }
+
+    #[test]
+    fn products_that_only_update_themselves_have_no_version_source() {
+        // For these the card must say "no public source", not echo the installed version.
+        for (id, method) in [
+            ("antigravity", None),
+            ("hermes", None),
+            ("claude", Some("native")),
+        ] {
+            assert_eq!(cli_source(&spec(id), method), CliSource::None, "{id}");
+        }
+        for id in [
+            "zcode",
+            "workbuddy-cn",
+            "workbuddy-global",
+            "trae-work",
+            "qoder",
+            "mimo-cn",
+        ] {
+            assert_eq!(desktop_source(&spec(id)), DesktopSource::None, "{id}");
+        }
+    }
+
+    #[test]
+    fn products_with_a_published_version_name_where_it_is() {
+        assert_eq!(desktop_source(&spec("kimi")), DesktopSource::KimiDownload);
+        assert!(matches!(
+            desktop_source(&spec("pi")),
+            DesktopSource::GithubRelease(_)
+        ));
+        assert_eq!(
+            desktop_source(&spec("codex")),
+            DesktopSource::Winget("9PLM9XGG6VKS", Some("msstore"))
+        );
+        assert_eq!(
+            cli_source(&spec("trae-work"), Some("native")),
+            CliSource::TraeVersionFile
+        );
+        assert!(matches!(
+            cli_source(&spec("codex"), Some("npm")),
+            CliSource::Npm(_)
+        ));
+    }
+
+    #[test]
+    fn a_winget_listing_without_a_version_is_a_failed_lookup() {
+        assert_eq!(
+            usable_winget_version(Some("1.2.3".into())),
+            Ok("1.2.3".into())
+        );
+        assert!(usable_winget_version(Some("Unknown".into())).is_err());
+        assert!(usable_winget_version(None).is_err());
+    }
+
+    #[test]
+    fn a_lookup_splits_into_version_source_and_error() {
+        assert_eq!(
+            split_latest(Ok(Some(("2.0".into(), "npm")))),
+            (Some("2.0".into()), Some("npm".into()), None)
+        );
+        assert_eq!(split_latest(Ok(None)), (None, None, None));
+        assert_eq!(
+            split_latest(Err("offline".into())),
+            (None, None, Some("offline".into()))
+        );
+    }
 
     #[test]
     fn npm_latest_urls_prefer_the_configured_registry() {

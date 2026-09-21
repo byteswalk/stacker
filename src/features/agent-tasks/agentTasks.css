@@ -37,6 +37,10 @@
 .a .task-progress{ height:2px; border-radius:2px; background:var(--bd); overflow:hidden; margin-top:3px; }
 .a .task-progress span{ display:block; width:35%; height:100%; background:var(--blue); border-radius:2px;
   animation:progress-slide 1.4s ease-in-out infinite; }
+/* Known progress: the bar grows to the real share instead of sliding. */
+.a .task-progress.measured span{ animation:none; transition:width .4s ease; }
+.a .task-percent{ margin-left:auto; font-size:11px; font-weight:600; color:var(--blue); font-variant-numeric:tabular-nums; }
+.a .task-time.after{ margin-left:0; }
 
 .a .task-actions{ display:flex; gap:4px; flex-shrink:0; align-items:center; }
 .a .task-icon-btn{ width:26px; height:26px; display:inline-flex; align-items:center; justify-content:center; border:none;
@@ -51,6 +55,7 @@
 .a .surface-note{ font-size:11px; color:var(--mut); margin-top:2px; }
 .a .bd.e{ background:rgba(229,72,77,.14); color:#e5484d; }
 .a .surface-warn{ color:var(--amber); }
+.a .surface-muted{ color:var(--mut); cursor:help; }
 
 /* 一键更新 plan */
 .a .update-plan{ font-size:13px; }

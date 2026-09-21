@@ -13,7 +13,7 @@ type PlanItem = {
   latest?: string | null;
   reason?: string | null;
 };
-type UpdatePlan = { auto: PlanItem[]; manual: PlanItem[] };
+type UpdatePlan = { auto: PlanItem[]; manual: PlanItem[]; unknown?: PlanItem[] };
 
 function PlanRow({ item, icons }: { item: PlanItem; icons: Map<string, string> }) {
   const icon = icons.get(item.productId);
@@ -28,8 +28,10 @@ function PlanRow({ item, icons }: { item: PlanItem; icons: Map<string, string> }
       </span>
       <span className="plan-versions">
         <span className="plan-ver">{item.current ?? "未知"}</span>
-        <i className="ti ti-arrow-narrow-right" aria-hidden="true" />
-        <span className="plan-ver next">{item.latest ?? "未知"}</span>
+        {item.latest && <>
+          <i className="ti ti-arrow-narrow-right" aria-hidden="true" />
+          <span className="plan-ver next">{item.latest}</span>
+        </>}
       </span>
     </li>
   );
@@ -80,10 +82,16 @@ export function UpdatePlanModal({ onClose }: { onClose: () => void }) {
         <div className="update-plan">
           {plan.auto.length > 0
             ? <ul>{plan.auto.map((item) => <PlanRow key={`${item.productId}-${item.surface}`} item={item} icons={icons} />)}</ul>
-            : <div className="plan-empty"><i className="ti ti-circle-check" /> 所有可自动更新的智能体都已是最新版本。</div>}
+            : <div className="plan-empty"><i className="ti ti-circle-check" />
+              {(plan.unknown?.length ?? 0) > 0 ? "能查到最新版本的智能体都已是最新。" : "所有可自动更新的智能体都已是最新版本。"}
+            </div>}
           {plan.manual.length > 0 && <>
             <div className="plan-group"><i className="ti ti-hand-finger" /> 需要手动处理 <span>{plan.manual.length}</span></div>
             <ul>{plan.manual.map((item) => <PlanRow key={`${item.productId}-${item.surface}`} item={item} icons={icons} />)}</ul>
+          </>}
+          {(plan.unknown?.length ?? 0) > 0 && <>
+            <div className="plan-group"><i className="ti ti-help-circle" /> 查不到最新版本 <span>{plan.unknown!.length}</span></div>
+            <ul>{plan.unknown!.map((item) => <PlanRow key={`${item.productId}-${item.surface}`} item={item} icons={icons} />)}</ul>
           </>}
         </div>
       )}
