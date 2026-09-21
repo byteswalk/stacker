@@ -1127,14 +1127,17 @@ pub(crate) fn direct_desktop_installer(vendor: Vendor) -> Option<DirectDesktopIn
     }
 }
 
+/// Where the OpenClaw Windows companion is released; the main repository ships no Windows build.
+pub(crate) const OPENCLAW_WINDOWS_REPO: &str = "openclaw/openclaw-windows-node";
+
 #[cfg(target_arch = "aarch64")]
 pub(crate) fn openclaw_desktop_installer_url() -> &'static str {
-    "https://github.com/openclaw/openclaw/releases/latest/download/OpenClawCompanion-Setup-arm64.exe"
+    "https://github.com/openclaw/openclaw-windows-node/releases/latest/download/OpenClawCompanion-Setup-arm64.exe"
 }
 
 #[cfg(not(target_arch = "aarch64"))]
 pub(crate) fn openclaw_desktop_installer_url() -> &'static str {
-    "https://github.com/openclaw/openclaw/releases/latest/download/OpenClawCompanion-Setup-x64.exe"
+    "https://github.com/openclaw/openclaw-windows-node/releases/latest/download/OpenClawCompanion-Setup-x64.exe"
 }
 
 #[cfg(test)]

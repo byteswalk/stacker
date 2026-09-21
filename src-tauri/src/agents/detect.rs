@@ -120,9 +120,10 @@ pub(crate) fn desktop_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurfac
     let method = found.as_ref().and_then(|f| f.method.clone());
     // Kimi Work applies some updates in place. Its uninstall registration can
     // briefly keep the previous DisplayVersion, while Kimi.exe is already new.
-    // Prefer the executable's file version so we don't advertise a phantom update.
+    // OpenClaw's tray updates itself and leaves the entry at the installer's own
+    // version (0.6.12 beside a 2026.7.1 tray). Prefer the executable's file version.
     let version = found.as_ref().and_then(|found| {
-        if spec.vendor == Vendor::Kimi {
+        if matches!(spec.vendor, Vendor::Kimi | Vendor::OpenClaw) {
             found
                 .path
                 .as_deref()
@@ -391,14 +392,50 @@ pub(crate) fn mimo_latest() -> Result<String, String> {
 pub(crate) enum DesktopSource {
     KimiDownload,
     GithubRelease(&'static str),
+    /// A repository's newest stable release, read through the GitHub API.
+    GithubLatest(&'static str),
     Winget(&'static str, Option<&'static str>),
+    /// The manifest ZCode's own updater reads.
+    ZcodeManifest,
+    /// WorkBuddy's update service at this base URL; it answers for the installed version.
+    WorkBuddyUpdate(&'static str),
+    /// Qoder's desktop update service at this base URL; it answers for the installed version.
+    QoderUpdate(&'static str),
+    /// TRAE Work's own `check_update`, as this edition's app sends it.
+    TraeCheckUpdate(&'static super::feeds::TraeFeed),
     /// Nowhere Stacker can read: the app checks for updates itself.
     None,
 }
 
 pub(crate) fn desktop_source(spec: &ToolSpec) -> DesktopSource {
-    if spec.vendor == Vendor::Kimi {
-        return DesktopSource::KimiDownload;
+    let cn = spec.edition == Edition::Cn;
+    match spec.vendor {
+        Vendor::Kimi => return DesktopSource::KimiDownload,
+        Vendor::ZCode => return DesktopSource::ZcodeManifest,
+        Vendor::WorkBuddy => {
+            return DesktopSource::WorkBuddyUpdate(if cn {
+                "https://copilot.tencent.com"
+            } else {
+                "https://www.workbuddy.ai"
+            })
+        }
+        Vendor::Qoder => {
+            return DesktopSource::QoderUpdate(if cn {
+                "https://gateway.qoder.com.cn"
+            } else {
+                "https://center.qoder.sh"
+            })
+        }
+        Vendor::Trae => {
+            return DesktopSource::TraeCheckUpdate(if cn {
+                &super::feeds::TRAE_CN
+            } else {
+                &super::feeds::TRAE_GLOBAL
+            })
+        }
+        // The Windows companion ships from its own repository, not the main openclaw one.
+        Vendor::OpenClaw => return DesktopSource::GithubLatest(OPENCLAW_WINDOWS_REPO),
+        _ => {}
     }
     if let Some(installer) = direct_desktop_installer(spec.vendor) {
         if let InstallerSource::ElectronRelease { base_url } = installer.source {
@@ -428,8 +465,21 @@ pub(crate) fn desktop_latest(spec: &ToolSpec, current: Option<&str>) -> LatestLo
             super::install::direct::electron_release_latest(base_url)
                 .map(|release| Some((release.version, "GitHub Releases")))
         }
+        DesktopSource::GithubLatest(repo) => {
+            super::feeds::github_latest(repo).map(|version| Some((version, "GitHub Releases")))
+        }
         DesktopSource::Winget(id, source) => {
             winget_latest(id, source).map(|version| Some((version, "WinGet")))
+        }
+        DesktopSource::ZcodeManifest => {
+            super::feeds::zcode_latest().map(|version| Some((version, "ZCode 官方更新服务")))
+        }
+        DesktopSource::WorkBuddyUpdate(base) => super::feeds::workbuddy_latest(base, current)
+            .map(|version| Some((version, "WorkBuddy 官方更新服务"))),
+        DesktopSource::QoderUpdate(base) => super::feeds::qoder_latest(base, current)
+            .map(|version| Some((version, "Qoder 官方更新服务"))),
+        DesktopSource::TraeCheckUpdate(feed) => {
+            super::feeds::trae_work_latest(feed).map(|version| Some((version, "TRAE 官方更新服务")))
         }
         DesktopSource::None => Ok(None),
     }
@@ -1120,14 +1170,7 @@ mod tests {
         ] {
             assert_eq!(cli_source(&spec(id), method), CliSource::None, "{id}");
         }
-        for id in [
-            "zcode",
-            "workbuddy-cn",
-            "workbuddy-global",
-            "trae-work",
-            "qoder",
-            "mimo-cn",
-        ] {
+        for id in ["hermes", "mimo-cn", "mimo-global"] {
             assert_eq!(desktop_source(&spec(id)), DesktopSource::None, "{id}");
         }
     }
@@ -1135,6 +1178,35 @@ mod tests {
     #[test]
     fn products_with_a_published_version_name_where_it_is() {
         assert_eq!(desktop_source(&spec("kimi")), DesktopSource::KimiDownload);
+        assert_eq!(desktop_source(&spec("zcode")), DesktopSource::ZcodeManifest);
+        assert_eq!(
+            desktop_source(&spec("workbuddy-cn")),
+            DesktopSource::WorkBuddyUpdate("https://copilot.tencent.com")
+        );
+        assert_eq!(
+            desktop_source(&spec("workbuddy-global")),
+            DesktopSource::WorkBuddyUpdate("https://www.workbuddy.ai")
+        );
+        assert_eq!(
+            desktop_source(&spec("qoder-cn")),
+            DesktopSource::QoderUpdate("https://gateway.qoder.com.cn")
+        );
+        assert_eq!(
+            desktop_source(&spec("qoder")),
+            DesktopSource::QoderUpdate("https://center.qoder.sh")
+        );
+        assert_eq!(
+            desktop_source(&spec("trae-work")),
+            DesktopSource::TraeCheckUpdate(&crate::agents::feeds::TRAE_CN)
+        );
+        assert_eq!(
+            desktop_source(&spec("trae-global")),
+            DesktopSource::TraeCheckUpdate(&crate::agents::feeds::TRAE_GLOBAL)
+        );
+        assert_eq!(
+            desktop_source(&spec("openclaw")),
+            DesktopSource::GithubLatest("openclaw/openclaw-windows-node")
+        );
         assert!(matches!(
             desktop_source(&spec("pi")),
             DesktopSource::GithubRelease(_)

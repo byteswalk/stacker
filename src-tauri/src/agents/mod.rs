@@ -1,6 +1,7 @@
 mod activity;
 pub mod commands;
 mod detect;
+mod feeds;
 mod health;
 mod install;
 pub(crate) mod net;
