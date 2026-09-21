@@ -409,6 +409,8 @@ pub fn run() {
             agents::commands::agent_task_retry,
             agents::commands::agent_tasks,
             agents::commands::agent_task_log,
+            agents::commands::agent_tasks_clear,
+            agents::commands::agent_task_dismiss,
             agents::commands::agent_update_plan,
             agents::commands::agent_update_all,
         ])

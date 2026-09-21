@@ -18,28 +18,50 @@ impl Resource {
             _ => 1,
         }
     }
+
+    /// What a queued task is shown to be waiting for.
+    pub(crate) fn waiting_text(&self) -> &'static str {
+        match self {
+            Resource::Product(_) => "等同一产品的另一个任务完成",
+            Resource::Npm => "等其他 npm 任务完成",
+            Resource::Installer => "等其他安装程序完成",
+            Resource::Download => "等下载名额",
+        }
+    }
 }
 
-/// Indexes of queued tasks that can start now, in queue order. A task that does not fit
-/// is skipped without blocking later tasks.
-pub(crate) fn runnable(queued: &[Vec<Resource>], running: &[Vec<Resource>]) -> Vec<usize> {
+/// For each queued task, in queue order: `None` when it can start now, otherwise the first
+/// resource it is waiting for. A task that does not fit is skipped without blocking later tasks.
+pub(crate) fn assign(queued: &[Vec<Resource>], running: &[Vec<Resource>]) -> Vec<Option<Resource>> {
     let mut used: HashMap<Resource, usize> = HashMap::new();
     for resource in running.iter().flatten() {
         *used.entry(resource.clone()).or_default() += 1;
     }
-    let mut start = Vec::new();
-    for (index, resources) in queued.iter().enumerate() {
-        let fits = resources
-            .iter()
-            .all(|resource| used.get(resource).copied().unwrap_or(0) < resource.capacity());
-        if fits {
-            for resource in resources {
-                *used.entry(resource.clone()).or_default() += 1;
+    queued
+        .iter()
+        .map(|resources| {
+            let blocker = resources
+                .iter()
+                .find(|resource| used.get(*resource).copied().unwrap_or(0) >= resource.capacity());
+            if blocker.is_none() {
+                for resource in resources {
+                    *used.entry(resource.clone()).or_default() += 1;
+                }
             }
-            start.push(index);
-        }
-    }
-    start
+            blocker.cloned()
+        })
+        .collect()
+}
+
+/// Indexes of queued tasks that can start now, in queue order.
+#[cfg(test)]
+pub(crate) fn runnable(queued: &[Vec<Resource>], running: &[Vec<Resource>]) -> Vec<usize> {
+    assign(queued, running)
+        .iter()
+        .enumerate()
+        .filter(|(_, blocker)| blocker.is_none())
+        .map(|(index, _)| index)
+        .collect()
 }
 
 #[cfg(test)]
@@ -80,6 +102,20 @@ mod tests {
         let running = vec![vec![product("a"), Download]];
         let queued = vec![vec![product("a"), Download], vec![product("b"), Download]];
         assert_eq!(runnable(&queued, &running), vec![1]);
+    }
+
+    #[test]
+    fn a_waiting_task_names_what_it_waits_for() {
+        let running = vec![vec![product("pi"), Npm]];
+        let queued = vec![
+            vec![product("kimi"), Npm],
+            vec![product("pi"), Npm],
+            vec![product("zed"), Installer, Download],
+        ];
+        assert_eq!(
+            assign(&queued, &running),
+            vec![Some(Npm), Some(product("pi")), None]
+        );
     }
 
     #[test]

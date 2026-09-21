@@ -6,7 +6,7 @@ pub(crate) mod plan;
 pub(crate) mod runner;
 pub(crate) mod schedule;
 
-use schedule::{runnable, Resource};
+use schedule::{assign, Resource};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -64,6 +64,8 @@ pub struct AgentTask {
     pub state: TaskState,
     pub message: Option<String>,
     pub last_line: Option<String>,
+    /// For a queued task, what it is waiting for; cleared once it runs.
+    pub waiting: Option<String>,
     pub created_at: String,
     pub started_at: Option<String>,
     pub finished_at: Option<String>,
@@ -159,6 +161,7 @@ impl AgentTaskManager {
                 state: TaskState::Queued,
                 message: None,
                 last_line: None,
+                waiting: None,
                 created_at: now(),
                 started_at: None,
                 finished_at: None,
@@ -237,6 +240,32 @@ impl AgentTaskManager {
         Ok(record.log.iter().cloned().collect())
     }
 
+    /// Drops every finished task and returns what is left; open tasks are never removed.
+    pub fn clear_finished(&self) -> Vec<AgentTask> {
+        let mut inner = self.lock();
+        inner.records.retain(|record| is_open(record.task.state));
+        inner
+            .records
+            .iter()
+            .map(|record| record.task.clone())
+            .collect()
+    }
+
+    /// Drops one finished task. An open task has to be cancelled first.
+    pub fn dismiss(&self, id: &str) -> Result<(), String> {
+        let mut inner = self.lock();
+        let index = inner
+            .records
+            .iter()
+            .position(|record| record.task.id == id)
+            .ok_or("任务不存在")?;
+        if is_open(inner.records[index].task.state) {
+            return Err("任务仍在执行".into());
+        }
+        inner.records.remove(index);
+        Ok(())
+    }
+
     pub fn running_count(&self) -> usize {
         self.lock()
             .records
@@ -258,9 +287,9 @@ impl AgentTaskManager {
         }
     }
 
-    /// Starts every queued task whose resources are free.
+    /// Starts every queued task whose resources are free, and tells the others what they wait for.
     fn pump(&self) {
-        let started: Vec<(AgentTask, TaskRequest, Arc<AtomicBool>)> = {
+        let (started, waiting) = {
             let mut inner = self.lock();
             let running: Vec<Vec<Resource>> = inner
                 .records
@@ -279,20 +308,35 @@ impl AgentTaskManager {
                 .iter()
                 .map(|&index| inner.records[index].resources.clone())
                 .collect();
-            runnable(&queued, &running)
-                .into_iter()
-                .map(|position| {
-                    let record = &mut inner.records[queued_indexes[position]];
-                    record.task.state = TaskState::Running;
-                    record.task.started_at = Some(now());
-                    (
-                        record.task.clone(),
-                        record.request.clone(),
-                        record.cancel.clone(),
-                    )
-                })
-                .collect()
+            let mut started: Vec<(AgentTask, TaskRequest, Arc<AtomicBool>)> = Vec::new();
+            let mut waiting: Vec<AgentTask> = Vec::new();
+            for (position, blocker) in assign(&queued, &running).into_iter().enumerate() {
+                let record = &mut inner.records[queued_indexes[position]];
+                match blocker {
+                    None => {
+                        record.task.state = TaskState::Running;
+                        record.task.started_at = Some(now());
+                        record.task.waiting = None;
+                        started.push((
+                            record.task.clone(),
+                            record.request.clone(),
+                            record.cancel.clone(),
+                        ));
+                    }
+                    Some(resource) => {
+                        let text = Some(resource.waiting_text().to_string());
+                        if record.task.waiting != text {
+                            record.task.waiting = text;
+                            waiting.push(record.task.clone());
+                        }
+                    }
+                }
+            }
+            (started, waiting)
         };
+        for task in waiting {
+            (self.emit)(&task);
+        }
         for (task, request, cancel) in started {
             (self.emit)(&task);
             self.spawn(task.id, request, cancel);
@@ -486,6 +530,61 @@ mod tests {
         wait_for(&manager, &third.id, TaskState::Running);
         manager.cancel_all();
         wait_for(&manager, &third.id, TaskState::Cancelled);
+    }
+
+    #[test]
+    fn a_queued_task_says_what_it_waits_for_until_it_runs() {
+        let (manager, gate) = manager();
+        let first = manager.start(request("a")).unwrap();
+        let second = manager.start(request("b")).unwrap();
+        wait_for(&manager, &first.id, TaskState::Running);
+        let waiting = manager
+            .list()
+            .into_iter()
+            .find(|t| t.id == second.id)
+            .unwrap();
+        assert_eq!(waiting.waiting.as_deref(), Some("等其他 npm 任务完成"));
+        assert_eq!(first.waiting, None);
+        gate.send(Ok("done".into())).unwrap();
+        let running = wait_for(&manager, &second.id, TaskState::Running);
+        assert_eq!(running.waiting, None);
+        gate.send(Ok("done".into())).unwrap();
+        wait_for(&manager, &second.id, TaskState::Succeeded);
+    }
+
+    #[test]
+    fn clearing_keeps_open_tasks_and_drops_finished_ones() {
+        let (manager, gate) = manager();
+        let done = manager.start(request("a")).unwrap();
+        wait_for(&manager, &done.id, TaskState::Running);
+        gate.send(Ok("done".into())).unwrap();
+        wait_for(&manager, &done.id, TaskState::Succeeded);
+
+        let running = manager.start(request("b")).unwrap();
+        let queued = manager.start(request("c")).unwrap();
+        wait_for(&manager, &running.id, TaskState::Running);
+
+        let left: Vec<String> = manager.clear_finished().into_iter().map(|t| t.id).collect();
+        assert_eq!(left, vec![running.id.clone(), queued.id.clone()]);
+        assert!(
+            manager.log(&done.id).is_err(),
+            "a cleared task is gone, log included"
+        );
+        manager.cancel_all();
+        wait_for(&manager, &running.id, TaskState::Cancelled);
+    }
+
+    #[test]
+    fn only_a_finished_task_can_be_dismissed() {
+        let (manager, gate) = manager();
+        let task = manager.start(request("a")).unwrap();
+        wait_for(&manager, &task.id, TaskState::Running);
+        assert_eq!(manager.dismiss(&task.id), Err("任务仍在执行".into()));
+        gate.send(Err("boom".into())).unwrap();
+        wait_for(&manager, &task.id, TaskState::Failed);
+        manager.dismiss(&task.id).unwrap();
+        assert!(manager.list().is_empty());
+        assert_eq!(manager.dismiss(&task.id), Err("任务不存在".into()));
     }
 
     #[test]

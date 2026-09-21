@@ -4,7 +4,7 @@ import { applyTaskEvent, openTaskFor, type AgentTask, type TaskMap } from "./tas
 function task(overrides: Partial<AgentTask>): AgentTask {
   return {
     id: "t1", productId: "workbuddy-cn", productName: "WorkBuddy 中国版", surface: "cli", surfaceLabel: "CodeBuddy CLI",
-    cliId: "codebuddy", action: "update", state: "queued", message: null, lastLine: null,
+    cliId: "codebuddy", action: "update", state: "queued", message: null, lastLine: null, waiting: null,
     createdAt: "2026-09-18T00:00:00Z", startedAt: null, finishedAt: null, ...overrides,
   };
 }

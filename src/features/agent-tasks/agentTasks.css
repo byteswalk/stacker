@@ -1,19 +1,50 @@
 .a .task-center{ position:relative; margin-left:auto; }
 .a .task-center-btn .task-count{ margin-left:4px; min-width:16px; padding:0 5px; border-radius:8px;
   background:var(--acc); color:#fff; font-size:10px; line-height:16px; text-align:center; }
-.a .task-panel{ position:absolute; right:0; top:calc(100% + 6px); width:440px; max-height:440px; overflow:auto;
-  background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:6px; z-index:40;
-  box-shadow:0 12px 32px rgba(0,0,0,.35); }
-.a .task-row{ display:flex; gap:8px; align-items:center; padding:8px; border-radius:8px; }
-.a .task-row + .task-row{ border-top:1px solid var(--bd); }
-.a .task-main{ flex:1; min-width:0; }
-.a .task-title{ font-size:13px; display:flex; gap:8px; align-items:center; color:var(--tx); }
-.a .task-state{ font-size:11px; color:var(--mut); }
-.a .task-row.running .task-state{ color:var(--blue); }
+.a .task-panel{ position:absolute; right:0; top:calc(100% + 6px); width:460px; max-height:min(520px, 70vh); overflow:auto;
+  background:var(--card); border:1px solid var(--bd); border-radius:12px; padding:4px 6px 6px; z-index:40;
+  box-shadow:0 16px 40px rgba(0,0,0,.35); }
+
+/* Section headers: 进行中 / 已结束, with the clear action on the right. */
+.a .task-section{ display:flex; align-items:center; gap:6px; padding:10px 8px 6px; font-size:12px; font-weight:600; color:var(--mut);
+  position:sticky; top:-4px; background:var(--card); z-index:1; }
+.a .task-section-count{ min-width:18px; padding:0 6px; border-radius:999px; background:var(--bd); color:var(--mut);
+  font-size:11px; font-weight:500; line-height:16px; text-align:center; }
+.a .task-clear{ margin-left:auto; display:inline-flex; align-items:center; gap:4px; border:none; background:transparent;
+  color:var(--mut); font-size:12px; padding:3px 6px; border-radius:6px; cursor:pointer; }
+.a .task-clear:hover{ color:var(--tx); background:var(--bd); }
+
+.a .task-row{ display:flex; gap:10px; align-items:flex-start; padding:9px 8px; border-radius:9px; }
+.a .task-row:hover{ background:var(--bd); }
+.a .task-icon{ font-size:17px; margin-top:1px; flex-shrink:0; color:var(--mut); }
+.a .task-row.running .task-icon{ color:var(--blue); }
+.a .task-row.queued .task-icon{ color:var(--amber); }
+.a .task-row.succeeded .task-icon{ color:var(--green); }
+.a .task-row.failed .task-icon{ color:var(--red); }
+.a .task-main{ flex:1; min-width:0; display:flex; flex-direction:column; gap:3px; }
+.a .task-title{ font-size:13px; display:flex; gap:8px; align-items:baseline; color:var(--tx); min-width:0; }
+.a .task-name{ font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.a .task-state{ font-size:11px; color:var(--mut); flex-shrink:0; }
 .a .task-row.failed .task-state{ color:var(--red); }
 .a .task-row.succeeded .task-state{ color:var(--green); }
-.a .task-line{ font-size:11px; color:var(--mut); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.a .task-actions{ display:flex; gap:4px; flex-shrink:0; }
+.a .task-time{ margin-left:auto; font-size:11px; color:var(--mut); flex-shrink:0; font-variant-numeric:tabular-nums; }
+.a .task-line{ font-size:11.5px; color:var(--mut); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.a .task-row.queued .task-line{ color:var(--amber); }
+.a .task-row.failed .task-line{ color:var(--red); opacity:.9; }
+.a .task-took{ opacity:.8; }
+
+/* An unknown-length job: a thin bar sliding under the running row. */
+.a .task-progress{ height:2px; border-radius:2px; background:var(--bd); overflow:hidden; margin-top:3px; }
+.a .task-progress span{ display:block; width:35%; height:100%; background:var(--blue); border-radius:2px;
+  animation:progress-slide 1.4s ease-in-out infinite; }
+
+.a .task-actions{ display:flex; gap:4px; flex-shrink:0; align-items:center; }
+.a .task-icon-btn{ width:26px; height:26px; display:inline-flex; align-items:center; justify-content:center; border:none;
+  border-radius:7px; background:transparent; color:var(--mut); cursor:pointer; font-size:15px; }
+.a .task-icon-btn:hover{ background:var(--bd); color:var(--tx); }
+/* Removing a record is a secondary action: only shown on the row being pointed at. */
+.a .task-dismiss{ visibility:hidden; }
+.a .task-row:hover .task-dismiss, .a .task-dismiss:focus-visible{ visibility:visible; }
 .a .task-log{ max-height:60vh; overflow:auto; font-size:12px; white-space:pre-wrap; margin:0; }
 .a .surface-task{ font-size:11px; color:var(--blue); display:flex; gap:4px; align-items:center; margin-top:2px;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }

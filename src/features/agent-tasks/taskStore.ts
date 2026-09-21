@@ -14,6 +14,8 @@ export type AgentTask = {
   state: AgentTaskState;
   message: string | null;
   lastLine: string | null;
+  /** For a queued task, what it is waiting for. */
+  waiting: string | null;
   createdAt: string;
   startedAt: string | null;
   finishedAt: string | null;
@@ -80,4 +82,18 @@ export function retryAgentTask(id: string) {
 
 export function agentTaskLog(id: string) {
   return invoke<string[]>("agent_task_log", { id });
+}
+
+/** Drops every finished task; open tasks stay. */
+export async function clearFinishedTasks() {
+  const left = await invoke<AgentTask[]>("agent_tasks_clear");
+  publish(Object.fromEntries(left.map((task) => [task.id, task])));
+}
+
+/** Drops one finished task. */
+export async function dismissTask(id: string) {
+  await invoke<void>("agent_task_dismiss", { id });
+  const next = { ...taskMap };
+  delete next[id];
+  publish(next);
 }

@@ -98,6 +98,20 @@ pub fn agent_tasks(manager: tauri::State<'_, AgentTaskManager>) -> Vec<AgentTask
     manager.list()
 }
 
+/// Drops every finished task; returns the tasks still open.
+#[tauri::command]
+pub fn agent_tasks_clear(manager: tauri::State<'_, AgentTaskManager>) -> Vec<AgentTask> {
+    manager.clear_finished()
+}
+
+#[tauri::command]
+pub fn agent_task_dismiss(
+    id: String,
+    manager: tauri::State<'_, AgentTaskManager>,
+) -> Result<(), String> {
+    manager.dismiss(&id)
+}
+
 #[tauri::command]
 pub fn agent_task_log(
     id: String,
