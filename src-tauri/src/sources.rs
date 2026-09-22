@@ -83,7 +83,6 @@ pub fn tools_builtin_ids() -> Vec<&'static str> {
         "go",
         "maven",
         "gradle",
-        "conda",
         "cargo",
     ]
 }
@@ -696,34 +695,6 @@ pub fn hardcoded() -> Vec<Tool> {
             ],
         ),
         mk(
-            "conda",
-            "conda",
-            "cd",
-            "condarc",
-            "conda",
-            vec![
-                m("official", "官方 defaults", "", ""),
-                m(
-                    "tsinghua",
-                    "清华大学",
-                    "https://mirrors.tuna.tsinghua.edu.cn/anaconda",
-                    "mirrors.tuna.tsinghua.edu.cn",
-                ),
-                m(
-                    "zju",
-                    "浙江大学",
-                    "https://mirrors.zju.edu.cn/anaconda",
-                    "mirrors.zju.edu.cn",
-                ),
-                m(
-                    "sjtug",
-                    "上海交大",
-                    "https://mirror.sjtu.edu.cn/anaconda",
-                    "mirror.sjtu.edu.cn",
-                ),
-            ],
-        ),
-        mk(
             "cargo",
             "Cargo (Rust)",
             "rs",
@@ -798,9 +769,6 @@ pub fn composer_path() -> PathBuf {
 pub fn yarnrc_path() -> PathBuf {
     home().join(".yarnrc")
 }
-fn condarc_path() -> PathBuf {
-    home().join(".condarc")
-}
 pub fn cargo_path() -> PathBuf {
     let cargo_home = winenv::get_raw_in(winenv::Hive::User, "CARGO_HOME")
         .or_else(|| winenv::get_raw_in(winenv::Hive::System, "CARGO_HOME"))
@@ -832,7 +800,6 @@ fn config_display(handler: &str) -> String {
         "composer_config" => composer_path().to_string_lossy().into(),
         "yarnrc" => yarnrc_path().to_string_lossy().into(),
         "go_env" => "环境变量 GOPROXY".into(),
-        "condarc" => condarc_path().to_string_lossy().into(),
         "cargo_config" => cargo_path().to_string_lossy().into(),
         "maven_settings" => maven_path().to_string_lossy().into(),
         "gradle_init" => gradle_path().to_string_lossy().into(),
@@ -965,9 +932,6 @@ fn cargo_template(url: &str) -> String {
     format!(
         "[source.crates-io]\nreplace-with = \"mirror\"\n\n[source.mirror]\nregistry = \"{url}\"\n"
     )
-}
-fn condarc_template(base: &str) -> String {
-    format!("channels:\n  - defaults\nshow_channel_urls: true\ndefault_channels:\n  - {base}/pkgs/main\n  - {base}/pkgs/r\n  - {base}/pkgs/msys2\ncustom_channels:\n  conda-forge: {base}/cloud\n  pytorch: {base}/cloud\n")
 }
 fn gradle_repo_urls(url: &str) -> Vec<String> {
     let mut urls = vec![url.to_string()];
@@ -1276,7 +1240,6 @@ pub fn detect(tool: &Tool) -> Option<String> {
         "cargo_config" => managed_detect_contains(tool, &cargo_path(), false),
         "maven_settings" => managed_detect_contains(tool, &maven_path(), false),
         "gradle_init" => managed_detect_contains(tool, &gradle_path(), false),
-        "condarc" => managed_detect_contains(tool, &condarc_path(), true),
         // 下载源选择保存在各生态页面的本地设置中；后端无法可靠判断当前项，
         // 因此源目录不伪造“官方源为当前源”的状态。
         "runtime_download" => None,
@@ -1417,7 +1380,6 @@ pub fn apply(tool: &Tool, mirror: &Mirror) -> Result<(), String> {
             winenv::set_user("GOPROXY", &mirror.url)
         }
         "cargo_config" => managed_apply(cargo_path(), mirror, cargo_template),
-        "condarc" => managed_apply(condarc_path(), mirror, condarc_template),
         "maven_settings" => maven_apply(maven_path(), mirror, None, false),
         "gradle_init" => gradle_apply(gradle_path(), mirror, None, false),
         "runtime_download" => Ok(()),

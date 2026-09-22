@@ -21,6 +21,7 @@ mod profile;
 mod proxy;
 mod proxy_ledger;
 mod pyenv;
+pub(crate) mod python_env;
 mod runner;
 mod rustup;
 mod sessions;
@@ -321,6 +322,8 @@ pub fn run() {
             checkup::checkup_page,
             checkup::coding_ecosystem_check,
             pyenv::pyenv_status,
+            python_env::python_env_report,
+            python_env::python_remove_runtimes,
             pyenv::pyenv_root_dir,
             pyenv::pyenv_set_global,
             pyenv::pyenv_install_version,

@@ -84,11 +84,6 @@ fn pyenv_global_version_at(root: &str) -> Option<String> {
         .and_then(|output| parse_pyenv_global_output(&output))
 }
 
-fn has_conda() -> bool {
-    crate::env::resolve_fresh("conda.exe").is_some()
-        || crate::env::resolve_fresh("conda.bat").is_some()
-}
-
 const PYTHON_SPEEDTEST_VERSION: &str = "3.12.10";
 const PYENV_GITHUB_URL: &str =
     "https://github.com/pyenv-win/pyenv-win/archive/refs/heads/master.zip";
@@ -231,6 +226,8 @@ fn python_runtime_mirror(id: &str) -> Option<Mirror> {
 pub struct PyVer {
     pub version: String,
     pub is_default: bool,
+    /// The version's own folder (holds python.exe and Scripts).
+    pub path: Option<String>,
 }
 #[derive(Serialize, Default)]
 pub struct PyenvStatus {
@@ -238,7 +235,6 @@ pub struct PyenvStatus {
     pub pyenv_version: Option<String>,
     pub versions: Vec<PyVer>,
     pub default: Option<String>,
-    pub has_conda: bool,
 }
 
 // 异步：内含多次 cmd /c pyenv.bat 子进程调用，放后台线程，避免阻塞主线程让窗口"未响应"。
@@ -269,9 +265,16 @@ fn pyenv_status_impl() -> PyenvStatus {
                     }
                 }
                 let is_default = Some(&v) == global.as_ref();
+                let path = root_path.as_ref().map(|root| {
+                    root.join("versions")
+                        .join(&v)
+                        .to_string_lossy()
+                        .into_owned()
+                });
                 versions.push(PyVer {
                     version: v,
                     is_default,
+                    path,
                 });
             }
         }
@@ -281,7 +284,6 @@ fn pyenv_status_impl() -> PyenvStatus {
         pyenv_version,
         versions,
         default,
-        has_conda: has_conda(),
     }
 }
 
@@ -1366,6 +1368,34 @@ fn cleanup_stale_python_registrations() -> Result<usize, String> {
 #[cfg(not(windows))]
 fn cleanup_stale_python_registrations() -> Result<usize, String> {
     Ok(0)
+}
+
+/// The pyenv-win root (with a trailing backslash), when pyenv-win is installed.
+pub(crate) fn pyenv_root_path() -> Option<String> {
+    pyenv_root()
+}
+
+/// `3.12.4` from `python.exe --version`.
+pub(crate) fn python_exe_version(python: &Path) -> Option<String> {
+    if !python.is_file() {
+        return None;
+    }
+    let mut c = std::process::Command::new(python);
+    c.arg("--version");
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        c.creation_flags(0x08000000);
+    }
+    let out = c.output().ok()?;
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    text.split_whitespace()
+        .find(|token| token.chars().next().is_some_and(|c| c.is_ascii_digit()))
+        .map(str::to_string)
 }
 
 fn python_exe_version_matches(python: &Path, version: &str) -> bool {

@@ -6,17 +6,18 @@ import { SourcesPanel } from "../SourcesPanel";
 import { StorageLocations } from "../StorageLocations";
 import { TerminalBar } from "../TerminalBar";
 import { Select } from "../Select";
-import { summaryLine } from "../EcoActions";
 import { useNotifications } from "../notifications";
+import { pythonSummary, type PythonEnvReport } from "../features/python/pythonSummary";
 
-type PyVer = { version: string; is_default: boolean };
-type PyenvStatus = { installed: boolean; pyenv_version: string | null; versions: PyVer[]; default: string | null; has_conda: boolean };
+type PyVer = { version: string; is_default: boolean; path?: string | null };
+type PyenvStatus = { installed: boolean; pyenv_version: string | null; versions: PyVer[]; default: string | null };
 type Shells = { powershell: boolean; gitbash: boolean; cmd: boolean };
 type Mirror = { id: string; name: string; url: string; host: string };
 type ToolState = { id: string; name: string; mirrors: Mirror[] };
 type PyenvSourcePing = { id: string; name: string; ms: number | null };
 type DriveInfo = { letter: string; fixed: boolean };
 type ScannedRuntime = { version: string; path: string; origin?: string; current: boolean };
+type RemovalResult = { path: string; ok: boolean; method: string; message: string };
 
 const PY_RUNTIME_TOOL_ID = "python-runtime";
 const PY_SOURCE_KEY = "stacker.python.downloadSource";
@@ -64,6 +65,10 @@ export default function Python() {
   const [srcRefresh, setSrcRefresh] = useState(0);
   const [scannedRuntimes, setScannedRuntimes] = useState<ScannedRuntime[] | null>(null);
   const [excludeToolBundled, setExcludeToolBundled] = useState(true);
+  const [report, setReport] = useState<PythonEnvReport | null>(null);
+  const [picked, setPicked] = useState<string[]>([]);
+  const [removeOpen, setRemoveOpen] = useState(false);
+  const [removal, setRemoval] = useState<RemovalResult[] | null>(null);
 
   function applyDownloadSource(v = pendingDownloadSource) {
     if (!downloadSources.some((s) => s.id === v)) return;
@@ -80,6 +85,7 @@ export default function Python() {
 
   const loadPy = useCallback(async () => {
     setPy(await invoke<PyenvStatus>("pyenv_status"));
+    invoke<PythonEnvReport>("python_env_report").then(setReport).catch(() => setReport(null));
     invoke<Shells>("shells_available").then(setAvail).catch(() => {});
     invoke<string | null>("pyenv_root_dir").then((d) => {
       if (d) setInstallRoot((cur) => cur.trim() ? cur : d);
@@ -137,6 +143,42 @@ export default function Python() {
     }
   }
 
+  async function openFolder(path: string | null | undefined) {
+    if (!path) return;
+    try {
+      await invoke("space_open_directory", { path });
+    } catch (e) {
+      toast("打开目录失败：" + e, "err");
+    }
+  }
+
+  // Found runtimes Stacker may remove: not a pyenv version, not the Store stub.
+  function removable(runtime: ScannedRuntime) {
+    const path = runtime.path.toLowerCase();
+    const root = report?.pyenvRoot?.toLowerCase();
+    return !(root && path.startsWith(root)) && !path.includes("\\microsoft\\windowsapps");
+  }
+
+  async function removeRuntimes() {
+    const paths = picked;
+    try {
+      const results = await runBusy({
+        title: "删除 Python 运行时",
+        message: `正在删除 ${paths.length} 个 Python：有官方卸载程序的先运行卸载程序，其余移到回收站。`,
+      }, () => invoke<RemovalResult[]>("python_remove_runtimes", { paths }));
+      setRemoveOpen(false);
+      setPicked([]);
+      setRemoval(results);
+      const done = new Set(results.filter((r) => r.ok).map((r) => r.path.toLowerCase()));
+      setScannedRuntimes((rows) => rows?.filter((r) => !done.has(r.path.toLowerCase().replace(/\\python\.exe$/, ""))) ?? rows);
+      await loadPy();
+      const failed = results.filter((r) => !r.ok).length;
+      toast(failed ? `已删除 ${results.length - failed} 个，${failed} 个未删除，详情见结果` : `已删除 ${results.length} 个 Python`, failed ? "info" : "ok");
+    } catch (e) {
+      toast("删除 Python 运行时失败：" + e, "err");
+    }
+  }
+
   async function scanRuntimes() {
     try {
       const drives = await invoke<DriveInfo[]>("list_drives");
@@ -155,7 +197,7 @@ export default function Python() {
   }
   async function refreshPy() {
     try {
-      await runBusy({ title: "刷新 Python 状态", message: "正在检测 pyenv、Python 版本、pip/conda 状态与终端可用性…" }, loadPy);
+      await runBusy({ title: "刷新 Python 状态", message: "正在检测 pyenv、Python 版本、pip 状态与终端可用性…" }, loadPy);
       toast("已刷新", "ok");
     } catch (e) { toast("刷新 Python 状态失败。请稍后重试。原因：" + e, "err"); }
   }
@@ -277,7 +319,7 @@ export default function Python() {
 
   if (loadErr) return <ErrorState title="暂时无法读取 Python 环境" description="请确认 pyenv-win 与 Python 安装目录可访问，然后重试。" onRetry={async () => { await loadPy(); setLoadErr(false); }} />;
   const pyLoading = !py;
-  const pyState: PyenvStatus = py ?? { installed: false, pyenv_version: null, versions: [], default: null, has_conda: false };
+  const pyState: PyenvStatus = py ?? { installed: false, pyenv_version: null, versions: [], default: null };
 
   async function browseInstallRoot() {
     const dir = await open({ directory: true, defaultPath: installRoot || undefined });
@@ -299,23 +341,13 @@ export default function Python() {
   const rawUpdateHint = notices.ecosystemUpdates.find((item) => item.id === "python");
   const updateHint = rawUpdateHint && defaultPy && cmpVer(defaultPy, rawUpdateHint.latest) >= 0 ? undefined : rawUpdateHint;
   const updateTitle = updateHint ? `发现新版本：当前 ${updateHint.current}，最新 ${updateHint.latest}，下载源 ${sourceName(updateHint.source)}` : undefined;
-  const pythonSummary = [
-    "## Python 环境摘要",
-    "",
-    summaryLine("pyenv-win", pyState.installed ? pyState.pyenv_version || "已安装" : "未安装"),
-    summaryLine("默认 Python", defaultPy || "未设置"),
-    summaryLine("已安装版本", pyState.versions.map((v) => v.version).join(", ") || "无"),
-    summaryLine("Python 下载源", sourceName(downloadSource)),
-    summaryLine("conda", pyState.has_conda ? "已检测到" : "未检测到"),
-    "",
-    "## 给 AI 的使用说明",
-    "- 使用 Python 前，先在当前终端执行 python --version 与 pip --version 确认可用版本。",
-    "- 如需切换默认 Python，请通过工具设置默认版本，不要直接改系统级 PATH。",
-  ].join("\n");
+  const summary = report
+    ? pythonSummary(report, pyState.versions.map((v) => ({ version: v.version, path: v.path, isDefault: v.is_default })), pyState.pyenv_version, sourceName(downloadSource))
+    : "";
 
   return (
     <>
-      {pyState.installed && <TerminalBar avail={avail} ecosystem="python" summary={pythonSummary}
+      {pyState.installed && <TerminalBar avail={avail} ecosystem="python" summary={summary}
         tip={"Python 命令通过 PATH 生效，新终端会自动使用当前默认版本。\n绿色终端按钮会在 Stacker 目录打开对应终端，可运行 python -V 验证版本。\npy 是 Windows Python Launcher，不代表当前默认版本。\n终端中找不到 python 时，可点击「更新集成」刷新用户 PATH。"}
         action={<button className="gh sm" disabled={busy === "pyint"} style={{ marginLeft: 8 }}
           title="刷新 Python 命令入口，修复新终端中找不到 python 的问题"
@@ -346,21 +378,25 @@ export default function Python() {
           <button className="gh xs" onClick={scanRuntimes}><i className="ti ti-scan" /> 扫描本机</button>
           {pyState.installed && <button className="gh xs" title="清理已经卸载但仍显示在 Windows 应用列表中的 Python 登记" onClick={cleanupPythonRegistrations}><i className={"ti " + (busy === "pyreg" ? "ti-loader spin" : "ti-eraser")} /> 清理安装残留</button>}
           {pyState.installed && <button className="gh xs" title="检查 pyenv-win 是否有更新" onClick={checkPyenvUpdate}><i className="ti ti-cloud-download" /> 管理工具更新</button>}
+          {report?.pyenvRoot && <button className="gh xs" title={`打开 pyenv-win 目录：${report.pyenvRoot}`} onClick={() => void openFolder(report.pyenvRoot)}><i className="ti ti-folder-open" /> pyenv 目录</button>}
           {pyState.installed && <button className="pr sm" onClick={openInstall}><i className="ti ti-plus" /> 安装新版本</button>}
         </div>
       </div>
+      {pyState.installed && report?.pyenvRoot && (
+        <div className="py-where">
+          <span><i className="ti ti-folder" /> pyenv-win：<code>{report.pyenvRoot}</code></span>
+          {report.defaultPython && <span><i className="ti ti-brand-python" /> 默认解释器：<code>{report.defaultPython}</code></span>}
+        </div>
+      )}
+      {report && report.pathPythons.length > 0 && !report.firstIsDefault && (
+        <div className="banner amber"><i className="ti ti-alert-triangle lead" /><div className="bt">
+          <b>新终端里的 python 不是默认版本。</b> Windows 先查系统 PATH、再查用户 PATH，现在第一个命中的是 <code>{`${report.pathPythons[0].dir}\\${report.pathPythons[0].program}`}</code>。
+          可删除或移出这个 Python，或让 AI 使用默认解释器的绝对路径（「复制给 AI」里已写明）。
+        </div></div>
+      )}
       {pyLoading ? (
-        <Loading text="正在检测 pyenv、Python 版本、pip 与 conda 状态…" />
+        <Loading text="正在检测 pyenv、Python 版本与 pip 状态…" />
       ) : !pyState.installed ? (
-        pyState.has_conda ? (
-          <div className="banner blue" style={{ flexDirection: "column", alignItems: "stretch", gap: 9 }}>
-            <div style={{ display: "flex", gap: 11, alignItems: "flex-start" }}>
-              <i className="ti ti-info-circle lead" />
-              <div className="bt"><b>检测到 conda 环境</b><br />conda 会独立管理 Python 版本与环境。本页可继续配置 pip / conda 镜像；如需管理非 conda 的 Python 版本，也可
-                <button className="lnk" style={{ background: "none", border: "none", color: "var(--acc)", cursor: "pointer", padding: 0, font: "inherit" }} onClick={installPyenv}>一键安装 pyenv-win</button>。</div>
-            </div>
-          </div>
-        ) : (
           <div className="banner blue" style={{ flexDirection: "column", alignItems: "stretch", gap: 9 }}>
             <div style={{ display: "flex", gap: 11, alignItems: "flex-start" }}>
               <i className="ti ti-download lead" />
@@ -370,14 +406,14 @@ export default function Python() {
               <button className="pr sm" onClick={installPyenv}><i className="ti ti-download" /> 一键安装 pyenv-win</button>
             </div>
           </div>
-        )
       ) : pyState.versions.length === 0 ? (
         <div className="banner gray"><i className="ti ti-info-circle lead" /><div className="bt">尚未安装 Python 版本。请选择需要的版本进行安装。</div></div>
       ) : pyState.versions.map((v) => (
         <div className={"vrow" + (v.is_default ? " cur" : "")} key={v.version}>
           <span className="ver">{v.version}</span>
-          <span className="meta">{v.is_default ? "当前默认版本" : "已安装"}</span>
+          <span className="meta" title={v.path ?? undefined}>{v.is_default ? "当前默认版本" : "已安装"}{v.path && <> · <code className="py-path">{v.path}</code></>}</span>
           <div className="acts">
+            {v.path && <button className="gh xs" title={`打开目录：${v.path}`} onClick={() => void openFolder(v.path)}><i className="ti ti-folder-open" /></button>}
             {v.is_default
               ? <><span className="live"><i className="ti ti-circle-check" /> 默认</span>
                   <button className="gh xs" disabled={!!busy} title="重新应用当前默认版本"
@@ -390,12 +426,30 @@ export default function Python() {
 
       {scannedRuntimes && scannedRuntimes.length > 0 && (
         <>
-          <div className="seclabel"><i className="ti ti-device-desktop-search" /> 本机其他 Python 运行时</div>
+          <div className="grouphd py-found-hd">
+            <span className="gt"><i className="ti ti-device-desktop-search" /> 本机其他 Python 运行时 <span className="cnt">{scannedRuntimes.length} 个</span></span>
+            <div className="ghr">
+              <label className="ck" style={{ fontSize: 11.5 }}>
+                <input type="checkbox"
+                  checked={picked.length > 0 && picked.length === scannedRuntimes.filter(removable).length}
+                  onChange={(e) => setPicked(e.target.checked ? scannedRuntimes.filter(removable).map((r) => r.path) : [])} /> 全选
+              </label>
+              <button className="gh xs danger" disabled={picked.length === 0} onClick={() => setRemoveOpen(true)}>
+                <i className="ti ti-trash" /> 删除所选{picked.length ? ` ${picked.length} 个` : ""}
+              </button>
+            </div>
+          </div>
           {scannedRuntimes.map((runtime) => (
             <div className="vrow" key={runtime.path}>
+              <input type="checkbox" className="py-pick" disabled={!removable(runtime)}
+                title={removable(runtime) ? "选中后可批量删除" : "pyenv 管理的版本或 Microsoft Store 占位程序，不能在这里删除"}
+                checked={picked.includes(runtime.path)}
+                onChange={(e) => setPicked((cur) => e.target.checked ? [...cur, runtime.path] : cur.filter((p) => p !== runtime.path))} />
               <span className="ver">{runtime.version}</span>
-              <span className="meta">{runtime.path}</span>
-              <div className="acts"><span className="bd n">仅识别</span></div>
+              <span className="meta" title={runtime.path}><code className="py-path">{runtime.path}</code></span>
+              <div className="acts">
+                <button className="gh xs" title={`打开所在目录：${runtime.path}`} onClick={() => void openFolder(runtime.path)}><i className="ti ti-folder-open" /></button>
+              </div>
             </div>
           ))}
         </>
@@ -405,8 +459,7 @@ export default function Python() {
 
       {/* ② 包源（用统一面板，带测速） */}
       <div className="grouphd" style={{ marginTop: 18 }}><span className="gt"><i className="ti ti-package" /> 包源 / 镜像</span></div>
-      {pyLoading ? <Loading text="正在读取 pip 与 conda 镜像配置…" /> : <SourcesPanel toolIds={pyState.has_conda ? ["pip", "conda"] : ["pip"]} refresh={srcRefresh} />}
-      {!pyLoading && !pyState.has_conda && <div className="banner gray"><i className="ti ti-eye-off lead" /><div className="bt"><b>未检测到 conda。</b> 安装 Anaconda 或 Miniconda 后，可在此配置 conda 镜像。</div></div>}
+      {pyLoading ? <Loading text="正在读取 pip 镜像配置…" /> : <SourcesPanel toolIds={["pip"]} refresh={srcRefresh} />}
 
       {installOpen && (
         <Modal title="安装 Python 版本" icon="ti-plus" onClose={() => setInstallOpen(false)}
@@ -442,6 +495,29 @@ export default function Python() {
         </Modal>
       )}
 
+      {removeOpen && (
+        <ConfirmModal title={`删除 ${picked.length} 个 Python`} icon="ti-trash" danger
+          message={<>
+            <div>将删除下面这些 Python。有官方卸载程序的会先运行卸载程序（装在全机范围的会弹出 UAC，需要点「是」），其余整个目录<b>移到回收站</b>，可以从回收站还原；它们在用户 PATH 里的条目也会一并移除。</div>
+            <ul className="py-remove-list">{picked.map((p) => <li key={p}><code>{p}</code></li>)}</ul>
+            <div>依赖这些 Python 的虚拟环境、项目脚本和工具将无法再使用它们。</div>
+          </>}
+          confirmLabel="确认删除"
+          onConfirm={() => void removeRuntimes()}
+          onClose={() => setRemoveOpen(false)} />
+      )}
+      {removal && (
+        <Modal title="删除结果" icon="ti-list-check" onClose={() => setRemoval(null)}>
+          <ul className="py-remove-list">
+            {removal.map((r) => (
+              <li key={r.path} className={r.ok ? "ok" : "bad"}>
+                <i className={"ti " + (r.ok ? "ti-circle-check" : "ti-alert-circle")} /> <code>{r.path}</code>
+                <div className="py-remove-note">{r.message}</div>
+              </li>
+            ))}
+          </ul>
+        </Modal>
+      )}
       {uninstall && (
         <ConfirmModal title={"卸载 Python " + uninstall} icon="ti-trash" danger
           message={<>将删除 Python {uninstall} 及该版本目录内的已安装包和虚拟环境。此操作不可撤销。</>}

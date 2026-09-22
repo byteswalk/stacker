@@ -18,6 +18,17 @@ pub(crate) fn run(args: &[String]) -> Option<i32> {
         ["update-desktop", id] => desktop(id, super::install::update_desktop_tool),
         ["winget", args @ ..] => winget(args),
         ["check-installer", id] => check_installer(id),
+        ["python-remove", paths @ ..] => {
+            let paths: Vec<String> = paths.iter().map(|p| p.to_string()).collect();
+            let results =
+                tauri::async_runtime::block_on(crate::python_env::python_remove_runtimes(paths));
+            println!("{results:#?}");
+            0
+        }
+        ["python-report"] => {
+            println!("{:#?}", crate::python_env::report());
+            0
+        }
         _ => {
             eprintln!("usage: --dev-agents scan | install-desktop <id> | update-desktop <id>");
             2

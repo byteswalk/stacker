@@ -1364,3 +1364,17 @@ button{ font-family:inherit; }
 .a .side.narrow nav .navgroup-hd + .navgroup-body .ni{ justify-content:center; padding-left:0; padding-right:0; position:relative; }
 .a .side.narrow .ni > i:first-child{ font-size:16px; }
 .a .side.narrow .navdot{ position:absolute; top:2px; right:4px; margin:0; min-width:14px; height:14px; font-size:8px; }
+
+/* Python page: where pyenv and the default interpreter live, found runtimes to remove. */
+.a .py-where{display:flex;flex-wrap:wrap;gap:6px 18px;margin:0 2px 10px;font-size:12px;color:var(--mut)}
+.a .py-where span{display:flex;align-items:center;gap:5px;min-width:0}
+.a .py-where code,.a .py-path{font-family:var(--font-mono);font-size:11.5px;color:var(--tx);overflow-wrap:anywhere}
+.a .vrow .meta .py-path{color:var(--mut)}
+.a .py-found-hd{margin-top:16px}
+.a .py-pick{flex-shrink:0;width:15px;height:15px;accent-color:var(--acc)}
+.a .py-remove-list{margin:10px 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px;max-height:260px;overflow:auto}
+.a .py-remove-list li{font-size:12px;line-height:1.5}
+.a .py-remove-list code{font-family:var(--font-mono);font-size:11.5px;overflow-wrap:anywhere}
+.a .py-remove-list li.ok>.ti{color:var(--green)}
+.a .py-remove-list li.bad>.ti{color:var(--red)}
+.a .py-remove-note{margin-left:20px;color:var(--mut)}
