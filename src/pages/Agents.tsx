@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "../invoke";
-import { ConfirmModal, useBusyRead, useToast } from "../ui";
+import { ConfirmModal, Modal, useBusyRead, useToast } from "../ui";
 import { useNotifications } from "../notifications";
 import { translateText, useI18n } from "../i18n";
 import { Select } from "../Select";
@@ -17,6 +17,7 @@ import {
 } from "../features/agents/catalogStore";
 
 import { UpdatePlanModal } from "../features/agents/UpdatePlanModal";
+import { tileLine } from "../features/agents/tileState";
 import { surfaceTaskText } from "../features/agents/surfaceTask";
 import {
   cancelAgentTask,
@@ -28,6 +29,14 @@ import {
 } from "../features/agent-tasks/taskStore";
 
 export type { VibeSurface, VibeTool } from "../features/agents/catalogStore";
+
+type AgentView = "tiles" | "cards";
+const VIEW_KEY = "stacker.agents.view";
+
+/** Thumbnails by default: nineteen full cards do not fit a screen. Remembered per viewer. */
+function storedView(): AgentView {
+  try { return localStorage.getItem(VIEW_KEY) === "cards" ? "cards" : "tiles"; } catch { return "tiles"; }
+}
 
 export function UnavailableSurface({ target, surface }: { target: "cli" | "desktop"; surface: VibeSurface }) {
   return (
@@ -149,6 +158,12 @@ export default function Agents() {
   const [repair, setRepair] = useState<{ tool: VibeTool; surface: VibeSurface } | null>(null);
   const [planOpen, setPlanOpen] = useState(false);
   const [tasks, setTasks] = useState(taskSnapshot());
+  const [view, setViewState] = useState<AgentView>(storedView);
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const setView = (next: AgentView) => {
+    setViewState(next);
+    try { localStorage.setItem(VIEW_KEY, next); } catch { /* per-viewer convenience only */ }
+  };
 
   useEffect(() => subscribeTasks(setTasks), []);
   const closePlan = useCallback(() => setPlanOpen(false), []);
@@ -346,6 +361,70 @@ export default function Agents() {
     );
   }
 
+  function renderCard(tool: VibeTool, inDialog = false) {
+    return (
+            <div className={"vtool eco "
+              + (tool.cli.update_available || tool.desktop.update_available ? "update " : "")
+              + (checkingTool === tool.id ? "trace-card" : "")}
+              key={tool.id} data-dialog={inDialog || undefined}>
+              {checkingTool === tool.id && <span className="border-runner" aria-hidden="true" />}
+              <div className="vtool-head">
+                <span className={`vtool-brand ${tool.id}`} aria-hidden="true">
+                  {tool.icon ? <img src={`/brands/${tool.icon}`} alt="" /> : <i className="ti ti-sparkles" />}
+                </span>
+                <div className="mt">
+                  <div className="t">{tool.name}{tool.edition_label && <span className={"bd " + (tool.edition === "cn" ? "w" : tool.edition === "global" ? "b" : "n")}>{tool.edition_label}</span>}</div>
+                  <div className="s dim" title={tool.description}>{tool.description}</div>
+                </div>
+                <div className="ghr">
+                  <button className="gh sm" disabled={checkingTool === tool.id} onClick={() => checkOne(tool)}>
+                    <i className={"ti " + (checkingTool === tool.id ? "ti-loader spin" : "ti-stethoscope")} /> 环境检测
+                  </button>
+                  <button className="gh sm" onClick={() => openUrl(tool.docs_url)}>
+                    <i className="ti ti-file-text" /> 官方文档
+                  </button>
+                </div>
+              </div>
+              <SurfaceRow tool={tool} target="cli" surface={tool.cli} />
+              <SurfaceRow tool={tool} target="desktop" surface={tool.desktop} />
+            </div>
+    );
+  }
+
+  function renderTile(tool: VibeTool) {
+    const lines = (["cli", "desktop"] as const).map((target) => {
+      const surface = target === "cli" ? tool.cli : tool.desktop;
+      const busy = Boolean(openTaskFor(tasks, tool.id, target === "cli" ? tool.cli_id : null, target));
+      return { target, ...tileLine(surface, busy) };
+    });
+    const update = tool.cli.update_available || tool.desktop.update_available;
+    return (
+      <button type="button" key={tool.id} className={"agent-tile" + (update ? " update" : "")}
+        title={`${tool.name}${tool.edition_label ? ` · ${tool.edition_label}` : ""} — 点击查看详情和操作`}
+        onClick={() => setDetailId(tool.id)}>
+        {update && <span className="agent-tile-flag">可更新</span>}
+        <span className="agent-tile-head">
+          <span className={`vtool-brand ${tool.id}`} aria-hidden="true">
+            {tool.icon ? <img src={`/brands/${tool.icon}`} alt="" /> : <i className="ti ti-sparkles" />}
+          </span>
+          <span className="agent-tile-name">
+            <b>{tool.name}</b>
+            {tool.edition_label && !tool.name.includes(tool.edition_label) && <small>{tool.edition_label}</small>}
+          </span>
+        </span>
+        {lines.map((line) => (
+          <span key={line.target} className={"agent-tile-line " + line.tone}>
+            <span className="agent-tile-kind">{line.target === "cli" ? "CLI" : "桌面"}</span>
+            {line.tone === "busy" ? <i className="ti ti-loader-2 spin" /> : <i className="agent-tile-dot" />}
+            <span className="agent-tile-text">{line.text}</span>
+          </span>
+        ))}
+      </button>
+    );
+  }
+
+  const detailTool = detailId ? tools.find((tool) => tool.id === detailId) : undefined;
+
   return (
     <>
       <div className={"checkup agent" + (loading ? " checking" : "")}>
@@ -394,43 +473,30 @@ export default function Agents() {
                 { value: "missing", label: "未安装" },
                 { value: "update", label: "可更新" },
               ]} />
+              <div className="agent-view-toggle" role="group" aria-label="显示方式">
+                <button type="button" className={view === "tiles" ? "on" : ""} aria-pressed={view === "tiles"}
+                  title="缩略图：一屏看全部，点开看详情" onClick={() => setView("tiles")}>
+                  <i className="ti ti-layout-grid" />
+                </button>
+                <button type="button" className={view === "cards" ? "on" : ""} aria-pressed={view === "cards"}
+                  title="卡片：每个智能体的全部信息和操作" onClick={() => setView("cards")}>
+                  <i className="ti ti-layout-list" />
+                </button>
+              </div>
             </div>
           </div>
-          <div className="agent-catalog-grid">
-          {visibleTools.map((tool) => {
-            return (
-            <div className={"vtool eco "
-              + (tool.cli.update_available || tool.desktop.update_available ? "update " : "")
-              + (checkingTool === tool.id ? "trace-card" : "")}
-              key={tool.id}>
-              {checkingTool === tool.id && <span className="border-runner" aria-hidden="true" />}
-              <div className="vtool-head">
-                <span className={`vtool-brand ${tool.id}`} aria-hidden="true">
-                  {tool.icon ? <img src={`/brands/${tool.icon}`} alt="" /> : <i className="ti ti-sparkles" />}
-                </span>
-                <div className="mt">
-                  <div className="t">{tool.name}{tool.edition_label && <span className={"bd " + (tool.edition === "cn" ? "w" : tool.edition === "global" ? "b" : "n")}>{tool.edition_label}</span>}</div>
-                  <div className="s dim" title={tool.description}>{tool.description}</div>
-                </div>
-                <div className="ghr">
-                  <button className="gh sm" disabled={checkingTool === tool.id} onClick={() => checkOne(tool)}>
-                    <i className={"ti " + (checkingTool === tool.id ? "ti-loader spin" : "ti-stethoscope")} /> 环境检测
-                  </button>
-                  <button className="gh sm" onClick={() => openUrl(tool.docs_url)}>
-                    <i className="ti ti-file-text" /> 官方文档
-                  </button>
-                </div>
-              </div>
-              <SurfaceRow tool={tool} target="cli" surface={tool.cli} />
-              <SurfaceRow tool={tool} target="desktop" surface={tool.desktop} />
-            </div>
-            );
-          })}
+          <div className={view === "tiles" ? "agent-tile-grid" : "agent-catalog-grid"}>
+          {visibleTools.map((tool) => view === "tiles" ? renderTile(tool) : renderCard(tool))}
           {visibleTools.length === 0 && <div className="agent-catalog-empty"><i className="ti ti-search-off" /><b>没有符合条件的智能体</b><span>请调整名称、版本或安装状态筛选条件。</span></div>}
           </div>
         </>
       )}
 
+      {detailTool && (
+        <Modal title={detailTool.name} icon="ti-sparkles" wide onClose={() => setDetailId(null)}>
+          <div className="agent-detail">{renderCard(detailTool, true)}</div>
+        </Modal>
+      )}
       {planOpen && <UpdatePlanModal onClose={closePlan} />}
       {repair && (
         <ConfirmModal

@@ -571,6 +571,42 @@ button{ font-family:inherit; }
   .a .agent-catalog-grid .vtool-head .ghr{width:100%;justify-content:flex-end}
 }
 @media (min-width:1900px){.a .agent-catalog-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+
+/* Thumbnail view: every agent on one screen, details on click. */
+.a .agent-view-toggle{display:flex;height:32px;padding:2px;gap:2px;border:.5px solid var(--bd);border-radius:7px;background:var(--card);box-sizing:border-box}
+.a .agent-view-toggle button{width:30px;border:0;border-radius:5px;background:transparent;color:var(--mut);cursor:pointer;display:grid;place-items:center;font-size:15px}
+.a .agent-view-toggle button:hover{color:var(--tx)}
+.a .agent-view-toggle button.on{background:color-mix(in srgb,var(--acc) 18%,transparent);color:var(--acc)}
+.a .agent-tile-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(196px,1fr));gap:9px}
+.a .agent-tile{position:relative;display:flex;flex-direction:column;gap:7px;min-width:0;padding:11px 12px;text-align:left;font:inherit;color:var(--tx);
+  background:var(--card);border:.5px solid var(--bd);border-radius:10px;cursor:pointer;transition:border-color .15s,background .15s,transform .15s}
+.a .agent-tile:hover{background:var(--cardh);border-color:var(--bdh);transform:translateY(-1px)}
+.a .agent-tile:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+.a .agent-tile.update{border-color:color-mix(in srgb,var(--amber) 45%,var(--bd))}
+.a .agent-tile-flag{position:absolute;top:8px;right:9px;padding:1px 6px;border-radius:5px;font-size:10.5px;font-weight:600;
+  color:var(--amber);background:color-mix(in srgb,var(--amber) 15%,transparent)}
+.a .agent-tile-head{display:flex;align-items:center;gap:9px;min-width:0}
+.a .agent-tile.update .agent-tile-head{padding-right:44px}
+.a .agent-tile-head .vtool-brand{width:32px;height:32px;flex:0 0 32px}
+.a .agent-tile-head .vtool-brand img{width:21px;height:21px}
+.a .agent-tile-name{display:flex;flex-direction:column;min-width:0}
+.a .agent-tile-name b{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.a .agent-tile-name small{font-size:11px;color:var(--mut)}
+.a .agent-tile-line{display:flex;align-items:center;gap:6px;min-width:0;font-size:11.5px;color:var(--mut)}
+.a .agent-tile-kind{flex:0 0 30px;font-size:10.5px;font-weight:600;letter-spacing:.02em;color:var(--mut)}
+.a .agent-tile-dot{flex:0 0 7px;height:7px;border-radius:50%;background:currentColor}
+.a .agent-tile-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-mono)}
+.a .agent-tile-line.ok{color:var(--green)}
+.a .agent-tile-line.update{color:var(--amber)}
+.a .agent-tile-line.broken{color:var(--red)}
+.a .agent-tile-line.busy{color:var(--acc)}
+.a .agent-tile-line.missing,.a .agent-tile-line.na{color:var(--mut)}
+.a .agent-tile-line.missing .agent-tile-text,.a .agent-tile-line.na .agent-tile-text{font-family:inherit}
+.a .agent-tile-line.na{opacity:.6}
+.a .agent-tile-line.ok .agent-tile-text,.a .agent-tile-line.missing .agent-tile-text{color:var(--tx)}
+.a .agent-tile-line.missing .agent-tile-text{color:var(--mut)}
+.a .agent-tile-line .ti{flex:0 0 auto;font-size:12px}
+.a .agent-detail .vtool.eco{border:0;padding:0;background:transparent}
 @media (max-width:900px){
   .a .agent-catalog-toolbar{align-items:stretch;flex-direction:column}
   .a .agent-catalog-filters{justify-content:flex-start;flex-wrap:wrap}
