@@ -172,7 +172,10 @@ pub(crate) fn scan_vibe_tool(id: &str, check_latest: bool) -> Option<VibeTool> {
 pub(crate) fn vibe_catalog_tool(spec: ToolSpec) -> VibeTool {
     let cli_available = !spec.cli.command.is_empty();
     let desktop_available = spec.desktop_available;
-    VibeTool {
+    // Known without a scan: whether Stacker has an installer for the desktop app.
+    let desktop_installable = spec.desktop.winget_id.is_some()
+        || registry::direct_desktop_installer(spec.vendor, spec.edition).is_some();
+    let mut tool = VibeTool {
         id: spec.id.into(),
         family_id: spec.family.into(),
         edition: spec.edition.as_str().into(),
@@ -203,7 +206,10 @@ pub(crate) fn vibe_catalog_tool(spec: ToolSpec) -> VibeTool {
             spec.desktop.docs_url,
             desktop_available,
         ),
-    }
+    };
+    tool.cli.can_install = cli_available;
+    tool.desktop.can_install = desktop_available && desktop_installable;
+    tool
 }
 
 pub(crate) fn pending_surface(

@@ -316,8 +316,11 @@ export default function Agents() {
   function SurfaceRow({ tool, target, surface }: { tool: VibeTool; target: "cli" | "desktop"; surface: VibeSurface }) {
     if (!surface.available) return <UnavailableSurface target={target} surface={surface} />;
     const installed = surfaceDetected(surface);
+    // Not scanned yet: nothing is known about this install, so no action is offered on a guess.
+    const pending = surface.status === "pending";
+    const pendingTitle = `尚未检测 ${surface.label}，请先点击「状态刷新」`;
     const canOpenOfficialDownload = target === "desktop" && Boolean(surface.install_url);
-    const installFromOfficialPage = !surface.can_install && canOpenOfficialDownload;
+    const installFromOfficialPage = !pending && !surface.can_install && canOpenOfficialDownload;
     // With no public version source nothing says whether an update exists; the vendor's page does.
     const noVersionSource = latestUnknown(surface);
     // Only a known update lights the button: with no version source, or a failed lookup,
@@ -353,9 +356,9 @@ export default function Agents() {
         </div>
         <div className="vtool-actions">
           <button
-            className={!installed ? "pr sm" : "gh sm"}
-            title={installTitle}
-            disabled={busy || installed || (!surface.can_install && !canOpenOfficialDownload)}
+            className={!installed && !pending ? "pr sm" : "gh sm"}
+            title={pending ? pendingTitle : installTitle}
+            disabled={busy || pending || installed || (!surface.can_install && !canOpenOfficialDownload)}
             onClick={() => installFromOfficialPage ? openUrl(surface.install_url) : runToolAction(tool, target, "install")}
           >
             {installFromOfficialPage && !installed
@@ -364,13 +367,13 @@ export default function Agents() {
           </button>
           <button
             className={surface.update_available ? "pr sm" : "gh sm"}
-            title={updateTitle}
-            disabled={busy || !installed || !surface.update_available || (!updateFromOfficialPage && !surface.can_update)}
+            title={pending ? pendingTitle : updateTitle}
+            disabled={busy || pending || !installed || !surface.update_available || (!updateFromOfficialPage && !surface.can_update)}
             onClick={() => updateFromOfficialPage ? openUrl(surface.install_url) : runToolAction(tool, target, "update")}
           >
             <i className="ti ti-cloud-upload" /> 更新
           </button>
-          <button className="gh sm danger" title={uninstallTitle} disabled={busy || !installed || !surface.can_uninstall} onClick={() => setUninstall({ tool, target, surface })}>
+          <button className="gh sm danger" title={pending ? pendingTitle : uninstallTitle} disabled={busy || pending || !installed || !surface.can_uninstall} onClick={() => setUninstall({ tool, target, surface })}>
             <i className="ti ti-trash" /> 卸载
           </button>
           {surface.can_repair && (
@@ -389,10 +392,10 @@ export default function Agents() {
               ? <button className="gh sm" title={`在终端运行 ${tool.workbench_command}，启动本地 Web 工作台`} disabled={!tool.cli.path} onClick={() => openTerminal(tool, tool.workbench_command ?? undefined)}>
                 <i className="ti ti-world-www" /> 打开 Web 工作台
               </button>
-              : <button className="gh sm" title={tool.cli.path ? `在 PowerShell 中启动 ${surface.label}` : `尚未安装 ${surface.label}`} disabled={!tool.cli.path || opening === `cli:${tool.id}`} onClick={() => openTerminal(tool)}>
+              : <button className="gh sm" title={pending ? pendingTitle : tool.cli.path ? `在 PowerShell 中启动 ${surface.label}` : `尚未安装 ${surface.label}`} disabled={!tool.cli.path || opening === `cli:${tool.id}`} onClick={() => openTerminal(tool)}>
                 <i className={"ti " + (opening === `cli:${tool.id}` ? "ti-loader-2 spin" : "ti-terminal-2")} /> {opening === `cli:${tool.id}` ? "正在打开…" : "打开终端"}
               </button>
-            : <button className="gh sm" title={surface.can_open ? `打开 ${surface.label}` : `尚未安装 ${surface.label}`} disabled={!surface.can_open || opening === `desktop:${tool.id}`} onClick={() => openDesktop(tool)}>
+            : <button className="gh sm" title={pending ? pendingTitle : surface.can_open ? `打开 ${surface.label}` : `尚未安装 ${surface.label}`} disabled={!surface.can_open || opening === `desktop:${tool.id}`} onClick={() => openDesktop(tool)}>
               <i className={"ti " + (opening === `desktop:${tool.id}` ? "ti-loader-2 spin" : "ti-app-window")} /> {opening === `desktop:${tool.id}` ? "正在打开…" : "打开桌面端"}
             </button>}
         </div>
