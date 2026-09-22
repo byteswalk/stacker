@@ -75,7 +75,7 @@ export function pythonSummary(report: PythonEnvReport, installed: { version: str
     lines.push(
       `1. 运行 Python 一律用默认解释器的绝对路径："${exe}"。`,
       `2. 安装依赖用 "${exe}" -m pip install …，不要直接调用 pip 或 pip3。`,
-      `3. 项目需要隔离依赖时，用默认解释器创建虚拟环境："${exe}" -m venv .venv，之后使用 .venv\\Scripts\\python.exe。`,
+      `3. 项目根目录下已有 .venv（或 venv）时，这个项目一律用其中的 Scripts\\python.exe，不再用默认解释器；需要隔离依赖又没有虚拟环境时，用默认解释器创建："${exe}" -m venv .venv。`,
       "4. 不要自己搜索、下载或改用其他 Python：不用 py 启动器，不用 Microsoft Store 版 python，不用 IDE 或其他工具自带的 Python。",
       "5. 需要别的 Python 版本时，请告诉用户在 Stacker 的 Python 页面安装并设为默认，不要修改 PATH、注册表或 pyenv 配置。",
       `6. 不确定时，在你自己的终端里核对：cmd 用 where python，PowerShell 用 Get-Command python -All，再运行 "${exe}" --version。`,

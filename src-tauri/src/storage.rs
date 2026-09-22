@@ -252,6 +252,8 @@ fn all_locations(ecosystem: Option<&str>) -> Vec<StorageLocation> {
     let composer_home = env_value("COMPOSER_HOME");
     let composer_cache = env_value("COMPOSER_CACHE_DIR");
     let go_mod = env_value("GOMODCACHE");
+    let hf_home = env_value("HF_HOME");
+    let hf_default = home.join(".cache").join("huggingface");
     let go_build = env_value("GOCACHE");
     let cargo = env_value("CARGO_HOME");
     let rustup = env_value("RUSTUP_HOME");
@@ -378,6 +380,27 @@ fn all_locations(ecosystem: Option<&str>) -> Vec<StorageLocation> {
             (
                 if pip.is_some() {
                     "user_config"
+                } else {
+                    "tool_default"
+                },
+                false,
+            ),
+        ));
+        result.push(location(
+            [
+                "hf-home",
+                "python",
+                "Hugging Face 模型缓存",
+                "transformers、diffusers 等通过 huggingface_hub 下载的模型和数据集（HF_HOME），体积常达几十 GB",
+            ],
+            hf_home
+                .as_ref()
+                .map(PathBuf::from)
+                .unwrap_or_else(|| hf_default.clone()),
+            hf_default,
+            (
+                if hf_home.is_some() {
+                    "env"
                 } else {
                     "tool_default"
                 },
@@ -544,7 +567,7 @@ fn storage_by_id(id: &str) -> Result<StorageLocation, String> {
         "maven-local-repository" => "maven",
         "gradle-user-home" => "gradle",
         "npm-cache" | "npm-prefix" | "pnpm-store" => "node",
-        "pip-cache" => "python",
+        "pip-cache" | "hf-home" => "python",
         "composer-home" | "composer-cache" => "php",
         "go-module-cache" | "go-build-cache" => "go",
         "cargo-home" | "rustup-home" => "rust",
@@ -773,6 +796,13 @@ fn apply_config(id: &str, value: Option<&str>, old_path: Option<&str>) -> Result
         }
         "pnpm-store" => write_flat_key(&sources::npmrc_path(), "store-dir", value),
         "pip-cache" => write_pip_cache(&sources::pip_path(), value),
+        "hf-home" => {
+            backup::backup_env(winenv::Hive::User, "hf-home", &["HF_HOME"]);
+            match value {
+                Some(v) => winenv::set_user("HF_HOME", v),
+                None => winenv::remove_user("HF_HOME"),
+            }
+        }
         "composer-home" => {
             backup::backup_env(
                 winenv::Hive::User,

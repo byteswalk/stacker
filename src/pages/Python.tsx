@@ -8,6 +8,7 @@ import { TerminalBar } from "../TerminalBar";
 import { Select } from "../Select";
 import { useNotifications } from "../notifications";
 import { pythonSummary, type PythonEnvReport } from "../features/python/pythonSummary";
+import { VenvPanel } from "../features/python/VenvPanel";
 
 type PyVer = { version: string; is_default: boolean; path?: string | null };
 type PyenvStatus = { installed: boolean; pyenv_version: string | null; versions: PyVer[]; default: string | null };
@@ -455,11 +456,14 @@ export default function Python() {
         </>
       )}
 
+      {pyState.installed && <VenvPanel versions={pyState.versions.map((v) => ({ version: v.version, path: v.path, isDefault: v.is_default }))} openFolder={(p) => void openFolder(p)} />}
+
       <StorageLocations ecosystem="python" />
 
       {/* ② 包源（用统一面板，带测速） */}
       <div className="grouphd" style={{ marginTop: 18 }}><span className="gt"><i className="ti ti-package" /> 包源 / 镜像</span></div>
-      {pyLoading ? <Loading text="正在读取 pip 镜像配置…" /> : <SourcesPanel toolIds={["pip"]} refresh={srcRefresh} />}
+      {pyLoading ? <Loading text="正在读取 pip 与 Hugging Face 下载源…" /> : <SourcesPanel toolIds={["pip", "huggingface"]} refresh={srcRefresh} />}
+      {!pyLoading && <div className="s dim py-hf-note">Hugging Face 下载源写入环境变量 HF_ENDPOINT，对 transformers、diffusers 等通过 huggingface_hub 下载模型的工具生效；项目自己写死下载地址的不受影响。hf-mirror.com 是社区维护的镜像，不是官方服务。改完后新开的终端生效。</div>}
 
       {installOpen && (
         <Modal title="安装 Python 版本" icon="ti-plus" onClose={() => setInstallOpen(false)}

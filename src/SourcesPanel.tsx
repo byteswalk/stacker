@@ -48,6 +48,7 @@ type SourceFileState = {
 
 const ICON: Record<string, string> = {
   pip: "ti-brand-python",
+  huggingface: "ti-cube",
   npm: "ti-brand-npm",
   yarn: "ti-package",
   go: "ti-world-download",
@@ -58,6 +59,7 @@ const ICON: Record<string, string> = {
 };
 const AV: Record<string, string> = {
   pip: "py",
+  huggingface: "st",
   npm: "npm",
   yarn: "yn",
   go: "go",

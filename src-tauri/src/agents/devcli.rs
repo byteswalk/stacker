@@ -25,6 +25,21 @@ pub(crate) fn run(args: &[String]) -> Option<i32> {
             println!("{results:#?}");
             0
         }
+        ["venv-create", project, python] => {
+            let result = tauri::async_runtime::block_on(crate::python_venv::python_venv_create(
+                project.to_string(),
+                python.to_string(),
+            ));
+            println!("{result:#?}");
+            i32::from(result.is_err())
+        }
+        ["venv-remove", dir] => {
+            let result = tauri::async_runtime::block_on(crate::python_venv::python_venv_remove(
+                dir.to_string(),
+            ));
+            println!("{result:#?}");
+            i32::from(result.is_err())
+        }
         ["python-report"] => {
             println!("{:#?}", crate::python_env::report());
             0

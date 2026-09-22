@@ -34,6 +34,7 @@ describe("what an AI is told about Python", () => {
     expect(text).toContain(`"${root}versions\\3.13.14\\python.exe" -m pip install`);
     expect(text).toContain("不要自己搜索、下载或改用其他 Python");
     expect(text).toContain("python 命中的就是上面的默认 Python");
+    expect(text).toContain("已有 .venv（或 venv）时，这个项目一律用其中的 Scripts\\python.exe");
   });
 
   it("warns when another python is found first", () => {
@@ -46,8 +47,8 @@ describe("what an AI is told about Python", () => {
   });
 
   it("names what start python opens", () => {
-    const text = pythonSummary(report({ appPathsPython: "C:\Store\python.exe" }), installed, "3.1.1", "官方");
-    expect(text).toContain("App Paths 登记的：C:\Store\python.exe");
+    const text = pythonSummary(report({ appPathsPython: "C:\\Store\\python.exe" }), installed, "3.1.1", "官方");
+    expect(text).toContain("App Paths 登记的：C:\\Store\\python.exe");
   });
 
   it("says there is no default instead of inventing one", () => {

@@ -178,15 +178,18 @@ pub(crate) fn report() -> PythonEnvReport {
             }
         }
     }
-    let app_paths_python = [winreg::enums::HKEY_CURRENT_USER, winreg::enums::HKEY_LOCAL_MACHINE]
-        .into_iter()
-        .find_map(|hive| {
-            let key = winreg::RegKey::predef(hive)
-                .open_subkey(r"Software\Microsoft\Windows\CurrentVersion\App Paths\python.exe")
-                .ok()?;
-            let target: String = key.get_value("").ok()?;
-            (!target.trim().is_empty()).then(|| expand_env(target.trim().trim_matches('"')))
-        });
+    let app_paths_python = [
+        winreg::enums::HKEY_CURRENT_USER,
+        winreg::enums::HKEY_LOCAL_MACHINE,
+    ]
+    .into_iter()
+    .find_map(|hive| {
+        let key = winreg::RegKey::predef(hive)
+            .open_subkey(r"Software\Microsoft\Windows\CurrentVersion\App Paths\python.exe")
+            .ok()?;
+        let target: String = key.get_value("").ok()?;
+        (!target.trim().is_empty()).then(|| expand_env(target.trim().trim_matches('"')))
+    });
     PythonEnvReport {
         pyenv_bin: root.as_ref().map(|r| format!("{}bin", with_slash(r))),
         pyenv_shims: root.as_ref().map(|r| format!("{}shims", with_slash(r))),
@@ -377,7 +380,7 @@ pub(crate) fn split_command(command: &str) -> Option<(String, Vec<String>)> {
 
 /// Moves a folder to the Recycle Bin, so a mistaken removal can be undone.
 #[cfg(windows)]
-fn recycle(dir: &Path) -> Result<(), String> {
+pub(crate) fn recycle(dir: &Path) -> Result<(), String> {
     use std::os::windows::ffi::OsStrExt;
     use winapi::um::shellapi::{
         SHFileOperationW, FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FOF_NOERRORUI, FOF_SILENT, FO_DELETE,
