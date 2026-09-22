@@ -94,7 +94,32 @@ pub(crate) fn run_winget_owned(
 ) -> Result<String, String> {
     let winget = winget_command().ok_or_else(|| "未检测到 WinGet。".to_string())?;
     let refs: Vec<&str> = args.iter().map(String::as_str).collect();
-    run_command_streamed(&winget, &refs, "WinGet", timeout, Duration::ZERO, window)
+    // In a pseudo console WinGet draws its download bar, which becomes a percentage; through
+    // a pipe it prints no progress at all.
+    #[cfg(windows)]
+    let result = run_command_console(&winget, &refs, "WinGet", timeout, Duration::ZERO, window);
+    #[cfg(not(windows))]
+    let result = run_command_streamed(&winget, &refs, "WinGet", timeout, Duration::ZERO, window);
+    // `upgrade` of something already current exits non-zero; it is not a failure.
+    match result {
+        Err(error) if refs.first() == Some(&"upgrade") && winget_found_no_upgrade(&error) => {
+            Ok("已是最新版本".into())
+        }
+        other => other,
+    }
+}
+
+/// WinGet's "nothing to upgrade" message, in English or Chinese.
+pub(crate) fn winget_found_no_upgrade(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    [
+        "no available upgrade found",
+        "no applicable upgrade found",
+        "找不到可用的升级",
+        "没有可用的升级",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle))
 }
 
 pub(crate) fn run_scoop(args: &[&str], timeout: Duration) -> Result<String, String> {

@@ -4113,6 +4113,7 @@ dependencies = [
  "ureq",
  "url",
  "winapi",
+ "windows-sys 0.61.2",
  "winreg 0.52.0",
  "zip",
 ]

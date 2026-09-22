@@ -221,6 +221,148 @@ pub(crate) fn failure_summary(text: &str) -> Option<String> {
         .or_else(|| first_output_line(text))
 }
 
+/// Like `run_command_streamed`, but inside a pseudo console, so a program that only draws
+/// progress on a console (WinGet) shows it: a download bar becomes Stacker's "正在下载 45% ·
+/// 9.4/62.3 MB" line, and a taskbar percent becomes "正在处理 45%".
+#[cfg(windows)]
+pub(crate) fn run_command_console(
+    program: &Path,
+    args: &[&str],
+    display_name: &str,
+    timeout: Duration,
+    stall_timeout: Duration,
+    window: &Option<tauri::Window>,
+) -> Result<String, String> {
+    use super::pty::{download_line, download_sizes, run_in_pty, strip_vt, Stop};
+    use std::sync::mpsc;
+
+    // The whole environment, with the same PATH and proxy a piped command gets.
+    let mut env: Vec<(String, String)> = std::env::vars()
+        .filter(|(key, _)| !key.eq_ignore_ascii_case("PATH"))
+        .collect();
+    let mut dirs = crate::env::fresh_path_dirs();
+    if let Some(paths) = std::env::var_os("PATH") {
+        dirs.extend(std::env::split_paths(&paths));
+    }
+    if let Ok(path) = std::env::join_paths(dirs) {
+        env.push(("PATH".into(), path.to_string_lossy().into_owned()));
+    }
+    if let Some(proxy) = crate::agents::net::stacker_proxy() {
+        for (key, value) in crate::agents::net::proxy_env(&proxy) {
+            env.retain(|(k, _)| !k.eq_ignore_ascii_case(key));
+            env.push((key.to_string(), value));
+        }
+    }
+    log::info!(
+        "external command started in a console: name={display_name} program={} args={args:?}",
+        program.display()
+    );
+
+    // Console output arrives on the reader thread; lines are logged here, on the task's thread.
+    let (sender, receiver) = mpsc::channel::<String>();
+    let started = Instant::now();
+    let mut text = String::new();
+    let mut line = String::new();
+    let mut last_activity = Duration::ZERO;
+    let mut last_heartbeat = Instant::now();
+    let mut shown_percent: Option<u32> = None;
+    let mut saw_bar = false;
+    let mut handle = |chunk: &str, elapsed: Duration, text: &mut String, line: &mut String| {
+        let (clean, taskbar) = strip_vt(chunk);
+        for ch in clean.chars() {
+            if ch != '\r' && ch != '\n' {
+                line.push(ch);
+                continue;
+            }
+            let current = line.trim().to_string();
+            line.clear();
+            if let Some((done, total)) = download_sizes(&current) {
+                saw_bar = true;
+                let percent = ((done / total) * 100.0).round() as u32;
+                if shown_percent != Some(percent) {
+                    shown_percent = Some(percent);
+                    emit_progress(window, download_line(done, total, elapsed));
+                }
+            } else if current.chars().count() > 2 {
+                // Spinner frames (- \ | /) are one character; real output is longer.
+                emit_progress(window, current.as_str());
+                text.push_str(&current);
+                text.push('\n');
+            }
+        }
+        if let (Some(percent), false) = (taskbar, saw_bar) {
+            let percent = u32::from(percent);
+            if shown_percent != Some(percent) {
+                shown_percent = Some(percent);
+                emit_progress(
+                    window,
+                    format!("正在处理 {percent}% · 已 {}s", elapsed.as_secs()),
+                );
+            }
+        }
+    };
+
+    let result = run_in_pty(
+        program,
+        args,
+        &env,
+        move |chunk| {
+            let _ = sender.send(chunk.to_string());
+        },
+        |elapsed| {
+            while let Ok(chunk) = receiver.try_recv() {
+                last_activity = elapsed;
+                handle(&chunk, elapsed, &mut text, &mut line);
+            }
+            if crate::installer::op_cancelled() {
+                return Some(Stop::Cancelled);
+            }
+            if elapsed >= timeout {
+                return Some(Stop::TimedOut);
+            }
+            let inactive = elapsed.saturating_sub(last_activity);
+            if !stall_timeout.is_zero() && inactive >= stall_timeout {
+                return Some(Stop::TimedOut);
+            }
+            if last_heartbeat.elapsed() >= Duration::from_secs(1)
+                && inactive >= Duration::from_secs(1)
+            {
+                emit_progress(
+                    window,
+                    format!("{display_name} 正在处理 · 已 {} 秒", elapsed.as_secs()),
+                );
+                last_heartbeat = Instant::now();
+            }
+            None
+        },
+        ProcessJob::attach_handle,
+    );
+    while let Ok(chunk) = receiver.try_recv() {
+        handle(&chunk, started.elapsed(), &mut text, &mut line);
+    }
+    handle("\n", started.elapsed(), &mut text, &mut line);
+    let text = text.trim().to_string();
+    match result {
+        Ok(0) => {
+            log::info!(
+                "external command completed: name={display_name} elapsed_ms={} output={}",
+                started.elapsed().as_millis(),
+                log_output_excerpt(&text)
+            );
+            Ok(text)
+        }
+        Ok(code) => {
+            log::error!(
+                "external command failed: name={display_name} exit_code={code} output={}",
+                log_output_excerpt(&text)
+            );
+            Err(failure_summary(&text).unwrap_or_else(|| format!("{display_name} 执行失败")))
+        }
+        Err(Stop::Cancelled) => Err("已取消操作".into()),
+        Err(Stop::TimedOut) => Err(format!("{display_name} 执行超时，请检查网络后重试")),
+    }
+}
+
 pub(crate) fn log_output_excerpt(text: &str) -> String {
     const LIMIT: usize = 8_000;
     let mut output = text.chars().take(LIMIT).collect::<String>();
@@ -268,6 +410,21 @@ unsafe impl Send for ProcessJob {}
 unsafe impl Sync for ProcessJob {}
 
 impl ProcessJob {
+    /// For a process started without `std::process` (the pseudo console runner).
+    #[cfg(windows)]
+    pub(crate) fn attach_handle(process: *mut std::ffi::c_void) -> Option<Self> {
+        use winapi::um::jobapi2::{AssignProcessToJobObject, CreateJobObjectW};
+        // SAFETY: a fresh unnamed job and a live process handle owned by the caller.
+        unsafe {
+            let handle = CreateJobObjectW(std::ptr::null_mut(), std::ptr::null());
+            if handle.is_null() {
+                return None;
+            }
+            let job = ProcessJob { handle };
+            (AssignProcessToJobObject(handle, process as _) != 0).then_some(job)
+        }
+    }
+
     pub(crate) fn attach(child: &std::process::Child) -> Option<Self> {
         #[cfg(windows)]
         {
