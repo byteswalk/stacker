@@ -70,6 +70,7 @@ pub(crate) fn run_command_streamed(
     let mut child = cmd
         .spawn()
         .map_err(|e| format!("启动 {display_name} 失败：{e}"))?;
+    let job = ProcessJob::attach(&child);
 
     let started = Instant::now();
     let last_activity = Arc::new(AtomicU64::new(0));
@@ -120,73 +121,71 @@ pub(crate) fn run_command_streamed(
     let stderr_reader = spawn_reader(Box::new(stderr), window.clone());
     let mut last_heartbeat = Instant::now();
 
-    let status = loop {
+    // The command may hand its work to a process that outlives it and keeps writing to the
+    // same pipes (Hermes does): it is done when its output closes, not when it exits. Cancel,
+    // the timeout and the stall check apply until then, and end everything it started.
+    let mut status = None;
+    let failure = loop {
+        if status.is_some() && stdout_reader.is_finished() && stderr_reader.is_finished() {
+            break None;
+        }
         if crate::installer::op_cancelled() {
-            terminate_command_tree(&mut child);
-            let _ = child.wait();
-            let _ = stdout_reader.join();
-            let _ = stderr_reader.join();
-            return Err("已取消操作".into());
+            break Some("已取消操作".to_string());
         }
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) => {
-                let elapsed = started.elapsed();
-                if elapsed >= timeout {
-                    terminate_command_tree(&mut child);
-                    let _ = child.wait();
-                    let _ = stdout_reader.join();
-                    let _ = stderr_reader.join();
-                    let partial = captured_command_output(&output);
-                    log::error!(
-                        "external command timed out: name={display_name} elapsed_ms={} output={}",
-                        elapsed.as_millis(),
-                        log_output_excerpt(&partial)
-                    );
-                    return Err(format!("{display_name} 执行超时，请检查网络后重试"));
+        if status.is_none() {
+            match child.try_wait() {
+                Ok(Some(exited)) => {
+                    status = Some(exited);
+                    continue;
                 }
-                let activity_ms = last_activity.load(Ordering::Relaxed);
-                let inactive = if activity_ms == 0 {
-                    elapsed
-                } else {
-                    elapsed.saturating_sub(Duration::from_millis(activity_ms))
-                };
-                if !stall_timeout.is_zero() && inactive >= stall_timeout {
-                    terminate_command_tree(&mut child);
-                    let _ = child.wait();
-                    let _ = stdout_reader.join();
-                    let _ = stderr_reader.join();
-                    let partial = captured_command_output(&output);
-                    log::error!(
-                        "external command stalled: name={display_name} inactive_ms={} output={}",
-                        inactive.as_millis(),
-                        log_output_excerpt(&partial)
-                    );
-                    return Err(format!(
-                        "{display_name} 连续 {} 秒没有响应，已停止操作。请检查网络或 WinGet 软件源后重试",
-                        stall_timeout.as_secs()
-                    ));
-                }
-                if last_heartbeat.elapsed() >= Duration::from_secs(1)
-                    && inactive >= Duration::from_secs(1)
-                {
-                    emit_progress(
-                        window,
-                        format!("{display_name} 正在处理 · 已 {} 秒", elapsed.as_secs()),
-                    );
-                    last_heartbeat = Instant::now();
-                }
-                std::thread::sleep(Duration::from_millis(100));
-            }
-            Err(e) => {
-                terminate_command_tree(&mut child);
-                let _ = child.wait();
-                let _ = stdout_reader.join();
-                let _ = stderr_reader.join();
-                return Err(format!("读取 {display_name} 状态失败：{e}"));
+                Ok(None) => {}
+                Err(e) => break Some(format!("读取 {display_name} 状态失败：{e}")),
             }
         }
+        let elapsed = started.elapsed();
+        if elapsed >= timeout {
+            log::error!(
+                "external command timed out: name={display_name} elapsed_ms={} output={}",
+                elapsed.as_millis(),
+                log_output_excerpt(&captured_command_output(&output))
+            );
+            break Some(format!("{display_name} 执行超时，请检查网络后重试"));
+        }
+        let activity_ms = last_activity.load(Ordering::Relaxed);
+        let inactive = if activity_ms == 0 {
+            elapsed
+        } else {
+            elapsed.saturating_sub(Duration::from_millis(activity_ms))
+        };
+        if !stall_timeout.is_zero() && inactive >= stall_timeout {
+            log::error!(
+                "external command stalled: name={display_name} inactive_ms={} output={}",
+                inactive.as_millis(),
+                log_output_excerpt(&captured_command_output(&output))
+            );
+            break Some(format!(
+                "{display_name} 连续 {} 秒没有响应，已停止操作。请检查网络或 WinGet 软件源后重试",
+                stall_timeout.as_secs()
+            ));
+        }
+        if last_heartbeat.elapsed() >= Duration::from_secs(1) && inactive >= Duration::from_secs(1)
+        {
+            emit_progress(
+                window,
+                format!("{display_name} 正在处理 · 已 {} 秒", elapsed.as_secs()),
+            );
+            last_heartbeat = Instant::now();
+        }
+        std::thread::sleep(Duration::from_millis(100));
     };
+    if let Some(message) = failure {
+        stop_command(&mut child, job.as_ref());
+        let _ = child.wait();
+        let _ = stdout_reader.join();
+        let _ = stderr_reader.join();
+        return Err(message);
+    }
+    let status = status.expect("the loop ends normally only after the command exited");
 
     let _ = stdout_reader.join();
     let _ = stderr_reader.join();
@@ -253,6 +252,72 @@ pub(crate) fn emit_command_progress(window: &Option<tauri::Window>, bytes: &[u8]
     if !line.is_empty() {
         emit_progress(window, line);
     }
+}
+
+/// Every process a command starts, including ones that outlive it: `hermes update` hands its
+/// work to a second Python process and exits. `taskkill /T` cannot reach a process whose
+/// parent already exited; ending the job does. Descendants are not killed when the job is
+/// merely dropped, so services a command restarts on purpose keep running.
+pub(crate) struct ProcessJob {
+    #[cfg(windows)]
+    handle: winapi::um::winnt::HANDLE,
+}
+
+// The handle is only used to terminate or close the job; both are thread-safe calls.
+unsafe impl Send for ProcessJob {}
+unsafe impl Sync for ProcessJob {}
+
+impl ProcessJob {
+    pub(crate) fn attach(child: &std::process::Child) -> Option<Self> {
+        #[cfg(windows)]
+        {
+            use std::os::windows::io::AsRawHandle;
+            use winapi::um::jobapi2::{AssignProcessToJobObject, CreateJobObjectW};
+            // SAFETY: a fresh unnamed job; the child's handle stays valid while `child` lives.
+            unsafe {
+                let handle = CreateJobObjectW(std::ptr::null_mut(), std::ptr::null());
+                if handle.is_null() {
+                    return None;
+                }
+                let job = ProcessJob { handle };
+                if AssignProcessToJobObject(handle, child.as_raw_handle() as _) == 0 {
+                    return None;
+                }
+                Some(job)
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = child;
+            None
+        }
+    }
+
+    pub(crate) fn terminate(&self) {
+        #[cfg(windows)]
+        // SAFETY: the handle is a job this value owns.
+        unsafe {
+            winapi::um::jobapi2::TerminateJobObject(self.handle, 1);
+        }
+    }
+}
+
+impl Drop for ProcessJob {
+    fn drop(&mut self) {
+        #[cfg(windows)]
+        // SAFETY: closed exactly once, here.
+        unsafe {
+            winapi::um::handleapi::CloseHandle(self.handle);
+        }
+    }
+}
+
+/// Ends a command and everything it started.
+pub(crate) fn stop_command(child: &mut std::process::Child, job: Option<&ProcessJob>) {
+    if let Some(job) = job {
+        job.terminate();
+    }
+    terminate_command_tree(child);
 }
 
 pub(crate) fn terminate_command_tree(child: &mut std::process::Child) {

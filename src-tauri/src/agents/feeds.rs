@@ -64,14 +64,7 @@ pub(crate) fn parse_zcode_manifest(body: &str) -> Option<String> {
 
 /// ZCode's release manifest, the one its updater reads (stable channel).
 pub(crate) fn zcode_latest() -> Result<String, String> {
-    let platform = if arm64() {
-        "windows-aarch64"
-    } else {
-        "windows-x86_64"
-    };
-    let (_, body) = get(&format!(
-        "https://zcode.z.ai/api/v1/releases/electron/manifest?platform={platform}&channel=1"
-    ))?;
+    let (_, body) = get(super::registry::zcode_manifest_url())?;
     parse_zcode_manifest(&body).ok_or_else(|| "ZCode 发布清单里没有版本号".into())
 }
 

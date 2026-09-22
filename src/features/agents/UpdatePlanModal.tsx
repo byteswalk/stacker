@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "../../invoke";
 import { Loading, Modal, useBusyRead, useToast } from "../../ui";
-import { vibeSnapshot } from "./catalogStore";
+import { refreshOneTool, vibeSnapshot } from "./catalogStore";
 import type { AgentTask } from "../agent-tasks/taskStore";
 
 type PlanItem = {
@@ -12,11 +12,17 @@ type PlanItem = {
   current?: string | null;
   latest?: string | null;
   reason?: string | null;
+  lookupFailed?: boolean;
 };
 type UpdatePlan = { auto: PlanItem[]; manual: PlanItem[]; unknown?: PlanItem[] };
 
-function PlanRow({ item, icons }: { item: PlanItem; icons: Map<string, string> }) {
+function PlanRow({ item, icons, onRetry }: {
+  item: PlanItem;
+  icons: Map<string, string>;
+  onRetry?: (item: PlanItem) => Promise<void>;
+}) {
   const icon = icons.get(item.productId);
+  const [retrying, setRetrying] = useState(false);
   return (
     <li className={"plan-row" + (item.reason ? " manual" : "")}>
       <span className="plan-icon" aria-hidden="true">
@@ -33,6 +39,12 @@ function PlanRow({ item, icons }: { item: PlanItem; icons: Map<string, string> }
           <span className="plan-ver next">{item.latest}</span>
         </>}
       </span>
+      {onRetry && item.lookupFailed && (
+        <button className="gh sm plan-retry" disabled={retrying}
+          onClick={() => { setRetrying(true); void onRetry(item).finally(() => setRetrying(false)); }}>
+          <i className={"ti " + (retrying ? "ti-loader-2 spin" : "ti-refresh")} />{retrying ? "查询中" : "重试"}
+        </button>
+      )}
     </li>
   );
 }
@@ -44,6 +56,17 @@ export function UpdatePlanModal({ onClose }: { onClose: () => void }) {
   const [plan, setPlan] = useState<UpdatePlan | null>(null);
   const [starting, setStarting] = useState(false);
   const icons = new Map(vibeSnapshot().tools.map((tool) => [tool.id, tool.icon ?? ""]));
+
+  // Ask again for one install whose latest version could not be looked up, then re-plan:
+  // an update found now moves it into the groups above.
+  async function retry(item: PlanItem) {
+    try {
+      await refreshOneTool(item.productId);
+      setPlan(await invoke<UpdatePlan>("agent_update_plan"));
+    } catch (error) {
+      toast(`重新查询失败：${error}`, "err");
+    }
+  }
 
   useEffect(() => {
     let active = true;
@@ -91,7 +114,7 @@ export function UpdatePlanModal({ onClose }: { onClose: () => void }) {
           </>}
           {(plan.unknown?.length ?? 0) > 0 && <>
             <div className="plan-group"><i className="ti ti-help-circle" /> 查不到最新版本 <span>{plan.unknown!.length}</span></div>
-            <ul>{plan.unknown!.map((item) => <PlanRow key={`${item.productId}-${item.surface}`} item={item} icons={icons} />)}</ul>
+            <ul>{plan.unknown!.map((item) => <PlanRow key={`${item.productId}-${item.surface}`} item={item} icons={icons} onRetry={retry} />)}</ul>
           </>}
         </div>
       )}

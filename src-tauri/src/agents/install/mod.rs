@@ -494,7 +494,16 @@ fn update_hermes_desktop(
         "hermes update",
         Duration::from_secs(1800),
     )
-    .map_err(|e| format!("hermes update 未完成：{e}。可在终端运行 hermes update 查看完整输出"))?;
+    .map_err(|e| {
+        // On this kind of machine npm inside Hermes' update is refused (EPERM) while the same
+        // npm run by hand works; security software blocking it is the likely cause.
+        let hint = if e.contains("Node.js") || e.contains("npm") {
+            "。npm 被拒绝访问文件时，多半是 360 等安全软件拦截了 Hermes 安装目录里的操作，可将其加入信任后重试"
+        } else {
+            ""
+        };
+        format!("hermes update 未完成：{e}{hint}。可在终端运行 hermes update 查看完整输出")
+    })?;
     Ok(format!("{} 已更新", spec.desktop.name))
 }
 
@@ -639,7 +648,7 @@ pub(crate) fn tasklist_has_image(csv: &str, image: &str) -> bool {
     })
 }
 
-fn image_is_running(image: &str) -> bool {
+pub(crate) fn image_is_running(image: &str) -> bool {
     let mut command = Command::new("tasklist.exe");
     command.args(["/FI", &format!("IMAGENAME eq {image}"), "/FO", "CSV", "/NH"]);
     #[cfg(windows)]

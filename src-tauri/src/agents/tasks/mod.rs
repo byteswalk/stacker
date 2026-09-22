@@ -17,6 +17,23 @@ const MAX_LOG_LINES: usize = 200;
 const MAX_FINISHED: usize = 50;
 const EMIT_INTERVAL: Duration = Duration::from_millis(250);
 
+/// A line that only reports how far along something is: "npm install 正在处理 · 已 12 秒",
+/// "正在下载 45% · 12.3/27.0 MB · 已 5s".
+fn is_progress_line(line: &str) -> bool {
+    let tail = line.trim_end();
+    tail.contains(" · 已 ") && (tail.ends_with('秒') || tail.ends_with('s'))
+}
+
+/// Two progress lines about the same thing: equal once their numbers are removed.
+fn same_progress(a: &str, b: &str) -> bool {
+    let shape = |line: &str| -> String {
+        line.chars()
+            .filter(|ch| !ch.is_ascii_digit() && !matches!(ch, '.' | '%'))
+            .collect()
+    };
+    is_progress_line(a) && shape(a) == shape(b)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Surface {
@@ -375,6 +392,15 @@ impl AgentTaskManager {
             let Some(record) = inner.records.iter_mut().find(|record| record.task.id == id) else {
                 return;
             };
+            // "… 正在处理 · 已 12 秒" every second would bury the real output: a progress line
+            // replaces the one before it when only the numbers changed.
+            if record
+                .log
+                .back()
+                .is_some_and(|last| is_progress_line(line) && same_progress(last, line))
+            {
+                record.log.pop_back();
+            }
             record.log.push_back(line.to_string());
             while record.log.len() > MAX_LOG_LINES {
                 record.log.pop_front();
@@ -427,6 +453,31 @@ impl AgentTaskManager {
 mod tests {
     use super::*;
     use std::sync::mpsc;
+
+    #[test]
+    fn a_ticking_progress_line_replaces_the_one_before_it() {
+        assert!(same_progress(
+            "npm install 正在处理 · 已 3 秒",
+            "npm install 正在处理 · 已 4 秒"
+        ));
+        assert!(same_progress(
+            "正在下载 45% · 12.3/27.0 MB · 已 5s",
+            "正在下载 46% · 12.5/27.0 MB · 已 6s"
+        ));
+        // Different work, or a real output line, is kept.
+        assert!(!same_progress(
+            "npm install 正在处理 · 已 3 秒",
+            "hermes update 正在处理 · 已 3 秒"
+        ));
+        assert!(!same_progress(
+            "npm install 正在处理 · 已 3 秒",
+            "added 12 packages in 3s"
+        ));
+        assert!(!same_progress(
+            "added 12 packages in 3s",
+            "added 13 packages in 4s"
+        ));
+    }
 
     struct FakeRunner {
         gate: Mutex<mpsc::Receiver<Result<String, String>>>,

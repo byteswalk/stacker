@@ -200,8 +200,9 @@ pub(crate) fn desktop_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurfac
                 .unwrap_or(DEFAULT_DESKTOP_UNAVAILABLE_REASON)
                 .to_string()
         }),
-        can_update: installed
-            && (spec.desktop.winget_id.is_some() || has_direct_installer || update_available),
+        // Only where Stacker has a way to update it; an advertised update alone is not one
+        // (ZCode used to land in the automatic group and fail with "no update source").
+        can_update: installed && (spec.desktop.winget_id.is_some() || has_direct_installer),
         can_uninstall: installed,
         can_open: installed,
         health: if broken_reason.is_some() {
@@ -1131,10 +1132,20 @@ pub(crate) fn winget_available_update(
     id: &str,
     source: Option<&str>,
 ) -> Result<Option<String>, String> {
+    // Scan workers run in parallel, and WinGet processes started together sometimes exit
+    // failing with no output while they contend for the source lock. One lookup at a time,
+    // and one more try after a failure.
+    static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let args = winget_args("show", id, source, true);
     debug_assert!(winget_query_is_read_only(&args));
     let refs = args.iter().map(String::as_str).collect::<Vec<_>>();
-    let text = run_winget(&refs, Duration::from_secs(15))?;
+    let _turn = ONE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let text = run_winget(&refs, Duration::from_secs(15)).or_else(|_| {
+        std::thread::sleep(Duration::from_secs(2));
+        run_winget(&refs, Duration::from_secs(15))
+    })?;
     Ok(winget_latest_version_from_show(&text))
 }
 

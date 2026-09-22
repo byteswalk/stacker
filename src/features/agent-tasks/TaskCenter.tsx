@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Modal, useToast } from "../../ui";
+import { useToast } from "../../ui";
 import { formatAge } from "../sessions/sessionsView";
 import { parseProgress } from "./progress";
+import { TaskLogModal } from "./TaskLog";
 import { ACTION_TEXT } from "./useTaskToasts";
 import {
-  agentTaskLog, cancelAgentTask, clearFinishedTasks, dismissTask, isOpenTask, retryAgentTask, subscribeTasks,
+  cancelAgentTask, clearFinishedTasks, dismissTask, isOpenTask, retryAgentTask, subscribeTasks,
   taskSnapshot, type AgentTask,
 } from "./taskStore";
 
@@ -52,7 +53,7 @@ export function TaskCenter() {
   const toast = useToast();
   const [tasks, setTasks] = useState(taskSnapshot());
   const [open, setOpen] = useState(false);
-  const [log, setLog] = useState<{ task: AgentTask; lines: string[] } | null>(null);
+  const [logId, setLogId] = useState<string | null>(null);
   const root = useRef<HTMLDivElement>(null);
   useEffect(() => subscribeTasks(setTasks), []);
   const { open: active, done } = useMemo(() => splitTasks(Object.values(tasks)), [tasks]);
@@ -77,13 +78,8 @@ export function TaskCenter() {
 
   const fail = (error: unknown) => toast(String(error), "err");
 
-  async function showLog(task: AgentTask) {
-    try {
-      setLog({ task, lines: await agentTaskLog(task.id) });
-    } catch (error) {
-      toast(`读取任务日志失败：${error}`, "err");
-    }
-  }
+  const showLog = (task: AgentTask) => setLogId(task.id);
+  const logTask = logId ? tasks[logId] : undefined;
 
   const title = (task: AgentTask) => `${task.surfaceLabel} · ${ACTION_TEXT[task.action]}`;
 
@@ -107,7 +103,7 @@ export function TaskCenter() {
             : <div className="task-progress"><span /></div>)}
         </div>
         <div className="task-actions">
-          <button className="task-icon-btn" title="日志" aria-label="日志" onClick={() => void showLog(task)}>
+          <button className="task-icon-btn" title="日志" aria-label="日志" onClick={() => showLog(task)}>
             <i className="ti ti-file-text" />
           </button>
           <button className="gh sm" onClick={() => void cancelAgentTask(task.id).catch(fail)}>取消</button>
@@ -137,7 +133,7 @@ export function TaskCenter() {
           {(task.state === "failed" || task.state === "cancelled") && (
             <button className="gh sm" onClick={() => void retryAgentTask(task.id).catch(fail)}>重试</button>
           )}
-          <button className="task-icon-btn" title="日志" aria-label="日志" onClick={() => void showLog(task)}>
+          <button className="task-icon-btn" title="日志" aria-label="日志" onClick={() => showLog(task)}>
             <i className="ti ti-file-text" />
           </button>
           <button className="task-icon-btn task-dismiss" title="移除这条记录" aria-label="移除这条记录"
@@ -175,11 +171,7 @@ export function TaskCenter() {
           </>}
         </div>
       )}
-      {log && (
-        <Modal title={`${log.task.surfaceLabel} · 任务日志`} icon="ti-file-text" wide onClose={() => setLog(null)}>
-          <pre className="task-log mono">{log.lines.length ? log.lines.join("\n") : "暂无日志"}</pre>
-        </Modal>
-      )}
+      {logTask && <TaskLogModal task={logTask} onClose={() => setLogId(null)} />}
     </div>
   );
 }

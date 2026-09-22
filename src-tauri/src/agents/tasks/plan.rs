@@ -16,6 +16,9 @@ pub struct PlanItem {
     pub current: Option<String>,
     pub latest: Option<String>,
     pub reason: Option<String>,
+    /// The latest-version lookup failed (rather than there being no public source): worth
+    /// asking again.
+    pub lookup_failed: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Default)]
@@ -37,7 +40,39 @@ fn item(tool: &VibeTool, surface: Surface, state: &VibeSurface, reason: Option<&
         current: state.version.clone(),
         latest: state.latest.clone(),
         reason: reason.map(Into::into),
+        lookup_failed: state.latest_error.is_some(),
     }
+}
+
+/// A desktop app that is open cannot be updated in place, and Stacker never closes it for the
+/// user: such items move from the background group to the manual one, saying so, instead of
+/// failing once started. `is_running` gets the executable's file name.
+pub(crate) fn hold_running_apps(
+    plan: &mut UpdatePlan,
+    tools: &[VibeTool],
+    is_running: impl Fn(&str) -> bool,
+) {
+    let (held, keep): (Vec<_>, Vec<_>) =
+        std::mem::take(&mut plan.auto)
+            .into_iter()
+            .partition(|item| {
+                item.surface == Surface::Desktop
+                    && tools
+                        .iter()
+                        .find(|tool| tool.id == item.product_id)
+                        .and_then(|tool| tool.desktop.path.as_deref())
+                        .and_then(|path| std::path::Path::new(path).file_name()?.to_str())
+                        .filter(|name| name.to_ascii_lowercase().ends_with(".exe"))
+                        .is_some_and(&is_running)
+            });
+    plan.auto = keep;
+    plan.manual.extend(held.into_iter().map(|mut item| {
+        item.reason = Some(format!(
+            "{} 正在运行，请先退出应用再更新",
+            item.surface_label
+        ));
+        item
+    }));
 }
 
 pub(crate) fn build_update_plan(tools: &[VibeTool]) -> UpdatePlan {
@@ -107,6 +142,34 @@ mod tests {
         surface.version = Some("3.12.3".into());
         surface.latest_error = error.map(Into::into);
         surface
+    }
+
+    #[test]
+    fn an_open_desktop_app_waits_for_the_user_instead_of_failing() {
+        let idle = crate::agents::test_surface();
+        let mut kimi = updatable(true, "healthy");
+        kimi.label = "Kimi Work 桌面端".into();
+        kimi.path = Some(r"C:\Users\me\AppData\Local\Programs\Kimi\Kimi.exe".into());
+        let mut zcode = updatable(true, "healthy");
+        zcode.path = Some(r"D:\AITools\ZCode\ZCode.exe".into());
+        let tools = vec![
+            tool("kimi", None, idle.clone(), kimi),
+            tool("zcode", None, idle, zcode),
+        ];
+        let mut plan = build_update_plan(&tools);
+        hold_running_apps(&mut plan, &tools, |image| image == "Kimi.exe");
+        assert_eq!(
+            plan.auto
+                .iter()
+                .map(|i| i.product_id.as_str())
+                .collect::<Vec<_>>(),
+            ["zcode"]
+        );
+        assert_eq!(plan.manual.len(), 1);
+        assert_eq!(
+            plan.manual[0].reason.as_deref(),
+            Some("Kimi Work 桌面端 正在运行，请先退出应用再更新")
+        );
     }
 
     #[test]

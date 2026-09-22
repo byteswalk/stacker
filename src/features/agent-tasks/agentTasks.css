@@ -73,6 +73,7 @@
 .a .plan-versions .ti{ color:#5f6774; font-size:15px; }
 .a .plan-ver{ padding:2px 7px; border-radius:6px; color:var(--mut); background:rgba(255,255,255,.05); }
 .a .plan-ver.next{ color:#f5a45a; background:rgba(245,130,31,.14); }
+.a .plan-retry{ flex-shrink:0; }
 .a .plan-group{ display:flex; align-items:center; gap:6px; margin:14px 2px 8px; font-size:12px; font-weight:600; color:#aab1bc; }
 .a .plan-group span{ padding:0 6px; border-radius:999px; background:rgba(255,255,255,.08); color:var(--mut); font-weight:500; }
 .a .plan-empty{ display:flex; align-items:center; gap:8px; padding:14px 12px; border-radius:10px; background:var(--card); color:var(--mut); }

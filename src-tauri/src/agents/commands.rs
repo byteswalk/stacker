@@ -123,7 +123,10 @@ pub fn agent_task_log(
 #[tauri::command]
 pub async fn agent_update_plan() -> super::tasks::plan::UpdatePlan {
     tauri::async_runtime::spawn_blocking(|| {
-        super::tasks::plan::build_update_plan(&super::last_scan_or_scan())
+        let tools = super::last_scan_or_scan();
+        let mut plan = super::tasks::plan::build_update_plan(&tools);
+        super::tasks::plan::hold_running_apps(&mut plan, &tools, super::install::image_is_running);
+        plan
     })
     .await
     .unwrap_or_default()

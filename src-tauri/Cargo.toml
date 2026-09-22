@@ -47,7 +47,7 @@ minisign-verify = "0.2.5"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
-winapi = { version = "0.3", features = ["winuser", "fileapi", "shellapi", "synchapi", "processthreadsapi", "handleapi", "winbase", "dpapi", "wincrypt", "minwindef", "winnt", "errhandlingapi", "tlhelp32"] }
+winapi = { version = "0.3", features = ["winuser", "fileapi", "shellapi", "synchapi", "processthreadsapi", "handleapi", "winbase", "dpapi", "wincrypt", "minwindef", "winnt", "errhandlingapi", "tlhelp32", "jobapi2"] }
 
 [profile.dev]
 debug = 1

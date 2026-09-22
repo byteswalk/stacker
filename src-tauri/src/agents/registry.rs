@@ -184,6 +184,9 @@ pub(crate) enum InstallerSource {
     /// An electron-builder GitHub release whose `latest.yml` names the installer and its
     /// SHA-512; `base_url` is the release's `.../releases/latest/download`.
     ElectronRelease { base_url: &'static str },
+    /// An electron-builder manifest at a full URL whose `path` is the installer's own URL
+    /// (ZCode's release service).
+    ElectronManifest { manifest_url: &'static str },
 }
 
 #[derive(Clone, Copy)]
@@ -1112,7 +1115,15 @@ pub(crate) fn direct_desktop_installer(
                 url: openclaw_desktop_installer_url(),
                 file_name: "OpenClawCompanion-Setup.exe",
             },
-            silent_args: &["/S"],
+            // Inno Setup, not NSIS: /S means nothing to it and its wizard opened. Per-user, as
+            // earlier releases installed, so no UAC prompt; the previous folder is kept.
+            silent_args: &[
+                "/VERYSILENT",
+                "/SUPPRESSMSGBOXES",
+                "/NORESTART",
+                "/SP-",
+                "/CURRENTUSER",
+            ],
             signed: true,
         }),
         Vendor::Hermes => Some(DirectDesktopInstaller {
@@ -1140,6 +1151,14 @@ pub(crate) fn direct_desktop_installer(
             silent_args: &["/S"],
             signed: true,
         }),
+        // Signed electron-builder NSIS installer named by the manifest ZCode's updater reads.
+        Vendor::ZCode => Some(DirectDesktopInstaller {
+            source: InstallerSource::ElectronManifest {
+                manifest_url: zcode_manifest_url(),
+            },
+            silent_args: &["/S"],
+            signed: true,
+        }),
         // Third-party open-source pi desktop app; its Windows installer is not signed.
         Vendor::Pi => Some(DirectDesktopInstaller {
             source: InstallerSource::ElectronRelease {
@@ -1149,6 +1168,15 @@ pub(crate) fn direct_desktop_installer(
             signed: false,
         }),
         _ => None,
+    }
+}
+
+/// The release manifest ZCode's own updater reads (stable channel).
+pub(crate) fn zcode_manifest_url() -> &'static str {
+    if cfg!(target_arch = "aarch64") {
+        "https://zcode.z.ai/api/v1/releases/electron/manifest?platform=windows-aarch64&channel=1"
+    } else {
+        "https://zcode.z.ai/api/v1/releases/electron/manifest?platform=windows-x86_64&channel=1"
     }
 }
 

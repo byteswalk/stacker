@@ -98,6 +98,31 @@ fn resolve_installer(installer: DirectDesktopInstaller) -> Result<ResolvedInstal
             file_name: file_name.into(),
             sha512: None,
         }),
+        InstallerSource::ElectronManifest { manifest_url } => {
+            let text = desktop_download_agent(crate::agents::net::stacker_proxy().as_deref())?
+                .get(manifest_url)
+                .set("User-Agent", "Stacker")
+                .call()
+                .map_err(|e| format!("读取发布信息失败：{e}"))?
+                .into_string()
+                .map_err(|e| format!("读取发布信息失败：{e}"))?;
+            let release = parse_latest_yml(&text).ok_or("发布信息格式无法识别")?;
+            let url = release.file_name.clone();
+            if !url.starts_with("https://") {
+                return Err("发布信息里的安装包地址不是 HTTPS 链接".into());
+            }
+            let file_name = url
+                .rsplit('/')
+                .next()
+                .filter(|name| name.to_ascii_lowercase().ends_with(".exe"))
+                .ok_or("发布信息里的安装包地址不是 exe 文件")?
+                .to_string();
+            Ok(ResolvedInstaller {
+                url,
+                file_name,
+                sha512: Some(release.sha512),
+            })
+        }
         InstallerSource::ElectronRelease { base_url } => {
             let release = electron_release_latest(base_url)?;
             Ok(ResolvedInstaller {
@@ -230,11 +255,12 @@ pub(crate) fn run_downloaded_desktop_installer(
     let mut child = command
         .spawn()
         .map_err(|e| format!("启动 {} 安装程序失败：{e}", spec.desktop.name))?;
+    let job = ProcessJob::attach(&child);
     let started = Instant::now();
     let mut last_reported = u64::MAX;
     loop {
         if crate::installer::op_cancelled() {
-            terminate_command_tree(&mut child);
+            stop_command(&mut child, job.as_ref());
             let _ = child.wait();
             return Err(format!("已取消安装 {}", spec.desktop.name));
         }
@@ -242,7 +268,7 @@ pub(crate) fn run_downloaded_desktop_installer(
             Ok(Some(status)) if status.success() => return Ok(()),
             Ok(Some(status)) => {
                 return Err(format!(
-                    "{} 安装未完成，安装程序退出代码：{}",
+                    "{} 安装未完成，安装程序退出代码：{}。如果装了 360 等安全软件，请检查它是否拦截了安装程序写入的文件",
                     spec.desktop.name,
                     status.code().unwrap_or(-1)
                 ))
@@ -250,7 +276,7 @@ pub(crate) fn run_downloaded_desktop_installer(
             Ok(None) => {
                 let elapsed = started.elapsed().as_secs();
                 if elapsed >= 1200 {
-                    terminate_command_tree(&mut child);
+                    stop_command(&mut child, job.as_ref());
                     let _ = child.wait();
                     return Err(format!(
                         "{} 安装超过 20 分钟，已停止操作。",
