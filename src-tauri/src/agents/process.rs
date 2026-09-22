@@ -212,12 +212,23 @@ pub(crate) fn run_command_streamed(
 /// Why a command failed. Tools that end with a `✗`/`⚠` summary (Hermes does) are best
 /// described by the last such line; the first line is often an unrelated warning.
 pub(crate) fn failure_summary(text: &str) -> Option<String> {
-    text.lines()
-        .map(str::trim)
-        .rev()
+    let lines = || text.lines().map(str::trim).rev();
+    lines()
         .find(|line| line.starts_with('✗') || line.starts_with('⚠'))
         .map(|line| line.trim_start_matches(['✗', '⚠']).trim().to_string())
         .filter(|line| !line.is_empty())
+        // Otherwise the last line that reports an error: WinGet ends a Store refusal with
+        // "无法安装或更新 Microsoft Store 程序包。错误代码: 0x803fb015" after a page of details.
+        .or_else(|| {
+            lines()
+                .find(|line| {
+                    let lower = line.to_lowercase();
+                    ["错误", "无法", "失败", "error", "failed", "unable"]
+                        .iter()
+                        .any(|word| lower.contains(word))
+                })
+                .map(str::to_string)
+        })
         .or_else(|| first_output_line(text))
 }
 
@@ -715,6 +726,12 @@ mod tests {
         assert_eq!(
             failure_summary("fatal: not a git repository").as_deref(),
             Some("fatal: not a git repository")
+        );
+        // WinGet's Store refusal comes last, after the package details.
+        let store = "已找到 ChatGPT [9PLM9XGG6VKS] 版本 Unknown\n发布者: OpenAI\n正在启动程序包安装...\n无法安装或更新 Microsoft Store 程序包。错误代码: 0x803fb015";
+        assert_eq!(
+            failure_summary(store).as_deref(),
+            Some("无法安装或更新 Microsoft Store 程序包。错误代码: 0x803fb015")
         );
     }
 }

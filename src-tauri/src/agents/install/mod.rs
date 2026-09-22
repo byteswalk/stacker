@@ -309,6 +309,11 @@ pub(crate) fn uninstall_cli_tool(
     }
 }
 
+/// A Microsoft Store refusal: its errors are 0x803FBxxx (licensing and account).
+pub(crate) fn store_refused(error: &str) -> bool {
+    error.to_lowercase().contains("0x803fb")
+}
+
 pub(crate) fn install_desktop_tool(
     spec: &ToolSpec,
     window: &Option<tauri::Window>,
@@ -347,6 +352,17 @@ pub(crate) fn install_desktop_tool(
                     }
                     if crate::installer::op_cancelled() || err.contains("已取消") {
                         return Err(err);
+                    }
+                    // The Store refused (0x803FBxxx: license or account, e.g. after a VM
+                    // snapshot is restored or the clock drifted). Trying again cannot help; the
+                    // Store's own page shows why and can install.
+                    if spec.desktop.winget_source == Some("msstore") && store_refused(&err) {
+                        let page = format!("ms-windows-store://pdp/?ProductId={id}");
+                        let opened = open_external_target(&page).is_ok();
+                        return Err(format!(
+                            "{err}。这是 Microsoft Store 拒绝了安装（许可证或账户问题，常见于恢复系统快照后时间不准或商店缓存过期）：请同步系统时间、运行 wsreset.exe、确认已登录商店后重试{}",
+                            if opened { "；已打开商店里的该应用页面，也可以直接在那里安装" } else { "" }
+                        ));
                     }
                     last_error = Some(err);
                     if attempt == 1 {
@@ -673,6 +689,15 @@ pub(crate) fn image_is_running(image: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_store_refusal_is_recognised_by_its_code() {
+        assert!(store_refused(
+            "无法安装或更新 Microsoft Store 程序包。错误代码: 0x803fb015"
+        ));
+        assert!(store_refused("Error code: 0x803FB005"));
+        assert!(!store_refused("下载超时，请检查网络后重试"));
+    }
 
     #[test]
     fn only_apps_with_a_downloaded_update_wait_for_a_relaunch() {
