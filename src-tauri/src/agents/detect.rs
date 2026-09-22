@@ -693,8 +693,8 @@ $names = @({names})
 foreach ($name in $names) {{
   $pkg = Get-AppxPackage -Name $name -ErrorAction SilentlyContinue | Select-Object -First 1
   if ($pkg) {{
-    $app = Get-StartApps | Where-Object {{ $_.AppID -like "$($pkg.PackageFamilyName)!*" }} | Select-Object -First 1
-    $appId = if ($app) {{ $app.AppID }} else {{ "$($pkg.PackageFamilyName)!App" }}
+    $entry = (Get-AppxPackageManifest $pkg).Package.Applications.Application | Select-Object -First 1
+    $appId = if ($entry.Id) {{ "$($pkg.PackageFamilyName)!$($entry.Id)" }} else {{ "$($pkg.PackageFamilyName)!App" }}
     Write-Output ("{{0}}`t{{1}}`t{{2}}`t{{3}}`t{{4}}" -f $pkg.Name, $pkg.Version, $pkg.InstallLocation, $appId, $pkg.PackageFullName)
     break
   }}
@@ -710,7 +710,9 @@ foreach ($name in $names) {{
             &script,
         ],
         "Get-AppxPackage",
-        Duration::from_secs(8),
+        // The start-menu lookup this used took seconds on slow machines and pushed the whole
+        // check past its limit; the app id now comes from the package's own manifest.
+        Duration::from_secs(20),
     )
     .ok()?;
     let line = text.lines().map(str::trim).find(|line| !line.is_empty())?;

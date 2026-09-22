@@ -314,6 +314,14 @@ pub(crate) fn install_desktop_tool(
     window: &Option<tauri::Window>,
 ) -> Result<String, String> {
     if let Some(id) = spec.desktop.winget_id {
+        // A Store package (Codex desktop is the whole ChatGPT app, 1.9 GB installed) downloads
+        // through the Store service at whatever speed its servers give; say so up front.
+        if spec.desktop.winget_source == Some("msstore") {
+            emit_progress(
+                window,
+                "通过 Microsoft Store 下载安装：包较大时可能需要十几分钟，速度取决于到微软下载服务器的网络（只使用 Windows 系统代理）",
+            );
+        }
         let mut last_error = None;
         for attempt in 1..=2 {
             emit_progress(
