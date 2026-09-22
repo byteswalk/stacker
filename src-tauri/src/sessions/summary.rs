@@ -185,6 +185,8 @@ fn call(
         effort: choice.effort.clone(),
         prompt,
         timeout: DEFAULT_TIMEOUT,
+        attachments: Vec::new(),
+        on_delta: None,
     };
     run(&req, cancel).map(|o| o.text)
 }

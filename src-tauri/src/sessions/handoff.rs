@@ -123,6 +123,8 @@ pub fn compose(
         effort: choice.effort.clone(),
         prompt: prompt(&name, &sessions, locale),
         timeout: DEFAULT_TIMEOUT,
+        attachments: Vec::new(),
+        on_delta: None,
     };
     let text = run(&req, cancel)?.text;
     let path = output_path(&name);

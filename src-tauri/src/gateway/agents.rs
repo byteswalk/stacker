@@ -53,6 +53,7 @@ fn defaults_for(id: &str) -> (Option<String>, Option<String>) {
         },
         system: String::new(),
         turns: Vec::new(),
+        attachments: Vec::new(),
         stream: false,
         effort: None,
     };
@@ -63,7 +64,7 @@ fn defaults_for(id: &str) -> (Option<String>, Option<String>) {
 pub fn agent_cards() -> Vec<AgentCard> {
     let config = load();
     let mut seen = std::collections::HashSet::new();
-    let tools: Vec<_> = crate::agents::last_scan_or_scan()
+    let tools: Vec<_> = crate::agents::last_scan_or_local_scan()
         .into_iter()
         .filter_map(|tool| Some((tool.cli_id.clone()?, tool)))
         .filter(|(cli_id, _)| seen.insert(cli_id.clone()))
@@ -174,6 +175,7 @@ pub async fn gateway_test(agent: String, model: Option<String>) -> Result<TestRe
             },
             system: String::new(),
             turns: vec![(protocol::Role::User, "Reply with exactly: OK".into())],
+            attachments: Vec::new(),
             stream: false,
             effort: None,
         };
@@ -186,6 +188,8 @@ pub async fn gateway_test(agent: String, model: Option<String>) -> Result<TestRe
                 effort: effort.clone(),
                 prompt: protocol::render_prompt(&chat),
                 timeout: crate::runner::DEFAULT_TIMEOUT,
+                attachments: Vec::new(),
+                on_delta: None,
             },
             &crate::runner::CancelFlag::default(),
         );

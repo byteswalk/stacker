@@ -1,18 +1,19 @@
 //! The 127.0.0.1-only HTTP server.
-use super::protocol::{self, ApiError, ChatRequest};
-use crate::runner::{CancelFlag, RunOutput, RunRequest, DEFAULT_TIMEOUT};
+use super::protocol::{self, ApiError, ChatRequest, SseStream};
+use crate::runner::{CancelFlag, DeltaSink, RunOutput, RunRequest, DEFAULT_TIMEOUT};
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::VecDeque;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{mpsc, Arc, Condvar, Mutex};
 use std::time::Instant;
-use tiny_http::{Header, Method, Request, Response, Server};
+use tiny_http::{HTTPVersion, Header, Method, Request, Response, Server};
 
 pub const RUNNING: usize = 2;
 pub const WAITING: usize = 8;
-const MAX_BODY: u64 = 8 * 1024 * 1024;
+/// Room for base64 images and PDFs; each attachment is capped separately.
+const MAX_BODY: u64 = 64 * 1024 * 1024;
 const RECENT: usize = 50;
 
 pub type Runner = Arc<dyn Fn(&RunRequest, &CancelFlag) -> Result<RunOutput, String> + Send + Sync>;
@@ -160,8 +161,20 @@ fn error(style: Style, e: &ApiError) -> Response<std::io::Cursor<Vec<u8>>> {
     json_response(e.status, &body)
 }
 
-fn runner_error(code: &str) -> ApiError {
+fn runner_error(code: &str, backend: &str) -> ApiError {
     match code {
+        "E_ATTACHMENT_UNSUPPORTED" if backend == "codex" => ApiError::new(
+            400,
+            "invalid_request_error",
+            "Codex cannot read PDF documents. Send the PDF to a claude/* model, e.g. claude/sonnet.",
+        ),
+        "E_ATTACHMENT_UNSUPPORTED" => ApiError::new(
+            400,
+            "invalid_request_error",
+            format!(
+                "{backend} cannot read images or documents through Stacker. Images work with claude/* and codex/* models; PDF documents with claude/* models."
+            ),
+        ),
         "E_RUNNER_MISSING" => ApiError::new(
             503,
             "api_error",
@@ -223,9 +236,7 @@ fn handle(mut req: Request, shared: &Shared) {
     } else {
         Style::OpenAi
     };
-    let respond = |req: Request, resp: Response<std::io::Cursor<Vec<u8>>>, model: &str| {
-        let status = resp.status_code().0;
-        let _ = req.respond(resp);
+    let log = |status: u16, model: &str| {
         shared.log(LogEntry {
             at: now(),
             endpoint: path.clone(),
@@ -233,6 +244,11 @@ fn handle(mut req: Request, shared: &Shared) {
             status,
             elapsed_ms: started.elapsed().as_millis() as u64,
         });
+    };
+    let respond = |req: Request, resp: Response<std::io::Cursor<Vec<u8>>>, model: &str| {
+        let status = resp.status_code().0;
+        let _ = req.respond(resp);
+        log(status, model);
     };
 
     if method == Method::Get && path == "/health" {
@@ -334,13 +350,17 @@ fn handle(mut req: Request, shared: &Shared) {
                     &model,
                 );
             }
+            // HTTP/1.0 has no chunked encoding; such clients get the answer in one piece.
+            if chat.stream && *req.http_version() != HTTPVersion(1, 0) {
+                return stream_chat(req, style, &chat, shared, |status| log(status, &model));
+            }
             shared.acquire();
-            let result = run_chat(&chat, shared);
+            let result = run_chat(&chat, shared, None, &CancelFlag::default());
             shared.release();
             shared.in_flight.fetch_sub(1, Ordering::SeqCst);
             let resp = match result {
                 Ok((text, prompt)) => success(style, &chat, &text, &prompt),
-                Err(code) => error(style, &runner_error(&code)),
+                Err(code) => error(style, &runner_error(&code, &chat.model.backend)),
             };
             respond(req, resp, &model)
         }
@@ -355,7 +375,12 @@ fn handle(mut req: Request, shared: &Shared) {
     }
 }
 
-fn run_chat(chat: &ChatRequest, shared: &Shared) -> Result<(String, String), String> {
+fn run_chat(
+    chat: &ChatRequest,
+    shared: &Shared,
+    on_delta: Option<DeltaSink>,
+    cancel: &CancelFlag,
+) -> Result<(String, String), String> {
     let (model, effort) = (shared.defaults)(chat);
     let prompt = protocol::render_prompt(chat);
     let req = RunRequest {
@@ -364,8 +389,119 @@ fn run_chat(chat: &ChatRequest, shared: &Shared) -> Result<(String, String), Str
         effort,
         prompt: prompt.clone(),
         timeout: DEFAULT_TIMEOUT,
+        attachments: chat.attachments.clone(),
+        on_delta,
     };
-    (shared.runner)(&req, &CancelFlag::default()).map(|o| (o.text, prompt))
+    (shared.runner)(&req, cancel).map(|o| (o.text, prompt))
+}
+
+enum Event {
+    Delta(String),
+    /// The answer and the prompt, or a runner error code.
+    Done(Result<(String, String), String>),
+}
+
+/// Runs a `stream: true` chat on a worker and forwards its text as it arrives. Until the first
+/// piece arrives nothing is sent, so an agent that cannot stream (or fails first) is answered
+/// exactly like before: one SSE burst, or a JSON error with its status.
+fn stream_chat(req: Request, style: Style, chat: &ChatRequest, shared: &Shared, log: impl Fn(u16)) {
+    let cancel = CancelFlag::default();
+    let (tx, rx) = mpsc::channel::<Event>();
+    std::thread::scope(|scope| {
+        let deltas = tx.clone();
+        let cancel = &cancel;
+        scope.spawn(move || {
+            let sink: DeltaSink = Arc::new(move |text: &str| {
+                let _ = deltas.send(Event::Delta(text.to_string()));
+            });
+            shared.acquire();
+            let result = run_chat(chat, shared, Some(sink), cancel);
+            shared.release();
+            shared.in_flight.fetch_sub(1, Ordering::SeqCst);
+            let _ = tx.send(Event::Done(result));
+        });
+        let status = match rx.recv() {
+            Ok(Event::Delta(first)) => {
+                let format = SseStream {
+                    anthropic: style == Style::Anthropic,
+                    id: match style {
+                        Style::OpenAi => id("chatcmpl-"),
+                        Style::Anthropic => id("msg_"),
+                    },
+                    created: now(),
+                    model: chat.model_name.clone(),
+                    prompt: protocol::render_prompt(chat),
+                };
+                if write_stream(req.into_writer(), &format, first, &rx, &chat.model.backend)
+                    .is_err()
+                {
+                    // The client went away: stop the agent instead of letting it finish.
+                    cancel.cancel();
+                }
+                200
+            }
+            Ok(Event::Done(result)) => {
+                let resp = match result {
+                    Ok((text, prompt)) => success(style, chat, &text, &prompt),
+                    Err(code) => error(style, &runner_error(&code, &chat.model.backend)),
+                };
+                let status = resp.status_code().0;
+                let _ = req.respond(resp);
+                status
+            }
+            Err(_) => {
+                let e = runner_error("E_RUNNER_FAILED", &chat.model.backend);
+                let _ = req.respond(error(style, &e));
+                e.status
+            }
+        };
+        log(status);
+    });
+}
+
+/// One HTTP chunk per event, flushed at once so each piece reaches the client as it comes.
+fn write_chunk(out: &mut dyn Write, text: &str) -> std::io::Result<()> {
+    if text.is_empty() {
+        return Ok(());
+    }
+    write!(out, "{:x}\r\n{text}\r\n", text.len())?;
+    out.flush()
+}
+
+fn write_stream(
+    mut out: Box<dyn Write + Send>,
+    format: &SseStream,
+    first: String,
+    events: &mpsc::Receiver<Event>,
+    backend: &str,
+) -> std::io::Result<()> {
+    out.write_all(
+        b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n",
+    )?;
+    write_chunk(&mut out, &(format.start() + &format.delta(&first)))?;
+    let mut sent = first;
+    for event in events.iter() {
+        match event {
+            Event::Delta(text) => {
+                write_chunk(&mut out, &format.delta(&text))?;
+                sent.push_str(&text);
+            }
+            Event::Done(Ok((text, _))) => {
+                // The final answer may hold text the deltas did not.
+                if let Some(rest) = text.strip_prefix(sent.as_str()).filter(|r| !r.is_empty()) {
+                    write_chunk(&mut out, &format.delta(rest))?;
+                }
+                write_chunk(&mut out, &format.end(&text))?;
+                break;
+            }
+            Event::Done(Err(code)) => {
+                write_chunk(&mut out, &format.error(&runner_error(&code, backend)))?;
+                break;
+            }
+        }
+    }
+    out.write_all(b"0\r\n\r\n")?;
+    out.flush()
 }
 
 fn success(
@@ -401,19 +537,70 @@ fn success(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
+    use crate::runner::AttachmentKind;
     use std::net::TcpStream;
+    use std::sync::atomic::AtomicBool;
+    use std::time::Duration;
+
+    /// Set when the `forever` fake run sees its cancel flag.
+    static CANCELLED: AtomicBool = AtomicBool::new(false);
+
+    /// Echoes the backend and effort; prompts naming a scenario stream or fail on purpose.
+    fn fake_run(req: &RunRequest, cancel: &CancelFlag) -> Result<RunOutput, String> {
+        let say = |text: &str| {
+            if let Some(sink) = &req.on_delta {
+                sink(text);
+            }
+        };
+        let pause = || std::thread::sleep(Duration::from_millis(250));
+        if req.backend == "codex"
+            && req
+                .attachments
+                .iter()
+                .any(|a| a.kind == AttachmentKind::Pdf)
+        {
+            return Err("E_ATTACHMENT_UNSUPPORTED".into());
+        }
+        if req.prompt.contains("stream-me") {
+            for piece in ["one ", "two ", "three"] {
+                say(piece);
+                pause();
+            }
+            return Ok(RunOutput {
+                text: "one two three!".into(),
+            });
+        }
+        if req.prompt.contains("fail-late") {
+            say("partial");
+            return Err("E_RUNNER_TIMEOUT".into());
+        }
+        if req.prompt.contains("fail-early") {
+            return Err("E_RUNNER_FAILED".into());
+        }
+        if req.prompt.contains("forever") {
+            let started = Instant::now();
+            while started.elapsed() < Duration::from_secs(20) {
+                if cancel.is_cancelled() {
+                    CANCELLED.store(true, Ordering::SeqCst);
+                    return Err("E_CANCELLED".into());
+                }
+                say("tick ");
+                std::thread::sleep(Duration::from_millis(30));
+            }
+            return Err("E_RUNNER_TIMEOUT".into());
+        }
+        Ok(RunOutput {
+            text: format!(
+                "echo:{}:{}:{}",
+                req.backend,
+                req.effort.clone().unwrap_or_default(),
+                req.attachments.len()
+            ),
+        })
+    }
 
     fn fake() -> Arc<Shared> {
-        let runner: Runner = Arc::new(|req: &RunRequest, _: &CancelFlag| {
-            Ok(RunOutput {
-                text: format!(
-                    "echo:{}:{}",
-                    req.backend,
-                    req.effort.clone().unwrap_or_default()
-                ),
-            })
-        });
+        let runner: Runner = Arc::new(fake_run);
         let defaults: Defaults = Arc::new(|c: &ChatRequest| {
             (
                 c.model.model.clone(),
@@ -458,7 +645,7 @@ mod tests {
         );
         assert_eq!(status, 200, "{body}");
         let v: Value = serde_json::from_str(&body).unwrap();
-        assert_eq!(v["choices"][0]["message"]["content"], "echo:claude:low");
+        assert_eq!(v["choices"][0]["message"]["content"], "echo:claude:low:0");
 
         let (status, body) = post(
             port,
@@ -469,7 +656,7 @@ mod tests {
         );
         assert_eq!(status, 200);
         let v: Value = serde_json::from_str(&body).unwrap();
-        assert_eq!(v["content"][0]["text"], "echo:codex:low");
+        assert_eq!(v["content"][0]["text"], "echo:codex:low:0");
 
         let (status, body) = post(
             port,
@@ -516,6 +703,398 @@ mod tests {
         assert_eq!(status, 200);
         assert!(body.contains("\"claude\""));
         server.stop();
+    }
+
+    /// Sends a request and reads the raw response as it arrives: status, headers, and each
+    /// decoded chunk with the time it was complete.
+    fn stream_post(
+        port: u16,
+        path: &str,
+        auth: &str,
+        body: &str,
+    ) -> (u16, String, Vec<(Duration, String)>) {
+        let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        s.write_all(format!(
+            "POST {path} HTTP/1.1\r\nHost: localhost\r\n{auth}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        ).as_bytes()).unwrap();
+        let started = Instant::now();
+        let mut raw = Vec::new();
+        let mut chunks = Vec::new();
+        let mut buf = [0u8; 4096];
+        let mut head_len = None;
+        let mut pos = 0;
+        loop {
+            let n = s.read(&mut buf).unwrap_or(0);
+            if n == 0 {
+                break;
+            }
+            raw.extend_from_slice(&buf[..n]);
+            if head_len.is_none() {
+                head_len = raw.windows(4).position(|w| w == b"\r\n\r\n").map(|p| p + 4);
+                pos = head_len.unwrap_or(0);
+            }
+            // Decode every complete chunk received so far.
+            while head_len.is_some() {
+                let Some(eol) = raw[pos..].windows(2).position(|w| w == b"\r\n") else {
+                    break;
+                };
+                let size =
+                    usize::from_str_radix(std::str::from_utf8(&raw[pos..pos + eol]).unwrap(), 16)
+                        .unwrap_or(0);
+                if size == 0 || raw.len() < pos + eol + 2 + size + 2 {
+                    break;
+                }
+                let data = &raw[pos + eol + 2..pos + eol + 2 + size];
+                chunks.push((
+                    started.elapsed(),
+                    String::from_utf8_lossy(data).into_owned(),
+                ));
+                pos += eol + 2 + size + 2;
+            }
+        }
+        let text = String::from_utf8_lossy(&raw).into_owned();
+        let status = text.split_whitespace().nth(1).unwrap().parse().unwrap();
+        let head = text.split("\r\n\r\n").next().unwrap_or("").to_string();
+        (status, head, chunks)
+    }
+
+    #[test]
+    fn streams_deltas_as_they_arrive() {
+        let server = start(0, fake()).unwrap();
+        let port = server.port;
+        let (status, head, chunks) = stream_post(
+            port,
+            "/v1/chat/completions",
+            "Authorization: Bearer sk-test\r\n",
+            r#"{"model":"claude","stream":true,"messages":[{"role":"user","content":"stream-me"}]}"#,
+        );
+        assert_eq!(status, 200);
+        assert!(head.contains("text/event-stream") && head.contains("chunked"));
+        assert!(chunks.len() >= 4, "{chunks:?}");
+        let (first_at, first) = &chunks[0];
+        assert!(first.contains("\"role\":\"assistant\"") && first.contains("\"content\":\"one \""));
+        let (last_at, last) = chunks.last().unwrap();
+        assert!(
+            *last_at > *first_at + Duration::from_millis(400),
+            "the first piece arrived before the run ended"
+        );
+        let body: String = chunks.iter().map(|(_, c)| c.as_str()).collect();
+        let contents: Vec<String> = body
+            .lines()
+            .filter_map(|l| l.strip_prefix("data: "))
+            .filter(|d| *d != "[DONE]")
+            .filter_map(|d| serde_json::from_str::<Value>(d).ok())
+            .filter_map(|v| {
+                v["choices"][0]["delta"]["content"]
+                    .as_str()
+                    .map(str::to_string)
+            })
+            .collect();
+        assert_eq!(contents, vec!["one ", "two ", "three", "!"]);
+        assert!(last.ends_with("data: [DONE]\n\n"));
+        assert!(body.contains("\"finish_reason\":\"stop\""));
+
+        let (status, _, chunks) = stream_post(
+            port,
+            "/v1/messages",
+            "x-api-key: sk-test\r\n",
+            r#"{"model":"claude","max_tokens":9,"stream":true,"messages":[{"role":"user","content":"stream-me"}]}"#,
+        );
+        assert_eq!(status, 200);
+        let body: String = chunks.iter().map(|(_, c)| c.as_str()).collect();
+        let events: Vec<&str> = body
+            .lines()
+            .filter_map(|l| l.strip_prefix("event: "))
+            .collect();
+        assert_eq!(events.first(), Some(&"message_start"));
+        assert_eq!(
+            events
+                .iter()
+                .filter(|e| **e == "content_block_delta")
+                .count(),
+            4
+        );
+        assert_eq!(events.last(), Some(&"message_stop"));
+        server.stop();
+    }
+
+    #[test]
+    fn stream_failures_and_non_streaming_agents() {
+        let server = start(0, fake()).unwrap();
+        let port = server.port;
+        let auth = "Authorization: Bearer sk-test\r\n";
+        // Failure before any text: a plain JSON error with the real status.
+        let (status, body) = post(
+            port,
+            "/v1/chat/completions",
+            auth,
+            "",
+            r#"{"model":"claude","stream":true,"messages":[{"role":"user","content":"fail-early"}]}"#,
+        );
+        assert_eq!(status, 502);
+        assert!(body.contains("\"error\""));
+        // Failure after text started: an error event, then the stream ends.
+        let (status, _, chunks) = stream_post(
+            port,
+            "/v1/chat/completions",
+            auth,
+            r#"{"model":"claude","stream":true,"messages":[{"role":"user","content":"fail-late"}]}"#,
+        );
+        assert_eq!(status, 200);
+        let body: String = chunks.iter().map(|(_, c)| c.as_str()).collect();
+        assert!(body.contains("\"content\":\"partial\""));
+        assert!(body.contains("data: {\"error\"") && body.contains("timeout_error"));
+        assert!(body.ends_with("data: [DONE]\n\n"));
+        let (_, _, chunks) = stream_post(
+            port,
+            "/v1/messages",
+            "x-api-key: sk-test\r\n",
+            r#"{"model":"claude","max_tokens":5,"stream":true,"messages":[{"role":"user","content":"fail-late"}]}"#,
+        );
+        let body: String = chunks.iter().map(|(_, c)| c.as_str()).collect();
+        assert!(body.contains("event: error\n") && !body.contains("message_stop"));
+        // An agent that never streams still gets one well-formed burst.
+        let (status, body) = post(
+            port,
+            "/v1/messages",
+            "x-api-key: sk-test\r\n",
+            "",
+            r#"{"model":"codex","max_tokens":5,"stream":true,"messages":[{"role":"user","content":"hi"}]}"#,
+        );
+        assert_eq!(status, 200);
+        assert!(body.contains("echo:codex:low:0") && body.contains("message_stop"));
+        server.stop();
+    }
+
+    #[test]
+    fn attachments_reach_the_runner_and_unsupported_ones_are_400() {
+        let server = start(0, fake()).unwrap();
+        let port = server.port;
+        let png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+        let body = format!(
+            r#"{{"model":"codex","messages":[{{"role":"user","content":[{{"type":"image_url","image_url":{{"url":"data:image/png;base64,{png}"}}}},{{"type":"text","text":"what?"}}]}}]}}"#
+        );
+        let (status, body) = post(
+            port,
+            "/v1/chat/completions",
+            "Authorization: Bearer sk-test\r\n",
+            "",
+            &body,
+        );
+        assert_eq!(status, 200, "{body}");
+        assert!(body.contains("echo:codex:low:1"));
+        let pdf = crate::runner::attachment::encode_base64(b"%PDF-1.4\n");
+        let body = format!(
+            r#"{{"model":"codex","max_tokens":5,"messages":[{{"role":"user","content":[{{"type":"document","source":{{"type":"base64","media_type":"application/pdf","data":"{pdf}"}}}}]}}]}}"#
+        );
+        let (status, body) = post(port, "/v1/messages", "x-api-key: sk-test\r\n", "", &body);
+        assert_eq!(status, 400);
+        assert!(body.contains("Codex cannot read PDF"), "{body}");
+        server.stop();
+    }
+
+    #[test]
+    fn a_client_that_leaves_mid_stream_cancels_the_run() {
+        let server = start(0, fake()).unwrap();
+        let mut s = TcpStream::connect(("127.0.0.1", server.port)).unwrap();
+        let body =
+            r#"{"model":"claude","stream":true,"messages":[{"role":"user","content":"forever"}]}"#;
+        s.write_all(format!(
+            "POST /v1/chat/completions HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer sk-test\r\nContent-Length: {}\r\n\r\n{body}",
+            body.len()
+        ).as_bytes()).unwrap();
+        let mut buf = [0u8; 256];
+        assert!(s.read(&mut buf).unwrap() > 0);
+        drop(s);
+        let started = Instant::now();
+        while !CANCELLED.load(Ordering::SeqCst) && started.elapsed() < Duration::from_secs(10) {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(CANCELLED.load(Ordering::SeqCst), "the run was cancelled");
+        server.stop();
+    }
+
+    /// Live: `cargo test --lib live_gateway_attachments -- --ignored --nocapture`. Sends a
+    /// generated red/blue PNG to Claude and Codex, and streams a Claude answer.
+    #[test]
+    #[ignore]
+    fn live_gateway_attachments() {
+        let runner: Runner = Arc::new(crate::runner::run);
+        let defaults: Defaults = Arc::new(|c: &ChatRequest| {
+            (
+                c.model.model.clone(),
+                c.effort.clone().or(Some("low".into())),
+            )
+        });
+        let server = start(0, Shared::new("sk-live".into(), runner, defaults)).unwrap();
+        let png = crate::runner::attachment::encode_base64(&two_color_png());
+        let question = "The image is split into two halves of solid color. Name the color of the left half and the right half, in English, in the form: left=<color>, right=<color>.";
+        let mut answers = Vec::new();
+        for model in ["claude/sonnet", "codex"] {
+            let body = format!(
+                r#"{{"model":"{model}","messages":[{{"role":"user","content":[{{"type":"image_url","image_url":{{"url":"data:image/png;base64,{png}"}}}},{{"type":"text","text":"{question}"}}]}}]}}"#
+            );
+            let started = Instant::now();
+            let (status, body) = post(
+                server.port,
+                "/v1/chat/completions",
+                "Authorization: Bearer sk-live\r\n",
+                "",
+                &body,
+            );
+            println!("{model} image {status} {:?}\n{body}", started.elapsed());
+            assert_eq!(status, 200);
+            let v: Value = serde_json::from_str(&body).unwrap();
+            let text = v["choices"][0]["message"]["content"]
+                .as_str()
+                .unwrap_or("")
+                .to_lowercase();
+            answers.push((model, text));
+        }
+        let started = Instant::now();
+        let (status, _, chunks) = stream_post(
+            server.port,
+            "/v1/messages",
+            "x-api-key: sk-live\r\n",
+            r#"{"model":"claude/sonnet","max_tokens":400,"stream":true,"messages":[{"role":"user","content":"Count from 1 to 40 in words, one per line."}]}"#,
+        );
+        let deltas = chunks
+            .iter()
+            .filter(|(_, c)| c.contains("content_block_delta"))
+            .count();
+        println!(
+            "claude stream {status} {:?}: {} chunks, {deltas} with deltas, first at {:?}, last at {:?}",
+            started.elapsed(),
+            chunks.len(),
+            chunks.first().map(|c| c.0),
+            chunks.last().map(|c| c.0)
+        );
+        let pdf = crate::runner::attachment::encode_base64(&word_pdf("PELICAN"));
+        let mut pdf_status = Vec::new();
+        for model in ["claude/sonnet", "codex"] {
+            let body = format!(
+                r#"{{"model":"{model}","max_tokens":50,"messages":[{{"role":"user","content":[{{"type":"document","source":{{"type":"base64","media_type":"application/pdf","data":"{pdf}"}}}},{{"type":"text","text":"Which single word is printed in the PDF? Reply with the word only."}}]}}]}}"#
+            );
+            let (status, body) = post(
+                server.port,
+                "/v1/messages",
+                "x-api-key: sk-live\r\n",
+                "",
+                &body,
+            );
+            println!("{model} pdf {status}\n{body}");
+            pdf_status.push((status, body));
+        }
+        server.stop();
+        assert_eq!(pdf_status[0].0, 200);
+        assert!(pdf_status[0].1.to_uppercase().contains("PELICAN"));
+        assert_eq!(pdf_status[1].0, 400, "codex has no document input");
+        for (model, text) in &answers {
+            assert!(
+                text.contains("left=red") && text.contains("right=blue"),
+                "{model}: {text}"
+            );
+        }
+        assert_eq!(status, 200);
+        assert!(deltas > 1, "the answer arrived in more than one piece");
+    }
+
+    /// A one-page PDF showing `word` in large Helvetica.
+    fn word_pdf(word: &str) -> Vec<u8> {
+        let content = format!("BT /F1 48 Tf 72 700 Td ({word}) Tj ET");
+        let objects = [
+            "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>".to_string(),
+            format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()),
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+        ];
+        let mut out = b"%PDF-1.4\n".to_vec();
+        let mut offsets = Vec::new();
+        for (i, object) in objects.iter().enumerate() {
+            offsets.push(out.len());
+            out.extend_from_slice(format!("{} 0 obj\n{object}\nendobj\n", i + 1).as_bytes());
+        }
+        let xref = out.len();
+        out.extend_from_slice(
+            format!("xref\n0 {}\n0000000000 65535 f \n", objects.len() + 1).as_bytes(),
+        );
+        for offset in offsets {
+            out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+        }
+        out.extend_from_slice(
+            format!(
+                "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n",
+                objects.len() + 1
+            )
+            .as_bytes(),
+        );
+        out
+    }
+
+    /// A 128×64 PNG: red left half, blue right half (stored, uncompressed deflate).
+    fn two_color_png() -> Vec<u8> {
+        fn crc(data: &[u8]) -> u32 {
+            let mut c = 0xffff_ffffu32;
+            for b in data {
+                c ^= *b as u32;
+                for _ in 0..8 {
+                    c = if c & 1 != 0 {
+                        0xedb8_8320 ^ (c >> 1)
+                    } else {
+                        c >> 1
+                    };
+                }
+            }
+            !c
+        }
+        fn adler(data: &[u8]) -> u32 {
+            let (mut a, mut b) = (1u32, 0u32);
+            for x in data {
+                a = (a + *x as u32) % 65521;
+                b = (b + a) % 65521;
+            }
+            b << 16 | a
+        }
+        fn chunk(out: &mut Vec<u8>, kind: &[u8], data: &[u8]) {
+            out.extend_from_slice(&(data.len() as u32).to_be_bytes());
+            let mut body = kind.to_vec();
+            body.extend_from_slice(data);
+            out.extend_from_slice(&body);
+            out.extend_from_slice(&crc(&body).to_be_bytes());
+        }
+        let (w, h) = (128u32, 64u32);
+        // Each row: filter byte 0, then RGB pixels.
+        let row: Vec<u8> = std::iter::once(0)
+            .chain((0..w).flat_map(|x| if x < w / 2 { [255, 0, 0] } else { [0, 0, 255] }))
+            .collect();
+        let raw = row.repeat(h as usize);
+        let mut z = vec![0x78, 0x01, 1];
+        z.extend_from_slice(&(raw.len() as u16).to_le_bytes());
+        z.extend_from_slice(&(!(raw.len() as u16)).to_le_bytes());
+        z.extend_from_slice(&raw);
+        z.extend_from_slice(&adler(&raw).to_be_bytes());
+        let mut ihdr = Vec::new();
+        ihdr.extend_from_slice(&w.to_be_bytes());
+        ihdr.extend_from_slice(&h.to_be_bytes());
+        ihdr.extend_from_slice(&[8, 2, 0, 0, 0]);
+        let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+        chunk(&mut png, b"IHDR", &ihdr);
+        chunk(&mut png, b"IDAT", &z);
+        chunk(&mut png, b"IEND", &[]);
+        png
+    }
+
+    #[test]
+    fn generated_png_is_recognised() {
+        let png = two_color_png();
+        assert_eq!(
+            crate::runner::attachment::sniff_image(&png),
+            Some("image/png")
+        );
+        // One stored deflate block holds at most 65535 bytes.
+        assert!(png.len() < 65_535);
     }
 
     /// Live, uses the signed-in CLIs: `cargo test --lib live_gateway -- --ignored --nocapture`.

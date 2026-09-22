@@ -1,5 +1,6 @@
 //! Runs the user's signed-in agent CLIs statelessly, in an empty folder, without tools.
 //! Prompts and answers are never logged.
+pub mod attachment;
 pub mod backends;
 pub mod claude;
 pub mod cmdline;
@@ -8,16 +9,21 @@ pub mod extra;
 pub mod login;
 pub mod options;
 
-use std::io::{Read, Write};
+pub use attachment::{Attachment, AttachmentKind};
+
+use std::io::{BufRead, Write};
 use std::path::Path;
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
 
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(300);
 
-#[derive(Clone, Debug)]
+/// Receives the answer's text as the agent writes it, for backends that can stream.
+pub type DeltaSink = Arc<dyn Fn(&str) + Send + Sync>;
+
+#[derive(Clone)]
 pub struct RunRequest {
     /// Backend id (`codex`, `claude`, …), see `backends`.
     pub backend: String,
@@ -25,6 +31,23 @@ pub struct RunRequest {
     pub effort: Option<String>,
     pub prompt: String,
     pub timeout: Duration,
+    /// Images and PDFs referenced from the prompt as `[attachment N]`, in order.
+    pub attachments: Vec<Attachment>,
+    pub on_delta: Option<DeltaSink>,
+}
+
+impl std::fmt::Debug for RunRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RunRequest")
+            .field("backend", &self.backend)
+            .field("model", &self.model)
+            .field("effort", &self.effort)
+            .field("prompt", &self.prompt)
+            .field("timeout", &self.timeout)
+            .field("attachments", &self.attachments)
+            .field("on_delta", &self.on_delta.is_some())
+            .finish()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -50,11 +73,24 @@ fn hidden(cmd: &mut Command) {
 
 /// Runs `program` in `cwd` with `stdin`, returning exit status, stdout and stderr.
 pub(crate) fn run_program(
+    program: Command,
+    stdin: &str,
+    cwd: &Path,
+    timeout: Duration,
+    cancel: &CancelFlag,
+) -> Result<(ExitStatus, String, String), String> {
+    run_program_lines(program, stdin, cwd, timeout, cancel, &mut |_| {})
+}
+
+/// `run_program`, also handing each stdout line (without its line break) to `on_line` as soon
+/// as it is printed. Timeout and cancel stop the whole process tree either way.
+pub(crate) fn run_program_lines(
     mut program: Command,
     stdin: &str,
     cwd: &Path,
     timeout: Duration,
     cancel: &CancelFlag,
+    on_line: &mut dyn FnMut(&str),
 ) -> Result<(ExitStatus, String, String), String> {
     program
         .current_dir(cwd)
@@ -75,20 +111,44 @@ pub(crate) fn run_program(
     let writer = std::thread::spawn(move || {
         let _ = input.write_all(&payload);
     });
-    let mut out = child.stdout.take().ok_or("E_RUNNER_FAILED")?;
+    let out = child.stdout.take().ok_or("E_RUNNER_FAILED")?;
     let mut err = child.stderr.take().ok_or("E_RUNNER_FAILED")?;
+    let (lines_tx, lines) = mpsc::channel::<Vec<u8>>();
     let out_reader = std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        let _ = out.read_to_end(&mut buf);
-        buf
+        let mut out = std::io::BufReader::new(out);
+        loop {
+            let mut line = Vec::new();
+            match out.read_until(b'\n', &mut line) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {
+                    if lines_tx.send(line).is_err() {
+                        break;
+                    }
+                }
+            }
+        }
     });
     let err_reader = std::thread::spawn(move || {
         let mut buf = Vec::new();
-        let _ = err.read_to_end(&mut buf);
+        let _ = std::io::Read::read_to_end(&mut err, &mut buf);
         buf
     });
+    let mut stdout = Vec::new();
+    let mut take = |line: Vec<u8>, stdout: &mut Vec<u8>| {
+        let text = String::from_utf8_lossy(&line);
+        on_line(text.trim_end_matches(['\r', '\n']));
+        stdout.extend_from_slice(&line);
+    };
     let started = Instant::now();
     let status = loop {
+        match lines.recv_timeout(Duration::from_millis(100)) {
+            Ok(line) => take(line, &mut stdout),
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            // stdout is closed and the process is about to exit.
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                std::thread::sleep(Duration::from_millis(20))
+            }
+        }
         if let Some(status) = child.try_wait().map_err(crate::sessions::err)? {
             break status;
         }
@@ -104,10 +164,14 @@ pub(crate) fn run_program(
             let _ = child.wait();
             return Err(code.into());
         }
-        std::thread::sleep(Duration::from_millis(100));
     };
+    // Whatever the process printed right before it exited.
+    for line in lines.iter() {
+        take(line, &mut stdout);
+    }
     let _ = writer.join();
-    let stdout = String::from_utf8_lossy(&out_reader.join().unwrap_or_default()).into_owned();
+    let _ = out_reader.join();
+    let stdout = String::from_utf8_lossy(&stdout).into_owned();
     let stderr = String::from_utf8_lossy(&err_reader.join().unwrap_or_default()).into_owned();
     Ok((status, stdout, stderr))
 }
@@ -146,6 +210,13 @@ pub fn run(req: &RunRequest, cancel: &CancelFlag) -> Result<RunOutput, String> {
     let model = req.model.as_deref().filter(|m| !m.trim().is_empty());
     let effort = req.effort.as_deref().filter(|e| !e.trim().is_empty());
     let backend = backends::get(&req.backend).ok_or("E_RUNNER_MISSING")?;
+    if req
+        .attachments
+        .iter()
+        .any(|a| !backend.attachments.contains(&a.kind))
+    {
+        return Err("E_ATTACHMENT_UNSUPPORTED".into());
+    }
     let result = (backend.run)(&backends::Ctx {
         tmp: tmp.path(),
         model,
@@ -153,6 +224,8 @@ pub fn run(req: &RunRequest, cancel: &CancelFlag) -> Result<RunOutput, String> {
         prompt: &req.prompt,
         timeout: req.timeout,
         cancel,
+        attachments: &req.attachments,
+        on_delta: req.on_delta.as_deref(),
     });
     let elapsed_ms = started.elapsed().as_millis() as u64;
     log::info!(
@@ -251,6 +324,8 @@ mod tests {
                 effort: effort.map(str::to_string),
                 prompt: "Reply with one number only: 2+3=?".into(),
                 timeout: DEFAULT_TIMEOUT,
+                attachments: Vec::new(),
+                on_delta: None,
             };
             let out = run(&req, &CancelFlag::default());
             println!("{backend} -> {out:?}");
@@ -282,6 +357,8 @@ mod tests {
                     canary.display()
                 ),
                 timeout: DEFAULT_TIMEOUT,
+                attachments: Vec::new(),
+                on_delta: None,
             };
             let out = run(&req, &CancelFlag::default());
             println!("{} -> {out:?}", b.id);

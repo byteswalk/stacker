@@ -3,6 +3,7 @@ import { invoke } from "../invoke";
 import { useI18n } from "../i18n";
 import { useToast, ErrorState, Loading } from "../ui";
 import { GatewayAgents } from "../features/gateway/GatewayAgents";
+import { FoldCard } from "../features/gateway/Fold";
 
 type LogEntry = { at: number; endpoint: string; model: string; status: number; elapsedMs: number };
 type Status = { enabled: boolean; running: boolean; port: number; token: string; error: string; recent: LogEntry[] };
@@ -91,19 +92,18 @@ export default function Gateway() {
             <button className="gh sm" disabled={busy} onClick={() => void regenerate()}><i className="ti ti-refresh" /> {t("重新生成")}</button>
           </div>
         </div>
-        <p className="proxy-note">{t("不支持工具调用和图片；stream 请求会在生成完成后一次性返回。")}</p>
+        <p className="proxy-note">{t("可以发图片（claude/*、codex/*）和 PDF 文档（claude/*），文本类文档会直接并入对话；不支持工具调用。stream 请求：claude/* 逐字返回，codex/* 在生成完成后一次性返回。")}</p>
       </div>
 
       <GatewayAgents />
 
-      <div className="pxcard">
-        <div className="pxsec"><i className="ti ti-code" /> {t("调用示例")}</div>
+      <FoldCard id="examples" title={<><i className="ti ti-code" /> {t("调用示例")}</>}>
         <div className="seg" style={{ marginBottom: 10 }}>
           {([["curl", "curl"], ["openai", "OpenAI SDK"], ["anthropic", "Anthropic SDK"]] as const).map(([k, label]) => <button key={k} className={example === k ? "on" : ""} onClick={() => setExample(k)}>{label}</button>)}
         </div>
         <pre className="console gw-example">{EXAMPLES[example]}</pre>
         <button className="gh sm" onClick={() => void copy(EXAMPLES[example])}><i className="ti ti-copy" /> {t("复制")}</button>
-      </div>
+      </FoldCard>
 
       <div className="pxcard">
         <div className="pxsec"><i className="ti ti-list" /> {t("最近请求")} <span className="pxhint">{t("只记录接口、模型、耗时和结果，不记录内容")}</span></div>
