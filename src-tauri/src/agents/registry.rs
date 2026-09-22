@@ -1120,7 +1120,8 @@ pub(crate) fn direct_desktop_installer(
                 url: "https://hermes-assets.nousresearch.com/Hermes-Setup.exe",
                 file_name: "Hermes-Setup.exe",
             },
-            silent_args: &["/S"],
+            // Not an NSIS installer: it ignores /S and waits for its Install button.
+            silent_args: &[],
             signed: true,
         }),
         // Signed by Xiaomi with a DigiCert code-signing certificate; electron-builder NSIS.

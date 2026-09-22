@@ -440,6 +440,9 @@ pub(crate) fn update_desktop_tool(
         )?;
         return Ok(format!("{} 已通过 WinGet 更新", spec.desktop.name));
     }
+    if spec.vendor == Vendor::Hermes {
+        return update_hermes_desktop(spec, window);
+    }
     if let Some(installer) = direct_desktop_installer(spec.vendor, spec.edition) {
         // A silent installer replaces the program files; never close the user's app for them.
         if let Some(image) = found
@@ -463,6 +466,36 @@ pub(crate) fn update_desktop_tool(
         "{} 暂无可自动执行的 Windows 更新源，已取消操作。",
         spec.desktop.name
     ))
+}
+
+/// Hermes Desktop is built from the Hermes Agent checkout. `hermes update` pulls it and then
+/// rebuilds the desktop app (`hermes desktop --build-only`) when one is installed. Hermes-Setup
+/// is no updater: it ignores `/S` and waits for its Install button.
+fn update_hermes_desktop(
+    spec: &ToolSpec,
+    window: &Option<tauri::Window>,
+) -> Result<String, String> {
+    let program = resolve_command(spec.cli.candidates)
+        .ok_or_else(|| "未检测到 Hermes CLI，无法更新 Hermes 桌面端。".to_string())?;
+    // The rebuild replaces Hermes.exe; never close the user's app for it.
+    if image_is_running("Hermes.exe") {
+        return Err(format!(
+            "{} 正在运行。更新需要重新构建并替换程序文件，请先退出应用后重试。",
+            spec.desktop.name
+        ));
+    }
+    emit_progress(
+        window,
+        "正在执行 hermes update（拉取最新代码并重新构建桌面端）…",
+    );
+    run_command_text(
+        &program,
+        &["update"],
+        "hermes update",
+        Duration::from_secs(1800),
+    )
+    .map_err(|e| format!("hermes update 未完成：{e}。可在终端运行 hermes update 查看完整输出"))?;
+    Ok(format!("{} 已更新", spec.desktop.name))
 }
 
 pub(crate) fn uninstall_desktop_tool(

@@ -43,6 +43,11 @@ pub fn run() {
         std::process::exit(webchat::bridge::run_stdio(&origin));
     }
 
+    #[cfg(debug_assertions)]
+    if let Some(code) = agents::devcli::run(&args) {
+        std::process::exit(code);
+    }
+
     if let Some((file, token)) = space_analysis::elevated::helper_arg() {
         std::process::exit(space_analysis::elevated::run_helper_from_file(
             &file, &token,

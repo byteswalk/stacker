@@ -31,7 +31,17 @@ pub(crate) fn cli_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurface {
     let other_installs: Vec<_> = installs.collect();
     let program = effective.as_ref().map(|info| PathBuf::from(&info.path));
     let installed = effective.as_ref().is_some_and(|info| info.healthy);
-    let version = effective.as_ref().and_then(|info| info.version.clone());
+    let version = effective
+        .as_ref()
+        .and_then(|info| info.version.clone())
+        .map(|text| {
+            // "Hermes Agent v0.18.2 (2026.7.7.2) · upstream 524041b9 · local …" → "0.18.2"
+            if spec.vendor == Vendor::Hermes {
+                first_semver(&text).unwrap_or(text)
+            } else {
+                text
+            }
+        });
     let broken_reason = effective
         .as_ref()
         .filter(|info| !info.healthy)
@@ -333,12 +343,28 @@ pub(crate) fn is_npm_shim(program: &Path, npm_package: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// The first `x.y.z` in a line of text, without a leading `v`.
+pub(crate) fn first_semver(text: &str) -> Option<String> {
+    text.split(|ch: char| ch.is_whitespace() || matches!(ch, '(' | ')' | ','))
+        .map(|word| word.trim_start_matches(['v', 'V']))
+        .find(|word| {
+            let parts: Vec<&str> = word.split('.').collect();
+            parts.len() == 3
+                && parts
+                    .iter()
+                    .all(|part| !part.is_empty() && part.chars().all(|ch| ch.is_ascii_digit()))
+        })
+        .map(str::to_string)
+}
+
 /// Where a CLI's latest version is published.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum CliSource {
     Winget(&'static str),
     TraeVersionFile,
     MimoRelease,
+    /// `pyproject.toml` on the branch `hermes update` pulls.
+    HermesRepo,
     Npm(&'static str),
     /// Nowhere Stacker can read: the product checks for updates itself.
     None,
@@ -348,8 +374,11 @@ pub(crate) fn cli_source(spec: &ToolSpec, method: Option<&str>) -> CliSource {
     if let (Some("winget"), Some(id)) = (method, spec.cli.winget_id) {
         return CliSource::Winget(id);
     }
-    if spec.vendor == Vendor::Antigravity || spec.vendor == Vendor::Hermes {
+    if spec.vendor == Vendor::Antigravity {
         return CliSource::None;
+    }
+    if spec.vendor == Vendor::Hermes {
+        return CliSource::HermesRepo;
     }
     if spec.vendor == Vendor::Trae {
         return CliSource::TraeVersionFile;
@@ -375,6 +404,9 @@ pub(crate) fn latest_for_cli(spec: &ToolSpec, method: Option<&str>) -> LatestLoo
             trae_cli_latest().map(|version| Some((version, "TRAE 官方版本文件")))
         }
         CliSource::MimoRelease => mimo_latest().map(|version| Some((version, "MiMo 官方发布"))),
+        CliSource::HermesRepo => {
+            super::feeds::hermes_cli_latest().map(|version| Some((version, "Hermes 官方仓库")))
+        }
         CliSource::Npm(pkg) => npm_latest(pkg).map(|version| Some((version, "npm"))),
         CliSource::None => Ok(None),
     }
@@ -488,6 +520,11 @@ pub(crate) fn desktop_latest(spec: &ToolSpec, current: Option<&str>) -> LatestLo
         DesktopSource::GithubLatest(repo) => {
             super::feeds::github_latest(repo).map(|version| Some((version, "GitHub Releases")))
         }
+        // WinGet lists Microsoft Store apps with "Version: Unknown"; the Store publishes no
+        // version and updates them itself, which is "no public source", not a failed lookup.
+        DesktopSource::Winget(id, Some("msstore")) => Ok(winget_latest(id, Some("msstore"))
+            .ok()
+            .map(|version| (version, "WinGet"))),
         DesktopSource::Winget(id, source) => {
             winget_latest(id, source).map(|version| Some((version, "WinGet")))
         }
@@ -808,11 +845,24 @@ pub(crate) fn desktop_exe_candidate(spec: &DesktopSpec) -> Option<DesktopFound> 
     None
 }
 
-/// `apps/desktop/release/win-unpacked/Hermes.exe` → `apps/desktop/package.json` → version.
-pub(crate) fn hermes_desktop_version(exe: &Path) -> Option<String> {
-    let desktop = exe.parent()?.parent()?.parent()?;
-    let text = std::fs::read_to_string(desktop.join("package.json")).ok()?;
-    super::feeds::package_json_version(&text)
+/// The version of the Hermes Desktop build that exists: the `package.json` packed into its
+/// `app.asar`. The checkout's own `package.json` is not it: `hermes update` pulls new source
+/// first, and the rebuild after it can still fail. Found through its Start Menu shortcut the
+/// path is the `.lnk`, so the build's usual place stands in for `win-unpacked\Hermes.exe`.
+pub(crate) fn hermes_desktop_version(found: &Path) -> Option<String> {
+    let beside_exe = found
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("exe"))
+        .then(|| found.parent().map(|dir| dir.join(r"resources\app.asar")))
+        .flatten();
+    let default = std::env::var_os("LOCALAPPDATA").map(|local| {
+        PathBuf::from(local)
+            .join(r"hermes\hermes-agent\apps\desktop\release\win-unpacked\resources\app.asar")
+    });
+    [beside_exe, default]
+        .into_iter()
+        .flatten()
+        .find_map(|asar| super::feeds::asar_package_version(&asar))
 }
 
 pub(crate) fn desktop_executable_version(path: &Path) -> Option<String> {
@@ -1189,6 +1239,13 @@ pub(crate) fn npm_latest(package: &str) -> Result<String, String> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn hermes_version_line_is_trimmed_to_its_release() {
+        let line = "Hermes Agent v0.18.2 (2026.7.7.2) · upstream 524041b9 · local 569b912d (+1 carried commit)";
+        assert_eq!(first_semver(line), Some("0.18.2".into()));
+        assert_eq!(first_semver("no version here 1.2"), None);
+    }
+
     fn spec(id: &str) -> ToolSpec {
         crate::agents::registry::spec_by_id(id).unwrap()
     }
@@ -1196,11 +1253,7 @@ mod tests {
     #[test]
     fn products_that_only_update_themselves_have_no_version_source() {
         // For these the card must say "no public source", not echo the installed version.
-        for (id, method) in [
-            ("antigravity", None),
-            ("hermes", None),
-            ("claude", Some("native")),
-        ] {
+        for (id, method) in [("antigravity", None), ("claude", Some("native"))] {
             assert_eq!(cli_source(&spec(id), method), CliSource::None, "{id}");
         }
     }
@@ -1227,6 +1280,7 @@ mod tests {
             DesktopSource::InstallerVersion(MIMO_DESKTOP_GLOBAL_INSTALLER)
         );
         assert_eq!(desktop_source(&spec("hermes")), DesktopSource::HermesRepo);
+        assert_eq!(cli_source(&spec("hermes"), None), CliSource::HermesRepo);
         assert_eq!(
             desktop_source(&spec("workbuddy-cn")),
             DesktopSource::WorkBuddyUpdate("https://copilot.tencent.com")

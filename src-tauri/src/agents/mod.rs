@@ -1,6 +1,8 @@
 mod activity;
 pub mod commands;
 mod detect;
+#[cfg(debug_assertions)]
+pub(crate) mod devcli;
 mod feeds;
 mod health;
 mod install;

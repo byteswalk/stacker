@@ -206,8 +206,20 @@ pub(crate) fn run_command_streamed(
             started.elapsed().as_millis(),
             log_output_excerpt(&text)
         );
-        Err(first_output_line(&text).unwrap_or_else(|| format!("{display_name} 执行失败")))
+        Err(failure_summary(&text).unwrap_or_else(|| format!("{display_name} 执行失败")))
     }
+}
+
+/// Why a command failed. Tools that end with a `✗`/`⚠` summary (Hermes does) are best
+/// described by the last such line; the first line is often an unrelated warning.
+pub(crate) fn failure_summary(text: &str) -> Option<String> {
+    text.lines()
+        .map(str::trim)
+        .rev()
+        .find(|line| line.starts_with('✗') || line.starts_with('⚠'))
+        .map(|line| line.trim_start_matches(['✗', '⚠']).trim().to_string())
+        .filter(|line| !line.is_empty())
+        .or_else(|| first_output_line(text))
 }
 
 pub(crate) fn log_output_excerpt(text: &str) -> String {
@@ -428,4 +440,25 @@ pub(crate) fn is_meaningful_output_line(line: &str) -> bool {
     let stripped =
         line.trim_matches(|c: char| c.is_whitespace() || matches!(c, '-' | '=' | '_' | '*'));
     !stripped.is_empty()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_failure_is_described_by_its_last_summary_line() {
+        // What `hermes update` printed when its npm step failed: the first line is noise.
+        let hermes = "npm warn Unknown project config \"min-release-age-exclude\".\n\
+                      → Updating Node.js dependencies...\n  ⚠ npm install failed\n\
+                      ⚠ Checkout is current, but Node.js dependencies could not be repaired.";
+        assert_eq!(
+            failure_summary(hermes).as_deref(),
+            Some("Checkout is current, but Node.js dependencies could not be repaired.")
+        );
+        assert_eq!(
+            failure_summary("fatal: not a git repository").as_deref(),
+            Some("fatal: not a git repository")
+        );
+    }
 }

@@ -211,6 +211,15 @@ pub(crate) fn run_downloaded_desktop_installer(
     path: &Path,
     window: &Option<tauri::Window>,
 ) -> Result<(), String> {
+    if installer.silent_args.is_empty() {
+        emit_progress(
+            window,
+            format!(
+                "{0} 安装程序没有静默模式，请在弹出的 {0} 窗口中点击安装并等待完成…",
+                spec.desktop.name
+            ),
+        );
+    }
     let mut command = Command::new(path);
     command.args(installer.silent_args);
     #[cfg(windows)]

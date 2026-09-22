@@ -260,6 +260,71 @@ pub(crate) fn package_json_version(text: &str) -> Option<String> {
         .and_then(release_version)
 }
 
+/// Where an asar archive's JSON header is: `(json_offset, json_len, data_offset)`, read from its
+/// 16-byte prefix (a Chromium pickle holding the header size, then the JSON string's length).
+pub(crate) fn asar_layout(prefix: &[u8; 16]) -> Option<(u64, usize, u64)> {
+    let word = |at: usize| {
+        u32::from_le_bytes([prefix[at], prefix[at + 1], prefix[at + 2], prefix[at + 3]])
+    };
+    if word(0) != 4 {
+        return None;
+    }
+    let header_size = u64::from(word(4));
+    let json_len = word(12) as usize;
+    (json_len > 0 && json_len as u64 <= header_size).then_some((16, json_len, 8 + header_size))
+}
+
+/// The `version` of the `package.json` at the root of an Electron `app.asar`.
+pub(crate) fn asar_package_version(path: &std::path::Path) -> Option<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = std::fs::File::open(path).ok()?;
+    let mut prefix = [0u8; 16];
+    file.read_exact(&mut prefix).ok()?;
+    let (json_at, json_len, data_at) = asar_layout(&prefix)?;
+    if json_len > 16 * 1024 * 1024 {
+        return None;
+    }
+    let mut json = vec![0u8; json_len];
+    file.seek(SeekFrom::Start(json_at)).ok()?;
+    file.read_exact(&mut json).ok()?;
+    let header: Value = serde_json::from_slice(&json).ok()?;
+    let entry = header.pointer("/files/package.json")?;
+    let offset: u64 = entry.get("offset")?.as_str()?.parse().ok()?;
+    let size = entry.get("size")?.as_u64()?;
+    if size > 1024 * 1024 {
+        return None;
+    }
+    let mut manifest = vec![0u8; size as usize];
+    file.seek(SeekFrom::Start(data_at + offset)).ok()?;
+    file.read_exact(&mut manifest).ok()?;
+    package_json_version(std::str::from_utf8(&manifest).ok()?)
+}
+
+/// `version = "0.21.4"` under `[project]` in a pyproject.toml.
+pub(crate) fn pyproject_version(text: &str) -> Option<String> {
+    let mut in_project = false;
+    for line in text.lines().map(str::trim) {
+        if line.starts_with('[') {
+            in_project = line == "[project]";
+        } else if in_project {
+            if let Some(value) = line.strip_prefix("version").map(str::trim_start) {
+                if let Some(value) = value.strip_prefix('=') {
+                    return release_version(value.trim().trim_matches(['"', '\'']));
+                }
+            }
+        }
+    }
+    None
+}
+
+/// `hermes update` pulls `main` of the Hermes Agent repository; its pyproject names the
+/// version that update brings.
+pub(crate) fn hermes_cli_latest() -> Result<String, String> {
+    let (_, body) =
+        get("https://raw.githubusercontent.com/NousResearch/hermes-agent/main/pyproject.toml")?;
+    pyproject_version(&body).ok_or_else(|| "Hermes 的 pyproject.toml 里没有版本号".into())
+}
+
 /// Hermes Desktop is built from the Hermes Agent checkout, and its updater pulls `main`: the
 /// version there is the one an update brings.
 pub(crate) fn hermes_desktop_latest() -> Result<String, String> {
@@ -279,13 +344,45 @@ mod tests {
             |text: &str| -> Vec<u8> { text.encode_utf16().flat_map(u16::to_le_bytes).collect() };
         // The layout MiMo's installer has: key, NUL padding, value, NUL.
         let mut bytes = b"MZ...".to_vec();
-        bytes.extend(utf16("ProductName Xiaomi MiMo "));
+        bytes.extend(utf16("ProductName\0Xiaomi MiMo\0"));
         bytes.extend(utf16("ProductVersion"));
         bytes.extend([0, 0, 0, 0]);
         bytes.extend(utf16("26.922.220226"));
         bytes.extend([0, 0, 0, 0]);
         assert_eq!(pe_product_version(&bytes), Some("26.922.220226".into()));
         assert_eq!(pe_product_version(b"MZ no resources"), None);
+    }
+
+    #[test]
+    fn pyproject_version_is_the_project_one() {
+        let text = "[build-system]
+requires = [\"setuptools\"]
+version = \"9.9.9\"
+
+[project]
+name = \"hermes-agent\"
+version = \"0.21.4\"
+";
+        assert_eq!(pyproject_version(text), Some("0.21.4".into()));
+        assert_eq!(
+            pyproject_version(
+                "[project]
+name = \"x\"
+"
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn asar_layout_comes_from_its_pickle_prefix() {
+        // Hermes Desktop's app.asar starts with 4, header size 34896, 34892, JSON length 34887.
+        let mut prefix = [0u8; 16];
+        for (i, word) in [4u32, 34896, 34892, 34887].iter().enumerate() {
+            prefix[i * 4..i * 4 + 4].copy_from_slice(&word.to_le_bytes());
+        }
+        assert_eq!(asar_layout(&prefix), Some((16, 34887, 34904)));
+        assert_eq!(asar_layout(&[0u8; 16]), None);
     }
 
     #[test]
