@@ -32,6 +32,26 @@ export type { VibeSurface, VibeTool } from "../features/agents/catalogStore";
 
 type AgentView = "tiles" | "cards";
 const VIEW_KEY = "stacker.agents.view";
+type AgentSort = "default" | "az" | "za";
+const SORT_KEY = "stacker.agents.sort";
+
+function storedSort(): AgentSort {
+  try {
+    const value = localStorage.getItem(SORT_KEY);
+    return value === "az" || value === "za" ? value : "default";
+  } catch { return "default"; }
+}
+
+const byName = new Intl.Collator(["en", "zh-CN"], { sensitivity: "base", numeric: true });
+
+/** Default: popularity (the catalog's sort order, China edition first); or by name either way. */
+export function sortTools(tools: VibeTool[], sort: AgentSort): VibeTool[] {
+  return [...tools].sort((a, b) => {
+    if (sort === "default") return (a.sort_order || 999) - (b.sort_order || 999) || byName.compare(a.name, b.name);
+    const order = byName.compare(a.name, b.name);
+    return sort === "az" ? order : -order;
+  });
+}
 
 /** Thumbnails by default: nineteen full cards do not fit a screen. Remembered per viewer. */
 function storedView(): AgentView {
@@ -159,7 +179,15 @@ export default function Agents() {
   const [planOpen, setPlanOpen] = useState(false);
   const [tasks, setTasks] = useState(taskSnapshot());
   const [view, setViewState] = useState<AgentView>(storedView);
+  const [sort, setSortState] = useState<AgentSort>(storedSort);
+  const setSort = (next: string) => {
+    const value = next as AgentSort;
+    setSortState(value);
+    try { localStorage.setItem(SORT_KEY, value); } catch { /* per-viewer convenience only */ }
+  };
   const [detailId, setDetailId] = useState<string | null>(null);
+  // "cli:<id>" / "desktop:<id>" while its open request runs: the button shows it at once.
+  const [opening, setOpening] = useState<string | null>(null);
   const setView = (next: AgentView) => {
     setViewState(next);
     try { localStorage.setItem(VIEW_KEY, next); } catch { /* per-viewer convenience only */ }
@@ -215,20 +243,28 @@ export default function Agents() {
 
   async function openTerminal(tool: VibeTool, command = tool.cli.command) {
     if (!tool.cli.path || !command) return toast("未检测到命令，安装后再打开终端使用。", "info");
+    setOpening(`cli:${tool.id}`);
     try {
       await invoke("open_shell", { kind: "powershell", cwd: null, command });
       toast(`已在 PowerShell 中运行 ${command}`, "ok");
     } catch (e) {
       toast("打开终端失败：" + e, "err");
+    } finally {
+      setOpening(null);
     }
   }
 
   async function openDesktop(tool: VibeTool) {
+    setOpening(`desktop:${tool.id}`);
     try {
       await invoke("vibe_open_desktop", { id: tool.id });
-      toast(`已打开 ${tool.desktop.label}`, "ok");
+      // The request returns when the app is started; its window can take a few seconds.
+      toast(`正在启动 ${tool.desktop.label}，窗口可能需要几秒出现`, "ok");
     } catch (e) {
       toast("打开桌面端失败：" + e, "err");
+    } finally {
+      // Keep the button busy briefly so a second click does not start a second copy.
+      window.setTimeout(() => setOpening((current) => current === `desktop:${tool.id}` ? null : current), 1500);
     }
   }
 
@@ -266,7 +302,7 @@ export default function Agents() {
   const updates = tools.filter((t) => t.cli.update_available || t.desktop.update_available).length;
   const visibleTools = useMemo(() => {
     const keyword = query.trim().toLocaleLowerCase();
-    return [...tools]
+    return sortTools(tools
       .filter((tool) => edition === "all" || tool.edition === edition)
       .filter((tool) => {
         if (status === "installed") return surfaceDetected(tool.cli) || surfaceDetected(tool.desktop);
@@ -274,9 +310,8 @@ export default function Agents() {
         if (status === "update") return tool.cli.update_available || tool.desktop.update_available;
         return true;
       })
-      .filter((tool) => !keyword || `${tool.name} ${tool.description} ${tool.edition_label}`.toLocaleLowerCase().includes(keyword))
-      .sort((a, b) => (a.sort_order || 999) - (b.sort_order || 999) || a.name.localeCompare(b.name));
-  }, [edition, query, status, tools]);
+      .filter((tool) => !keyword || `${tool.name} ${tool.description} ${tool.edition_label}`.toLocaleLowerCase().includes(keyword)), sort);
+  }, [edition, query, sort, status, tools]);
 
   function SurfaceRow({ tool, target, surface }: { tool: VibeTool; target: "cli" | "desktop"; surface: VibeSurface }) {
     if (!surface.available) return <UnavailableSurface target={target} surface={surface} />;
@@ -285,7 +320,9 @@ export default function Agents() {
     const installFromOfficialPage = !surface.can_install && canOpenOfficialDownload;
     // With no public version source nothing says whether an update exists; the vendor's page does.
     const noVersionSource = latestUnknown(surface);
-    const updateFromOfficialPage = installed && canOpenOfficialDownload && (!surface.can_update || noVersionSource);
+    // Only a known update lights the button: with no version source, or a failed lookup,
+    // nothing says one exists (Store apps update themselves).
+    const updateFromOfficialPage = installed && canOpenOfficialDownload && !surface.can_update && surface.update_available;
     const installTitle = installed
       ? `${surface.label} 已安装`
       : surface.can_install
@@ -295,9 +332,7 @@ export default function Agents() {
           : surface.install_unavailable_reason || `${surface.label} 暂不支持自动安装`;
     const updateTitle = !installed
       ? `尚未安装 ${surface.label}`
-      : updateFromOfficialPage && noVersionSource
-        ? `${surface.label} 没有公开的版本号查询渠道，Stacker 判断不了是否需要更新；点击打开官方下载页，或打开应用让它自己检查`
-      : updateFromOfficialPage ? `打开 ${surface.label} 官方下载页检查更新`
+      : updateFromOfficialPage ? `打开 ${surface.label} 官方下载页下载新版本`
       : noVersionSource ? `${surface.label} 没有公开的版本号查询渠道，Stacker 判断不了是否需要更新；它会自己检查`
       : surface.latest_error ? `查不到 ${surface.label} 的最新版本，无法判断是否需要更新`
       : !surface.can_update ? `${surface.label} 暂无可自动执行的更新方式`
@@ -330,7 +365,7 @@ export default function Agents() {
           <button
             className={surface.update_available ? "pr sm" : "gh sm"}
             title={updateTitle}
-            disabled={busy || !installed || (!updateFromOfficialPage && (!surface.can_update || !surface.update_available))}
+            disabled={busy || !installed || !surface.update_available || (!updateFromOfficialPage && !surface.can_update)}
             onClick={() => updateFromOfficialPage ? openUrl(surface.install_url) : runToolAction(tool, target, "update")}
           >
             <i className="ti ti-cloud-upload" /> 更新
@@ -354,8 +389,12 @@ export default function Agents() {
               ? <button className="gh sm" title={`在终端运行 ${tool.workbench_command}，启动本地 Web 工作台`} disabled={!tool.cli.path} onClick={() => openTerminal(tool, tool.workbench_command ?? undefined)}>
                 <i className="ti ti-world-www" /> 打开 Web 工作台
               </button>
-              : <button className="gh sm" title={tool.cli.path ? `在 PowerShell 中启动 ${surface.label}` : `尚未安装 ${surface.label}`} disabled={!tool.cli.path} onClick={() => openTerminal(tool)}><i className="ti ti-terminal-2" /> 打开终端</button>
-            : <button className="gh sm" title={surface.can_open ? `打开 ${surface.label}` : `尚未安装 ${surface.label}`} disabled={!surface.can_open} onClick={() => openDesktop(tool)}><i className="ti ti-app-window" /> 打开桌面端</button>}
+              : <button className="gh sm" title={tool.cli.path ? `在 PowerShell 中启动 ${surface.label}` : `尚未安装 ${surface.label}`} disabled={!tool.cli.path || opening === `cli:${tool.id}`} onClick={() => openTerminal(tool)}>
+                <i className={"ti " + (opening === `cli:${tool.id}` ? "ti-loader-2 spin" : "ti-terminal-2")} /> {opening === `cli:${tool.id}` ? "正在打开…" : "打开终端"}
+              </button>
+            : <button className="gh sm" title={surface.can_open ? `打开 ${surface.label}` : `尚未安装 ${surface.label}`} disabled={!surface.can_open || opening === `desktop:${tool.id}`} onClick={() => openDesktop(tool)}>
+              <i className={"ti " + (opening === `desktop:${tool.id}` ? "ti-loader-2 spin" : "ti-app-window")} /> {opening === `desktop:${tool.id}` ? "正在打开…" : "打开桌面端"}
+            </button>}
         </div>
       </div>
     );
@@ -472,6 +511,11 @@ export default function Agents() {
                 { value: "installed", label: "已安装" },
                 { value: "missing", label: "未安装" },
                 { value: "update", label: "可更新" },
+              ]} />
+              <Select value={sort} width={126} onChange={setSort} options={[
+                { value: "default", label: "默认排序" },
+                { value: "az", label: "名称 A-Z" },
+                { value: "za", label: "名称 Z-A" },
               ]} />
               <div className="agent-view-toggle" role="group" aria-label="显示方式">
                 <button type="button" className={view === "tiles" ? "on" : ""} aria-pressed={view === "tiles"}

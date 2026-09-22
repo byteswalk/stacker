@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ALL_NAV_ITEMS, NAV_SECTIONS, readCollapsedSections, sectionKeyOf, toggleSection } from "./navigation";
+import { ALL_NAV_ITEMS, NAV_SECTIONS, initialCollapsedSections, sectionKeyOf, toggleSection } from "./navigation";
 import { PAGE_IDS } from "./pageState";
 import { t } from "./i18n";
 
@@ -23,17 +23,14 @@ describe("sidebar navigation", () => {
     }
   });
 
-  it("remembers collapsed sections and finds the section of a page", () => {
-    let stored: string | null = null;
-    const storage = { getItem: () => stored, setItem: (_: string, value: string) => { stored = value; } };
-    expect(readCollapsedSections(storage)).toEqual([]);
-    const next = toggleSection([], "nav.section.devEnv", storage);
-    expect(next).toEqual(["nav.section.devEnv"]);
-    expect(readCollapsedSections(storage)).toEqual(["nav.section.devEnv"]);
-    expect(toggleSection(next, "nav.section.devEnv", storage)).toEqual([]);
+  it("opens with only 智能体管理 expanded, and finds the section of a page", () => {
+    const collapsed = initialCollapsedSections();
+    expect(collapsed).not.toContain("nav.section.agents");
+    expect(collapsed).toEqual(expect.arrayContaining(["nav.section.devEnv", "nav.section.system"]));
+    const next = toggleSection(collapsed, "nav.section.devEnv");
+    expect(next).not.toContain("nav.section.devEnv");
+    expect(toggleSection(next, "nav.section.devEnv")).toContain("nav.section.devEnv");
     expect(sectionKeyOf("rust")).toBe("nav.section.devEnv");
     expect(sectionKeyOf("overview")).toBeNull();
-    stored = "not json";
-    expect(readCollapsedSections(storage)).toEqual([]);
   });
 });

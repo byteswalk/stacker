@@ -8,6 +8,7 @@ mod health;
 mod install;
 pub(crate) mod net;
 pub(crate) mod process;
+pub(crate) mod pty;
 mod registry;
 pub(crate) mod tasks;
 
@@ -67,6 +68,10 @@ pub struct VibeSurface {
     /// A lookup was made (installed, full refresh). With no `latest` and no `latest_error`,
     /// the product has no public version source: it checks for updates itself.
     pub latest_checked: bool,
+    /// How to start the desktop app (a Store AppID or the executable), from the scan, so
+    /// opening it does not repeat the detection (seconds for Store apps).
+    #[serde(skip)]
+    pub launch: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -239,6 +244,7 @@ pub(crate) fn pending_surface(
         latest_error: None,
         latest_source: None,
         latest_checked: false,
+        launch: None,
     }
 }
 
@@ -297,6 +303,7 @@ pub(crate) fn unavailable_surface(
         latest_error: None,
         latest_source: None,
         latest_checked: false,
+        launch: None,
     }
 }
 
@@ -333,6 +340,23 @@ pub(crate) fn run_tool_action(
 
 pub(crate) fn open_desktop_tool(id: &str) -> Result<(), String> {
     let spec = spec_by_id(id).ok_or_else(|| "未知的工作智能体工具".to_string())?;
+    // What the last scan found starts at once; detecting again takes seconds for Store apps.
+    let scanned = VIBE_SCAN_CACHE
+        .get()
+        .and_then(|cache| cache.lock().ok())
+        .and_then(|guard| {
+            let (_, tools) = guard.as_ref()?;
+            let desktop = &tools.iter().find(|tool| tool.id == id)?.desktop;
+            desktop.launch.clone().or_else(|| {
+                desktop
+                    .path
+                    .clone()
+                    .filter(|path| std::path::Path::new(path).exists())
+            })
+        });
+    if let Some(target) = scanned {
+        return open_external_target(&target);
+    }
     if let Some(found) = detect_desktop_app(&spec.desktop) {
         if let Some(launch) = found.launch {
             return open_external_target(&launch);
@@ -489,6 +513,20 @@ pub(crate) fn test_tool(id: &str) -> VibeTool {
 
 /// The last detection results the page shows, however old; scans only when there are none.
 /// Tasks refresh the entries they touch, so the cache follows every action.
+/// What is installed, for callers that do not need latest versions (the API service page):
+/// the last scan if there is one, otherwise a local-only scan, which skips every network
+/// version lookup and takes seconds instead of the ~20 s a full first scan does.
+pub(crate) fn last_scan_or_local_scan() -> Vec<VibeTool> {
+    let cached = VIBE_SCAN_CACHE
+        .get()
+        .and_then(|cache| cache.lock().ok())
+        .and_then(|guard| guard.as_ref().map(|(_, tools)| tools.clone()));
+    match cached {
+        Some(tools) if !tools.is_empty() => tools,
+        _ => scan_vibe_tools(false),
+    }
+}
+
 pub(crate) fn last_scan_or_scan() -> Vec<VibeTool> {
     let cached = VIBE_SCAN_CACHE
         .get()

@@ -102,6 +102,7 @@ pub(crate) fn cli_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurface {
         latest_error,
         latest_source,
         latest_checked,
+        launch: None,
     }
 }
 
@@ -219,6 +220,7 @@ pub(crate) fn desktop_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurfac
         latest_error,
         latest_source,
         latest_checked,
+        launch: found.as_ref().and_then(|f| f.launch.clone()),
     }
 }
 

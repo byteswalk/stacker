@@ -48,31 +48,16 @@ export const NAV_FOOT: NavItem[] = [
 
 export const ALL_NAV_ITEMS: NavItem[] = [...NAV_SECTIONS.flatMap((section) => section.items), ...NAV_FOOT];
 
-type SectionStorage = Pick<Storage, "getItem" | "setItem">;
-const COLLAPSED_KEY = "stackerLocal.navCollapsed.v1";
+/** The section every launch opens with; the others start collapsed. */
+export const OPEN_SECTION = "nav.section.agents";
 
-function browserStorage(): SectionStorage | null {
-  return typeof window === "undefined" ? null : window.localStorage;
+/** Collapsed sections at launch: all but 智能体管理. Toggles last for the session only. */
+export function initialCollapsedSections(): string[] {
+  return NAV_SECTIONS.flatMap((section) => section.labelKey && section.labelKey !== OPEN_SECTION ? [section.labelKey] : []);
 }
 
-/** Section label keys the user collapsed; persisted locally, never required. */
-export function readCollapsedSections(storage: SectionStorage | null = browserStorage()): string[] {
-  try {
-    const value: unknown = JSON.parse(storage?.getItem(COLLAPSED_KEY) ?? "[]");
-    return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
-export function toggleSection(collapsed: string[], key: string, storage: SectionStorage | null = browserStorage()): string[] {
-  const next = collapsed.includes(key) ? collapsed.filter((item) => item !== key) : [...collapsed, key];
-  try {
-    storage?.setItem(COLLAPSED_KEY, JSON.stringify(next));
-  } catch {
-    // Collapse state is a convenience; navigation works without it.
-  }
-  return next;
+export function toggleSection(collapsed: string[], key: string): string[] {
+  return collapsed.includes(key) ? collapsed.filter((item) => item !== key) : [...collapsed, key];
 }
 
 export function sectionKeyOf(page: Page): string | null {

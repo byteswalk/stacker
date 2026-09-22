@@ -10,7 +10,7 @@ import { Select } from "./Select";
 import { useI18n } from "./i18n";
 import { NotificationProvider, useNotifications, formatBytes } from "./notifications";
 import { readLastPage, saveLastPage, type Page } from "./pageState";
-import { ALL_NAV_ITEMS, NAV_FOOT, NAV_SECTIONS, readCollapsedSections, sectionKeyOf, toggleSection, type NavItem, type NavSection } from "./navigation";
+import { ALL_NAV_ITEMS, NAV_FOOT, NAV_SECTIONS, initialCollapsedSections, sectionKeyOf, toggleSection, type NavItem, type NavSection } from "./navigation";
 import { TaskCenter } from "./features/agent-tasks/TaskCenter";
 import { useTaskToasts } from "./features/agent-tasks/useTaskToasts";
 import "./features/agent-tasks/agentTasks.css";
@@ -143,7 +143,7 @@ type SavedProfile = {
 
 function Shell() {
   useTaskToasts();
-  const [collapsedSections, setCollapsedSections] = useState<string[]>(() => readCollapsedSections());
+  const [collapsedSections, setCollapsedSections] = useState<string[]>(initialCollapsedSections);
   const [sideNarrow, setSideNarrowState] = useState(() => {
     try { return localStorage.getItem(SIDE_NARROW_KEY) === "1"; } catch { return false; }
   });
