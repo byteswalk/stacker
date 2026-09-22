@@ -1,15 +1,18 @@
 {
-  "version": "0.3.3",
-  "released_at": "2026-08-12T23:14:34+08:00",
-  "release_url": "https://github.com/byteswalk/stacker/releases/tag/v0.3.3",
-  "installer_url": "https://github.com/byteswalk/stacker/releases/download/v0.3.3/Stacker-0.3.3-setup-windows-x64.exe",
-  "installer_sha256": "810b9f5b3a491506e2e7f8341f4450bab5193b0b1d0eb805905330acc0f67e0c",
-  "portable_url": "https://github.com/byteswalk/stacker/releases/download/v0.3.3/Stacker-0.3.3-portable-windows-x64.zip",
-  "portable_sha256": "9230453791e126e4b957580ccebb92fd5111f21ff34e016b9b2aac1e05be54b4",
-  "notes": [
-    "Added managed work sessions for CLI and desktop agents, with confirmed tool environments, activity monitoring, and local disk-impact reports.",
-    "Expanded disk analysis with skipped-path diagnostics, live space tracking, safer cleanup classification, and previous developer-tool version detection.",
-    "Improved installer reliability, unified diagnostic logging, window restoration, and first-close tray behavior.",
-    "Added release-time internationalization coverage checks for frontend and backend user-facing messages."
-  ]
+    "version":  "0.3.4",
+    "released_at":  "2026-09-22T11:00:00+08:00",
+    "release_url":  "https://github.com/byteswalk/stacker/releases/tag/v0.3.4",
+    "installer_url":  "https://github.com/byteswalk/stacker/releases/download/v0.3.4/Stacker-0.3.4-setup-windows-x64.exe",
+    "installer_sha256":  "fd0b8f4b709e69f0b6a0e9837bc3a09734e75001c36ca23aa5417ed48dc0f812",
+    "portable_url":  "https://github.com/byteswalk/stacker/releases/download/v0.3.4/Stacker-0.3.4-portable-windows-x64.zip",
+    "portable_sha256":  "908e6c966b7a13ea4d4b249167c5df2c2cb4c7f5dce6a2ed0e5cbb488b6ac5e5",
+    "notes":  [
+                  "Added the browser extension for ChatGPT, Claude, Gemini, Grok and DeepSeek: browse, search, export and clean up web chats, and sync them into Stacker.",
+                  "Added distillation of web chats, local sessions and excerpts into reusable results and skill drafts.",
+                  "Added a local OpenAI- and Anthropic-style gateway over agent CLIs, per-agent API service settings, and session summaries with project handoffs.",
+                  "Agent latest versions now come from each vendor\u0027s own update service, labelled with their source; MiMo Desktop and the moved OpenClaw Windows companion are supported.",
+                  "Parallel agent tasks with waiting reasons, real download progress and clearable history.",
+                  "Updates are now signed and verified with a built-in public key before they are installed."
+              ],
+    "installer_signature":  "untrusted comment: Stacker release\nRURFeBheM9RE7jz7MMsrPSF7dfEbEU/HI5qET2Bt2EBY3xB6NzqQsJyk3kH8kLPxwnLYiiCb/CKqFcQ6jkEifZijp+ZkKbBHKgk=\ntrusted comment: Stacker-0.3.4-setup-windows-x64.exe\nEOcVoPoD05vvetxkDekZoTPwaV2myM4LuVqZ7t7COqmV/EEIj2oixB5d+qzVu+btiP91tZbOkoAFam8Y9dVRBw=="
 }
