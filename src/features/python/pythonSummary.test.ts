@@ -26,7 +26,9 @@ describe("what an AI is told about Python", () => {
     const text = pythonSummary(report(), installed, "3.1.1", "官方");
     expect(text).toContain(`解释器：${root}versions\\3.13.14\\python.exe`);
     expect(text).toContain(`shims 目录：${root}shims`);
-    expect(text).toContain("先系统 PATH，后用户 PATH");
+    expect(text).toContain("系统 PATH 在前、用户 PATH 在后");
+    expect(text).toContain("PowerShell 不查当前目录");
+    expect(text).toContain("Get-Command python -All");
     expect(text).toContain("3.12.9：" + root + "versions\\3.12.9");
     expect(text).toContain("Microsoft Store 占位程序");
     expect(text).toContain(`"${root}versions\\3.13.14\\python.exe" -m pip install`);
@@ -41,6 +43,11 @@ describe("what an AI is told about Python", () => {
     }), installed, "3.1.1", "官方");
     expect(text).toContain("⚠ 结论：新打开的终端里，python 会先命中 C:\\Program Files\\Python312\\python.exe，不是默认 Python");
     expect(text).toContain("[系统 PATH]");
+  });
+
+  it("names what start python opens", () => {
+    const text = pythonSummary(report({ appPathsPython: "C:\Store\python.exe" }), installed, "3.1.1", "官方");
+    expect(text).toContain("App Paths 登记的：C:\Store\python.exe");
   });
 
   it("says there is no default instead of inventing one", () => {

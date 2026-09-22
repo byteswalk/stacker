@@ -12,6 +12,7 @@ export type PythonEnvReport = {
   firstIsDefault: boolean;
   pyLauncher: string | null;
   overrides: [string, string][];
+  appPathsPython?: string | null;
 };
 
 const KIND_TEXT: Record<PathPython["kind"], string> = {
@@ -44,7 +45,7 @@ export function pythonSummary(report: PythonEnvReport, installed: { version: str
   for (const v of installed) lines.push(`  - ${v.version}${v.isDefault ? "（默认）" : ""}${v.path ? `：${v.path}` : ""}`);
   lines.push(`- Python 下载源：${downloadSource}`);
 
-  lines.push("", "## 在终端里输入 python 时，Windows 按这个顺序查找（先系统 PATH，后用户 PATH，第一个命中的生效）", "");
+  lines.push("", "## 新打开的终端里输入 python 时，按这个顺序查找（系统 PATH 在前、用户 PATH 在后，第一个命中的生效）", "");
   if (report.pathPythons.length === 0) {
     lines.push("- PATH 里没有任何 python。");
   } else {
@@ -56,6 +57,14 @@ export function pythonSummary(report: PythonEnvReport, installed: { version: str
       ? "结论：新打开的终端里，python 命中的就是上面的默认 Python。"
       : `⚠ 结论：新打开的终端里，python 会先命中 ${first.dir}\\${first.program}，不是默认 Python。请用下面的绝对路径。`);
   }
+  lines.push(
+    "",
+    "查找规则的补充说明：",
+    "- 终端的 PATH 继承自启动它的程序：从 IDE、AI 工具或旧窗口里开的终端，PATH 可能和上面不同（例如多了某个虚拟环境），以实际命令结果为准。",
+    "- cmd 会先查当前目录，当前目录里有 python.exe 时它优先；PowerShell 不查当前目录。",
+    "- 同一目录里按 PATHEXT 顺序匹配，python.exe 先于 python.bat。",
+  );
+  if (report.appPathsPython) lines.push(`- 「运行」对话框和 start python 不走 PATH，而是打开 App Paths 登记的：${report.appPathsPython}`);
   if (report.pyLauncher) lines.push(`- py 启动器（${report.pyLauncher}）按它自己的规则选版本，不代表默认 Python，不要用。`);
   if (report.overrides.length) {
     lines.push(`- ⚠ 设置了会改变 Python 行为的环境变量：${report.overrides.map(([k, v]) => `${k}=${v}`).join("；")}`);
@@ -69,7 +78,7 @@ export function pythonSummary(report: PythonEnvReport, installed: { version: str
       `3. 项目需要隔离依赖时，用默认解释器创建虚拟环境："${exe}" -m venv .venv，之后使用 .venv\\Scripts\\python.exe。`,
       "4. 不要自己搜索、下载或改用其他 Python：不用 py 启动器，不用 Microsoft Store 版 python，不用 IDE 或其他工具自带的 Python。",
       "5. 需要别的 Python 版本时，请告诉用户在 Stacker 的 Python 页面安装并设为默认，不要修改 PATH、注册表或 pyenv 配置。",
-      `6. 不确定时，先运行 "${exe}" --version 和 where python 核对。`,
+      `6. 不确定时，在你自己的终端里核对：cmd 用 where python，PowerShell 用 Get-Command python -All，再运行 "${exe}" --version。`,
     );
   } else {
     lines.push(

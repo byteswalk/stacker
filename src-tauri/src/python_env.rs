@@ -41,6 +41,9 @@ pub struct PythonEnvReport {
     pub py_launcher: Option<String>,
     /// PYTHONHOME / PYTHONPATH set in the user or system environment: they redirect any Python.
     pub overrides: Vec<(String, String)>,
+    /// What `start python` and the Run dialog open: the App Paths registration, which
+    /// ignores PATH.
+    pub app_paths_python: Option<String>,
 }
 
 /// `%NAME%` expanded from this process's environment; unknown names are left as written.
@@ -175,6 +178,15 @@ pub(crate) fn report() -> PythonEnvReport {
             }
         }
     }
+    let app_paths_python = [winreg::enums::HKEY_CURRENT_USER, winreg::enums::HKEY_LOCAL_MACHINE]
+        .into_iter()
+        .find_map(|hive| {
+            let key = winreg::RegKey::predef(hive)
+                .open_subkey(r"Software\Microsoft\Windows\CurrentVersion\App Paths\python.exe")
+                .ok()?;
+            let target: String = key.get_value("").ok()?;
+            (!target.trim().is_empty()).then(|| expand_env(target.trim().trim_matches('"')))
+        });
     PythonEnvReport {
         pyenv_bin: root.as_ref().map(|r| format!("{}bin", with_slash(r))),
         pyenv_shims: root.as_ref().map(|r| format!("{}shims", with_slash(r))),
@@ -197,6 +209,7 @@ pub(crate) fn report() -> PythonEnvReport {
         first_is_default,
         py_launcher,
         overrides,
+        app_paths_python,
     }
 }
 
