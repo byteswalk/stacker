@@ -190,6 +190,10 @@ pub(crate) enum InstallerSource {
     /// An electron-builder manifest at a full URL whose `path` is the installer's own URL
     /// (ZCode's release service).
     ElectronManifest { manifest_url: &'static str },
+    /// Asked of the vendor's own update service when installing (WorkBuddy, TRAE, Qoder).
+    Service {
+        resolve: fn() -> Result<super::install::direct::ResolvedInstaller, String>,
+    },
 }
 
 #[derive(Clone, Copy)]
@@ -1150,6 +1154,50 @@ pub(crate) fn direct_desktop_installer(
                     url: MIMO_DESKTOP_CN_INSTALLER,
                     file_name: "XiaomiMiMo-Setup.exe",
                 }
+            },
+            silent_args: &["/S"],
+            signed: true,
+        }),
+        // Each from the service the app's own updater (or website) asks; all three are signed.
+        // WorkBuddy: electron-builder NSIS, per user.
+        Vendor::WorkBuddy => Some(DirectDesktopInstaller {
+            source: InstallerSource::Service {
+                resolve: if edition == Edition::Global {
+                    super::feeds::workbuddy_global_installer
+                } else {
+                    super::feeds::workbuddy_cn_installer
+                },
+            },
+            silent_args: &["/S", "/currentuser"],
+            signed: true,
+        }),
+        // TRAE Work: Inno Setup, per user.
+        Vendor::Trae => Some(DirectDesktopInstaller {
+            source: InstallerSource::Service {
+                resolve: if edition == Edition::Global {
+                    super::feeds::trae_global_installer
+                } else {
+                    super::feeds::trae_cn_installer
+                },
+            },
+            silent_args: &[
+                "/VERYSILENT",
+                "/SUPPRESSMSGBOXES",
+                "/NORESTART",
+                "/SP-",
+                "/CURRENTUSER",
+            ],
+            signed: true,
+        }),
+        // Qoder: electron-builder NSIS, per user for a new install; an install made for all
+        // users is updated by its per-machine package (see feeds::qoder_installer).
+        Vendor::Qoder => Some(DirectDesktopInstaller {
+            source: InstallerSource::Service {
+                resolve: if edition == Edition::Global {
+                    super::feeds::qoder_global_installer
+                } else {
+                    super::feeds::qoder_cn_installer
+                },
             },
             silent_args: &["/S"],
             signed: true,

@@ -182,6 +182,166 @@ pub(crate) fn trae_work_latest(feed: &TraeFeed) -> Result<String, String> {
     parse_trae_check_update(&body)
 }
 
+use super::install::direct::ResolvedInstaller;
+
+fn installer_named(
+    url: String,
+    sha512: Option<String>,
+    args: Option<Vec<String>>,
+) -> Result<ResolvedInstaller, String> {
+    if !url.starts_with("https://") {
+        return Err("官方服务给出的安装包地址不是 HTTPS 链接".into());
+    }
+    let file_name = url
+        .split(['?', '#'])
+        .next()
+        .and_then(|path| path.rsplit('/').next())
+        .filter(|name| name.to_ascii_lowercase().ends_with(".exe"))
+        .ok_or("官方服务给出的安装包地址不是 exe 文件")?
+        .to_string();
+    Ok(ResolvedInstaller {
+        url,
+        file_name,
+        sha512,
+        silent_args: args,
+    })
+}
+
+/// The installer URL WorkBuddy's update service gives when asked without a version, which is
+/// what its website's download button does: the latest full installer.
+pub(crate) fn parse_workbuddy_installer(body: &str) -> Option<String> {
+    let reply: Value = serde_json::from_str(body).ok()?;
+    reply.get("url").and_then(Value::as_str).map(str::to_string)
+}
+
+fn workbuddy_installer(base: &str) -> Result<ResolvedInstaller, String> {
+    let platform = if arm64() {
+        "win32-arm64-user"
+    } else {
+        "win32-x64-user"
+    };
+    let (_, body) = get(&format!("{base}/v2/update?platform=workbuddy-{platform}"))?;
+    let url = parse_workbuddy_installer(&body).ok_or("WorkBuddy 更新服务没有给出安装包")?;
+    installer_named(url, None, None)
+}
+
+pub(crate) fn workbuddy_cn_installer() -> Result<ResolvedInstaller, String> {
+    workbuddy_installer("https://copilot.tencent.com")
+}
+
+pub(crate) fn workbuddy_global_installer() -> Result<ResolvedInstaller, String> {
+    workbuddy_installer("https://www.workbuddy.ai")
+}
+
+/// The installer for `region` (then any) in TRAE's `check_update` reply.
+pub(crate) fn parse_trae_installer(body: &str, region: &str, arch: &str) -> Option<String> {
+    let reply: Value = serde_json::from_str(body).ok()?;
+    let downloads = reply.pointer("/data/manifest/win32/download")?.as_array()?;
+    let pick = |wanted: Option<&str>| {
+        downloads.iter().find_map(|entry| {
+            let matches = wanted.map_or(true, |r| {
+                entry.get("region").and_then(Value::as_str) == Some(r)
+            });
+            matches
+                .then(|| entry.get(arch).and_then(Value::as_str))
+                .flatten()
+        })
+    };
+    pick(Some(region))
+        .or_else(|| pick(None))
+        .map(str::to_string)
+}
+
+fn trae_installer(feed: &TraeFeed, region: &str) -> Result<ResolvedInstaller, String> {
+    let arch = if arm64() { "arm64" } else { "x64" };
+    let mid = "0".repeat(64);
+    let TraeFeed {
+        host,
+        package_type,
+        branch,
+        extra,
+    } = feed;
+    let (_, body) = get(&format!(
+        "https://{host}/icube/api/v1/package/check_update?mid={mid}&packageType={package_type}\
+         &productCode=SOLO_Lite&platform=Win&branch={branch}&arch={arch}\
+         &appVersion=0.0.0&buildVersion=0.0.0{extra}"
+    ))?;
+    let url = parse_trae_installer(&body, region, arch).ok_or("TRAE 更新服务没有给出安装包")?;
+    installer_named(url, None, None)
+}
+
+pub(crate) fn trae_cn_installer() -> Result<ResolvedInstaller, String> {
+    trae_installer(&TRAE_CN, "cn")
+}
+
+pub(crate) fn trae_global_installer() -> Result<ResolvedInstaller, String> {
+    trae_installer(&TRAE_GLOBAL, "sg")
+}
+
+/// Whether an app whose uninstall entry is named `<prefix><version>` was installed for all
+/// users (listed under HKLM with `/allusers`). Read straight from the registry: the full
+/// desktop detection pulls in APIs a test binary cannot load.
+#[cfg(windows)]
+fn installed_for_all_users(prefix: &str) -> bool {
+    use winreg::enums::HKEY_LOCAL_MACHINE;
+    let key = r"Software\Microsoft\Windows\CurrentVersion\Uninstall";
+    let Ok(uninstall) = winreg::RegKey::predef(HKEY_LOCAL_MACHINE).open_subkey(key) else {
+        return false;
+    };
+    uninstall.enum_keys().flatten().any(|name| {
+        let Ok(entry) = uninstall.open_subkey(&name) else {
+            return false;
+        };
+        let display: String = entry.get_value("DisplayName").unwrap_or_default();
+        let command: String = entry.get_value("UninstallString").unwrap_or_default();
+        display.starts_with(prefix)
+            && display[prefix.len()..].starts_with(|c: char| c.is_ascii_digit())
+            && command.to_ascii_lowercase().contains("/allusers")
+    })
+}
+
+#[cfg(not(windows))]
+fn installed_for_all_users(_: &str) -> bool {
+    false
+}
+
+/// Qoder publishes `releases/latest.yml` (per-user installer) and `releases/latest-system.yml`
+/// (for all users), each naming a file under `releases/<version>/` with its SHA-512.
+fn qoder_installer(base: &str, display_name: &str) -> Result<ResolvedInstaller, String> {
+    // An install made for all users is updated in place by the per-machine package; a new
+    // install is per user and needs no administrator.
+    let machine = installed_for_all_users(display_name);
+    let manifest = if machine {
+        "latest-system.yml"
+    } else {
+        "latest.yml"
+    };
+    let (_, body) = get(&format!("{base}/qoder-app/releases/{manifest}"))?;
+    let release =
+        super::install::direct::parse_latest_yml(&body).ok_or("Qoder 发布信息格式无法识别")?;
+    let args = if machine {
+        vec!["/S".to_string(), "/allusers".to_string()]
+    } else {
+        vec!["/S".to_string(), "/currentuser".to_string()]
+    };
+    installer_named(
+        format!(
+            "{base}/qoder-app/releases/{}/{}",
+            release.version, release.file_name
+        ),
+        Some(release.sha512),
+        Some(args),
+    )
+}
+
+pub(crate) fn qoder_cn_installer() -> Result<ResolvedInstaller, String> {
+    qoder_installer("https://static.qoder.com.cn", "Qoder CN ")
+}
+
+pub(crate) fn qoder_global_installer() -> Result<ResolvedInstaller, String> {
+    qoder_installer("https://download.qoder.com.cn", "Qoder ")
+}
+
 /// `tag_name` of a GitHub release, without the leading `v`.
 pub(crate) fn parse_github_release(body: &str) -> Result<String, String> {
     let reply: Value =
@@ -423,6 +583,30 @@ name = \"x\"
         assert!(parse_trae_check_update(refused)
             .unwrap_err()
             .contains("missing mid"));
+    }
+
+    #[test]
+    fn installer_urls_come_from_the_vendors_services() {
+        let workbuddy = r#"{"version":"5.5.6.38337834","url":"https://download.codebuddy.cn/workbuddy/saas/win32-x64-user/WorkBuddy-win32-x64-user-5.5.6.38337834-5f969292.exe","sha256hash":""}"#;
+        let url = parse_workbuddy_installer(workbuddy).unwrap();
+        assert_eq!(
+            installer_named(url, None, None).unwrap().file_name,
+            "WorkBuddy-win32-x64-user-5.5.6.38337834-5f969292.exe"
+        );
+        let trae = r#"{"err_code":0,"data":{"manifest":{"win32":{"download":[
+            {"region":"cn","x64":"https://lf-cdn.trae.com.cn/a/TraeWork_CN-Setup-x64.exe"},
+            {"region":"sg","x64":"https://lf-cdn.trae.ai/sg/TraeWork_CN-Setup-x64.exe"}]}}}}"#;
+        assert_eq!(
+            parse_trae_installer(trae, "sg", "x64").unwrap(),
+            "https://lf-cdn.trae.ai/sg/TraeWork_CN-Setup-x64.exe"
+        );
+        assert_eq!(
+            parse_trae_installer(trae, "va", "x64").unwrap(),
+            "https://lf-cdn.trae.com.cn/a/TraeWork_CN-Setup-x64.exe"
+        );
+        assert!(parse_trae_installer(trae, "cn", "arm64").is_none());
+        assert!(installer_named("http://example.com/a.exe".into(), None, None).is_err());
+        assert!(installer_named("https://example.com/a.zip".into(), None, None).is_err());
     }
 
     #[test]

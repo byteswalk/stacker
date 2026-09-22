@@ -17,6 +17,7 @@ pub(crate) fn run(args: &[String]) -> Option<i32> {
         ["install-desktop", id] => desktop(id, super::install::install_desktop_tool),
         ["update-desktop", id] => desktop(id, super::install::update_desktop_tool),
         ["winget", args @ ..] => winget(args),
+        ["check-installer", id] => check_installer(id),
         _ => {
             eprintln!("usage: --dev-agents scan | install-desktop <id> | update-desktop <id>");
             2
@@ -58,6 +59,51 @@ fn winget(args: &[&str]) -> i32 {
             1
         }
     }
+}
+
+/// Resolves, downloads and verifies a product's official desktop installer without running it.
+fn check_installer(id: &str) -> i32 {
+    use super::install::direct::*;
+    let Some(spec) = spec_by_id(id) else {
+        eprintln!("no such product: {id}");
+        return 2;
+    };
+    let Some(installer) = super::registry::direct_desktop_installer(spec.vendor, spec.edition)
+    else {
+        eprintln!("{id}: no direct installer");
+        return 1;
+    };
+    let resolved = match resolve_installer(installer) {
+        Ok(resolved) => resolved,
+        Err(err) => {
+            eprintln!("{id}: resolve failed: {err}");
+            return 1;
+        }
+    };
+    println!(
+        "{id}: {} args={:?}",
+        resolved.url,
+        resolved.silent_args.as_deref().unwrap_or(&[])
+    );
+    let path = match download_desktop_installer(&spec, &resolved, &None) {
+        Ok(path) => path,
+        Err(err) => {
+            eprintln!("{id}: download failed: {err}");
+            return 1;
+        }
+    };
+    let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+    let signature = verify_desktop_installer_signature(&path);
+    let sha = resolved
+        .sha512
+        .as_deref()
+        .map(|expected| sha512_base64(&path).map(|got| got == expected));
+    let _ = std::fs::remove_file(&path);
+    println!(
+        "{id}: {:.1} MB, signature {signature:?}, sha512 match {sha:?}",
+        size as f64 / 1048576.0
+    );
+    i32::from(signature.is_err())
 }
 
 fn desktop(

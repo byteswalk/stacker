@@ -32,7 +32,7 @@ pub(crate) fn install_desktop_from_official_package(
                 "安装包未签名，已按官方发布的 SHA-512 校验通过（可确认文件完整，但无法确认发布者身份）",
             );
         }
-        run_downloaded_desktop_installer(spec, installer, &path, window)?;
+        run_downloaded_desktop_installer(spec, installer, &resolved, &path, window)?;
 
         emit_progress(window, format!("正在确认 {} 安装状态…", spec.desktop.name));
         let started = Instant::now();
@@ -56,6 +56,9 @@ pub(crate) struct ResolvedInstaller {
     pub(crate) url: String,
     pub(crate) file_name: String,
     pub(crate) sha512: Option<String>,
+    /// Arguments for this particular package, when they differ from the product's usual
+    /// ones (Qoder's per-machine installer takes /allusers).
+    pub(crate) silent_args: Option<Vec<String>>,
 }
 
 pub(crate) struct ElectronRelease {
@@ -91,13 +94,17 @@ pub(crate) fn electron_release_latest(base_url: &str) -> Result<ElectronRelease,
     parse_latest_yml(&text).ok_or_else(|| "发布信息格式无法识别".into())
 }
 
-fn resolve_installer(installer: DirectDesktopInstaller) -> Result<ResolvedInstaller, String> {
+pub(crate) fn resolve_installer(
+    installer: DirectDesktopInstaller,
+) -> Result<ResolvedInstaller, String> {
     match installer.source {
         InstallerSource::Fixed { url, file_name } => Ok(ResolvedInstaller {
             url: url.into(),
             file_name: file_name.into(),
             sha512: None,
+            silent_args: None,
         }),
+        InstallerSource::Service { resolve } => resolve(),
         InstallerSource::ElectronManifest { manifest_url } => {
             let text = desktop_download_agent(crate::agents::net::stacker_proxy().as_deref())?
                 .get(manifest_url)
@@ -121,6 +128,7 @@ fn resolve_installer(installer: DirectDesktopInstaller) -> Result<ResolvedInstal
                 url,
                 file_name,
                 sha512: Some(release.sha512),
+                silent_args: None,
             })
         }
         InstallerSource::ElectronRelease { base_url } => {
@@ -129,6 +137,7 @@ fn resolve_installer(installer: DirectDesktopInstaller) -> Result<ResolvedInstal
                 url: format!("{base_url}/{}", release.file_name),
                 file_name: release.file_name,
                 sha512: Some(release.sha512),
+                silent_args: None,
             })
         }
     }
@@ -188,14 +197,28 @@ pub(crate) fn download_desktop_installer(
         );
     }
     let agent = desktop_download_agent(proxy.as_deref())?;
-    crate::installer::download_file_candidates_with_agent(
-        &agent,
-        std::slice::from_ref(&installer.url),
-        &target,
-        1_048_576,
-        |message| emit_progress(window, message),
-    )?;
-    Ok(target)
+    // A CDN that drops the connection mid-file (static.qoder.com.cn did, once in two tries)
+    // gets one more attempt before the install fails.
+    let mut attempt = 1;
+    loop {
+        match crate::installer::download_file_candidates_with_agent(
+            &agent,
+            std::slice::from_ref(&installer.url),
+            &target,
+            1_048_576,
+            |message| emit_progress(window, message),
+        ) {
+            Ok(_) => return Ok(target),
+            Err(err)
+                if attempt == 1 && !crate::installer::op_cancelled() && !err.contains("取消") =>
+            {
+                emit_progress(window, format!("下载中断（{err}），正在重试…"));
+                let _ = std::fs::remove_file(&target);
+                attempt += 1;
+            }
+            Err(err) => return Err(err),
+        }
+    }
 }
 
 pub(crate) fn desktop_download_agent(proxy: Option<&str>) -> Result<ureq::Agent, String> {
@@ -233,10 +256,24 @@ pub(crate) fn verify_desktop_installer_signature(path: &Path) -> Result<String, 
 pub(crate) fn run_downloaded_desktop_installer(
     spec: &ToolSpec,
     installer: DirectDesktopInstaller,
+    resolved: &ResolvedInstaller,
     path: &Path,
     window: &Option<tauri::Window>,
 ) -> Result<(), String> {
-    if installer.silent_args.is_empty() {
+    let args: Vec<&str> = match &resolved.silent_args {
+        Some(own) => own.iter().map(String::as_str).collect(),
+        None => installer.silent_args.to_vec(),
+    };
+    if args.iter().any(|a| a.eq_ignore_ascii_case("/allusers")) {
+        emit_progress(
+            window,
+            format!(
+                "{} 装在全机范围，更新需要管理员权限：请在弹出的 UAC 窗口中点「是」",
+                spec.desktop.name
+            ),
+        );
+    }
+    if args.is_empty() {
         emit_progress(
             window,
             format!(
@@ -246,7 +283,7 @@ pub(crate) fn run_downloaded_desktop_installer(
         );
     }
     let mut command = Command::new(path);
-    command.args(installer.silent_args);
+    command.args(&args);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
