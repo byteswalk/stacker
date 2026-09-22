@@ -215,9 +215,87 @@ pub(crate) fn github_latest(repo: &str) -> Result<String, String> {
     parse_github_release(&body)
 }
 
+/// `ProductVersion` from a PE file's version resource (UTF-16 key, NUL padding, UTF-16 value).
+pub(crate) fn pe_product_version(bytes: &[u8]) -> Option<String> {
+    let key: Vec<u8> = "ProductVersion"
+        .encode_utf16()
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    let start = bytes.windows(key.len()).position(|window| window == key)? + key.len();
+    let mut units = bytes[start..]
+        .chunks_exact(2)
+        .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+        .skip_while(|&unit| unit == 0)
+        .take_while(|&unit| unit != 0);
+    let value = String::from_utf16(&units.by_ref().take(64).collect::<Vec<_>>()).ok()?;
+    let value = value.trim();
+    (!value.is_empty() && value.chars().any(|ch| ch.is_ascii_digit())).then(|| value.to_string())
+}
+
+/// The version of an official installer, read from its first 256 KB. MiMo publishes only a
+/// `…-latest-…` installer, and its version resource sits near the start of the file, so a
+/// range request reads it without downloading the whole 250 MB.
+pub(crate) fn installer_version(url: &str) -> Result<String, String> {
+    let response = agent()
+        .get(url)
+        .set("User-Agent", "Stacker")
+        .set("Range", "bytes=0-262143")
+        .call()
+        .map_err(|e| format!("查询最新版本失败：{e}"))?;
+    let mut head = Vec::with_capacity(262_144);
+    std::io::Read::read_to_end(
+        &mut std::io::Read::take(response.into_reader(), 262_144),
+        &mut head,
+    )
+    .map_err(|e| format!("读取最新版本失败：{e}"))?;
+    pe_product_version(&head).ok_or_else(|| "官方安装包里没有版本号".into())
+}
+
+/// The `version` field of a package.json.
+pub(crate) fn package_json_version(text: &str) -> Option<String> {
+    let manifest: Value = serde_json::from_str(text).ok()?;
+    manifest
+        .get("version")
+        .and_then(Value::as_str)
+        .and_then(release_version)
+}
+
+/// Hermes Desktop is built from the Hermes Agent checkout, and its updater pulls `main`: the
+/// version there is the one an update brings.
+pub(crate) fn hermes_desktop_latest() -> Result<String, String> {
+    let (_, body) = get(
+        "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/apps/desktop/package.json",
+    )?;
+    package_json_version(&body).ok_or_else(|| "Hermes 桌面端的 package.json 里没有版本号".into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn product_version_comes_from_the_version_resource() {
+        let utf16 =
+            |text: &str| -> Vec<u8> { text.encode_utf16().flat_map(u16::to_le_bytes).collect() };
+        // The layout MiMo's installer has: key, NUL padding, value, NUL.
+        let mut bytes = b"MZ...".to_vec();
+        bytes.extend(utf16("ProductName Xiaomi MiMo "));
+        bytes.extend(utf16("ProductVersion"));
+        bytes.extend([0, 0, 0, 0]);
+        bytes.extend(utf16("26.922.220226"));
+        bytes.extend([0, 0, 0, 0]);
+        assert_eq!(pe_product_version(&bytes), Some("26.922.220226".into()));
+        assert_eq!(pe_product_version(b"MZ no resources"), None);
+    }
+
+    #[test]
+    fn package_json_version_is_read() {
+        assert_eq!(
+            package_json_version(r#"{"name":"hermes-desktop","version":"0.17.6"}"#),
+            Some("0.17.6".into())
+        );
+        assert_eq!(package_json_version("not json"), None);
+    }
 
     #[test]
     fn zcode_manifest_version_is_the_first_version_line() {

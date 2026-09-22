@@ -359,7 +359,7 @@ pub(crate) fn install_desktop_tool(
             spec.desktop.name
         ));
     }
-    if let Some(installer) = direct_desktop_installer(spec.vendor) {
+    if let Some(installer) = direct_desktop_installer(spec.vendor, spec.edition) {
         return match install_desktop_from_official_package(spec, installer, window) {
             Ok(message) => Ok(message),
             Err(err) if err.contains("已取消") => Err(err),
@@ -440,7 +440,7 @@ pub(crate) fn update_desktop_tool(
         )?;
         return Ok(format!("{} 已通过 WinGet 更新", spec.desktop.name));
     }
-    if let Some(installer) = direct_desktop_installer(spec.vendor) {
+    if let Some(installer) = direct_desktop_installer(spec.vendor, spec.edition) {
         // A silent installer replaces the program files; never close the user's app for them.
         if let Some(image) = found
             .as_ref()
@@ -630,7 +630,8 @@ mod tests {
         // it must update with its signed silent installer instead of opening the app.
         let kimi = spec_by_id("kimi").unwrap();
         assert!(desktop_staged_update(&kimi, Some("3.2.9")).is_none());
-        assert!(direct_desktop_installer(kimi.vendor).is_some_and(|installer| installer.signed));
+        assert!(direct_desktop_installer(kimi.vendor, kimi.edition)
+            .is_some_and(|installer| installer.signed));
     }
 
     #[test]

@@ -1033,23 +1033,23 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
         edition_label: "中国版",
         sort: 150,
         name: "小米 MiMo 中国版",
-        description: "小米 MiMo 大模型驱动的编程智能体：终端 CLI 可读写代码、搜索项目并执行命令，MiMo Desktop 桌面端处于邀请制内测。",
+        description: "小米 MiMo 大模型驱动的编程智能体：终端 CLI 可读写代码、搜索项目并执行命令，另有 MiMo Desktop 桌面端。",
         icon: "mimo.svg",
         docs_url: "https://mimo.xiaomi.com/coder",
         cli: CliSlot::Shared("mimo"),
         cli_note: Some("与国际版共用同一个 mimo 命令，登录时使用中国区平台账号。"),
         desktop: DesktopSlot::App(DesktopSpec {
             name: "MiMo Desktop（中国版）",
-            description: "小米 MiMo Desktop 中国版桌面智能体，邀请制内测中。",
+            description: "小米 MiMo Desktop 中国版桌面智能体。",
             winget_id: None,
             winget_source: None,
             appx_names: &[],
-            install_url: "https://mimo.xiaomimimo.com/desktop/invite/",
+            install_url: "https://mimo.xiaomimimo.com/desktop/",
             docs_url: "https://mimo.mi.com/docs/en-US/news/latest/mimo-desktop",
-            // Not yet verified against a real install (the beta is invite-only).
-            keywords: &["mimo desktop"],
-            excludes: &["global", "international", "intl", "overseas"],
-            install_unavailable_reason: Some("MiMo Desktop 为邀请制内测：在官方页面申请，获批后从申请页下载安装。"),
+            // The installer's product name: "Xiaomi MiMo" here, "Xiaomi MiMo AI" for the global edition.
+            keywords: &["xiaomi mimo", "mimo desktop"],
+            excludes: &["mimo ai", "global", "international", "intl", "overseas"],
+            install_unavailable_reason: None,
             reject_sibling_files: &[],
         }),
         workbench_command: None,
@@ -1064,23 +1064,22 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
         edition_label: "国际版",
         sort: 151,
         name: "Xiaomi MiMo 国际版",
-        description: "小米 MiMo 大模型驱动的编程智能体：终端 CLI 可读写代码、搜索项目并执行命令，MiMo Desktop 桌面端处于邀请制内测。",
+        description: "小米 MiMo 大模型驱动的编程智能体：终端 CLI 可读写代码、搜索项目并执行命令，另有 MiMo Desktop 桌面端。",
         icon: "mimo.svg",
         docs_url: "https://mimo.xiaomi.com/coder",
         cli: CliSlot::Shared("mimo"),
         cli_note: None,
         desktop: DesktopSlot::App(DesktopSpec {
             name: "MiMo Desktop（国际版）",
-            description: "Xiaomi MiMo Desktop 国际版桌面智能体，邀请制内测中；电脑操控（Computer Use）仅国际版提供。",
+            description: "Xiaomi MiMo Desktop 国际版桌面智能体；电脑操控（Computer Use）仅国际版提供。",
             winget_id: None,
             winget_source: None,
             appx_names: &[],
-            install_url: "https://mimo-ai.xiaomimimo.com/desktop/invite/",
+            install_url: "https://mimo-ai.xiaomimimo.com/desktop/",
             docs_url: "https://mimo.mi.com/docs/en-US/news/latest/mimo-desktop",
-            // Not yet verified against a real install (the beta is invite-only).
-            keywords: &["mimo desktop global", "mimo desktop international", "mimo desktop intl", "mimo desktop overseas"],
+            keywords: &["xiaomi mimo ai", "mimo desktop global", "mimo desktop international"],
             excludes: &[],
-            install_unavailable_reason: Some("MiMo Desktop 为邀请制内测：在官方页面申请，获批后从申请页下载安装。"),
+            install_unavailable_reason: None,
             reject_sibling_files: &[],
         }),
         workbench_command: None,
@@ -1089,7 +1088,16 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
     },
 ];
 
-pub(crate) fn direct_desktop_installer(vendor: Vendor) -> Option<DirectDesktopInstaller> {
+/// The two MiMo Desktop editions' official installers (x64 only; the site offers no ARM build).
+pub(crate) const MIMO_DESKTOP_CN_INSTALLER: &str =
+    "https://mimocode-cdn.xiaomimimo.com/mimocode/mimodesktop/XiaomiMiMo-latest-x64-setup.exe";
+pub(crate) const MIMO_DESKTOP_GLOBAL_INSTALLER: &str =
+    "https://mimocode-cdn.xiaomimimo.com/mimocode/mimodesktopai/XiaomiMiMo-AI-latest-x64-setup.exe";
+
+pub(crate) fn direct_desktop_installer(
+    vendor: Vendor,
+    edition: Edition,
+) -> Option<DirectDesktopInstaller> {
     match vendor {
         Vendor::Kimi => Some(DirectDesktopInstaller {
             source: InstallerSource::Fixed {
@@ -1111,6 +1119,22 @@ pub(crate) fn direct_desktop_installer(vendor: Vendor) -> Option<DirectDesktopIn
             source: InstallerSource::Fixed {
                 url: "https://hermes-assets.nousresearch.com/Hermes-Setup.exe",
                 file_name: "Hermes-Setup.exe",
+            },
+            silent_args: &["/S"],
+            signed: true,
+        }),
+        // Signed by Xiaomi with a DigiCert code-signing certificate; electron-builder NSIS.
+        Vendor::MiMo => Some(DirectDesktopInstaller {
+            source: if edition == Edition::Global {
+                InstallerSource::Fixed {
+                    url: MIMO_DESKTOP_GLOBAL_INSTALLER,
+                    file_name: "XiaomiMiMo-AI-Setup.exe",
+                }
+            } else {
+                InstallerSource::Fixed {
+                    url: MIMO_DESKTOP_CN_INSTALLER,
+                    file_name: "XiaomiMiMo-Setup.exe",
+                }
             },
             silent_args: &["/S"],
             signed: true,
@@ -1150,7 +1174,7 @@ mod tests {
         let kimi = spec_by_id("kimi").expect("Kimi catalog entry");
         assert_eq!(kimi.desktop.name, "Kimi Work 桌面端");
         assert!(!kimi.desktop.keywords.is_empty());
-        assert!(direct_desktop_installer(Vendor::Kimi).is_some());
+        assert!(direct_desktop_installer(Vendor::Kimi, Edition::Unified).is_some());
 
         let trae = spec_by_id("trae-work").expect("TRAE catalog entry");
         assert_eq!(trae.cli.command, "traecli");
@@ -1268,7 +1292,7 @@ mod tests {
         assert_eq!(pi.cli.npm_package, Some("@earendil-works/pi-coding-agent"));
         assert!(pi.desktop_available);
         assert!(desktop_matches(&pi.desktop, "PI-Desktop 0.15.0"));
-        let installer = direct_desktop_installer(Vendor::Pi).unwrap();
+        let installer = direct_desktop_installer(Vendor::Pi, Edition::Unified).unwrap();
         assert!(!installer.signed);
         assert!(matches!(
             installer.source,
@@ -1288,16 +1312,38 @@ mod tests {
         assert_eq!(global.cli_id, Some("mimo"));
         assert_eq!(cn.cli.command, "mimo");
         assert!(cn.cli_note.unwrap().contains("中国区"));
-        // MiMo Desktop is an invite-only beta: each edition links to its own application page.
+        // Each MiMo Desktop edition has its own download page, installer and registry name.
         assert!(cn
             .desktop
             .install_url
-            .contains("mimo.xiaomimimo.com/desktop/invite"));
+            .contains("mimo.xiaomimimo.com/desktop/"));
         assert!(global
             .desktop
             .install_url
-            .contains("mimo-ai.xiaomimimo.com/desktop/invite"));
-        assert!(direct_desktop_installer(Vendor::MiMo).is_none());
+            .contains("mimo-ai.xiaomimimo.com/desktop/"));
+        let url = |spec: &ToolSpec| match direct_desktop_installer(spec.vendor, spec.edition) {
+            Some(DirectDesktopInstaller {
+                source: InstallerSource::Fixed { url, .. },
+                signed: true,
+                ..
+            }) => url,
+            _ => panic!("MiMo Desktop needs its signed official installer"),
+        };
+        assert_eq!(url(&cn), MIMO_DESKTOP_CN_INSTALLER);
+        assert_eq!(url(&global), MIMO_DESKTOP_GLOBAL_INSTALLER);
+        assert!(desktop_matches(&cn.desktop, "Xiaomi MiMo 26.922.220226"));
+        assert!(!desktop_matches(
+            &cn.desktop,
+            "Xiaomi MiMo AI 26.922.220226"
+        ));
+        assert!(desktop_matches(
+            &global.desktop,
+            "Xiaomi MiMo AI 26.922.220226"
+        ));
+        assert!(!desktop_matches(
+            &global.desktop,
+            "Xiaomi MiMo 26.922.220226"
+        ));
         assert!(spec_by_id("mimo").is_none());
     }
 

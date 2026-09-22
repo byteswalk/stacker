@@ -122,8 +122,16 @@ pub(crate) fn desktop_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurfac
     // briefly keep the previous DisplayVersion, while Kimi.exe is already new.
     // OpenClaw's tray updates itself and leaves the entry at the installer's own
     // version (0.6.12 beside a 2026.7.1 tray). Prefer the executable's file version.
+    // Hermes builds its desktop app from its own checkout; Hermes.exe carries Electron's
+    // version, the app's own is in the package.json it was built from.
     let version = found.as_ref().and_then(|found| {
-        if matches!(spec.vendor, Vendor::Kimi | Vendor::OpenClaw) {
+        if spec.vendor == Vendor::Hermes {
+            found
+                .path
+                .as_deref()
+                .and_then(hermes_desktop_version)
+                .or_else(|| found.version.clone())
+        } else if matches!(spec.vendor, Vendor::Kimi | Vendor::OpenClaw) {
             found
                 .path
                 .as_deref()
@@ -148,7 +156,7 @@ pub(crate) fn desktop_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurfac
             .as_deref()
             .zip(latest.as_deref())
             .is_some_and(|(cur, next)| crate::update::ver_lt(cur, next));
-    let has_direct_installer = direct_desktop_installer(spec.vendor).is_some();
+    let has_direct_installer = direct_desktop_installer(spec.vendor, spec.edition).is_some();
     let can_install = spec.desktop.winget_id.is_some() || has_direct_installer;
     VibeSurface {
         available: true,
@@ -401,6 +409,10 @@ pub(crate) enum DesktopSource {
     WorkBuddyUpdate(&'static str),
     /// Qoder's desktop update service at this base URL; it answers for the installed version.
     QoderUpdate(&'static str),
+    /// The version resource of the official installer at this URL.
+    InstallerVersion(&'static str),
+    /// `apps/desktop/package.json` on the branch the Hermes updater pulls.
+    HermesRepo,
     /// TRAE Work's own `check_update`, as this edition's app sends it.
     TraeCheckUpdate(&'static super::feeds::TraeFeed),
     /// Nowhere Stacker can read: the app checks for updates itself.
@@ -433,11 +445,19 @@ pub(crate) fn desktop_source(spec: &ToolSpec) -> DesktopSource {
                 &super::feeds::TRAE_GLOBAL
             })
         }
+        Vendor::MiMo => {
+            return DesktopSource::InstallerVersion(if cn {
+                MIMO_DESKTOP_CN_INSTALLER
+            } else {
+                MIMO_DESKTOP_GLOBAL_INSTALLER
+            })
+        }
+        Vendor::Hermes => return DesktopSource::HermesRepo,
         // The Windows companion ships from its own repository, not the main openclaw one.
         Vendor::OpenClaw => return DesktopSource::GithubLatest(OPENCLAW_WINDOWS_REPO),
         _ => {}
     }
-    if let Some(installer) = direct_desktop_installer(spec.vendor) {
+    if let Some(installer) = direct_desktop_installer(spec.vendor, spec.edition) {
         if let InstallerSource::ElectronRelease { base_url } = installer.source {
             return DesktopSource::GithubRelease(base_url);
         }
@@ -480,6 +500,12 @@ pub(crate) fn desktop_latest(spec: &ToolSpec, current: Option<&str>) -> LatestLo
             .map(|version| Some((version, "Qoder 官方更新服务"))),
         DesktopSource::TraeCheckUpdate(feed) => {
             super::feeds::trae_work_latest(feed).map(|version| Some((version, "TRAE 官方更新服务")))
+        }
+        DesktopSource::InstallerVersion(url) => {
+            super::feeds::installer_version(url).map(|version| Some((version, "官方安装包")))
+        }
+        DesktopSource::HermesRepo => {
+            super::feeds::hermes_desktop_latest().map(|version| Some((version, "Hermes 官方仓库")))
         }
         DesktopSource::None => Ok(None),
     }
@@ -780,6 +806,13 @@ pub(crate) fn desktop_exe_candidate(spec: &DesktopSpec) -> Option<DesktopFound> 
         }
     }
     None
+}
+
+/// `apps/desktop/release/win-unpacked/Hermes.exe` → `apps/desktop/package.json` → version.
+pub(crate) fn hermes_desktop_version(exe: &Path) -> Option<String> {
+    let desktop = exe.parent()?.parent()?.parent()?;
+    let text = std::fs::read_to_string(desktop.join("package.json")).ok()?;
+    super::feeds::package_json_version(&text)
 }
 
 pub(crate) fn desktop_executable_version(path: &Path) -> Option<String> {
@@ -1170,8 +1203,14 @@ mod tests {
         ] {
             assert_eq!(cli_source(&spec(id), method), CliSource::None, "{id}");
         }
-        for id in ["hermes", "mimo-cn", "mimo-global"] {
-            assert_eq!(desktop_source(&spec(id)), DesktopSource::None, "{id}");
+    }
+
+    #[test]
+    fn every_desktop_app_has_a_version_source() {
+        for spec in crate::agents::registry::tool_specs() {
+            if spec.desktop_available {
+                assert_ne!(desktop_source(&spec), DesktopSource::None, "{}", spec.id);
+            }
         }
     }
 
@@ -1179,6 +1218,15 @@ mod tests {
     fn products_with_a_published_version_name_where_it_is() {
         assert_eq!(desktop_source(&spec("kimi")), DesktopSource::KimiDownload);
         assert_eq!(desktop_source(&spec("zcode")), DesktopSource::ZcodeManifest);
+        assert_eq!(
+            desktop_source(&spec("mimo-cn")),
+            DesktopSource::InstallerVersion(MIMO_DESKTOP_CN_INSTALLER)
+        );
+        assert_eq!(
+            desktop_source(&spec("mimo-global")),
+            DesktopSource::InstallerVersion(MIMO_DESKTOP_GLOBAL_INSTALLER)
+        );
+        assert_eq!(desktop_source(&spec("hermes")), DesktopSource::HermesRepo);
         assert_eq!(
             desktop_source(&spec("workbuddy-cn")),
             DesktopSource::WorkBuddyUpdate("https://copilot.tencent.com")
