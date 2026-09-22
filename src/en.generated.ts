@@ -2344,6 +2344,7 @@ export const GENERATED_EN: Record<string, string> = {
   "MiMo 官方发布": "MiMo releases",
   "Claude 已下载的更新": "update Claude has downloaded",
   "Kimi 官方下载地址": "Kimi download address",
+  "秒没有新的进度，可能是网络连不上下载服务器。可以继续等待，或取消后检查网络和代理再试": "s without new progress; the download server may be unreachable. Keep waiting, or cancel and check the network and proxy",
   "可以发图片（claude/*、codex/*）和 PDF 文档（claude/*），文本类文档会直接并入对话；不支持工具调用。stream 请求：claude/* 逐字返回，codex/* 在生成完成后一次性返回。": "Images work with claude/* and codex/*, PDF documents with claude/*, and text documents are added to the conversation; tool calling is not supported. Streaming: claude/* streams as it writes, codex/* arrives once it finishes.",
   "找不到可用的升级": "No available upgrade found",
   "没有可用的升级": "No available upgrade",

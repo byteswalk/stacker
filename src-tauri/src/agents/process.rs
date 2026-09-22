@@ -233,7 +233,7 @@ pub(crate) fn run_command_console(
     stall_timeout: Duration,
     window: &Option<tauri::Window>,
 ) -> Result<String, String> {
-    use super::pty::{download_line, download_sizes, run_in_pty, strip_vt, Stop};
+    use super::pty::{bar_percent, download_line, download_sizes, run_in_pty, strip_vt, Stop};
     use std::sync::mpsc;
 
     // The whole environment, with the same PATH and proxy a piped command gets.
@@ -267,7 +267,11 @@ pub(crate) fn run_command_console(
     let mut last_heartbeat = Instant::now();
     let mut shown_percent: Option<u32> = None;
     let mut saw_bar = false;
+    let mut last_line = String::new();
+    // True when the chunk said something new: a line, or a percentage that moved. Spinner
+    // frames and redraws of the same text are not progress.
     let mut handle = |chunk: &str, elapsed: Duration, text: &mut String, line: &mut String| {
+        let mut progressed = false;
         let (clean, taskbar) = strip_vt(chunk);
         for ch in clean.chars() {
             if ch != '\r' && ch != '\n' {
@@ -281,26 +285,42 @@ pub(crate) fn run_command_console(
                 let percent = ((done / total) * 100.0).round() as u32;
                 if shown_percent != Some(percent) {
                     shown_percent = Some(percent);
+                    progressed = true;
                     emit_progress(window, download_line(done, total, elapsed));
                 }
-            } else if current.chars().count() > 2 {
+            } else if let Some(percent) = bar_percent(&current) {
+                saw_bar = true;
+                if shown_percent != Some(percent) {
+                    shown_percent = Some(percent);
+                    progressed = true;
+                    emit_progress(
+                        window,
+                        format!("正在处理 {percent}% · 已 {}s", elapsed.as_secs()),
+                    );
+                }
+            } else if current.chars().count() > 2 && current != last_line {
                 // Spinner frames (- \ | /) are one character; real output is longer.
+                progressed = true;
                 emit_progress(window, current.as_str());
                 text.push_str(&current);
                 text.push('\n');
+                last_line = current;
             }
         }
         if let (Some(percent), false) = (taskbar, saw_bar) {
             let percent = u32::from(percent);
             if shown_percent != Some(percent) {
                 shown_percent = Some(percent);
+                progressed = true;
                 emit_progress(
                     window,
                     format!("正在处理 {percent}% · 已 {}s", elapsed.as_secs()),
                 );
             }
         }
+        progressed
     };
+    let mut stall_noted = false;
 
     let result = run_in_pty(
         program,
@@ -311,8 +331,10 @@ pub(crate) fn run_command_console(
         },
         |elapsed| {
             while let Ok(chunk) = receiver.try_recv() {
-                last_activity = elapsed;
-                handle(&chunk, elapsed, &mut text, &mut line);
+                if handle(&chunk, elapsed, &mut text, &mut line) {
+                    last_activity = elapsed;
+                    stall_noted = false;
+                }
             }
             if crate::installer::op_cancelled() {
                 return Some(Stop::Cancelled);
@@ -332,6 +354,18 @@ pub(crate) fn run_command_console(
                     format!("{display_name} 正在处理 · 已 {} 秒", elapsed.as_secs()),
                 );
                 last_heartbeat = Instant::now();
+            }
+            // Say once, plainly, that nothing is moving: a download server it cannot reach
+            // looks exactly like this (Store apps download through the Store service).
+            if !stall_noted && inactive >= Duration::from_secs(60) {
+                stall_noted = true;
+                emit_progress(
+                    window,
+                    format!(
+                        "已 {} 秒没有新的进度，可能是网络连不上下载服务器。可以继续等待，或取消后检查网络和代理再试",
+                        inactive.as_secs()
+                    ),
+                );
             }
             None
         },

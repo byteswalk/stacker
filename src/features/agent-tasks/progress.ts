@@ -20,7 +20,8 @@ function measured(ratio: number): Progress | null {
  */
 export function parseProgress(line: string | null | undefined): Progress | null {
   if (!line) return null;
-  const ours = /正在下载\s+(\d{1,3}(?:\.\d+)?)%/.exec(line);
+  // Stacker's downloader and WinGet's bars: "正在下载 45%"; a Store install: "正在处理 45%".
+  const ours = /正在(?:下载|处理)\s+(\d{1,3}(?:\.\d+)?)%/.exec(line);
   if (ours) return measured(Number(ours[1]) / 100);
 
   const sizes = /(\d+(?:\.\d+)?)\s*(KiB|MiB|GiB|KB|MB|GB|B)\s*\/\s*(\d+(?:\.\d+)?)\s*(KiB|MiB|GiB|KB|MB|GB|B)\b/i.exec(line);

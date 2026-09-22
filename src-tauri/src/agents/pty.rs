@@ -17,10 +17,15 @@ pub(crate) fn strip_vt(raw: &str) -> (String, Option<u8>) {
             continue;
         }
         match chars.next() {
-            // CSI: parameters, then one final byte in @..~.
+            // CSI: parameters, then one final byte in @..~. WinGet redraws its spinner and
+            // bars by moving the cursor (ESC[H, ESC[K) instead of a carriage return: those end
+            // a line too, or everything after them would pile onto one line never shown.
             Some('[') => {
                 for next in chars.by_ref() {
                     if ('@'..='~').contains(&next) {
+                        if matches!(next, 'H' | 'f' | 'K' | 'G' | 'J') {
+                            out.push('\r');
+                        }
                         break;
                     }
                 }
@@ -79,6 +84,21 @@ pub(crate) fn download_sizes(line: &str) -> Option<(f64, f64)> {
     let done = number_unit(left, true)?;
     let total = number_unit(right, false)?;
     (total > 0.0 && done <= total * 1.01).then_some((done, total))
+}
+
+/// The percent a bar with no sizes shows (`████▒▒▒▒  45%`), as the Store install draws.
+pub(crate) fn bar_percent(line: &str) -> Option<u32> {
+    if !line
+        .chars()
+        .any(|c| matches!(c, '█' | '▒' | '▓' | '░' | '■'))
+    {
+        return None;
+    }
+    let number = line.trim_end().strip_suffix('%')?;
+    let start = number
+        .rfind(|c: char| !c.is_ascii_digit())
+        .map_or(0, |i| i + 1);
+    number[start..].parse::<u32>().ok().filter(|p| *p <= 100)
 }
 
 /// The line the task log and the progress bar understand.
@@ -341,9 +361,24 @@ mod tests {
     fn console_output_loses_its_control_sequences_and_keeps_the_taskbar_percent() {
         let raw = "\u{1b}[?25l\u{1b}[2K  ██████  9.35 MB / 62.3 MB\u{1b}]9;4;1;15\u{7}\r\u{1b}[0mdone\u{1b}]9;4;0;0\u{1b}\\";
         let (text, percent) = strip_vt(raw);
-        assert_eq!(text, "  ██████  9.35 MB / 62.3 MB\rdone");
+        assert_eq!(text, "\r  ██████  9.35 MB / 62.3 MB\rdone");
         assert_eq!(percent, Some(15));
         assert_eq!(strip_vt("plain").1, None);
+    }
+
+    #[test]
+    fn cursor_moves_end_lines_the_way_winget_redraws_need() {
+        // Recorded from `winget install` in a console: two spinner frames, then text.
+        let raw = "\u{1b}[38;2;50;116;207m   - \u{1b}[m\u{1b}[H   | \u{1b}[m\u{1b}[H\u{1b}[K\u{1b}[120CFound it";
+        let (text, _) = strip_vt(raw);
+        let lines: Vec<&str> = text
+            .split('\r')
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect();
+        assert_eq!(lines, ["-", "|", "Found it"]);
+        assert_eq!(bar_percent("  ██████████▒▒▒▒▒▒▒▒▒  45%"), Some(45));
+        assert_eq!(bar_percent("Improved startup by 30%"), None);
     }
 
     #[test]
