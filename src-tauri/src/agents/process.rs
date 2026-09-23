@@ -223,9 +223,14 @@ pub(crate) fn failure_summary(text: &str) -> Option<String> {
             lines()
                 .find(|line| {
                     let lower = line.to_lowercase();
-                    ["错误", "无法", "失败", "error", "failed", "unable"]
-                        .iter()
-                        .any(|word| lower.contains(word))
+                    // npm signs off with "npm error A complete log of this run can be found
+                    // in: …debug-0.log", which says nothing about what went wrong.
+                    let pointer = lower.contains("complete log of this run")
+                        || lower.ends_with("-debug-0.log");
+                    !pointer
+                        && ["错误", "无法", "失败", "error", "failed", "unable"]
+                            .iter()
+                            .any(|word| lower.contains(word))
                 })
                 .map(str::to_string)
         })
@@ -711,6 +716,21 @@ pub(crate) fn is_meaningful_output_line(line: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    /// npm's last line only points at its log file; the useful line is the one above it.
+    #[test]
+    fn npm_target_failure_names_the_missing_version() {
+        let output = "npm install 正在处理 · 已 6 秒\n\
+             npm error code ETARGET\n\
+             npm error notarget No matching version found for @openai/codex@0.156.1.\n\
+             npm error A complete log of this run can be found in: /logs/2026-debug-0.log\n";
+        let summary = super::failure_summary(output).unwrap();
+        assert!(
+            summary.contains("No matching version found for @openai/codex@0.156.1"),
+            "{summary}"
+        );
+        assert!(crate::agents::install::npm::mirror_is_behind(&summary));
+    }
+
     use super::*;
 
     #[test]

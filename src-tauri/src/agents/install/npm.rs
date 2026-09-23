@@ -25,9 +25,8 @@ pub(crate) fn npm_install_latest(
         .ok_or_else(|| "未检测到 npm。请先在 Node 页面安装并设置默认 Node。".to_string())?;
     validate_npm_proxy(&npm)?;
     let spec = format!("{package}@latest");
-    run_command_streamed(
-        &npm,
-        &[
+    let install = |registry: Option<&str>| {
+        let mut args = vec![
             "install",
             "-g",
             &spec,
@@ -35,13 +34,43 @@ pub(crate) fn npm_install_latest(
             "--fetch-retry-mintimeout=1000",
             "--fetch-retry-maxtimeout=5000",
             "--fetch-timeout=30000",
-        ],
-        "npm install",
-        Duration::from_secs(900),
-        Duration::ZERO,
-        window,
-    )?;
-    Ok(())
+        ];
+        if let Some(registry) = registry {
+            args.push(registry);
+        }
+        run_command_streamed(
+            &npm,
+            &args,
+            "npm install",
+            Duration::from_secs(900),
+            Duration::ZERO,
+            window,
+        )
+    };
+    match install(None) {
+        Ok(_) => Ok(()),
+        Err(error) if mirror_is_behind(&error) => {
+            emit_progress(
+                window,
+                "当前 npm 镜像里还没有这个版本（镜像同步延迟），正在改用 npm 官方源重试…",
+            );
+            install(Some(OFFICIAL_REGISTRY)).map(|_| ()).map_err(|second| {
+                format!(
+                    "{error}；改用官方源后仍失败：{second}。可稍后重试，或在 Node 页面把 npm 源切到官方源再更新。"
+                )
+            })
+        }
+        Err(error) => Err(error),
+    }
+}
+
+const OFFICIAL_REGISTRY: &str = "--registry=https://registry.npmjs.org/";
+
+/// npm's ETARGET: the registry advertises a version it cannot serve, which is what a Chinese
+/// npm mirror looks like in the minutes after upstream publishes.
+pub(crate) fn mirror_is_behind(error: &str) -> bool {
+    let error = error.to_ascii_lowercase();
+    error.contains("etarget") || error.contains("notarget") || error.contains("no matching version")
 }
 
 pub(crate) fn npm_uninstall(

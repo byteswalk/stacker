@@ -82,15 +82,35 @@ pub(crate) fn parse_latest_yml(text: &str) -> Option<ElectronRelease> {
     })
 }
 
-pub(crate) fn electron_release_latest(base_url: &str) -> Result<ElectronRelease, String> {
+/// Reads a vendor's release manifest. Connections to these hosts get dropped mid-handshake
+/// often enough (ZCode's did) that a single attempt reports a working feed as broken.
+pub(crate) fn read_release_info(url: &str) -> Result<String, String> {
     let agent = desktop_download_agent(crate::agents::net::stacker_proxy().as_deref())?;
-    let text = agent
-        .get(&format!("{base_url}/latest.yml"))
-        .set("User-Agent", "Stacker")
-        .call()
-        .map_err(|e| format!("读取发布信息失败：{e}"))?
-        .into_string()
-        .map_err(|e| format!("读取发布信息失败：{e}"))?;
+    let mut last = String::new();
+    for attempt in 0..3 {
+        if attempt > 0 {
+            std::thread::sleep(Duration::from_millis(600 * attempt));
+        }
+        match agent.get(url).set("User-Agent", "Stacker").call() {
+            Ok(response) => {
+                return response
+                    .into_string()
+                    .map_err(|e| format!("读取发布信息失败：{e}"))
+            }
+            // A status reply is an answer, not a connection problem: do not retry it.
+            Err(ureq::Error::Status(status, _)) => {
+                return Err(format!("读取发布信息失败：服务返回 {status}"))
+            }
+            Err(e) => last = e.to_string(),
+        }
+    }
+    Err(format!(
+        "读取发布信息失败：连接中断（已重试 3 次）。多半是网络问题，挂上代理或稍后重试通常就好。原因：{last}"
+    ))
+}
+
+pub(crate) fn electron_release_latest(base_url: &str) -> Result<ElectronRelease, String> {
+    let text = read_release_info(&format!("{base_url}/latest.yml"))?;
     parse_latest_yml(&text).ok_or_else(|| "发布信息格式无法识别".into())
 }
 
@@ -106,13 +126,7 @@ pub(crate) fn resolve_installer(
         }),
         InstallerSource::Service { resolve } => resolve(),
         InstallerSource::ElectronManifest { manifest_url } => {
-            let text = desktop_download_agent(crate::agents::net::stacker_proxy().as_deref())?
-                .get(manifest_url)
-                .set("User-Agent", "Stacker")
-                .call()
-                .map_err(|e| format!("读取发布信息失败：{e}"))?
-                .into_string()
-                .map_err(|e| format!("读取发布信息失败：{e}"))?;
+            let text = read_release_info(manifest_url)?;
             let release = parse_latest_yml(&text).ok_or("发布信息格式无法识别")?;
             let url = release.file_name.clone();
             if !url.starts_with("https://") {
