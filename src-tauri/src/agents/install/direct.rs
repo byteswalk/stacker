@@ -183,12 +183,10 @@ pub(crate) fn download_desktop_installer(
     installer: &ResolvedInstaller,
     window: &Option<tauri::Window>,
 ) -> Result<PathBuf, String> {
-    let target = std::env::temp_dir().join(format!(
-        "stacker-{}-{}-{}",
-        spec.id,
-        chrono::Local::now().timestamp_millis(),
-        installer.file_name
-    ));
+    // A stable name, so a download interrupted by a cancel or a closed Stacker leaves a
+    // .part file the next run can continue from.
+    let target = std::env::temp_dir().join(format!("stacker-{}-{}", spec.id, installer.file_name));
+    drop_timestamped_leftovers(spec.id);
     let proxy = crate::agents::net::stacker_proxy();
     if let Some(proxy) = &proxy {
         emit_progress(
@@ -217,6 +215,28 @@ pub(crate) fn download_desktop_installer(
                 attempt += 1;
             }
             Err(err) => return Err(err),
+        }
+    }
+}
+
+/// Earlier releases wrote `stacker-<id>-<timestamp>-<file>` installers that a later run could
+/// never continue, so a cancelled download left hundreds of MB behind for good. They are
+/// Stacker's own files, and nothing can resume them: drop them.
+fn drop_timestamped_leftovers(id: &str) {
+    let prefix = format!("stacker-{id}-");
+    let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Some(rest) = name.strip_prefix(&prefix) else {
+            continue;
+        };
+        let timestamped = rest.split_once('-').is_some_and(|(stamp, _)| {
+            stamp.len() >= 10 && stamp.chars().all(|c| c.is_ascii_digit())
+        });
+        if timestamped && entry.path().is_file() {
+            let _ = std::fs::remove_file(entry.path());
         }
     }
 }

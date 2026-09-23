@@ -1204,9 +1204,46 @@ fn retryable_request_error(error: &ureq::Error) -> bool {
     }
 }
 
+/// Where a partial download and its marker live: beside the target file, so a cancelled or
+/// interrupted download can carry on instead of starting from zero.
+fn part_paths(target: &Path) -> (PathBuf, PathBuf) {
+    let part = PathBuf::from(format!("{}.part", target.display()));
+    let meta = PathBuf::from(format!("{}.part.url", target.display()));
+    (part, meta)
+}
+
+/// How many bytes of `url` are already downloaded. A marker naming the same URL and total size
+/// is what makes the leftover safe to continue; anything else is dropped.
+fn resumable_bytes(part: &Path, meta: &Path, url: &str) -> u64 {
+    let Ok(marker) = fs::read_to_string(meta) else {
+        return 0;
+    };
+    let mut lines = marker.lines();
+    if lines.next() != Some(url) {
+        let _ = fs::remove_file(part);
+        let _ = fs::remove_file(meta);
+        return 0;
+    }
+    let total: u64 = lines.next().and_then(|v| v.parse().ok()).unwrap_or(0);
+    let have = fs::metadata(part).map(|m| m.len()).unwrap_or(0);
+    // A part that already claims to be complete is not trustworthy: start over.
+    if total == 0 || have == 0 || have >= total {
+        let _ = fs::remove_file(part);
+        let _ = fs::remove_file(meta);
+        return 0;
+    }
+    have
+}
+
+/// The full size a `206 Partial Content` reply says the file has.
+fn range_total(header: Option<&str>) -> Option<u64> {
+    header?.rsplit('/').next()?.trim().parse().ok()
+}
+
 /// Download a file without imposing a total-duration limit. Each configured source is retried
-/// once for transient connection/read failures, then the next source is tried. Partial files are
-/// always removed after cancellation or a final failure.
+/// once for transient connection/read failures, then the next source is tried. An interrupted
+/// or cancelled download keeps its `.part` file, so the next attempt asks the server to carry
+/// on from where it stopped (servers that ignore `Range` simply start again).
 pub(crate) fn download_file_candidates_with_agent<F>(
     agent: &ureq::Agent,
     candidates: &[String],
@@ -1219,20 +1256,28 @@ where
 {
     let mut last_error = String::new();
     let _ = fs::remove_file(target);
+    let (part, meta) = part_paths(target);
 
     for (source_index, url) in candidates.iter().enumerate() {
         let host = host_of(url);
         for attempt in 1..=DOWNLOAD_ATTEMPTS_PER_SOURCE {
             if op_cancelled() {
-                let _ = fs::remove_file(target);
                 return Err("下载已取消".into());
             }
 
-            progress(format!(
-                "正在连接 {host}（源 {}/{}, 第 {attempt} 次）…",
-                source_index + 1,
-                candidates.len()
-            ));
+            let resume_from = resumable_bytes(&part, &meta, url);
+            progress(if resume_from > 0 {
+                format!(
+                    "正在连接 {host}，从已下载的 {:.1} MB 继续…",
+                    resume_from as f64 / 1_048_576.0
+                )
+            } else {
+                format!(
+                    "正在连接 {host}（源 {}/{}, 第 {attempt} 次）…",
+                    source_index + 1,
+                    candidates.len()
+                )
+            });
             log::debug!(
                 target: "stacker::download",
                 "request start host={host} source_index={} attempt={attempt} target={}",
@@ -1240,12 +1285,14 @@ where
                 target.display()
             );
 
-            let response = match agent
+            let mut request = agent
                 .get(url)
                 .set("User-Agent", "Stacker")
-                .set("Accept", "application/octet-stream")
-                .call()
-            {
+                .set("Accept", "application/octet-stream");
+            if resume_from > 0 {
+                request = request.set("Range", &format!("bytes={resume_from}-"));
+            }
+            let response = match request.call() {
                 Ok(response) => response,
                 Err(error) => {
                     let retryable = retryable_request_error(&error);
@@ -1263,26 +1310,45 @@ where
                 }
             };
 
-            let total = response
+            // 206 means the server continues the earlier download; anything else starts over.
+            let continuing = response.status() == 206 && resume_from > 0;
+            let length = response
                 .header("Content-Length")
                 .and_then(|value| value.parse::<u64>().ok())
                 .unwrap_or(0);
+            let total = if continuing {
+                range_total(response.header("Content-Range"))
+                    .unwrap_or_else(|| resume_from + length)
+            } else {
+                length
+            };
+            let already = if continuing { resume_from } else { 0 };
+            if total > 0 {
+                let _ = fs::write(&meta, format!("{url}\n{total}\n"));
+            }
             let mut reader = response.into_reader();
-            let mut output = match fs::File::create(target) {
+            let mut output = match fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .append(continuing)
+                .truncate(!continuing)
+                .open(&part)
+            {
                 Ok(file) => file,
                 Err(error) => return Err(format!("无法创建下载临时文件：{error}")),
             };
             let mut buffer = vec![0u8; 64 * 1024];
-            let mut received = 0u64;
-            let mut last_reported_bytes = 0u64;
+            let mut received = already;
+            let mut last_reported_bytes = already;
             let mut last_reported_at = Instant::now();
             let started_at = Instant::now();
             let mut transfer_error = None;
 
             loop {
                 if op_cancelled() {
+                    let _ = output.flush();
                     drop(output);
-                    let _ = fs::remove_file(target);
+                    // The part file stays: the next run continues from here.
                     return Err("下载已取消".into());
                 }
                 let count = match reader.read(&mut buffer) {
@@ -1297,7 +1363,6 @@ where
                 }
                 if let Err(error) = output.write_all(&buffer[..count]) {
                     drop(output);
-                    let _ = fs::remove_file(target);
                     return Err(format!("写入下载文件失败：{error}"));
                 }
                 received += count as u64;
@@ -1307,16 +1372,19 @@ where
                     last_reported_bytes = received;
                     last_reported_at = Instant::now();
                     let elapsed = started_at.elapsed().as_secs();
+                    let speed = (received - already) as f64
+                        / started_at.elapsed().as_secs_f64().max(0.001)
+                        / 1_048_576.0;
                     let message = if total > 0 {
                         format!(
-                            "正在下载 {:.0}% · {:.1}/{:.1} MB · 已 {elapsed}s",
+                            "正在下载 {:.0}% · {:.1}/{:.1} MB · {speed:.1} MB/s · 已 {elapsed}s",
                             received as f64 * 100.0 / total as f64,
                             received as f64 / 1_048_576.0,
                             total as f64 / 1_048_576.0
                         )
                     } else {
                         format!(
-                            "正在下载 {:.1} MB · 已 {elapsed}s",
+                            "正在下载 {:.1} MB · {speed:.1} MB/s · 已 {elapsed}s",
                             received as f64 / 1_048_576.0
                         )
                     };
@@ -1326,7 +1394,6 @@ where
 
             if let Err(error) = output.flush() {
                 drop(output);
-                let _ = fs::remove_file(target);
                 return Err(format!("保存下载文件失败：{error}"));
             }
             drop(output);
@@ -1342,7 +1409,12 @@ where
 
             if let Some(error) = transfer_error {
                 last_error = error;
-                let _ = fs::remove_file(target);
+                // An incomplete part is what the next attempt continues from; a file that is
+                // simply too small is junk.
+                if received < minimum_size {
+                    let _ = fs::remove_file(&part);
+                    let _ = fs::remove_file(&meta);
+                }
                 log::warn!(
                     target: "stacker::download",
                     "transfer failed host={host} attempt={attempt} received_bytes={received} error={last_error}"
@@ -1355,6 +1427,12 @@ where
                 break;
             }
 
+            if let Err(error) = fs::rename(&part, target) {
+                let _ = fs::remove_file(&part);
+                let _ = fs::remove_file(&meta);
+                return Err(format!("保存下载文件失败：{error}"));
+            }
+            let _ = fs::remove_file(&meta);
             progress(format!(
                 "下载完成 · {:.1} MB",
                 received as f64 / 1_048_576.0

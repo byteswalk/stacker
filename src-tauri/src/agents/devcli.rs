@@ -18,6 +18,7 @@ pub(crate) fn run(args: &[String]) -> Option<i32> {
         ["update-desktop", id] => desktop(id, super::install::update_desktop_tool),
         ["winget", args @ ..] => winget(args),
         ["check-installer", id] => check_installer(id),
+        ["download-installer", id] => download_installer(id),
         ["python-remove", paths @ ..] => {
             let paths: Vec<String> = paths.iter().map(|p| p.to_string()).collect();
             let results =
@@ -98,6 +99,43 @@ fn winget(args: &[&str]) -> i32 {
         }
         Err(err) => {
             eprintln!("{err}");
+            1
+        }
+    }
+}
+
+/// Downloads the installer and stops: enough to watch a resumed download without installing.
+fn download_installer(id: &str) -> i32 {
+    use super::install::direct::*;
+    let Some(spec) = spec_by_id(id) else {
+        eprintln!("no such product: {id}");
+        return 2;
+    };
+    let Some(installer) = super::registry::direct_desktop_installer(spec.vendor, spec.edition)
+    else {
+        eprintln!("{id}: no direct installer");
+        return 1;
+    };
+    let resolved = match resolve_installer(installer) {
+        Ok(resolved) => resolved,
+        Err(err) => {
+            eprintln!("{id}: resolve failed: {err}");
+            return 1;
+        }
+    };
+    let context = crate::installer::TaskContext {
+        cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        log: std::sync::Arc::new(|line: &str| eprintln!("  | {line}")),
+    };
+    match crate::installer::with_task_context(context, || {
+        download_desktop_installer(&spec, &resolved, &None)
+    }) {
+        Ok(path) => {
+            println!("{id}: downloaded to {}", path.display());
+            0
+        }
+        Err(err) => {
+            eprintln!("{id}: download failed: {err}");
             1
         }
     }
