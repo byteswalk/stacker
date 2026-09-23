@@ -26,7 +26,10 @@ pub(crate) fn run(args: &[String]) -> Option<i32> {
             0
         }
         ["venv-inspect", path] => {
-            println!("{:#?}", crate::python_venv::inspect(std::path::Path::new(path)));
+            println!(
+                "{:#?}",
+                crate::python_venv::inspect(std::path::Path::new(path))
+            );
             0
         }
         ["venv-rebuild", dir, python, keep] => {
