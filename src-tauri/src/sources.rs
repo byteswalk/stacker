@@ -84,7 +84,6 @@ pub fn tools_builtin_ids() -> Vec<&'static str> {
         "maven",
         "gradle",
         "cargo",
-        "huggingface",
     ]
 }
 
@@ -589,27 +588,6 @@ pub fn hardcoded() -> Vec<Tool> {
             ],
         ),
         mk(
-            "huggingface",
-            "Hugging Face 模型下载",
-            "hf",
-            "hf_env",
-            "",
-            vec![
-                m(
-                    "official",
-                    "官方 huggingface.co",
-                    "https://huggingface.co",
-                    "huggingface.co",
-                ),
-                m(
-                    "hf-mirror",
-                    "hf-mirror.com（社区镜像）",
-                    "https://hf-mirror.com",
-                    "hf-mirror.com",
-                ),
-            ],
-        ),
-        mk(
             "go",
             "Go (GOPROXY)",
             "go",
@@ -822,7 +800,6 @@ fn config_display(handler: &str) -> String {
         "composer_config" => composer_path().to_string_lossy().into(),
         "yarnrc" => yarnrc_path().to_string_lossy().into(),
         "go_env" => "环境变量 GOPROXY".into(),
-        "hf_env" => "环境变量 HF_ENDPOINT".into(),
         "cargo_config" => cargo_path().to_string_lossy().into(),
         "maven_settings" => maven_path().to_string_lossy().into(),
         "gradle_init" => gradle_path().to_string_lossy().into(),
@@ -1260,16 +1237,6 @@ pub fn detect(tool: &Tool) -> Option<String> {
                 .unwrap_or_default();
             match_url(tool, &cur)
         }
-        "hf_env" => {
-            let cur = winenv::get_user_raw("HF_ENDPOINT")
-                .or_else(|| winenv::get_raw_in(winenv::Hive::System, "HF_ENDPOINT"))
-                .unwrap_or_default();
-            if cur.trim().is_empty() {
-                Some("official".into())
-            } else {
-                match_url(tool, &cur)
-            }
-        }
         "cargo_config" => managed_detect_contains(tool, &cargo_path(), false),
         "maven_settings" => managed_detect_contains(tool, &maven_path(), false),
         "gradle_init" => managed_detect_contains(tool, &gradle_path(), false),
@@ -1412,17 +1379,6 @@ pub fn apply(tool: &Tool, mirror: &Mirror) -> Result<(), String> {
             backup::backup_env(winenv::Hive::User, "go-source", &["GOPROXY"]);
             winenv::set_user("GOPROXY", &mirror.url)
         }
-        "hf_env" => {
-            backup::backup_env(winenv::Hive::User, "hf-source", &["HF_ENDPOINT"]);
-            // The official endpoint is the default, so it is written as no variable at all.
-            let result = if mirror.id == "official" {
-                winenv::remove_user("HF_ENDPOINT")
-            } else {
-                winenv::set_user("HF_ENDPOINT", mirror.url.trim_end_matches('/'))
-            };
-            winenv::broadcast_change();
-            result
-        }
         "cargo_config" => managed_apply(cargo_path(), mirror, cargo_template),
         "maven_settings" => maven_apply(maven_path(), mirror, None, false),
         "gradle_init" => gradle_apply(gradle_path(), mirror, None, false),
@@ -1461,8 +1417,7 @@ pub fn list_sources() -> Vec<ToolState> {
                 .map(|m| m.name.clone())
                 .unwrap_or_else(|| "未识别".into());
             ToolState {
-                installed: matches!(t.handler.as_str(), "runtime_download" | "hf_env")
-                    || cmd_on_path(&t.probe),
+                installed: t.handler == "runtime_download" || cmd_on_path(&t.probe),
                 config: config_display(&t.handler),
                 current,
                 current_label,

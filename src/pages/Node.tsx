@@ -7,6 +7,7 @@ import { StorageLocations } from "../StorageLocations";
 import { TerminalBar } from "../TerminalBar";
 import { Select } from "../Select";
 import { summaryLine } from "../EcoActions";
+import { BinaryMirrors, type BinaryMirrorState } from "../features/sources/BinaryMirrors";
 import { useNotifications } from "../notifications";
 
 type NodeVer = { version: string; is_default: boolean; path: string };
@@ -17,21 +18,6 @@ type ToolState = { id: string; name: string; mirrors: Mirror[] };
 type NodeSourcePing = { id: string; name: string; ms: number | null };
 type DriveInfo = { letter: string; fixed: boolean };
 type ScannedRuntime = { version: string; path: string; origin?: string; current: boolean };
-type BinaryMirrorVar = { name: string; value: string; current: string | null; scope: string | null; matched: boolean };
-type BinaryMirrorState = {
-  id: string;
-  name: string;
-  source_name: string;
-  icon: string;
-  description: string;
-  enabled: boolean;
-  configured: boolean;
-  user_configured: boolean;
-  system_configured: boolean;
-  status_label: string;
-  vars: BinaryMirrorVar[];
-};
-type HostPing = { host: string; ms: number | null };
 
 const NODE_RUNTIME_TOOL_ID = "node-runtime";
 const NODE_SOURCE_KEY = "stacker.node.downloadSource";
@@ -40,13 +26,6 @@ const NODE_FILTER_KEYS = {
   latestOnly: "stacker.node.install.latestOnly",
 };
 const FALLBACK_NODE_SOURCES: Mirror[] = [{ id: "official", name: "官方", url: "https://nodejs.org/dist", host: "nodejs.org" }];
-const BINARY_OFFICIAL_HOSTS: Record<string, string> = {
-  electron: "github.com",
-  browser: "playwright.azureedge.net",
-  cypress: "download.cypress.io",
-  native: "github.com",
-  huggingface: "huggingface.co",
-};
 function initialNodeSource() {
   const saved = typeof localStorage !== "undefined" ? localStorage.getItem(NODE_SOURCE_KEY) : null;
   return saved || "official";
@@ -92,8 +71,6 @@ export default function Node() {
   const [uninstall, setUninstall] = useState<string | null>(null);
   const [srcRefresh, setSrcRefresh] = useState(0);
   const [binaryMirrors, setBinaryMirrors] = useState<BinaryMirrorState[]>([]);
-  const [binaryPending, setBinaryPending] = useState<Record<string, string>>({});
-  const [binaryPings, setBinaryPings] = useState<Record<string, number | null>>({});
   const [scannedRuntimes, setScannedRuntimes] = useState<ScannedRuntime[] | null>(null);
   const [excludeToolBundled, setExcludeToolBundled] = useState(true);
 
@@ -107,22 +84,8 @@ export default function Node() {
     return [...best.values()].sort((a, b) => cmp(b, a));
   }
 
-  const refreshBinaryMirrors = useCallback(() => {
-    invoke<BinaryMirrorState[]>("binary_mirror_status").then((rows) => {
-      setBinaryMirrors(rows);
-      setBinaryPending((current) => {
-        const next = { ...current };
-        rows.forEach((row) => {
-          if (!(row.id in next)) next[row.id] = row.enabled ? "recommended" : row.configured ? "custom" : "official";
-        });
-        return next;
-      });
-    }).catch(() => {});
-  }, []);
-
   const load = useCallback(async () => {
     setSt(await invoke<FnmStatus>("fnm_status"));
-    refreshBinaryMirrors();
     invoke<Shells>("shells_available").then(setAvail).catch(() => {});
     invoke<Record<string, boolean>>("env_system_info").then((m) => {
       const hasSystemNode = !!m.node;
@@ -148,7 +111,7 @@ export default function Node() {
       setPendingDownloadSource((cur) => mirrors.some((m) => m.id === cur) ? cur : (mirrors.find((m) => m.id === "official")?.id ?? mirrors[0]?.id ?? "official"));
     }).catch(() => {});
     setSrcRefresh((n) => n + 1);
-  }, [refreshBinaryMirrors, toast]);
+  }, [toast]);
   useEffect(() => { read("正在读取 Node 状态", load).catch(() => setLoadErr(true)); }, [load, read]);
 
   function sourceName(id: string) {
@@ -321,87 +284,6 @@ export default function Node() {
       } else { toast(`Node 版本管理工具已是最新版本（v${u.current}）`, "ok"); }
     } catch (e) { toast(operationWasCancelled(e) ? "已取消更新 Node 版本管理工具" : "检查 fnm 更新失败。请稍后重试。原因：" + e, operationWasCancelled(e) ? "info" : "err"); }
   }
-  async function applyBinaryMirror(row: BinaryMirrorState) {
-    const key = `binary:${row.id}`;
-    const selected = binaryPending[row.id] ?? (row.enabled ? "recommended" : "official");
-    if (selected === "custom") return toast("当前为外部自定义配置，请选择官方默认或推荐镜像后再应用。", "info");
-    setBusy(key);
-    try {
-      const useRecommended = selected === "recommended";
-      const next = await runBusy({
-        title: `应用 ${row.name} 下载源`,
-        message: useRecommended
-          ? "正在写入当前用户环境变量；新打开的终端和安装命令会读取推荐镜像。"
-          : "正在清除当前用户镜像变量；新打开的终端将恢复工具官方默认地址。",
-      }, () => invoke<BinaryMirrorState>(useRecommended ? "binary_mirror_apply" : "binary_mirror_clear", { id: row.id }));
-      setBinaryMirrors((current) => current.map((item) => item.id === next.id ? next : item));
-      setBinaryPending((current) => ({ ...current, [row.id]: useRecommended ? "recommended" : "official" }));
-      toast(`${row.name} 已切换到${useRecommended ? `${next.source_name} 镜像` : "官方默认地址"}，新终端生效`, "ok");
-    } catch (e) {
-      toast(`启用 ${row.name} 下载镜像失败。请稍后重试。原因：` + e, "err");
-    } finally {
-      setBusy("");
-    }
-  }
-  async function speedtestBinaryMirrors() {
-    const hosts = [...new Set(binaryMirrors.flatMap((row) => [
-      BINARY_OFFICIAL_HOSTS[row.id],
-      row.vars[0]?.value ? new URL(row.vars[0].value).hostname : "",
-    ]).filter(Boolean))];
-    try {
-      const rows = await runBusy({
-        title: "下载镜像测速",
-        message: "正在比较各下载场景的官方地址与推荐镜像；单个地址 1500ms 无响应算超时。",
-      }, () => invoke<HostPing[]>("speedtest_hosts", { hosts }));
-      const pingMap: Record<string, number | null> = {};
-      rows.forEach((row) => { pingMap[row.host] = row.ms; });
-      setBinaryPings(pingMap);
-      setBinaryPending((current) => {
-        const next = { ...current };
-        binaryMirrors.forEach((row) => {
-          const officialHost = BINARY_OFFICIAL_HOSTS[row.id];
-          const mirrorHost = row.vars[0]?.value ? new URL(row.vars[0].value).hostname : "";
-          const officialMs = pingMap[officialHost];
-          const mirrorMs = pingMap[mirrorHost];
-          if (typeof mirrorMs === "number" && (typeof officialMs !== "number" || mirrorMs < officialMs)) next[row.id] = "recommended";
-          else if (typeof officialMs === "number") next[row.id] = "official";
-        });
-        return next;
-      });
-      toast("测速完成，已为各下载场景预选响应更快的地址；点击“应用”后生效。", "ok");
-    } catch (e) {
-      toast("下载镜像测速失败：" + e, "err");
-    }
-  }
-  async function clearBinaryMirror(row: BinaryMirrorState) {
-    const key = `binary-clear:${row.id}`;
-    setBusy(key);
-    try {
-      const next = await runBusy({
-        title: `清除 ${row.name} 下载镜像`,
-        message: "正在清除当前用户环境变量；新打开的终端会恢复默认下载地址。",
-      }, () => invoke<BinaryMirrorState>("binary_mirror_clear", { id: row.id }));
-      setBinaryMirrors((current) => current.map((item) => item.id === next.id ? next : item));
-      if (next.system_configured) {
-        toast(`${row.name} 的用户配置已清除，但系统级环境变量仍在生效`, "info");
-      } else {
-        toast(`${row.name} 下载镜像已清除，已恢复工具默认地址（新终端生效）`, "ok");
-      }
-    } catch (e) {
-      toast(`清除 ${row.name} 下载镜像失败。请稍后重试。原因：` + e, "err");
-    } finally {
-      setBusy("");
-    }
-  }
-  function binaryBadge(row: BinaryMirrorState) {
-    if (row.enabled) return <span className="bd g">已配置</span>;
-    if (row.configured) return <span className="bd w">自定义</span>;
-    return <span className="bd n">默认</span>;
-  }
-  function binaryTitle(row: BinaryMirrorState) {
-    return row.vars.map((v) => `${v.name} = ${v.current ?? "未设置"}${v.scope ? `（${v.scope}）` : ""}\n内置推荐：${v.value}`).join("\n\n");
-  }
-
   if (loadErr) return <ErrorState title="暂时无法读取 Node 环境" description="请确认 fnm 与 Node 安装目录可访问，然后重试。" onRetry={async () => { await load(); setLoadErr(false); }} />;
   const stLoading = !st;
   const stState: FnmStatus = st ?? {
@@ -437,7 +319,7 @@ export default function Node() {
     summaryLine("已安装版本", stState.versions.map((v) => v.version).join(", ") || "无"),
     summaryLine("Node 下载源", sourceName(downloadSource)),
     summaryLine("包管理器镜像", "见本页 npm / yarn 配置"),
-    summaryLine("大文件下载镜像", binaryMirrors.map((m) => `${m.name}：${m.status_label}`).join("；") || "未检测"),
+    summaryLine("大文件下载镜像", binaryMirrors.filter((m) => m.id !== "huggingface").map((m) => `${m.name}：${m.status_label}`).join("；") || "未检测"),
     "",
     "## 给 AI 的使用说明",
     "- 安装依赖前，先执行 node -v 与 npm -v 确认当前终端使用的 Node 版本。",
@@ -557,39 +439,9 @@ export default function Node() {
       <SourcesPanel toolIds={["npm", "yarn"]} refresh={srcRefresh} />
 
       <div className="grouphd" style={{ marginTop: 18 }}>
-        <span className="gt"><i className="ti ti-cloud-download" /> 下载镜像 <span className="cnt">二进制 / 浏览器 / 模型</span></span>
+        <span className="gt"><i className="ti ti-cloud-download" /> 下载镜像 <span className="cnt">二进制 / 浏览器</span></span>
       </div>
-      <div className="srctoolbar">
-        <div className="mt">
-          <div className="s dim" title="每个下载场景可独立使用工具官方默认地址或源目录中的推荐镜像。测速只负责预选，点击“应用”后才会修改当前用户环境变量。">
-            各下载场景独立选源；测速后点击“应用”生效，新终端读取新配置。
-          </div>
-        </div>
-        <button className="gh sm" disabled={!!busy || !binaryMirrors.length} onClick={speedtestBinaryMirrors}><i className="ti ti-bolt" /> 测速</button>
-      </div>
-      {binaryMirrors.map((row) => (
-        <div className="srcrow" key={row.id}>
-          <span className="av npm"><i className={"ti " + row.icon} /></span>
-          <div className="mt">
-            <div className="t">{row.name} {binaryBadge(row)}</div>
-            <div className="s dim" title={binaryTitle(row)}>{row.description}</div>
-            <div className="s mono" title={binaryTitle(row)}>{row.vars[0]?.name}：{row.enabled ? `${row.source_name} 镜像` : row.configured ? `外部自定义配置 · ${row.vars[0]?.scope ?? "已生效"}` : "官方默认地址"}</div>
-          </div>
-          <Select value={binaryPending[row.id] ?? (row.enabled ? "recommended" : row.configured ? "custom" : "official")} width={210}
-            onChange={(value) => setBinaryPending((current) => ({ ...current, [row.id]: value }))}
-            options={[
-              { value: "official", label: `官方默认${typeof binaryPings[BINARY_OFFICIAL_HOSTS[row.id]] === "number" ? ` · ${binaryPings[BINARY_OFFICIAL_HOSTS[row.id]]}ms` : BINARY_OFFICIAL_HOSTS[row.id] in binaryPings ? " · 超时" : ""}` },
-              { value: "recommended", label: `${row.source_name} 镜像${(() => { const host = row.vars[0]?.value ? new URL(row.vars[0].value).hostname : ""; return typeof binaryPings[host] === "number" ? ` · ${binaryPings[host]}ms` : host in binaryPings ? " · 超时" : ""; })()}` },
-              ...(row.configured && !row.enabled ? [{ value: "custom", label: "外部自定义配置" }] : []),
-            ]} />
-          <button className="pr sm" disabled={!!busy} onClick={() => applyBinaryMirror(row)}>
-            <i className={"ti " + (busy === `binary:${row.id}` ? "ti-loader spin" : "ti-check")} /> 应用
-          </button>
-          <button className="gh sm" title={row.system_configured && !row.user_configured ? "当前仅有系统级配置，需以管理员权限在系统环境变量中清除" : "清除当前用户配置并恢复工具默认地址"} disabled={!!busy || !row.user_configured} onClick={() => clearBinaryMirror(row)}>
-            <i className={"ti " + (busy === `binary-clear:${row.id}` ? "ti-loader spin" : "ti-eraser")} /> 清除
-          </button>
-        </div>
-      ))}
+      <BinaryMirrors ids={["electron", "browser", "cypress", "native"]} onRows={setBinaryMirrors} />
 
       {defaultDlg && (
         <Modal wide title={`把默认切到 ${defaultDlg.version}`} icon="ti-brand-nodejs" onClose={() => !busy && setDefaultDlg(null)}

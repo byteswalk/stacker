@@ -27,16 +27,29 @@ fn agent() -> ureq::Agent {
 }
 
 fn get(url: &str) -> Result<(u16, String), String> {
-    let response = agent()
-        .get(url)
-        .set("User-Agent", "Stacker")
-        .call()
-        .map_err(|e| format!("查询最新版本失败：{e}"))?;
-    let status = response.status();
-    let body = response
-        .into_string()
-        .map_err(|e| format!("读取最新版本失败：{e}"))?;
-    Ok((status, body))
+    let mut last = String::new();
+    for attempt in 0..3 {
+        if attempt > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(600 * attempt));
+        }
+        match agent().get(url).set("User-Agent", "Stacker").call() {
+            Ok(response) => {
+                let status = response.status();
+                return match response.into_string() {
+                    Ok(body) => Ok((status, body)),
+                    Err(e) => Err(format!("读取最新版本失败：{e}")),
+                };
+            }
+            // A status reply is an answer, not a connection problem: do not retry it.
+            Err(ureq::Error::Status(status, _)) => {
+                return Err(format!("查询最新版本失败：服务返回 {status}"))
+            }
+            Err(e) => last = e.to_string(),
+        }
+    }
+    Err(format!(
+        "查询最新版本失败：连接中断（已重试 3 次）。这类中断多半是网络问题，挂上代理或稍后点「重试」通常就好。原因：{last}"
+    ))
 }
 
 fn arm64() -> bool {

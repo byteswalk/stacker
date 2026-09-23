@@ -25,6 +25,19 @@ pub(crate) fn run(args: &[String]) -> Option<i32> {
             println!("{results:#?}");
             0
         }
+        ["venv-inspect", path] => {
+            println!("{:#?}", crate::python_venv::inspect(std::path::Path::new(path)));
+            0
+        }
+        ["venv-rebuild", dir, python, keep] => {
+            let result = tauri::async_runtime::block_on(crate::python_venv::python_venv_rebuild(
+                dir.to_string(),
+                python.to_string(),
+                *keep == "keep",
+            ));
+            println!("{result:#?}");
+            i32::from(result.is_err())
+        }
         ["venv-create", project, python] => {
             let result = tauri::async_runtime::block_on(crate::python_venv::python_venv_create(
                 project.to_string(),

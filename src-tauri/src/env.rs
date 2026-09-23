@@ -454,7 +454,7 @@ pub fn list_drives() -> Vec<DriveInfo> {
 }
 
 // ── 扫描（jwalk 并行遍历 + 严格过滤）──
-fn is_noise(name: &str) -> bool {
+pub(crate) fn is_noise(name: &str) -> bool {
     let n = name.to_ascii_lowercase();
     matches!(
         n.as_str(),
@@ -494,10 +494,22 @@ fn python_home(py: &Path) -> Option<PathBuf> {
         return None;
     }
     let low = dir.to_string_lossy().to_lowercase();
-    if low.contains("windowsapps") || low.contains("\\node_modules\\") {
+    if low.contains("windowsapps") || low.contains("\\node_modules\\") || is_pyenv_managed(&low) {
         return None;
     }
     Some(dir.to_path_buf())
+}
+
+/// Versions pyenv-win installed: the Python page lists those separately.
+fn is_pyenv_managed(lower_dir: &str) -> bool {
+    let dir = lower_dir.replace('/', "\\");
+    crate::pyenv::pyenv_root_path()
+        .map(|root| {
+            let root = root.replace('/', "\\").to_lowercase();
+            dir.starts_with(root.trim_end_matches('\\'))
+        })
+        .unwrap_or(false)
+        || dir.contains("\\.pyenv\\")
 }
 fn node_home(node: &Path) -> Option<PathBuf> {
     let dir = node.parent()?;
