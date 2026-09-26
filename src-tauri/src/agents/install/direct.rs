@@ -309,6 +309,7 @@ fn run_installer_elevated(
     spec: &ToolSpec,
     path: &Path,
     args: &[&str],
+    log_path: &Path,
     window: &Option<tauri::Window>,
 ) -> Result<(), String> {
     use std::os::windows::ffi::OsStrExt;
@@ -373,7 +374,7 @@ fn run_installer_elevated(
                     let read = GetExitCodeProcess(info.hProcess, &mut code);
                     CloseHandle(info.hProcess);
                     return if read != 0 && code != 0 {
-                        Err(installer_failure(spec, code as i32))
+                        Err(installer_failure_logged(spec, code as i32, log_path))
                     } else {
                         Ok(())
                     };
@@ -401,6 +402,21 @@ fn run_installer_elevated(
     }
 }
 
+/// What a non-zero installer exit code most likely means, plus what its own log said.
+pub(crate) fn installer_failure_logged(spec: &ToolSpec, code: i32, log: &Path) -> String {
+    let detail = std::fs::read_to_string(log)
+        .ok()
+        .as_deref()
+        .and_then(inno_failure_detail);
+    match detail {
+        Some(detail) => format!(
+            "{} 安装未完成：{detail}。多半是 360 等安全软件拦截了安装程序，或该程序还在运行；请退出它、或在安全软件里放行后重试",
+            spec.desktop.name
+        ),
+        None => installer_failure(spec, code),
+    }
+}
+
 /// What a non-zero installer exit code most likely means.
 pub(crate) fn installer_failure(spec: &ToolSpec, code: i32) -> String {
     let hint = match code {
@@ -422,6 +438,45 @@ pub(crate) fn installer_failure(spec: &ToolSpec, code: i32) -> String {
     )
 }
 
+/// Inno Setup writes a detailed log when asked, and it is the only place that says which file
+/// could not be replaced. Its silent mode otherwise answers the error box with "abort" and
+/// exits with code 5, which on its own says nothing.
+pub(crate) fn inno_log_argument(args: &[&str], log: &Path) -> Option<String> {
+    let inno = args.iter().any(|a| {
+        let a = a.to_ascii_uppercase();
+        a == "/VERYSILENT" || a == "/SILENT"
+    });
+    inno.then(|| format!("/LOG={}", log.display()))
+}
+
+/// The line in an Inno log that says what actually went wrong.
+pub(crate) fn inno_failure_detail(log: &str) -> Option<String> {
+    // Every line starts with a timestamp, so each marker is looked for inside the line.
+    let blocked = log
+        .lines()
+        .rev()
+        .find_map(|line| line.split_once("Dest filename: "))
+        .map(|(_, file)| file.trim().to_string());
+    let reason = log
+        .lines()
+        .rev()
+        .find(|line| line.contains("MoveFile failed") || line.contains("appears to be in use"))
+        .map(|line| {
+            line.rsplit("   ")
+                .next()
+                .unwrap_or(line)
+                .trim()
+                .trim_end_matches('.')
+                .to_string()
+        })?;
+    let file = blocked.unwrap_or_default();
+    Some(if file.is_empty() {
+        reason.to_string()
+    } else {
+        format!("无法替换 {file}（{reason}）")
+    })
+}
+
 pub(crate) fn run_downloaded_desktop_installer(
     spec: &ToolSpec,
     installer: DirectDesktopInstaller,
@@ -429,10 +484,16 @@ pub(crate) fn run_downloaded_desktop_installer(
     path: &Path,
     window: &Option<tauri::Window>,
 ) -> Result<(), String> {
-    let args: Vec<&str> = match &resolved.silent_args {
+    let mut args: Vec<&str> = match &resolved.silent_args {
         Some(own) => own.iter().map(String::as_str).collect(),
         None => installer.silent_args.to_vec(),
     };
+    let log_path = std::env::temp_dir().join(format!("stacker-{}-setup.log", spec.id));
+    let _ = std::fs::remove_file(&log_path);
+    let log_argument = inno_log_argument(&args, &log_path);
+    if let Some(argument) = log_argument.as_deref() {
+        args.push(argument);
+    }
     if args.is_empty() {
         emit_progress(
             window,
@@ -455,7 +516,7 @@ pub(crate) fn run_downloaded_desktop_installer(
         // which only the shell can ask for. Qoder's system-wide updater is one of these.
         #[cfg(windows)]
         Err(e) if e.raw_os_error() == Some(740) => {
-            return run_installer_elevated(spec, path, &args, window)
+            return run_installer_elevated(spec, path, &args, &log_path, window)
         }
         Err(e) => return Err(format!("启动 {} 安装程序失败：{e}", spec.desktop.name)),
     };
@@ -470,7 +531,13 @@ pub(crate) fn run_downloaded_desktop_installer(
         }
         match child.try_wait() {
             Ok(Some(status)) if status.success() => return Ok(()),
-            Ok(Some(status)) => return Err(installer_failure(spec, status.code().unwrap_or(-1))),
+            Ok(Some(status)) => {
+                return Err(installer_failure_logged(
+                    spec,
+                    status.code().unwrap_or(-1),
+                    &log_path,
+                ))
+            }
             Ok(None) => {
                 let elapsed = started.elapsed().as_secs();
                 if elapsed >= 1200 {
@@ -498,6 +565,26 @@ pub(crate) fn run_downloaded_desktop_installer(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_inno_failure_names_the_file_it_could_not_replace() {
+        let args = ["/VERYSILENT", "/SUPPRESSMSGBOXES"];
+        assert_eq!(
+            inno_log_argument(&args, Path::new(r"C:\t\s.log")).as_deref(),
+            Some(r"/LOG=C:\t\s.log")
+        );
+        assert_eq!(inno_log_argument(&["/S"], Path::new(r"C:\t\s.log")), None);
+        let log = concat!(
+            "2026-09-26 10:14:25.109   Dest filename: D:\\AITools\\OpenClawTray\\OpenClaw.Tray.WinUI.exe\n",
+            "   MoveFile: The existing file appears to be in use (5). Retrying.\n",
+            "   MoveFile failed; code 5.\n",
+            "   User canceled the installation process.\n",
+        );
+        let detail = inno_failure_detail(log).unwrap();
+        assert!(detail.contains("OpenClaw.Tray.WinUI.exe"), "{detail}");
+        assert!(detail.contains("MoveFile failed"), "{detail}");
+        assert_eq!(inno_failure_detail("nothing to see here"), None);
+    }
 
     #[test]
     fn an_elevated_installer_gets_one_command_line() {
