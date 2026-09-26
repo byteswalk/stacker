@@ -1,4 +1,6 @@
-.a .session-catalog{display:flex;flex-direction:column;gap:12px;min-width:0;padding-bottom:56px}
+/* The action bar is sticky and sits in the flow, so it needs no reserved strip: extra
+   padding here left a dead band under the list, breaking the 15px page margin. */
+.a .session-catalog{display:flex;flex-direction:column;gap:12px;min-width:0}
 .a .session-heading,.a .session-actions,.a .session-filters,.a .session-bulk,.a .session-pagination{display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:wrap}
 .a .session-heading{justify-content:space-between}
 .a .session-actions{margin-left:auto}
@@ -81,7 +83,9 @@
 .a .session-project-name em{font-style:normal;font-weight:400;font-size:11px;color:#e6b450;margin-left:8px}
 .a .session-project-name small{color:var(--mut)}
 
-.a .session-sources{display:flex;flex-direction:column;gap:6px;max-width:760px}
+/* The settings tab fills the page like every other tab: a width cap here left a wide
+   empty column on the right, instead of the 15px page margin. */
+.a .session-sources{display:flex;flex-direction:column;gap:6px}
 .a .session-source{display:flex;flex-direction:column;gap:8px;padding:12px 0;border-bottom:1px solid var(--bd)}
 .a .session-source-head{display:flex;flex-direction:column;gap:3px}
 .a .session-source-head b{font-size:13px}
@@ -191,7 +195,6 @@
 .a .session-project{grid-template-columns:minmax(200px,1fr) 120px 60px 60px 80px 80px 70px;cursor:default}
 .a .session-project-name{background:none;border:0;padding:0;color:var(--tx);font:inherit;text-align:left;cursor:pointer}
 .a .session-project-name:hover b{color:var(--link)}
-.a .summary-settings{max-width:760px}
 
 .a .footprint-agent>header{flex-wrap:wrap;gap:6px 12px}
 .a .footprint-location{flex-basis:100%;display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px}
