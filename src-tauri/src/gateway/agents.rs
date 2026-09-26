@@ -81,6 +81,19 @@ pub fn agent_cards() -> Vec<AgentCard> {
     cards
 }
 
+/// Why an installed CLI has no API backend. The API service only drives agents that sign in
+/// with the vendor's own account, so the ones that need a pay-per-token key from an open
+/// platform say so instead of looking unfinished.
+fn not_wired(cli_id: &str) -> &'static str {
+    match cli_id {
+        "dsh" | "hermes" | "opencode" | "openclaw" | "pi" => {
+            "需要自备第三方 API key，接口服务只接入用厂商账号登录的智能体"
+        }
+        "traecli" => "官方仅向 TRAE 企业版旗舰套餐开放，暂不接入",
+        _ => "尚未验证能否在不留会话、不开放工具的前提下调用，暂未接入",
+    }
+}
+
 fn card_for(config: &GatewayConfig, cli_id: &str, tool: &crate::agents::VibeTool) -> AgentCard {
     let backend = backends::get(cli_id);
     let installed = tool.cli.installed;
@@ -100,9 +113,7 @@ fn card_for(config: &GatewayConfig, cli_id: &str, tool: &crate::agents::VibeTool
     };
     match (backend, installed) {
         (_, false) => card.reason = "未安装".into(),
-        (None, true) => {
-            card.reason = "尚未验证能否在不留会话、不开放工具的前提下调用，暂未接入".into()
-        }
+        (None, true) => card.reason = not_wired(cli_id).into(),
         (Some(b), true) => {
             let login = (b.login)();
             if login.state == "logged_out" {

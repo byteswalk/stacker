@@ -400,6 +400,26 @@ pub(crate) static CLIS: &[CliSpec] = &[
         docs_url: "https://docs.qoder.com/en/cli/quick-start",
     },
     CliSpec {
+        id: "qodercn",
+        name: "Qoder CLI 中国版",
+        description: "命令名 qodercn，中国版 Qoder 的命令行，账号与模型清单和国际版不通用。",
+        command: "qodercn",
+        candidates: &[
+            "qodercn.exe",
+            "qodercn.cmd",
+            "qodercn.bat",
+            "qodercn.ps1",
+            "qoderclicn.exe",
+            "qoderclicn.cmd",
+            "qoderclicn.bat",
+            "qoderclicn.ps1",
+        ],
+        npm_package: Some("@qodercn-ai/qoderclicn"),
+        winget_id: None,
+        install_url: "https://help.aliyun.com/zh/lingma/qodercli-cn/user-guide/qoder-cli-cn-get-started-quickly",
+        docs_url: "https://help.aliyun.com/zh/lingma/qodercli-cn/user-guide/using-the-cli",
+    },
+    CliSpec {
         id: "traecli",
         name: "TRAE CLI",
         description: "命令名 traecli，可在终端中运行 TRAE 智能体、处理项目任务并管理开发工作流。",
@@ -796,8 +816,8 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
         description: "Qoder 中国版，以编程智能体为核心的新版桌面应用与终端智能体。",
         icon: "qoder.svg",
         docs_url: "https://qoder.com.cn/",
-        cli: CliSlot::Shared("qoder"),
-        cli_note: Some("与国际版使用同一个 qoder 命令（npm 包 @qoder-ai/qodercli）。"),
+        cli: CliSlot::Shared("qodercn"),
+        cli_note: Some("中国版自带命令 qodercn（npm 包 @qodercn-ai/qoderclicn），和国际版的 qoder 是两个程序。"),
         desktop: DesktopSlot::App(DesktopSpec {
             name: "Qoder 桌面端（中国版）",
             description: "以编程智能体为核心的新版 Qoder Windows 桌面应用。",
@@ -1353,9 +1373,12 @@ mod tests {
     fn qoder_editions_track_the_new_desktop_line_and_reject_the_ide() {
         let global = spec_by_id("qoder").unwrap();
         let cn = spec_by_id("qoder-cn").unwrap();
-        // Both editions detect and update the same npm-installed `qoder` command.
+        // Each edition ships its own CLI package: qoder for the global one, qodercn for China.
         assert_eq!(global.cli_id, Some("qoder"));
-        assert_eq!(cn.cli_id, Some("qoder"));
+        assert_eq!(cn.cli_id, Some("qodercn"));
+        let cn_cli = cli_by_id("qodercn").unwrap();
+        assert_eq!(cn_cli.command, "qodercn");
+        assert_eq!(cn_cli.npm_package, Some("@qodercn-ai/qoderclicn"));
         assert!(desktop_matches(&global.desktop, "Qoder 0.2.5"));
         assert!(!desktop_matches(&global.desktop, "Qoder CN 0.2.5"));
         assert!(desktop_matches(&cn.desktop, "Qoder CN 0.2.5"));

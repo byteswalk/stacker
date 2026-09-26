@@ -315,8 +315,9 @@ mod tests {
             ("codebuddy", None, Some("low")),
             ("qoder", None, Some("low")),
             ("agy", None, Some("low")),
-            ("dsh", None, Some("off")),
-            ("hermes", None, None),
+            ("qodercn", None, Some("low")),
+            ("kimi", None, None),
+            ("mimo", None, Some("high")),
         ] {
             let req = RunRequest {
                 backend: backend.into(),

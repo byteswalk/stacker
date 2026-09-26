@@ -57,6 +57,20 @@ pub(crate) fn run(args: &[String]) -> Option<i32> {
             println!("{result:#?}");
             i32::from(result.is_err())
         }
+        ["gateway-cards"] => {
+            for card in crate::gateway::agents::agent_cards() {
+                println!(
+                    "{:10} installed={:5} supported={:5} login={:?} models={} {}",
+                    card.id,
+                    card.installed,
+                    card.supported,
+                    card.login.as_ref().map(|l| l.state.clone()),
+                    card.models.len(),
+                    card.reason
+                );
+            }
+            0
+        }
         ["python-report"] => {
             println!("{:#?}", crate::python_env::report());
             0

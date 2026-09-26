@@ -11,6 +11,9 @@ use std::time::{Duration, Instant};
 
 const CODEBUDDY: &[&str] = &["codebuddy.exe", "codebuddy.cmd", "codebuddy.bat"];
 const QODER: &[&str] = &["qodercli.exe", "qodercli.cmd", "qodercli.bat"];
+/// Qoder's China edition is a separate npm package (`@qodercn-ai/qoderclicn`) with its own
+/// command and its own account; the arguments and output are the same.
+const QODER_CN: &[&str] = &["qoderclicn.exe", "qoderclicn.cmd", "qoderclicn.bat"];
 const CODEBUDDY_EFFORTS: &[&str] = &["minimal", "low", "medium", "high", "xhigh", "max"];
 /// `auto`, `none` and `ultracode` are left out: they are not plain reasoning levels.
 const QODER_EFFORTS: &[&str] = &["low", "medium", "high", "xhigh", "max"];
@@ -234,8 +237,16 @@ fn qoder_settings() -> Result<tempfile::NamedTempFile, String> {
 }
 
 pub fn run_qoder(c: &Ctx) -> Result<String, String> {
+    run_qoder_with(QODER, c)
+}
+
+pub fn run_qoder_cn(c: &Ctx) -> Result<String, String> {
+    run_qoder_with(QODER_CN, c)
+}
+
+fn run_qoder_with(candidates: &[&str], c: &Ctx) -> Result<String, String> {
     let settings = qoder_settings()?;
-    let mut cmd = command(QODER)?;
+    let mut cmd = command(candidates)?;
     cmd.args(qoder_args(settings.path(), c.model, c.effort));
     let run = run_program(cmd, c.prompt, c.tmp, c.timeout, c.cancel);
     remove_qoder_log(c.tmp);
@@ -304,7 +315,15 @@ pub fn parse_qoder_login(text: &str) -> LoginStatus {
 }
 
 pub fn qoder_login() -> LoginStatus {
-    let (Ok(mut cmd), Some(tmp)) = (command(QODER), scratch()) else {
+    qoder_login_with(QODER)
+}
+
+pub fn qoder_cn_login() -> LoginStatus {
+    qoder_login_with(QODER_CN)
+}
+
+fn qoder_login_with(candidates: &[&str]) -> LoginStatus {
+    let (Ok(mut cmd), Some(tmp)) = (command(candidates), scratch()) else {
         return parse_qoder_login("");
     };
     cmd.args(["status", "-o", "json"]);
@@ -333,10 +352,23 @@ pub fn parse_qoder_models(stdout: &str) -> Vec<String> {
 }
 
 static QODER_MODELS: Mutex<Option<(Instant, Vec<ModelOption>)>> = Mutex::new(None);
+static QODER_CN_MODELS: Mutex<Option<(Instant, Vec<ModelOption>)>> = Mutex::new(None);
 
 pub fn qoder_models() -> Vec<ModelOption> {
-    cached(&QODER_MODELS, || {
-        let (Ok(mut cmd), Some(tmp)) = (command(QODER), scratch()) else {
+    qoder_models_with(&QODER_MODELS, QODER)
+}
+
+/// The two editions list different models, so each keeps its own cache.
+pub fn qoder_cn_models() -> Vec<ModelOption> {
+    qoder_models_with(&QODER_CN_MODELS, QODER_CN)
+}
+
+fn qoder_models_with(
+    cache: &'static Mutex<Option<(Instant, Vec<ModelOption>)>>,
+    candidates: &'static [&'static str],
+) -> Vec<ModelOption> {
+    cached(cache, || {
+        let (Ok(mut cmd), Some(tmp)) = (command(candidates), scratch()) else {
             return Vec::new();
         };
         cmd.arg("--list-models");

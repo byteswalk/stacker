@@ -1,5 +1,5 @@
-//! Antigravity (agy), DeepSeek Harness (dsh) and Hermes: CLIs that take the prompt as an
-//! argument instead of on stdin, each made tool-less and session-free its own way.
+//! Antigravity (agy), Kimi Code and MiMo Code: CLIs that take the prompt as an argument
+//! instead of on stdin, each made tool-less and session-free its own way.
 use super::backends::Ctx;
 use super::login::LoginStatus;
 use super::options::ModelOption;
@@ -205,286 +205,320 @@ pub fn agy_efforts() -> Vec<String> {
     strings(AGY_EFFORTS)
 }
 
-// ---- DeepSeek Harness ------------------------------------------------------------------
+// ---- Kimi Code ---------------------------------------------------------------------------
 
-const DSH_MODELS: &[&str] = &["deepseek-v4-flash", "deepseek-v4-pro"];
-const DSH_EFFORTS: &[&str] = &["off", "low", "high", "max"];
-/// Plugins that give the headless profile tools, a titling call, telemetry or project rules.
-const DSH_DISABLED: &[&str] = &[
-    "tool-pwsh",
-    "tool-bash",
-    "tool-jobs",
-    "tool-fs",
-    "tool-fs-search",
-    "tool-skill",
-    "tool-subagent-control",
-    "tool-subagent-list-agents",
-    "tool-subagent",
-    "tool-subagent-fork",
-    "tool-workflow",
-    "tool-todo",
-    "tool-goal",
-    "tool-ralph",
-    "tool-web",
-    "session-title-llm",
-    "session-telemetry-otel",
-    "agent-instructions",
-    "plan-mode",
-    "user-questions",
-];
+/// An agent definition with no tools: the gateway answers questions, it does not touch the
+/// user's machine.
+const KIMI_AGENT: &str = "---\nname: stacker-answer\ndescription: Answer without tools.\ntools: []\n---\nAnswer the question directly. Never use tools.\n";
 
-fn yaml_path(path: &Path) -> String {
-    format!("\"{}\"", path.to_string_lossy().replace('\\', "/"))
-}
-
-/// The `--patch` overlay: tool plugins off, sessions and settings inside the scratch folder.
-pub fn dsh_patch(scratch: &Path) -> String {
-    let mut out = String::new();
-    for id in DSH_DISABLED {
-        out.push_str(&format!("- id: {id}\n  disabled: true\n"));
-    }
-    for (id, key, path) in [
-        (
-            "session-persistence-jsonl",
-            "root",
-            scratch.join("sessions"),
-        ),
-        ("storage-json", "root", scratch.join("storages")),
-        ("settings", "path", scratch.join("settings.yaml")),
-    ] {
-        out.push_str(&format!(
-            "- id: {id}\n  config:\n    {key}: {}\n",
-            yaml_path(&path)
-        ));
-    }
-    out
-}
-
-pub fn dsh_settings(model: Option<&str>, effort: Option<&str>) -> String {
-    let model = model.unwrap_or(DSH_MODELS[0]);
-    let mut out = format!(
-        "agent-default-model:\n  provider: deepseek-official\n  model: \"{}\"\n",
-        model.replace('"', "")
-    );
-    if let Some(effort) = effort {
-        out.push_str(&format!(
-            "  reasoningEffort: \"{}\"\n",
-            effort.replace('"', "")
-        ));
-    }
-    out
-}
-
-/// npm installs dsh as a `.cmd` shim, and cmd.exe cannot carry a multi-line prompt safely,
-/// so its script is started with node directly.
-fn dsh_command() -> Result<Command, String> {
-    let shim = crate::agents::process::resolve_command(&["dsh.cmd"]).ok_or("E_RUNNER_MISSING")?;
-    let dir = shim.parent().ok_or("E_RUNNER_MISSING")?;
-    let script = dir
-        .join("node_modules")
-        .join("@deepseek-ai")
-        .join("dsh")
-        .join("lib")
-        .join("bin.js");
-    if !script.is_file() {
-        return Err("E_RUNNER_MISSING".into());
-    }
-    let node = Some(dir.join("node.exe"))
-        .filter(|p| p.is_file())
-        .or_else(|| crate::agents::process::resolve_command(&["node.exe"]))
-        .ok_or("E_RUNNER_MISSING")?;
-    let mut cmd = Command::new(node);
-    cmd.arg(script).env("DSH_TELEMETRY_DISABLED", "1");
-    Ok(cmd)
-}
-
-pub fn run_dsh(c: &Ctx) -> Result<String, String> {
-    check_prompt(c.prompt)?;
-    let work = scratch()?;
-    let patch = work.path().join("patch.yml");
-    std::fs::write(&patch, dsh_patch(work.path())).map_err(|_| "E_STORAGE".to_string())?;
-    std::fs::write(
-        work.path().join("settings.yaml"),
-        dsh_settings(c.model, c.effort),
-    )
-    .map_err(|_| "E_STORAGE".to_string())?;
-    let mut cmd = dsh_command()?;
-    cmd.args(["--profile", "headless", "--patch"]).arg(&patch);
-    // A prompt starting with `-` would be read as an option.
-    cmd.arg(if c.prompt.starts_with('-') {
-        format!(" {}", c.prompt)
-    } else {
-        c.prompt.to_string()
-    });
-    let (status, stdout, stderr) = run_program(cmd, "", c.tmp, c.timeout, c.cancel)?;
-    if !status.success() || stdout.trim().is_empty() {
-        return Err(failure(&stdout, &stderr));
-    }
-    Ok(stdout)
-}
-
-/// dsh keeps its key with its credentials, which Stacker does not read; a test run tells.
-pub fn dsh_login() -> LoginStatus {
-    status("unknown", "")
-}
-
-pub fn dsh_models() -> Vec<ModelOption> {
-    DSH_MODELS
-        .iter()
-        .map(|m| ModelOption {
-            id: m.to_string(),
-            label: m.to_string(),
-            efforts: strings(DSH_EFFORTS),
-            default_effort: None,
-        })
-        .collect()
-}
-
-pub fn dsh_efforts() -> Vec<String> {
-    strings(DSH_EFFORTS)
-}
-
-// ---- Hermes ----------------------------------------------------------------------------
-
-fn hermes_home() -> Option<PathBuf> {
-    dirs::data_local_dir().map(|d| d.join("hermes"))
-}
-
-fn hermes_command() -> Result<Command, String> {
-    crate::agents::process::resolve_command(&["hermes.exe"])
+fn kimi_command() -> Result<Command, String> {
+    crate::agents::process::resolve_command(&["kimi.exe", "kimi.cmd", "kimi.bat"])
         .map(Command::new)
         .ok_or_else(|| "E_RUNNER_MISSING".into())
 }
 
-/// `-t context_engine` is a toolset with no tools in it; `--source tool` keeps the run out of
-/// the user's session list, and the session is deleted afterwards anyway.
-pub fn hermes_args(model: Option<&str>, prompt: &str) -> Vec<String> {
-    let mut args = strings(&[
-        "chat",
-        "-Q",
-        "--source",
-        "tool",
-        "-t",
-        "context_engine",
-        "--ignore-rules",
-    ]);
+pub fn kimi_args(agent_file: &Path, model: Option<&str>, prompt: &str) -> Vec<String> {
+    let mut args = vec![
+        "--agent-file".to_string(),
+        agent_file.to_string_lossy().into_owned(),
+        "--output-format".to_string(),
+        "text".to_string(),
+    ];
     if let Some(model) = model {
-        match model.split_once('/') {
-            Some((provider, name)) => args.extend([
-                "--provider".into(),
-                provider.into(),
-                "-m".into(),
-                name.into(),
-            ]),
-            None => args.extend(["-m".into(), model.into()]),
-        }
+        args.push("-m".into());
+        args.push(model.into());
     }
-    args.push(format!("--query={prompt}"));
+    // `--prompt=` keeps a prompt that starts with `-` from being read as an option.
+    args.push(format!("--prompt={prompt}"));
     args
 }
 
-pub fn hermes_session_id(stderr: &str) -> Option<String> {
-    stderr
-        .lines()
-        .rev()
-        .find_map(|l| l.trim().strip_prefix("session_id:"))
-        .map(|id| id.trim().to_string())
-        .filter(|id| !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'))
-}
-
-fn remove_hermes_session(id: &str) {
-    if let Ok(mut cmd) = hermes_command() {
-        cmd.args(["sessions", "delete", "-y", id]);
-        if let Ok(cwd) = scratch() {
-            let _ = quick(cmd, cwd.path());
-        }
-    }
-    let Some(dir) = hermes_home().map(|h| h.join("sessions")) else {
+/// Kimi files each run under a folder named after the working directory; ours is a fresh
+/// scratch folder, so that folder is the run's own and goes away with it.
+fn remove_kimi_workspace(work: &Path) {
+    let Some(name) = work.file_name().and_then(|n| n.to_str()) else {
         return;
     };
-    let prefix = format!("request_dump_{id}_");
-    for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
-        if entry.file_name().to_string_lossy().starts_with(&prefix) {
-            let _ = std::fs::remove_file(entry.path());
+    let Some(sessions) = dirs::home_dir().map(|h| h.join(".kimi-code").join("sessions")) else {
+        return;
+    };
+    let prefix = format!("wd_{name}_");
+    if let Ok(entries) = std::fs::read_dir(&sessions) {
+        for entry in entries.flatten() {
+            if entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(prefix.as_str())
+            {
+                let _ = std::fs::remove_dir_all(entry.path());
+            }
         }
     }
 }
 
-pub fn run_hermes(c: &Ctx) -> Result<String, String> {
+pub fn run_kimi(c: &Ctx) -> Result<String, String> {
     check_prompt(c.prompt)?;
-    let mut cmd = hermes_command()?;
-    cmd.args(hermes_args(c.model, c.prompt));
-    let (status, stdout, stderr) = run_program(cmd, "", c.tmp, c.timeout, c.cancel)?;
-    if let Some(id) = hermes_session_id(&stderr) {
-        remove_hermes_session(&id);
-    }
-    // Errors are printed on stdout too, so only a clean exit counts.
+    let work = scratch()?;
+    let agent_file = work.path().join("stacker-answer.md");
+    std::fs::write(&agent_file, KIMI_AGENT).map_err(|_| "E_STORAGE".to_string())?;
+    let mut cmd = kimi_command()?;
+    cmd.args(kimi_args(&agent_file, c.model, c.prompt));
+    let run = run_program(cmd, "", c.tmp, c.timeout, c.cancel);
+    remove_kimi_workspace(c.tmp);
+    let (status, stdout, stderr) = run?;
     if !status.success() || stdout.trim().is_empty() {
         return Err(failure(&stdout, &stderr));
     }
-    Ok(stdout)
+    Ok(stdout.trim().to_string())
 }
 
-/// `hermes auth list`: `<provider> (N credentials):` headers; only provider names are kept.
-pub fn parse_hermes_providers(text: &str) -> Vec<String> {
-    text.lines()
-        .filter(|l| !l.starts_with(' '))
-        .filter_map(|l| {
-            let (name, rest) = l.trim().split_once(" (")?;
-            let count: u32 = rest.split_whitespace().next()?.parse().ok()?;
-            (count > 0 && rest.contains("credential")).then(|| name.to_string())
+/// `kimi provider list --json`: providers carry the sign-in, models carry their display names.
+pub fn parse_kimi_providers(json: &str) -> (bool, Vec<ModelOption>) {
+    let Ok(value) = serde_json::from_str::<Value>(json) else {
+        return (false, Vec::new());
+    };
+    let signed_in = value
+        .get("providers")
+        .and_then(Value::as_object)
+        .is_some_and(|providers| {
+            providers.values().any(|p| {
+                p.get("oauth").is_some()
+                    || p.get("apiKey")
+                        .and_then(Value::as_str)
+                        .is_some_and(|k| !k.is_empty())
+            })
+        });
+    let models = value
+        .get("models")
+        .and_then(Value::as_object)
+        .map(|models| {
+            models
+                .iter()
+                .map(|(id, m)| ModelOption {
+                    id: id.clone(),
+                    label: m
+                        .get("displayName")
+                        .and_then(Value::as_str)
+                        .map(|name| format!("{name} ({id})"))
+                        .unwrap_or_else(|| id.clone()),
+                    efforts: Vec::new(),
+                    default_effort: None,
+                })
+                .collect()
         })
-        .collect()
+        .unwrap_or_default();
+    (signed_in, models)
 }
 
-fn hermes_providers() -> Option<Vec<String>> {
-    let mut cmd = hermes_command().ok()?;
-    cmd.args(["auth", "list"]);
+fn kimi_providers() -> Option<(bool, Vec<ModelOption>)> {
+    let mut cmd = kimi_command().ok()?;
+    cmd.args(["provider", "list", "--json"]);
     let cwd = scratch().ok()?;
-    quick(cmd, cwd.path()).map(|(_, out, _)| parse_hermes_providers(&out))
+    let (ok, out, _) = quick(cmd, cwd.path())?;
+    ok.then(|| parse_kimi_providers(&out))
 }
 
-pub fn hermes_login() -> LoginStatus {
-    match hermes_providers() {
-        Some(p) if !p.is_empty() => status("logged_in", &p.join(", ")),
-        Some(_) => status("logged_out", ""),
+pub fn kimi_login() -> LoginStatus {
+    match kimi_providers() {
+        Some((true, _)) => status("logged_in", ""),
+        Some((false, _)) => status("logged_out", ""),
         None => status("unknown", ""),
     }
 }
 
-/// Models from Hermes's own cache, for signed-in providers, as `provider/model`.
-pub fn parse_hermes_models(cache: &str, providers: &[String]) -> Vec<ModelOption> {
-    let Ok(Value::Object(map)) = serde_json::from_str::<Value>(cache) else {
-        return Vec::new();
+pub fn kimi_models() -> Vec<ModelOption> {
+    kimi_providers()
+        .map(|(_, models)| models)
+        .unwrap_or_default()
+}
+
+/// Kimi picks the reasoning depth itself; there is no level to set per request.
+pub fn kimi_efforts() -> Vec<String> {
+    Vec::new()
+}
+
+// ---- MiMo Code ---------------------------------------------------------------------------
+
+/// `--variant` names the reasoning depth; MiMo documents these three.
+const MIMO_EFFORTS: &[&str] = &["minimal", "high", "max"];
+
+fn mimo_command() -> Result<Command, String> {
+    crate::agents::process::resolve_command(&["mimo.exe", "mimo.cmd", "mimo.bat"])
+        .map(Command::new)
+        .ok_or_else(|| "E_RUNNER_MISSING".into())
+}
+
+pub fn mimo_args(
+    work: &Path,
+    model: Option<&str>,
+    effort: Option<&str>,
+    prompt: &str,
+) -> Vec<String> {
+    let mut args = vec![
+        "run".to_string(),
+        "--format".to_string(),
+        "json".to_string(),
+        // No external plugins, so the run cannot reach tools the user installed.
+        "--pure".to_string(),
+        "--dir".to_string(),
+        work.to_string_lossy().into_owned(),
+    ];
+    if let Some(model) = model {
+        args.push("-m".into());
+        args.push(model.into());
+    }
+    if let Some(effort) = effort {
+        args.push("--variant".into());
+        args.push(effort.into());
+    }
+    args.push("--".to_string());
+    args.push(prompt.to_string());
+    args
+}
+
+/// The JSON event stream: `text` parts make up the answer, and every event carries the
+/// session id, which is how the run cleans up after itself.
+pub fn parse_mimo_events(stdout: &str) -> (String, Option<String>, Option<String>) {
+    let mut answer = String::new();
+    let mut session = None;
+    let mut error = None;
+    for line in stdout.lines() {
+        let Ok(value) = serde_json::from_str::<Value>(line.trim()) else {
+            continue;
+        };
+        if session.is_none() {
+            session = value
+                .get("sessionID")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+        }
+        match value.get("type").and_then(Value::as_str) {
+            Some("text") => {
+                if let Some(text) = value
+                    .get("part")
+                    .and_then(|p| p.get("text"))
+                    .and_then(Value::as_str)
+                {
+                    answer.push_str(text);
+                }
+            }
+            Some("error") => {
+                error = value
+                    .get("error")
+                    .and_then(|e| e.get("data"))
+                    .and_then(|d| d.get("message"))
+                    .and_then(Value::as_str)
+                    .or_else(|| {
+                        value
+                            .get("error")
+                            .and_then(|e| e.get("name"))
+                            .and_then(Value::as_str)
+                    })
+                    .map(str::to_string)
+                    .or(Some("E_RUNNER_FAILED".into()));
+            }
+            _ => {}
+        }
+    }
+    (answer.trim().to_string(), session, error)
+}
+
+/// Removes the session this run created, so the gateway leaves nothing in the user's list.
+fn remove_mimo_session(id: &str) {
+    if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return;
+    }
+    let Ok(mut cmd) = mimo_command() else { return };
+    cmd.args(["session", "delete", id]);
+    if let Ok(cwd) = scratch() {
+        let _ = quick(cmd, cwd.path());
+    }
+}
+
+pub fn run_mimo(c: &Ctx) -> Result<String, String> {
+    check_prompt(c.prompt)?;
+    let work = scratch()?;
+    let mut cmd = mimo_command()?;
+    cmd.args(mimo_args(work.path(), c.model, c.effort, c.prompt));
+    let run = run_program(cmd, "", c.tmp, c.timeout, c.cancel);
+    let (_, stdout, stderr) = run?;
+    let (answer, session, error) = parse_mimo_events(&stdout);
+    if let Some(id) = session {
+        remove_mimo_session(&id);
+    }
+    match (answer.is_empty(), error) {
+        (true, Some(message)) => Err(failure(&message, &stderr)),
+        (true, None) => Err(failure(&stdout, &stderr)),
+        _ => Ok(answer),
+    }
+}
+
+/// `mimo auth whoami` says so in as many words when nobody is signed in.
+pub fn parse_mimo_whoami(output: &str) -> &'static str {
+    let text = output.to_lowercase();
+    if text.contains("not logged in") {
+        "logged_out"
+    } else if text.contains("mimo auth login") || text.trim().is_empty() {
+        "unknown"
+    } else {
+        "logged_in"
+    }
+}
+
+pub fn mimo_login() -> LoginStatus {
+    let Ok(mut cmd) = mimo_command() else {
+        return status("unknown", "");
     };
-    providers
-        .iter()
-        .filter_map(|p| Some((p, map.get(p)?.get("models")?.as_array()?)))
-        .flat_map(|(p, models)| {
-            models
-                .iter()
-                .filter_map(Value::as_str)
-                .map(move |m| ModelOption {
-                    id: format!("{p}/{m}"),
-                    label: format!("{m} ({p})"),
-                    efforts: Vec::new(),
-                    default_effort: None,
-                })
+    cmd.args(["auth", "whoami"]);
+    let Ok(cwd) = scratch() else {
+        return status("unknown", "");
+    };
+    match quick(cmd, cwd.path()) {
+        Some((_, out, err)) => status(parse_mimo_whoami(&format!("{out}{err}")), ""),
+        None => status("unknown", ""),
+    }
+}
+
+/// `mimo models` prints `provider/model — window 1M, compacts at 900K` per line.
+pub fn parse_mimo_models(stdout: &str) -> Vec<ModelOption> {
+    stdout
+        .lines()
+        .map(str::trim)
+        .filter_map(|line| {
+            let id = line.split('—').next()?.trim();
+            (id.contains('/') && !id.contains(' ')).then(|| ModelOption {
+                id: id.to_string(),
+                label: id.to_string(),
+                efforts: strings(MIMO_EFFORTS),
+                default_effort: None,
+            })
         })
         .collect()
 }
 
-pub fn hermes_models() -> Vec<ModelOption> {
-    let providers = hermes_providers().unwrap_or_default();
-    hermes_home()
-        .and_then(|h| std::fs::read_to_string(h.join("provider_models_cache.json")).ok())
-        .map(|text| parse_hermes_models(&text, &providers))
-        .unwrap_or_default()
+static MIMO_MODELS: Mutex<Option<(Instant, Vec<ModelOption>)>> = Mutex::new(None);
+
+pub fn mimo_models() -> Vec<ModelOption> {
+    let mut cache = MIMO_MODELS.lock().expect("mimo model cache");
+    if let Some((at, models)) = cache.as_ref() {
+        if at.elapsed() < Duration::from_secs(30 * 60) {
+            return models.clone();
+        }
+    }
+    let models = (|| {
+        let mut cmd = mimo_command().ok()?;
+        cmd.arg("models");
+        let cwd = scratch().ok()?;
+        let (_, out, _) = quick(cmd, cwd.path())?;
+        Some(parse_mimo_models(&out))
+    })()
+    .unwrap_or_default();
+    *cache = Some((Instant::now(), models.clone()));
+    models
 }
 
-/// Hermes sets reasoning effort only in its config file, not per run.
-pub fn hermes_efforts() -> Vec<String> {
-    Vec::new()
+pub fn mimo_efforts() -> Vec<String> {
+    strings(MIMO_EFFORTS)
 }
 
 #[cfg(test)]
@@ -513,38 +547,63 @@ mod tests {
     }
 
     #[test]
-    fn dsh_patch_turns_tools_off_and_keeps_state_in_scratch() {
-        let patch = dsh_patch(Path::new(r"C:\t\s"));
-        assert!(patch.contains("- id: tool-bash\n  disabled: true\n"));
-        assert!(patch.contains("- id: user-questions\n  disabled: true\n"));
-        assert!(patch.contains("root: \"C:/t/s/sessions\""));
-        let settings = dsh_settings(None, Some("low"));
-        assert!(settings.contains("model: \"deepseek-v4-flash\""));
-        assert!(settings.contains("reasoningEffort: \"low\""));
-        assert!(!dsh_settings(Some("deepseek-v4-pro"), None).contains("reasoningEffort"));
+    fn kimi_runs_one_prompt_without_tools() {
+        let args = kimi_args(
+            Path::new(r"C:\t\a.md"),
+            Some("kimi-code/k"),
+            "-p looks like a flag",
+        );
+        assert_eq!(args.last().unwrap(), "--prompt=-p looks like a flag");
+        assert!(args
+            .windows(2)
+            .any(|w| w[0] == "--output-format" && w[1] == "text"));
+        assert!(KIMI_AGENT.contains("tools: []"));
+        let json = r#"{"providers":{"managed:kimi-code":{"oauth":{"key":"k"}}},"models":{"kimi-code/kimi-for-coding":{"displayName":"K2.8"}}}"#;
+        let (signed_in, models) = parse_kimi_providers(json);
+        assert!(signed_in);
+        assert_eq!(models[0].id, "kimi-code/kimi-for-coding");
+        assert_eq!(models[0].label, "K2.8 (kimi-code/kimi-for-coding)");
+        let (signed_out, _) =
+            parse_kimi_providers(r#"{"providers":{"p":{"apiKey":""}},"models":{}}"#);
+        assert!(!signed_out);
     }
 
     #[test]
-    fn hermes_args_session_and_auth() {
-        let args = hermes_args(Some("openai-codex/gpt-5.5"), "hi");
-        assert!(args
-            .windows(2)
-            .any(|w| w[0] == "--provider" && w[1] == "openai-codex"));
-        assert!(args
-            .windows(2)
-            .any(|w| w[0] == "-t" && w[1] == "context_engine"));
-        assert_eq!(args.last().unwrap(), "--query=hi");
-        assert_eq!(
-            hermes_session_id("warn\nsession_id: 20260918_230047_826800\n").as_deref(),
-            Some("20260918_230047_826800")
+    fn mimo_answers_come_from_the_event_stream() {
+        let args = mimo_args(
+            Path::new(r"C:\t"),
+            Some("xiaomi/mimo-v2.6-pro"),
+            Some("high"),
+            "hi",
         );
-        assert_eq!(hermes_session_id("session_id: ../x"), None);
-        let auth = "copilot (1 credentials):\n  #1  token  api_key gh_cli\n\nopenai-codex (0 credentials):\n";
-        assert_eq!(parse_hermes_providers(auth), vec!["copilot"]);
-        let cache = r#"{"copilot":{"models":["gpt-5.4"]},"other":{"models":["x"]}}"#;
-        let models = parse_hermes_models(cache, &["copilot".to_string()]);
-        assert_eq!(models.len(), 1);
-        assert_eq!(models[0].id, "copilot/gpt-5.4");
+        assert!(args
+            .windows(2)
+            .any(|w| w[0] == "--format" && w[1] == "json"));
+        assert!(args.contains(&"--pure".to_string()));
+        assert_eq!(args.last().unwrap(), "hi");
+        let events = concat!(
+            r#"{"type":"message.updated","sessionID":"ses_1"}"#,
+            "\n",
+            r#"{"type":"text","sessionID":"ses_1","part":{"text":"4"}}"#,
+            "\n",
+        );
+        let (answer, session, error) = parse_mimo_events(events);
+        assert_eq!(answer, "4");
+        assert_eq!(session.as_deref(), Some("ses_1"));
+        assert!(error.is_none());
+        let failed = r#"{"type":"error","sessionID":"ses_2","error":{"name":"APIError","data":{"message":"Invalid API Key"}}}"#;
+        let (answer, _, error) = parse_mimo_events(failed);
+        assert!(answer.is_empty());
+        assert_eq!(error.as_deref(), Some("Invalid API Key"));
+        assert_eq!(
+            parse_mimo_whoami("Not logged in. Run `mimo auth login`"),
+            "logged_out"
+        );
+        assert_eq!(parse_mimo_whoami("user@example.com"), "logged_in");
+        let models =
+            parse_mimo_models("mimo/mimo-auto — window 1M\nxiaomi/mimo-v2.6-pro — window 1M\n");
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[1].id, "xiaomi/mimo-v2.6-pro");
     }
 
     #[test]
