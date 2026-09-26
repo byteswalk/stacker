@@ -374,7 +374,7 @@ fn run_installer_elevated(
                     let read = GetExitCodeProcess(info.hProcess, &mut code);
                     CloseHandle(info.hProcess);
                     return if read != 0 && code != 0 {
-                        Err(installer_failure_logged(spec, code as i32, log_path))
+                        Err(installer_failure_logged(spec, code as i32, log_path, path))
                     } else {
                         Ok(())
                     };
@@ -403,15 +403,23 @@ fn run_installer_elevated(
 }
 
 /// What a non-zero installer exit code most likely means, plus what its own log said.
-pub(crate) fn installer_failure_logged(spec: &ToolSpec, code: i32, log: &Path) -> String {
+pub(crate) fn installer_failure_logged(
+    spec: &ToolSpec,
+    code: i32,
+    log: &Path,
+    installer: &Path,
+) -> String {
     let detail = std::fs::read_to_string(log)
         .ok()
         .as_deref()
         .and_then(inno_failure_detail);
     match detail {
+        // 360 blocks by where the program runs from, so naming the installer's own path is
+        // what lets the user allow it: whitelisting the target folder changes nothing.
         Some(detail) => format!(
-            "{} 安装未完成：{detail}。多半是 360 等安全软件拦截了安装程序，或该程序还在运行；请退出它、或在安全软件里放行后重试",
-            spec.desktop.name
+            "{} 安装未完成：{detail}。多半是 360 等安全软件拦截了安装程序，或该程序还在运行；请退出它，或把安装程序 {} 加入安全软件的信任区后重试",
+            spec.desktop.name,
+            installer.display()
         ),
         None => installer_failure(spec, code),
     }
@@ -536,6 +544,7 @@ pub(crate) fn run_downloaded_desktop_installer(
                     spec,
                     status.code().unwrap_or(-1),
                     &log_path,
+                    path,
                 ))
             }
             Ok(None) => {

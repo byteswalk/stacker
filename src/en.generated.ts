@@ -2344,6 +2344,8 @@ export const GENERATED_EN: Record<string, string> = {
   "MiMo 官方发布": "MiMo releases",
   "Claude 已下载的更新": "update Claude has downloaded",
   "Kimi 官方下载地址": "Kimi download address",
+  "。多半是 360 等安全软件拦截了安装程序，或该程序还在运行；请退出它，或把安装程序 ": ". Most likely a security tool such as 360 blocked the installer, or the program is still running; quit it, or add the installer ",
+  " 加入安全软件的信任区后重试": " to that tool's trusted list, and try again",
   " 安装未完成：": " was not installed: ",
   "。多半是 360 等安全软件拦截了安装程序，或该程序还在运行；请退出它、或在安全软件里放行后重试": ". Most likely a security tool such as 360 blocked the installer, or the program is still running; quit it, or allow the installer in that tool, and try again",
   "无法替换 ": "Could not replace ",
