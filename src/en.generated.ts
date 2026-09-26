@@ -2344,6 +2344,7 @@ export const GENERATED_EN: Record<string, string> = {
   "MiMo 官方发布": "MiMo releases",
   "Claude 已下载的更新": "update Claude has downloaded",
   "Kimi 官方下载地址": "Kimi download address",
+  "登录后即可用于接口服务": "Ready for the API service once signed in",
   "中国版自带命令 qodercn（npm 包 @qodercn-ai/qoderclicn），和国际版的 qoder 是两个程序。": "The China edition has its own qodercn command (npm package @qodercn-ai/qoderclicn); it is a different program from the global qoder.",
   "命令名 qodercn，中国版 Qoder 的命令行，账号与模型清单和国际版不通用。": "The command qodercn: the China edition's Qoder command line, with its own account and model list.",
   "Qoder CLI 中国版": "Qoder CLI (China)",

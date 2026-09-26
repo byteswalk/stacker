@@ -11,7 +11,11 @@ const cards: AgentCard[] = [
   { id: "codex", name: "Codex CLI", installed: true, version: "0.155.1", supported: true, reason: "", enabled: true,
     login: { state: "logged_in", method: "ChatGPT" }, defaultModel: null, defaultEffort: "low", efforts: ["low", "high"],
     models: [{ call: "codex/gpt-5.6-sol", label: "GPT-5.6-Sol", efforts: ["low", "high"], defaultEffort: "low" }] },
-  { id: "kimi", name: "Kimi Code CLI", installed: true, version: "1.0", supported: false, reason: "not verified", enabled: false,
+  // Signed out: one sign-in away from working, so the page still names it.
+  { id: "mimo", name: "MiMo Code CLI", installed: true, version: "0.1.15", supported: false, reason: "未登录：请在终端运行该智能体并完成登录", enabled: false,
+    login: { state: "logged_out", method: "" }, defaultModel: null, defaultEffort: null, efforts: [], models: [] },
+  // No API backend at all: nothing the user can do about it, so it stays off the page.
+  { id: "hermes", name: "Hermes CLI", installed: true, version: "1.0", supported: false, reason: "需要自备第三方 API key", enabled: false,
     login: null, defaultModel: null, defaultEffort: null, efforts: [], models: [] },
 ];
 
@@ -27,7 +31,7 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); host.remove(); });
 
 describe("gateway agents", () => {
-  it("shows each usable agent with login, models and efforts, and lists the rest with a reason", async () => {
+  it("shows usable agents, invites a signed-out one to log in, and hides what it cannot drive", async () => {
     await act(async () => { root.render(<GatewayAgents />); });
     expect(host.textContent).toContain("Codex CLI");
     expect(host.textContent).toContain("ChatGPT");
@@ -37,8 +41,10 @@ describe("gateway agents", () => {
     await act(async () => { host.querySelector<HTMLButtonElement>(".gw-fold")!.click(); });
     expect(host.textContent).toContain("codex/gpt-5.6-sol");
     expect(host.textContent).toContain("high");
-    expect(host.textContent).toContain("Kimi Code CLI");
-    expect(host.textContent).toContain("not verified");
+    expect(host.textContent).toContain("MiMo Code CLI");
+    expect(host.textContent).toContain("未登录：请在终端运行该智能体并完成登录");
+    expect(host.textContent).not.toContain("Hermes CLI");
+    expect(host.textContent).not.toContain("需要自备第三方 API key");
     const toggle = host.querySelector<HTMLInputElement>(".gw-switch input")!;
     await act(async () => { toggle.click(); });
     expect(vi.mocked(invoke)).toHaveBeenCalledWith("gateway_set_agent", { agent: "codex", enabled: false });

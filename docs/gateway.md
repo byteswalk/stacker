@@ -35,4 +35,4 @@
 - **Qoder 中国版 (qodercn)**：和国际版是两个程序（npm 包 `@qodercn-ai/qoderclicn`，命令 `qodercn`），账号与模型清单都不通用，因此是独立的一张卡片和独立的调用名。
 - **Kimi Code (kimi)**：用一个 `tools: []` 的临时智能体定义运行，禁止调用工具；运行目录是临时目录，运行后删除 Kimi 为它建立的会话目录。Kimi 自己决定思考深度，没有推理档位。
 - **MiMo Code (mimo)**：用 `mimo run --format json --pure` 运行，不加载外部插件；答案取自事件流里的 `text` 片段，运行后按事件里的会话 id 删除该会话。推理档位 minimal / high / max。登录状态取自 `mimo auth whoami`。注意：授权登录前需要小米开放平台账户有余额或 Token Plan。
-- **不接入**：DeepSeek Harness、Hermes、OpenCode、OpenClaw、pi 都要自备第三方 API key；TRAE CLI 官方只向 TRAE 企业版旗舰套餐开放。未接入的智能体会在页面上列出原因。
+- **不接入**：DeepSeek Harness、Hermes、OpenCode、OpenClaw、pi 都要自备第三方 API key；TRAE CLI 官方只向 TRAE 企业版旗舰套餐开放。这些不会出现在接口服务页面上；已安装但未登录的智能体会单独列出来提示登录。

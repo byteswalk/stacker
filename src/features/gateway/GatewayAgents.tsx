@@ -92,17 +92,20 @@ export function GatewayAgents() {
   if (!cards) return <div className="pxcard"><p className="proxy-note"><i className="ti ti-loader spin" /> {t("正在检查本机智能体…")}</p></div>;
   const refreshNote = refreshing && <p className="proxy-note gw-refreshing"><i className="ti ti-loader spin" /> {t("正在更新登录状态和模型列表…")}</p>;
   const usable = cards.filter((c) => c.supported);
-  const others = cards.filter((c) => !c.supported);
+  // Agents Stacker will never drive through the API (no backend, or not installed) are not
+  // the user's problem, so the page keeps quiet about them. A signed-out agent is one click
+  // of theirs away from working, so that one still shows.
+  const needLogin = cards.filter((c) => !c.supported && !!c.login);
 
   return <>
     {refreshNote}
     {usable.map((card) => <AgentBlock key={card.id} card={card} testLine={testLine} running={(key) => tests[key] === "running"}
       onTest={(model) => void test(card, model)} onToggle={(on) => void toggle(card, on)} onCopy={copy} />)}
 
-    {!!others.length && <div className="pxcard">
-      <div className="pxsec"><i className="ti ti-robot-off" /> {t("暂不能通过接口服务使用")}</div>
+    {!!needLogin.length && <div className="pxcard">
+      <div className="pxsec"><i className="ti ti-login" /> {t("登录后即可用于接口服务")}</div>
       <div className="gw-others">
-        {others.map((c) => <div key={c.id}><b>{c.name}</b>{c.version && <span className="s dim">v{shortVersion(c.version)}</span>}<span className="s dim">{t(c.reason)}</span></div>)}
+        {needLogin.map((c) => <div key={c.id}><b>{c.name}</b>{c.version && <span className="s dim">v{shortVersion(c.version)}</span>}<span className="s dim">{t(c.reason)}</span></div>)}
       </div>
     </div>}
   </>;
