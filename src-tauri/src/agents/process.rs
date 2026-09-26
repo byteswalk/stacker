@@ -199,14 +199,37 @@ pub(crate) fn run_command_streamed(
         );
         Ok(text)
     } else {
-        log::error!(
-            "external command failed: name={display_name} exit_code={:?} elapsed_ms={} output={}",
-            status.code(),
-            started.elapsed().as_millis(),
-            log_output_excerpt(&text)
-        );
+        // "Nothing matched" is the answer to a query, not a broken command: logging it as an
+        // error made a clean run look like it had failures in it.
+        if is_query_miss(&text) {
+            log::info!(
+                "external command found nothing: name={display_name} elapsed_ms={} output={}",
+                started.elapsed().as_millis(),
+                log_output_excerpt(&text)
+            );
+        } else {
+            log::error!(
+                "external command failed: name={display_name} exit_code={:?} elapsed_ms={} output={}",
+                status.code(),
+                started.elapsed().as_millis(),
+                log_output_excerpt(&text)
+            );
+        }
         Err(failure_summary(&text).unwrap_or_else(|| format!("{display_name} 执行失败")))
     }
+}
+
+/// WinGet says so in these words when a package is simply not installed or not in a source.
+pub(crate) fn is_query_miss(text: &str) -> bool {
+    let text = text.to_lowercase();
+    [
+        "no installed package found",
+        "no package found matching",
+        "未找到与输入条件匹配的已安装程序包",
+        "未找到与输入条件匹配的程序包",
+    ]
+    .iter()
+    .any(|phrase| text.contains(phrase))
 }
 
 /// Why a command failed. Tools that end with a `✗`/`⚠` summary (Hermes does) are best
@@ -716,6 +739,15 @@ pub(crate) fn is_meaningful_output_line(line: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_query_that_matched_nothing_is_not_a_failure() {
+        assert!(super::is_query_miss(
+            "No installed package found matching input criteria."
+        ));
+        assert!(super::is_query_miss("未找到与输入条件匹配的已安装程序包。"));
+        assert!(!super::is_query_miss("0x8a15000f : package install failed"));
+    }
+
     /// npm's last line only points at its log file; the useful line is the one above it.
     #[test]
     fn npm_target_failure_names_the_missing_version() {

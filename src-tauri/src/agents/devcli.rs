@@ -19,6 +19,7 @@ pub(crate) fn run(args: &[String]) -> Option<i32> {
         ["winget", args @ ..] => winget(args),
         ["check-installer", id] => check_installer(id),
         ["download-installer", id] => download_installer(id),
+        ["try-install", id, args @ ..] => try_install(id, args),
         ["python-remove", paths @ ..] => {
             let paths: Vec<String> = paths.iter().map(|p| p.to_string()).collect();
             let results =
@@ -113,6 +114,50 @@ fn winget(args: &[&str]) -> i32 {
         }
         Err(err) => {
             eprintln!("{err}");
+            1
+        }
+    }
+}
+
+/// Downloads a product's installer and runs it with the given switches, to find out which
+/// switches a vendor's installer actually accepts.
+fn try_install(id: &str, args: &[&str]) -> i32 {
+    use super::install::direct::*;
+    let Some(spec) = spec_by_id(id) else {
+        eprintln!("no such product: {id}");
+        return 2;
+    };
+    let Some(installer) = super::registry::direct_desktop_installer(spec.vendor, spec.edition)
+    else {
+        eprintln!("{id}: no direct installer");
+        return 1;
+    };
+    let mut resolved = match resolve_installer(installer) {
+        Ok(resolved) => resolved,
+        Err(err) => {
+            eprintln!("{id}: resolve failed: {err}");
+            return 1;
+        }
+    };
+    resolved.silent_args = Some(args.iter().map(|a| a.to_string()).collect());
+    println!("{id}: {} args={args:?}", resolved.url);
+    let context = crate::installer::TaskContext {
+        cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        log: std::sync::Arc::new(|line: &str| eprintln!("  | {line}")),
+    };
+    let result = crate::installer::with_task_context(context, || {
+        let path = download_desktop_installer(&spec, &resolved, &None)?;
+        let outcome = run_downloaded_desktop_installer(&spec, installer, &resolved, &path, &None);
+        let _ = std::fs::remove_file(&path);
+        outcome
+    });
+    match result {
+        Ok(()) => {
+            println!("{id}: installer finished with code 0");
+            0
+        }
+        Err(err) => {
+            eprintln!("{id}: {err}");
             1
         }
     }

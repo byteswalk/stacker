@@ -1188,7 +1188,9 @@ pub(crate) fn direct_desktop_installer(
                     super::feeds::workbuddy_cn_installer
                 },
             },
-            silent_args: &["/S", "/currentuser"],
+            // `/S` alone: an electron-builder installer refuses a silent run that also
+            // carries a scope switch, and this package is per user already.
+            silent_args: &["/S"],
             signed: true,
         }),
         // TRAE Work: Inno Setup, per user.

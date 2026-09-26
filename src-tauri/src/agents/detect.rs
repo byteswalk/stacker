@@ -1126,7 +1126,7 @@ pub(crate) fn desktop_candidate_paths(spec: &DesktopSpec) -> Vec<PathBuf> {
 pub(crate) fn winget_package_installed(id: &str) -> bool {
     run_winget(
         &["list", "--id", id, "--exact", "--accept-source-agreements"],
-        Duration::from_secs(10),
+        Duration::from_secs(25),
     )
     .map(|text| text.to_lowercase().contains(&id.to_lowercase()))
     .unwrap_or(false)
@@ -1146,9 +1146,11 @@ pub(crate) fn winget_available_update(
     let _turn = ONE_AT_A_TIME
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let text = run_winget(&refs, Duration::from_secs(15)).or_else(|_| {
+    // 15 seconds was not enough while WinGet refreshed its sources: the lookup timed out and
+    // the agent looked up to date.
+    let text = run_winget(&refs, Duration::from_secs(40)).or_else(|_| {
         std::thread::sleep(Duration::from_secs(2));
-        run_winget(&refs, Duration::from_secs(15))
+        run_winget(&refs, Duration::from_secs(40))
     })?;
     Ok(winget_latest_version_from_show(&text))
 }

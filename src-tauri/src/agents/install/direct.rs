@@ -287,6 +287,141 @@ pub(crate) fn verify_desktop_installer_signature(path: &Path) -> Result<String, 
     first_output_line(&output).ok_or_else(|| "安装程序没有有效的发布者签名。".into())
 }
 
+/// Quotes one installer argument for the single command line ShellExecute takes.
+pub(crate) fn command_line(args: &[&str]) -> String {
+    args.iter()
+        .map(|arg| {
+            if arg.contains(' ') && !arg.starts_with('"') {
+                format!("\"{arg}\"")
+            } else {
+                (*arg).to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// An installer whose manifest asks for administrator rights cannot be started with
+/// `CreateProcess`: Windows refuses with error 740. Only the shell can raise the UAC prompt,
+/// so the run is repeated through it and waited on the same way.
+#[cfg(windows)]
+fn run_installer_elevated(
+    spec: &ToolSpec,
+    path: &Path,
+    args: &[&str],
+    window: &Option<tauri::Window>,
+) -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+    use winapi::um::handleapi::CloseHandle;
+    use winapi::um::processthreadsapi::{GetExitCodeProcess, TerminateProcess};
+    use winapi::um::shellapi::{ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW};
+    use winapi::um::synchapi::WaitForSingleObject;
+    use winapi::um::winuser::{SW_HIDE, SW_SHOWNORMAL};
+
+    emit_progress(
+        window,
+        format!(
+            "{} 的安装程序需要管理员权限：请在弹出的 UAC 窗口中点「是」",
+            spec.desktop.name
+        ),
+    );
+    let file: Vec<u16> = path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let verb: Vec<u16> = "runas\0".encode_utf16().collect();
+    let parameters: Vec<u16> = command_line(args)
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
+    let name = &spec.desktop.name;
+    unsafe {
+        let mut info: SHELLEXECUTEINFOW = std::mem::zeroed();
+        info.cbSize = std::mem::size_of::<SHELLEXECUTEINFOW>() as u32;
+        info.fMask = SEE_MASK_NOCLOSEPROCESS;
+        info.lpVerb = verb.as_ptr();
+        info.lpFile = file.as_ptr();
+        info.lpParameters = parameters.as_ptr();
+        // A silent installer stays hidden; one without silent switches has to be visible.
+        info.nShow = if args.is_empty() {
+            SW_SHOWNORMAL
+        } else {
+            SW_HIDE
+        };
+        if ShellExecuteExW(&mut info) == 0 || info.hProcess.is_null() {
+            let error = std::io::Error::last_os_error();
+            return if error.raw_os_error() == Some(1223) {
+                Err(format!("已取消：更新 {name} 需要管理员授权"))
+            } else {
+                Err(format!("启动 {name} 安装程序失败：{error}"))
+            };
+        }
+        let started = Instant::now();
+        let mut last_reported = u64::MAX;
+        loop {
+            if crate::installer::op_cancelled() {
+                let _ = TerminateProcess(info.hProcess, 1);
+                let _ = WaitForSingleObject(info.hProcess, 5_000);
+                CloseHandle(info.hProcess);
+                return Err(format!("已取消安装 {name}"));
+            }
+            match WaitForSingleObject(info.hProcess, 250) {
+                // WAIT_OBJECT_0: it finished.
+                0 => {
+                    let mut code: u32 = 0;
+                    let read = GetExitCodeProcess(info.hProcess, &mut code);
+                    CloseHandle(info.hProcess);
+                    return if read != 0 && code != 0 {
+                        Err(installer_failure(spec, code as i32))
+                    } else {
+                        Ok(())
+                    };
+                }
+                // WAIT_TIMEOUT: still running.
+                258 => {
+                    let elapsed = started.elapsed().as_secs();
+                    if elapsed >= 1200 {
+                        let _ = TerminateProcess(info.hProcess, 1);
+                        let _ = WaitForSingleObject(info.hProcess, 5_000);
+                        CloseHandle(info.hProcess);
+                        return Err(format!("{name} 安装超过 20 分钟，已停止操作。"));
+                    }
+                    if elapsed != last_reported {
+                        last_reported = elapsed;
+                        emit_progress(window, format!("正在安装 {name} · 已 {elapsed} 秒"));
+                    }
+                }
+                _ => {
+                    CloseHandle(info.hProcess);
+                    return Err(format!("等待 {name} 安装程序时发生系统错误"));
+                }
+            }
+        }
+    }
+}
+
+/// What a non-zero installer exit code most likely means.
+pub(crate) fn installer_failure(spec: &ToolSpec, code: i32) -> String {
+    let hint = match code {
+        // Inno Setup 2 and 5, MSI 1602: the installer was closed, or the UAC prompt refused.
+        2 | 5 | 1602 => "看起来是安装程序被取消了（UAC 窗口点了「否」或关掉了安装窗口）",
+        // MSI: the installation itself failed, usually because a file could not be written.
+        1603 => "安装过程出错，多半是文件写不进去",
+        740 => "需要管理员权限",
+        _ => "",
+    };
+    let hint = if hint.is_empty() {
+        String::new()
+    } else {
+        format!("{hint}。")
+    };
+    format!(
+        "{} 安装未完成，安装程序退出代码：{code}。{hint}如果装了 360 等安全软件，请检查它是否拦截了安装程序写入的文件",
+        spec.desktop.name
+    )
+}
+
 pub(crate) fn run_downloaded_desktop_installer(
     spec: &ToolSpec,
     installer: DirectDesktopInstaller,
@@ -298,15 +433,6 @@ pub(crate) fn run_downloaded_desktop_installer(
         Some(own) => own.iter().map(String::as_str).collect(),
         None => installer.silent_args.to_vec(),
     };
-    if args.iter().any(|a| a.eq_ignore_ascii_case("/allusers")) {
-        emit_progress(
-            window,
-            format!(
-                "{} 装在全机范围，更新需要管理员权限：请在弹出的 UAC 窗口中点「是」",
-                spec.desktop.name
-            ),
-        );
-    }
     if args.is_empty() {
         emit_progress(
             window,
@@ -323,9 +449,16 @@ pub(crate) fn run_downloaded_desktop_installer(
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x08000000);
     }
-    let mut child = command
-        .spawn()
-        .map_err(|e| format!("启动 {} 安装程序失败：{e}", spec.desktop.name))?;
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        // ERROR_ELEVATION_REQUIRED: the installer is marked as needing administrator rights,
+        // which only the shell can ask for. Qoder's system-wide updater is one of these.
+        #[cfg(windows)]
+        Err(e) if e.raw_os_error() == Some(740) => {
+            return run_installer_elevated(spec, path, &args, window)
+        }
+        Err(e) => return Err(format!("启动 {} 安装程序失败：{e}", spec.desktop.name)),
+    };
     let job = ProcessJob::attach(&child);
     let started = Instant::now();
     let mut last_reported = u64::MAX;
@@ -337,13 +470,7 @@ pub(crate) fn run_downloaded_desktop_installer(
         }
         match child.try_wait() {
             Ok(Some(status)) if status.success() => return Ok(()),
-            Ok(Some(status)) => {
-                return Err(format!(
-                    "{} 安装未完成，安装程序退出代码：{}。如果装了 360 等安全软件，请检查它是否拦截了安装程序写入的文件",
-                    spec.desktop.name,
-                    status.code().unwrap_or(-1)
-                ))
-            }
+            Ok(Some(status)) => return Err(installer_failure(spec, status.code().unwrap_or(-1))),
             Ok(None) => {
                 let elapsed = started.elapsed().as_secs();
                 if elapsed >= 1200 {
@@ -371,6 +498,16 @@ pub(crate) fn run_downloaded_desktop_installer(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_elevated_installer_gets_one_command_line() {
+        assert_eq!(command_line(&["/S", "/allusers"]), "/S /allusers");
+        assert_eq!(
+            command_line(&["/DIR=C:\\Program Files\\X"]),
+            "\"/DIR=C:\\Program Files\\X\""
+        );
+        assert_eq!(command_line(&[]), "");
+    }
 
     #[test]
     fn electron_latest_yml_names_installer_and_checksum() {

@@ -332,11 +332,10 @@ fn qoder_installer(base: &str, display_name: &str) -> Result<ResolvedInstaller, 
     let (_, body) = get(&format!("{base}/qoder-app/releases/{manifest}"))?;
     let release =
         super::install::direct::parse_latest_yml(&body).ok_or("Qoder 发布信息格式无法识别")?;
-    let args = if machine {
-        vec!["/S".to_string(), "/allusers".to_string()]
-    } else {
-        vec!["/S".to_string(), "/currentuser".to_string()]
-    };
+    // Only `/S`: each manifest already names a package built for its scope, and an
+    // electron-builder installer refuses a silent run that also carries `/allusers`
+    // (Qoder's quit with exit code 21). The per-machine package asks for elevation itself.
+    let args = vec!["/S".to_string()];
     installer_named(
         format!(
             "{base}/qoder-app/releases/{}/{}",
