@@ -145,7 +145,15 @@ pub fn contains(session_dir: &Path, needle: &str) -> bool {
 
 fn first_user_message(session_dir: &Path) -> Option<String> {
     read(session_dir, 40).ok()?.0.into_iter().find_map(|m| {
-        (m.role == "user").then(|| m.text.lines().next().unwrap_or("").chars().take(120).collect())
+        (m.role == "user").then(|| {
+            m.text
+                .lines()
+                .next()
+                .unwrap_or("")
+                .chars()
+                .take(120)
+                .collect()
+        })
     })
 }
 
@@ -255,11 +263,16 @@ pub fn load(root: &Path) -> Result<Vec<Session>, String> {
             continue;
         }
         for session_dir in dirs_in(&workspace) {
-            let name = session_dir.file_name().unwrap_or_default().to_string_lossy();
+            let name = session_dir
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy();
             if !name.starts_with("session_") {
                 continue;
             }
-            if let Some(session) = session_from(&session_dir, index.get(name.as_ref()).map(String::as_str)) {
+            if let Some(session) =
+                session_from(&session_dir, index.get(name.as_ref()).map(String::as_str))
+            {
                 sessions.push(session);
             }
         }
