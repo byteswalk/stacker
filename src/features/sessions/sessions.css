@@ -148,6 +148,39 @@
 .a .footprint-section.reclaimable .footprint-section-head b{color:#5fb878}
 .a .footprint-section.review .footprint-section-head b{color:#e6b450}
 .a .footprint-section.keep .footprint-section-head b,.a .footprint-section.sessions .footprint-section-head b{color:var(--mut)}
+/* One agent's space: what it is (the bar), then what can be done about it. */
+.a .fp-agent{display:flex;flex-direction:column;gap:9px;padding:14px;border:1px solid var(--bd);border-radius:10px}
+.a .fp-agent>header{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:14px}
+.a .fp-agent>header .fp-total{color:var(--mut);font-size:13px}
+.a .fp-agent>header .footprint-location{margin-left:auto}
+.a .fp-bar{display:flex;height:10px;border-radius:6px;overflow:hidden;background:var(--line)}
+.a .fp-bar>i{display:block;height:100%}
+.a .fp-legend{display:flex;gap:16px;flex-wrap:wrap;font-size:11.5px;color:var(--mut)}
+.a .fp-legend>span{display:inline-flex;align-items:center;gap:6px}
+.a .fp-legend em{width:9px;height:9px;border-radius:3px;font-style:normal}
+.a .fp-card{display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--card)}
+.a .fp-card .tx{display:flex;flex-direction:column;gap:3px;min-width:0}
+.a .fp-card .tx b{font-size:13px}
+.a .fp-card .tx>span{font-size:11.5px;color:var(--mut)}
+.a .fp-card .sz{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex:0 0 auto}
+.a .fp-card .sz b{font-size:14px}
+.a .fp-card .sz>span{font-size:10.5px;color:var(--mut)}
+.a .fp-card .ic,.a .fp-pick .ic{display:grid;place-items:center;width:36px;height:36px;border-radius:9px;background:var(--cardh);font-size:18px;flex:0 0 auto}
+.a .fp-card .ic.green,.a .fp-pick .ic.green{color:#6bcf86}
+.a .fp-card .ic.blue{color:#5b8def}
+.a .fp-pick .ic.amber{color:var(--amber);width:32px;height:32px;font-size:16px}
+.a .fp-details{display:flex;flex-direction:column;gap:4px;margin:-2px 0 0 48px;font-size:12px}
+.a .fp-details>div{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:5px 0;border-top:1px solid var(--bd)}
+.a .fp-details>div.blocked{opacity:.65}
+.a .fp-sec{display:flex;align-items:baseline;gap:9px;margin-top:5px}
+.a .fp-sec b{font-size:13px}
+.a .fp-sec span{font-size:11.5px;color:var(--mut)}
+.a .fp-pick{display:grid;grid-template-columns:20px 32px minmax(0,1fr) auto;align-items:center;gap:11px;padding:10px 12px;border:1px solid var(--line);border-radius:9px;background:var(--card)}
+.a .fp-pick.on{border-color:color-mix(in srgb,var(--acc) 45%,var(--line))}
+.a .fp-pick input[type=checkbox]{width:15px;height:15px;accent-color:var(--acc)}
+.a .fp-lock{color:var(--mut);font-size:14px;text-align:center}
+.a .fp-pickbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.a .fp-keep{margin:2px 0 0;font-size:11.5px;color:var(--mut)}
 .a .footprint-row{display:grid;grid-template-columns:18px minmax(0,1fr) auto 80px;gap:10px;align-items:center;padding:7px 14px;font-size:12px}
 .a .footprint-row:hover{background:var(--card)}
 .a .footprint-row.selected{background:var(--cardh)}

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { invoke } from "../../invoke";
 import { useI18n } from "../../i18n";
+import { Select } from "../../Select";
 import { useBusy, useToast } from "../../ui";
 import { FoldToggle, useFold } from "./Fold";
 import { shortVersion } from "../agents/tileState";
@@ -8,20 +9,24 @@ import { shortVersion } from "../agents/tileState";
 type LoginStatus = { state: "logged_in" | "logged_out" | "unknown"; method: string };
 type AgentModel = { call: string; label: string; efforts: string[]; defaultEffort: string | null };
 export type AgentCard = {
-  id: string; name: string; installed: boolean; version: string | null;
+  id: string; name: string; vendor: string; installed: boolean; version: string | null;
   supported: boolean; reason: string; login: LoginStatus | null; enabled: boolean;
-  defaultModel: string | null; defaultEffort: string | null; efforts: string[]; models: AgentModel[];
+  defaultModel: string | null; defaultEffort: string | null; defaultIsChosen: boolean;
+  efforts: string[]; models: AgentModel[];
 };
 type TestResult = { ok: boolean; reply: string; error: string; elapsedMs: number; model: string; effort: string };
 
-const LOGIN: Record<LoginStatus["state"], { label: string; cls: string }> = {
-  logged_in: { label: "已登录", cls: "g" },
-  logged_out: { label: "未登录", cls: "y" },
-  unknown: { label: "登录状态未知", cls: "n" },
+/** How to sign in, in the user's own terminal. */
+const LOGIN_COMMAND: Record<string, string> = {
+  codex: "codex",
+  claude: "claude",
+  agy: "agy",
+  kimi: "kimi login",
+  mimo: "mimo auth login",
+  qoder: "qoder login",
+  qodercn: "qodercn login",
+  codebuddy: "codebuddy",
 };
-
-/** Agents whose defaults follow the summary settings; the rest use their CLI's own defaults. */
-const SUMMARY_AGENTS = ["codex", "claude"];
 
 const RUN_ERRORS: Record<string, string> = {
   E_RUNNER_AUTH: "未登录：请在终端运行该智能体并完成登录。",
@@ -31,32 +36,70 @@ const RUN_ERRORS: Record<string, string> = {
 };
 
 const CACHE_KEY = "stacker.gateway.agents.v1";
+const TESTS_KEY = "stacker.gateway.tests.v1";
+/** Models shown before the list is expanded; more than this is a wall of names. */
+const SHOWN_MODELS = 5;
 
-/** The last check, shown at once while a fresh one runs (each check starts every agent CLI). */
-function cachedCards(): AgentCard[] | null {
-  try { return JSON.parse(localStorage.getItem(CACHE_KEY) || "null") as AgentCard[] | null; } catch { return null; }
+type PastTest = { at: number; ok: boolean; elapsedMs: number };
+
+function readJson<T>(key: string): T | null {
+  try { return JSON.parse(localStorage.getItem(key) || "null") as T | null; } catch { return null; }
 }
 
-function saveCards(cards: AgentCard[]) {
-  try { localStorage.setItem(CACHE_KEY, JSON.stringify(cards)); } catch { /* per-viewer convenience only */ }
+function writeJson(key: string, value: unknown) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* per-viewer convenience only */ }
 }
 
-/** One block per agent: can it be used, is it signed in, which models and efforts, on/off, test. */
-export function GatewayAgents() {
+/** "刚刚" / "13 分钟前" / "3 小时前": how fresh the last successful test is. */
+export function sinceText(at: number, now = Date.now()): string {
+  const minutes = Math.floor((now - at) / 60_000);
+  if (minutes < 1) return "刚刚";
+  if (minutes < 60) return `${minutes} 分钟前`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} 小时前`;
+  return `${Math.floor(hours / 24)} 天前`;
+}
+
+/**
+ * One line that says whether the agent can be used, instead of a sign-in state and a test
+ * result contradicting each other: a test that went through proves it works.
+ */
+export function agentState(card: AgentCard, past?: PastTest): { label: string; cls: string } {
+  if (past?.ok) return { label: `可用 · ${sinceText(past.at)}测试通过`, cls: "g" };
+  if (card.login?.state === "logged_out") return { label: "未登录", cls: "y" };
+  if (card.login?.state === "logged_in") return { label: "已登录", cls: "g" };
+  return { label: "未测试", cls: "n" };
+}
+
+/**
+ * What a model's reasoning levels add to the line above the table, which already names the
+ * ones they all share: nothing when they match, "仅 …" when the model takes fewer.
+ */
+export function effortNote(own: string[], shared: string[]): string {
+  if (!own.length || !shared.length) return "";
+  const set = new Set(shared);
+  const same = own.length === shared.length && own.every((e) => set.has(e));
+  if (same) return "";
+  return own.every((e) => set.has(e)) ? `仅 ${own.join(" / ")}` : `支持 ${own.join(" / ")}`;
+}
+
+/** One block per agent: can it be used, what it runs by default, how to call it, its models. */
+export function GatewayAgents({ base, token }: { base: string; token: string }) {
   const { tr: t } = useI18n();
   const toast = useToast();
   const busy = useBusy();
-  const [cards, setCards] = useState<AgentCard[] | null>(cachedCards);
+  const [cards, setCards] = useState<AgentCard[] | null>(() => readJson<AgentCard[]>(CACHE_KEY));
   const [refreshing, setRefreshing] = useState(false);
   const [tests, setTests] = useState<Record<string, TestResult | "running">>({});
+  const [past, setPast] = useState<Record<string, PastTest>>(() => readJson<Record<string, PastTest>>(TESTS_KEY) ?? {});
 
-  // No blocking dialog: the last result stays on screen and is replaced when the check ends.
+  // No blocking dialog: the last check stays on screen and is replaced when a new one ends.
   const load = useCallback(async () => {
     setRefreshing(true);
     try {
       const next = await invoke<AgentCard[]>("gateway_agents");
       setCards(next);
-      saveCards(next);
+      writeJson(CACHE_KEY, next);
     } finally {
       setRefreshing(false);
     }
@@ -67,6 +110,15 @@ export function GatewayAgents() {
     try { await invoke("gateway_set_agent", { agent: card.id, enabled }); await load(); }
     catch (e) { toast(String(e), "err"); }
   }
+
+  async function setDefault(card: AgentCard, model: string | null, effort: string | null) {
+    try {
+      await invoke("gateway_set_agent_default", { agent: card.id, model, effort });
+      await load();
+      toast(t("已保存默认设置"), "ok");
+    } catch (e) { toast(String(e), "err"); }
+  }
+
   async function test(card: AgentCard, model?: string) {
     const key = model ?? card.id;
     setTests((old) => ({ ...old, [key]: "running" }));
@@ -74,10 +126,16 @@ export function GatewayAgents() {
       const result = await busy({ title: `${t("正在测试")} ${card.name}`, message: t("发送一条简短消息并等待回复，通常需要 5–30 秒。") },
         () => invoke<TestResult>("gateway_test", { agent: card.id, model: model ? model.slice(card.id.length + 1) : null }));
       setTests((old) => ({ ...old, [key]: result }));
+      setPast((old) => {
+        const next = { ...old, [key]: { at: Date.now(), ok: result.ok, elapsedMs: result.elapsedMs } };
+        writeJson(TESTS_KEY, next);
+        return next;
+      });
     } catch (e) {
       setTests((old) => ({ ...old, [key]: { ok: false, reply: "", error: String(e), elapsedMs: 0, model: "", effort: "" } }));
     }
   }
+
   const copy = (text: string) => { void navigator.clipboard.writeText(text).then(() => toast(t("已复制"), "ok")); };
 
   const testLine = (key: string) => {
@@ -85,78 +143,160 @@ export function GatewayAgents() {
     if (!r) return null;
     if (r === "running") return <span className="gw-test"><i className="ti ti-loader spin" /> {t("测试中…")}</span>;
     return r.ok
-      ? <span className="gw-test ok"><i className="ti ti-circle-check" /> {t("可用")} · {(r.elapsedMs / 1000).toFixed(1)}s · {r.model || t("CLI 默认模型")} · {r.effort || t("CLI 默认推理")}</span>
+      ? <span className="gw-test ok"><i className="ti ti-circle-check" /> {(r.elapsedMs / 1000).toFixed(1)}s {t("测试通过")}</span>
       : <span className="gw-test bad"><i className="ti ti-alert-circle" /> {t(RUN_ERRORS[r.error] ?? r.error)}</span>;
   };
 
   if (!cards) return <div className="pxcard"><p className="proxy-note"><i className="ti ti-loader spin" /> {t("正在检查本机智能体…")}</p></div>;
   const refreshNote = refreshing && <p className="proxy-note gw-refreshing"><i className="ti ti-loader spin" /> {t("正在更新登录状态和模型列表…")}</p>;
   const usable = cards.filter((c) => c.supported);
-  // Agents Stacker will never drive through the API (no backend, or not installed) are not
-  // the user's problem, so the page keeps quiet about them. A signed-out agent is one click
-  // of theirs away from working, so that one still shows.
+  // Agents Stacker cannot drive are not the user's problem and stay off the page; a
+  // signed-out one is one sign-in away from working, so that one still shows.
   const needLogin = cards.filter((c) => !c.supported && !!c.login);
 
   return <>
     {refreshNote}
-    {usable.map((card) => <AgentBlock key={card.id} card={card} testLine={testLine} running={(key) => tests[key] === "running"}
-      onTest={(model) => void test(card, model)} onToggle={(on) => void toggle(card, on)} onCopy={copy} />)}
+    {usable.map((card) => <AgentBlock key={card.id} card={card} base={base} token={token}
+      past={past} testLine={testLine} running={(key) => tests[key] === "running"}
+      onTest={(model) => void test(card, model)} onToggle={(on) => void toggle(card, on)}
+      onDefault={(model, effort) => void setDefault(card, model, effort)} onCopy={copy} />)}
 
     {!!needLogin.length && <div className="pxcard">
       <div className="pxsec"><i className="ti ti-login" /> {t("登录后即可用于接口服务")}</div>
       <div className="gw-others">
-        {needLogin.map((c) => <div key={c.id}><b>{c.name}</b>{c.version && <span className="s dim">v{shortVersion(c.version)}</span>}<span className="s dim">{t(c.reason)}</span></div>)}
+        {needLogin.map((c) => <div key={c.id}>
+          <b>{c.name}</b>{c.version && <span className="s dim">v{shortVersion(c.version)}</span>}
+          <span className="s dim">{t("在终端运行")} <code>{LOGIN_COMMAND[c.id] ?? c.id}</code> {t("完成登录")}</span>
+        </div>)}
       </div>
     </div>}
   </>;
 }
 
-/** One agent: a header row that is always visible, and its defaults and models when opened. */
-function AgentBlock({ card, testLine, running, onTest, onToggle, onCopy }: {
+type Snippet = "openai" | "anthropic" | "curl" | "client";
+
+/** Ready-to-run code for this agent, with the port, key and model already filled in. */
+export function snippet(kind: Snippet, base: string, token: string, model: string): string {
+  if (kind === "openai") {
+    return `from openai import OpenAI\n\nclient = OpenAI(\n    base_url="${base}/v1",\n    api_key="${token}",\n)\nreply = client.chat.completions.create(\n    model="${model}",\n    messages=[{"role": "user", "content": "你好"}],\n)\nprint(reply.choices[0].message.content)`;
+  }
+  if (kind === "anthropic") {
+    return `from anthropic import Anthropic\n\nclient = Anthropic(\n    base_url="${base}",\n    api_key="${token}",\n)\nreply = client.messages.create(\n    model="${model}", max_tokens=1024,\n    messages=[{"role": "user", "content": "你好"}],\n)\nprint(reply.content[0].text)`;
+  }
+  if (kind === "curl") {
+    return `curl ${base}/v1/chat/completions \\\n  -H "Authorization: Bearer ${token}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"model":"${model}","messages":[{"role":"user","content":"你好"}]}'`;
+  }
+  return `接口类型：OpenAI 兼容\nAPI 地址：${base}/v1\nAPI 密钥：${token}\n模型名称：${model}`;
+}
+
+const SNIPPETS: [Snippet, string][] = [
+  ["openai", "OpenAI 兼容"],
+  ["anthropic", "Anthropic 兼容"],
+  ["curl", "curl"],
+  ["client", "客户端填写"],
+];
+
+function AgentBlock({ card, base, token, past, testLine, running, onTest, onToggle, onDefault, onCopy }: {
   card: AgentCard;
+  base: string;
+  token: string;
+  past: Record<string, PastTest>;
   testLine: (key: string) => ReactNode;
   running: (key: string) => boolean;
   onTest: (model?: string) => void;
   onToggle: (enabled: boolean) => void;
+  onDefault: (model: string | null, effort: string | null) => void;
   onCopy: (text: string) => void;
 }) {
   const { tr: t } = useI18n();
   const [open, toggleOpen] = useFold(`agent:${card.id}`, false);
-  const login = LOGIN[card.login?.state ?? "unknown"];
-  return <div className={"pxcard gw-agent" + (open ? " open" : "")}>
-        <div className="gw-agent-head">
-          <FoldToggle open={open} onToggle={toggleOpen} label={t(open ? "收起模型列表" : "展开模型列表")} />
-          <b className="gw-agent-name" onClick={toggleOpen}>{card.name}</b>
-          {card.version && <span className="s dim">v{shortVersion(card.version)}</span>}
-          <span className={"bd " + login.cls}>{t(login.label)}{card.login?.method ? ` · ${card.login.method}` : ""}</span>
-          <div className="gw-agent-actions">
-            {testLine(card.id)}
-            <button className="gh sm" disabled={running(card.id)} onClick={() => onTest()}><i className="ti ti-player-play" /> {t("测试")}</button>
-            <label className="gw-switch" title={t("关闭后接口服务不再接受这个智能体的请求")}>
-              <span>{t(card.enabled ? "已开放" : "已关闭")}</span>
-              <span className="sw"><input type="checkbox" checked={card.enabled} onChange={(e) => onToggle(e.target.checked)} /><span className="tk" /></span>
-            </label>
-          </div>
-        </div>
-        {!open && <p className="proxy-note gw-summary" onClick={toggleOpen}>
-          {t("默认")}：<b>{card.defaultModel ?? t("CLI 默认模型")}</b> · <b>{card.defaultEffort ?? t("CLI 默认推理")}</b> · {card.models.length} {t("个可指定的模型")}
-        </p>}
-        {open && <>
-        <p className="proxy-note">
-          {t("请求里写")} <code>{card.id}</code> {t("时使用默认")}：<b>{card.defaultModel ?? t("CLI 默认模型")}</b> · <b>{card.defaultEffort ?? t("CLI 默认推理")}</b>{SUMMARY_AGENTS.includes(card.id) ? t("（在「会话数据 → 设置 → 摘要」中修改）") : ""}{t("。也可以写下表中的调用名指定模型，并用 reasoning_effort 指定推理档位（Anthropic 风格请求用默认档位）。")}
-        </p>
-        {!!card.efforts.length && <p className="proxy-note gw-efforts">{t("只写智能体名时可用的推理档位")}：{card.efforts.map((e) => <span key={e} className={"chip" + (e === card.defaultEffort ? " auto" : "")}>{e}</span>)}</p>}
-        <div className="gw-models">
-          <div className="gw-model head"><span>{t("调用名")}</span><span>{t("模型")}</span><span>{t("可用推理档位")}</span><span /></div>
-          {card.models.map((m) => <div className="gw-model" key={m.call}>
-            <span><code>{m.call}</code> <button className="ic" title={t("复制")} onClick={() => onCopy(m.call)}><i className="ti ti-copy" /></button></span>
-            <span>{m.label}</span>
-            <span className="gw-efforts">{m.efforts.map((e) => <span key={e} className={"chip" + (e === m.defaultEffort ? " auto" : "")} title={e === m.defaultEffort ? t("该模型的默认档位") : undefined}>{e}</span>)}</span>
-            <span className="gw-model-test">{testLine(m.call)}<button className="gh sm" disabled={running(m.call)} onClick={() => onTest(m.call)}>{t("测试")}</button></span>
-          </div>)}
-          {!card.models.length && <p className="proxy-note">{t("没有读到模型列表，可在请求里直接写完整模型名。")}</p>}
-        </div>
-        </>}
-      </div>;
+  const [kind, setKind] = useState<Snippet>("openai");
+  const [query, setQuery] = useState("");
+  const [all, setAll] = useState(false);
+  const state = agentState(card, past[card.id]);
+  const method = card.login?.state === "logged_in" && card.login.method ? card.login.method : "";
+  const subtitle = [card.vendor, method, `${card.models.length} ${t("个模型")}`].filter(Boolean).join(" · ");
+  // Efforts every model shares are said once above the table; a row only names its own.
+  const shared = card.efforts;
+  const needle = query.trim().toLowerCase();
+  const matches = card.models.filter((m) => !needle
+    || m.label.toLowerCase().includes(needle)
+    || m.call.toLowerCase().includes(needle));
+  const shown = all || needle ? matches : matches.slice(0, SHOWN_MODELS);
+  const modelOptions = [{ value: "", label: t("跟随 CLI 默认") }, ...card.models.map((m) => ({ value: m.call.slice(card.id.length + 1), label: m.label }))];
+  const effortOptions = [{ value: "", label: t("跟随 CLI 默认") }, ...shared.map((e) => ({ value: e, label: e }))];
 
+  return <div className={"pxcard gw-agent" + (open ? " open" : "")}>
+    <div className="gw-head">
+      <FoldToggle open={open} onToggle={toggleOpen} label={t(open ? "收起" : "展开")} />
+      <div className="gw-title" onClick={toggleOpen}>
+        <b>{card.name} {card.version && <span className="s dim">v{shortVersion(card.version)}</span>}</b>
+        <span className="s dim">{subtitle}</span>
+      </div>
+      <span className={"bd " + state.cls}>{t(state.label)}</span>
+      <div className="gw-agent-actions">
+        {testLine(card.id)}
+        <button className="gh sm" disabled={running(card.id)} onClick={() => onTest()}><i className="ti ti-player-play" /> {t("测试")}</button>
+        <label className="gw-switch" title={t("关闭后接口服务不再接受这个智能体的请求")}>
+          <span>{t(card.enabled ? "已开放" : "已关闭")}</span>
+          <span className="sw"><input type="checkbox" checked={card.enabled} onChange={(e) => onToggle(e.target.checked)} /><span className="tk" /></span>
+        </label>
+      </div>
+    </div>
+
+    <div className="gw-default">
+      <span>{t("请求里写")} <code>{card.id}</code> {t("时用")}</span>
+      <Select value={card.defaultIsChosen ? (card.defaultModel ?? "") : ""} width={200}
+        onChange={(v) => onDefault(v || null, card.defaultEffort ?? null)} options={modelOptions} />
+      <Select value={card.defaultIsChosen ? (card.defaultEffort ?? "") : ""} width={150}
+        onChange={(v) => onDefault(card.defaultModel ?? null, v || null)} options={effortOptions} />
+      {!card.defaultIsChosen && <span className="s dim">{t("现在由 CLI 自己决定；选一个就固定下来")}</span>}
+    </div>
+
+    {open && <>
+      <div className="gw-use">
+        <div className="gw-use-tabs">
+          {SNIPPETS.map(([k, label]) => <button key={k} className={k === kind ? "on" : ""} onClick={() => setKind(k)}>{t(label)}</button>)}
+        </div>
+        <pre className="gw-use-code">{snippet(kind, base, token, card.id)}</pre>
+        <div className="gw-use-bar">
+          <i className="ti ti-info-circle" /> {t("端口和密钥已经填好；要指定模型，把 model 换成下面表里的调用名")}
+          <button className="pr sm" onClick={() => onCopy(snippet(kind, base, token, card.id))}><i className="ti ti-copy" /> {t("复制")}</button>
+        </div>
+      </div>
+
+      <div className="gw-modelhd">
+        <b>{t("可指定的模型")}</b>
+        {card.models.length > SHOWN_MODELS && <label className="gw-search">
+          <i className="ti ti-search" />
+          <input value={query} placeholder={t("搜索模型…")} onChange={(e) => setQuery(e.target.value)} />
+        </label>}
+        {!!shared.length && <span className="s dim">{t("这些模型都支持")} {shared.join(" / ")} {t("推理档位；只有不一样的会在行内标注")}</span>}
+      </div>
+
+      <div className="gw-models">
+        {shown.map((m) => {
+          const note = effortNote(m.efforts, shared);
+          const isDefault = card.defaultIsChosen && card.defaultModel === m.call.slice(card.id.length + 1);
+          return <div className={"gw-model" + (isDefault ? " on" : "")} key={m.call}>
+            <span className="nm">
+              <b>{m.label} {isDefault && <span className="bd g">{t("当前默认")}</span>}{note && <span className="s dim"> · {t(note)}</span>}</b>
+              <code>{m.call}</code>
+            </span>
+            <span className="acts">
+              {testLine(m.call)}
+              {!isDefault && <button className="gh xs" title={t("设为默认模型")} onClick={() => onDefault(m.call.slice(card.id.length + 1), card.defaultEffort ?? null)}><i className="ti ti-star" /></button>}
+              <button className="gh xs" title={t("复制调用名")} onClick={() => onCopy(m.call)}><i className="ti ti-copy" /></button>
+              <button className="gh xs" disabled={running(m.call)} title={t("测试这个模型")} onClick={() => onTest(m.call)}><i className="ti ti-player-play" /></button>
+            </span>
+          </div>;
+        })}
+        {!card.models.length && <p className="proxy-note">{t("没有读到模型列表，可在请求里直接写完整模型名。")}</p>}
+        {!needle && matches.length > SHOWN_MODELS && <button className="gh sm gw-more" onClick={() => setAll(!all)}>
+          {all ? t("收起") : `${t("展开其余")} ${matches.length - SHOWN_MODELS} ${t("个模型")}`}
+        </button>}
+        {!!needle && !matches.length && <p className="proxy-note">{t("没有匹配的模型。")}</p>}
+      </div>
+    </>}
+  </div>;
 }

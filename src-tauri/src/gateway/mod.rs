@@ -17,6 +17,18 @@ pub struct GatewayConfig {
     pub token: String,
     /// Agents turned off on the page (missing = on).
     pub disabled_agents: Vec<String>,
+    /// What a request that names only the agent runs with. Without an entry the CLI decides,
+    /// which is a value Stacker cannot read or show, so the page lets the user pick one.
+    #[serde(default)]
+    pub agent_defaults: Vec<AgentDefault>,
+}
+
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct AgentDefault {
+    pub agent: String,
+    /// The model id as the CLI names it, without the `<agent>/` prefix.
+    pub model: Option<String>,
+    pub effort: Option<String>,
 }
 
 impl Default for GatewayConfig {
@@ -26,6 +38,7 @@ impl Default for GatewayConfig {
             port: DEFAULT_PORT,
             token: String::new(),
             disabled_agents: Vec::new(),
+            agent_defaults: Vec::new(),
         }
     }
 }
@@ -88,6 +101,20 @@ fn live_runner() -> Runner {
 /// to the CLI's own defaults.
 pub(crate) fn live_defaults() -> Defaults {
     Arc::new(|chat: &protocol::ChatRequest| {
+        // What the user picked on the page wins; Codex and Claude otherwise follow the
+        // summary settings, and anything else leaves the choice to the CLI.
+        let picked = load()
+            .agent_defaults
+            .into_iter()
+            .find(|d| d.agent == chat.model.backend);
+        if let Some(picked) = picked {
+            if picked.model.is_some() || picked.effort.is_some() {
+                return (
+                    chat.model.model.clone().or(picked.model),
+                    chat.effort.clone().or(picked.effort),
+                );
+            }
+        }
         let agent = match chat.model.backend.as_str() {
             "codex" => Some(crate::sessions::model::Agent::Codex),
             "claude" => Some(crate::sessions::model::Agent::Claude),

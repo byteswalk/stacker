@@ -29,6 +29,8 @@ pub struct AgentModel {
 pub struct AgentCard {
     pub id: String,
     pub name: String,
+    /// Who makes it, for the line under the name.
+    pub vendor: String,
     pub installed: bool,
     pub version: Option<String>,
     pub supported: bool,
@@ -39,6 +41,8 @@ pub struct AgentCard {
     /// Used when a request names only the agent.
     pub default_model: Option<String>,
     pub default_effort: Option<String>,
+    /// Whether that default is the user's own choice rather than the CLI's.
+    pub default_is_chosen: bool,
     /// Reasoning levels usable without naming a model.
     pub efforts: Vec<String>,
     pub models: Vec<AgentModel>,
@@ -100,6 +104,7 @@ fn card_for(config: &GatewayConfig, cli_id: &str, tool: &crate::agents::VibeTool
     let mut card = AgentCard {
         id: cli_id.to_string(),
         name: tool.cli.label.clone(),
+        vendor: crate::agents::cli_vendor_label(cli_id).to_string(),
         installed,
         version: tool.cli.version.clone(),
         supported: false,
@@ -108,6 +113,7 @@ fn card_for(config: &GatewayConfig, cli_id: &str, tool: &crate::agents::VibeTool
         enabled: false,
         default_model: None,
         default_effort: None,
+        default_is_chosen: false,
         efforts: Vec::new(),
         models: Vec::new(),
     };
@@ -125,6 +131,10 @@ fn card_for(config: &GatewayConfig, cli_id: &str, tool: &crate::agents::VibeTool
             let (model, effort) = defaults_for(b.id);
             card.default_model = model;
             card.default_effort = effort;
+            card.default_is_chosen = config
+                .agent_defaults
+                .iter()
+                .any(|d| d.agent == cli_id && (d.model.is_some() || d.effort.is_some()));
             card.efforts = (b.efforts)();
             card.models = (b.models)()
                 .into_iter()
@@ -145,6 +155,27 @@ pub async fn gateway_agents() -> Vec<AgentCard> {
     tauri::async_runtime::spawn_blocking(agent_cards)
         .await
         .unwrap_or_default()
+}
+
+/// Saves what a request that names only this agent should run with.
+#[tauri::command]
+pub fn gateway_set_agent_default(
+    agent: String,
+    model: Option<String>,
+    effort: Option<String>,
+) -> Result<(), String> {
+    let mut config = load();
+    config.agent_defaults.retain(|d| d.agent != agent);
+    let clean = |value: Option<String>| value.filter(|v| !v.trim().is_empty());
+    let (model, effort) = (clean(model), clean(effort));
+    if model.is_some() || effort.is_some() {
+        config.agent_defaults.push(super::AgentDefault {
+            agent,
+            model,
+            effort,
+        });
+    }
+    save(&config)
 }
 
 #[tauri::command]

@@ -406,6 +406,7 @@ pub fn run() {
             gateway::gateway_set,
             gateway::gateway_new_token,
             gateway::agents::gateway_agents,
+            gateway::agents::gateway_set_agent_default,
             gateway::agents::gateway_set_agent,
             gateway::agents::gateway_test,
             proxy_ledger::proxy_location_write,

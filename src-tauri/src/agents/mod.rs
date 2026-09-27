@@ -470,6 +470,29 @@ pub(crate) fn open_external_target(target: &str) -> Result<(), String> {
     }
 }
 
+/// Who makes the agent behind a CLI id, for pages that name the vendor.
+pub(crate) fn cli_vendor_label(cli_id: &str) -> &'static str {
+    use registry::Vendor;
+    let vendor = registry::tool_specs()
+        .into_iter()
+        .find(|spec| spec.cli_id == Some(cli_id))
+        .map(|spec| spec.vendor);
+    match vendor {
+        Some(Vendor::Claude) => "Anthropic",
+        Some(Vendor::Codex) => "OpenAI",
+        Some(Vendor::Antigravity) => "Google",
+        Some(Vendor::Kimi) => "月之暗面",
+        Some(Vendor::WorkBuddy) => "腾讯",
+        Some(Vendor::Qoder) => "阿里",
+        Some(Vendor::Trae) => "字节跳动",
+        Some(Vendor::MiMo) => "小米",
+        Some(Vendor::DeepSeekHarness) => "DeepSeek",
+        Some(Vendor::ZCode) => "智谱",
+        Some(Vendor::Copilot) => "GitHub",
+        _ => "",
+    }
+}
+
 pub(crate) fn emit_progress<S: AsRef<str>>(window: &Option<tauri::Window>, msg: S) {
     if crate::installer::task_log(msg.as_ref()) {
         return;
