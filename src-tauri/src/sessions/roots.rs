@@ -39,6 +39,7 @@ pub fn resolve(overrides: &Roots) -> Roots {
             None,
             home.join(".local").join("share").join("mimocode"),
         ),
+        kimi: pick(&overrides.kimi, None, home.join(".kimi-code")),
     }
 }
 

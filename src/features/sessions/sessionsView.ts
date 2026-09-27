@@ -1,6 +1,6 @@
 import type { AgentName, ClientTag, SessionStatus } from "./types";
 
-export const AGENT_LABEL: Record<AgentName, string> = { codex: "Codex", claude: "Claude", codebuddy: "CodeBuddy", mimo: "MiMo" };
+export const AGENT_LABEL: Record<AgentName, string> = { codex: "Codex", claude: "Claude", codebuddy: "CodeBuddy", mimo: "MiMo", kimi: "Kimi" };
 
 export const CLIENT_LABEL: Record<ClientTag, string> = {
   desktop: "桌面端",

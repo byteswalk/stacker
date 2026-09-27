@@ -1,4 +1,4 @@
-export type AgentName = "codex" | "claude" | "codebuddy" | "mimo";
+export type AgentName = "codex" | "claude" | "codebuddy" | "mimo" | "kimi";
 export type ClientTag = "desktop" | "terminal" | "ide" | "automation" | "sdk" | "unknown";
 export type SessionStatus = "active" | "archived" | "orphaned";
 export type TitleSource = "client" | "custom" | "summary" | "first_message";

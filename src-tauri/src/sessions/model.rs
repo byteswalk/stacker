@@ -7,6 +7,7 @@ pub enum Agent {
     Claude,
     CodeBuddy,
     MiMo,
+    Kimi,
 }
 
 impl Agent {
@@ -16,6 +17,7 @@ impl Agent {
             Agent::Claude => "claude",
             Agent::CodeBuddy => "codebuddy",
             Agent::MiMo => "mimo",
+            Agent::Kimi => "kimi",
         }
     }
 }
@@ -156,4 +158,6 @@ pub struct Roots {
     pub codebuddy: String,
     #[serde(default)]
     pub mimo: String,
+    #[serde(default)]
+    pub kimi: String,
 }

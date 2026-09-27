@@ -166,6 +166,18 @@ pub fn plan(
             // MiMo's turns live in a database shared by every session, so its own CLI
             // removes them; nothing here is a file Stacker may delete.
             Agent::MiMo => allowed.push((session.clone(), Vec::new())),
+            // A folder per session, inside Kimi's own store.
+            Agent::Kimi => {
+                let dir = PathBuf::from(&session.path);
+                let root = PathBuf::from(&roots.kimi);
+                if now.saturating_sub(modified_secs(&dir)) < IN_USE_SECONDS {
+                    blocked.push(block("E_IN_USE"));
+                } else if is_link(&dir) || !inside(&root, &dir) {
+                    blocked.push(block("E_LINK"));
+                } else {
+                    allowed.push((session.clone(), vec![dir]));
+                }
+            }
             // One transcript file, nothing beside it.
             Agent::CodeBuddy => {
                 let transcript = PathBuf::from(&session.path);
@@ -373,6 +385,7 @@ fn process(
         Agent::Codex => delete_codex(rpc, Path::new(&roots.codex), session)?,
         Agent::CodeBuddy => delete_files(paths, Path::new(&roots.codebuddy))?,
         Agent::MiMo => delete_mimo(&session.native_id)?,
+        Agent::Kimi => delete_files(paths, Path::new(&roots.kimi))?,
     }
     Ok(detail)
 }

@@ -57,6 +57,9 @@ pub fn load(roots: &Roots) -> Catalog {
     if let Ok(found) = super::mimo_catalog::load(Path::new(&roots.mimo)) {
         sessions.extend(found);
     }
+    if let Ok(found) = super::kimi_catalog::load(Path::new(&roots.kimi)) {
+        sessions.extend(found);
+    }
     if let Ok(mut cache) = CACHE.lock() {
         *cache = Some(Cached {
             at: Instant::now(),

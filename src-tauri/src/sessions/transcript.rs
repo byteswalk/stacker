@@ -91,8 +91,8 @@ fn parse(agent: Agent, v: &Value) -> Parsed {
             "message" => Parsed::Message(str_at(v, "role").to_string(), content(&v["content"])),
             _ => Parsed::Other,
         },
-        // Read from the database instead; nothing reaches this parser.
-        Agent::MiMo => Parsed::Other,
+        // Read from their own stores instead; nothing reaches this parser.
+        Agent::MiMo | Agent::Kimi => Parsed::Other,
     }
 }
 
@@ -110,6 +110,8 @@ pub fn read_session(session: &super::model::Session) -> Result<(Vec<Message>, bo
     match session.agent {
         // MiMo keeps its turns in a SQLite file shared by every session.
         Agent::MiMo => super::mimo_catalog::read(path, &session.native_id, MAX_MESSAGES),
+        // Kimi files a folder per session, with the conversation as a stream of events.
+        Agent::Kimi => super::kimi_catalog::read(path, MAX_MESSAGES),
         agent => read(agent, path),
     }
 }
@@ -119,6 +121,7 @@ pub fn session_contains(session: &super::model::Session, needle: &str) -> bool {
     let path = Path::new(&session.path);
     match session.agent {
         Agent::MiMo => super::mimo_catalog::contains(path, &session.native_id, needle),
+        Agent::Kimi => super::kimi_catalog::contains(path, needle),
         agent => contains(agent, path, needle),
     }
 }
