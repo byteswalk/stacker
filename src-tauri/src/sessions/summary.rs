@@ -2,7 +2,6 @@
 use super::model::{Agent, Session};
 use crate::runner::{CancelFlag, RunOutput, RunRequest, DEFAULT_TIMEOUT};
 use serde::{Deserialize, Serialize};
-use std::path::Path;
 
 /// One call's input budget; longer transcripts are summarized in parts.
 pub const CHUNK_CHARS: usize = 120_000;
@@ -73,7 +72,7 @@ pub fn choice_for(settings: &SummarySettings, agent: Agent) -> RunnerChoice {
     match agent {
         // Only Codex and Claude write summaries; a session from elsewhere is summarised by
         // whichever of those two the settings name.
-        Agent::CodeBuddy => RunnerChoice {
+        Agent::CodeBuddy | Agent::MiMo => RunnerChoice {
             agent: Agent::Codex,
             model: non_empty(&settings.codex_model),
             effort: non_empty(&settings.codex_effort),
@@ -200,7 +199,7 @@ fn call(
 
 /// Readable transcript without any earlier summary, so a stale summary never feeds the new one.
 pub fn transcript_markdown(session: &Session) -> Result<String, String> {
-    let (messages, _) = super::transcript::read(session.agent, Path::new(&session.path))?;
+    let (messages, _) = super::transcript::read_session(session)?;
     let mut bare = session.clone();
     bare.summary = None;
     Ok(super::export::slim_markdown(&bare, &messages))

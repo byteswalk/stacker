@@ -66,7 +66,7 @@ pub fn slim_markdown(session: &Session, messages: &[Message]) -> String {
 
 /// Writes `<dir>/<date>/<agent>/<project>/<title>-<id>.md`.
 pub fn write_slim(session: &Session, dir: &Path) -> Result<PathBuf, String> {
-    let (messages, _) = transcript::read(session.agent, Path::new(&session.path))?;
+    let (messages, _) = transcript::read_session(session)?;
     let day = chrono::Local::now().format("%Y-%m-%d").to_string();
     let folder = dir
         .join(day)

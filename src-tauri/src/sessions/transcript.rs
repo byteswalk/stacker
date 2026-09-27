@@ -91,6 +91,8 @@ fn parse(agent: Agent, v: &Value) -> Parsed {
             "message" => Parsed::Message(str_at(v, "role").to_string(), content(&v["content"])),
             _ => Parsed::Other,
         },
+        // Read from the database instead; nothing reaches this parser.
+        Agent::MiMo => Parsed::Other,
     }
 }
 
@@ -103,6 +105,24 @@ fn next_line(input: &mut impl BufRead, bytes: &mut Vec<u8>) -> Result<usize, Str
 }
 
 /// All readable messages; `complete` is false when limits were hit or lines were damaged.
+pub fn read_session(session: &super::model::Session) -> Result<(Vec<Message>, bool), String> {
+    let path = Path::new(&session.path);
+    match session.agent {
+        // MiMo keeps its turns in a SQLite file shared by every session.
+        Agent::MiMo => super::mimo_catalog::read(path, &session.native_id, MAX_MESSAGES),
+        agent => read(agent, path),
+    }
+}
+
+/// Whether a session's readable text contains `needle`.
+pub fn session_contains(session: &super::model::Session, needle: &str) -> bool {
+    let path = Path::new(&session.path);
+    match session.agent {
+        Agent::MiMo => super::mimo_catalog::contains(path, &session.native_id, needle),
+        agent => contains(agent, path, needle),
+    }
+}
+
 pub fn read(agent: Agent, path: &Path) -> Result<(Vec<Message>, bool), String> {
     let file = fs::File::open(path).map_err(|_| "E_NOT_FOUND".to_string())?;
     let mut complete = file.metadata().map(|m| m.len() <= MAX_FILE).unwrap_or(true);

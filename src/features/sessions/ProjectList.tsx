@@ -74,7 +74,7 @@ export function ProjectList({ rows, loading, onPick, onHandoff }: { rows: Projec
       </label>
       <div className="seg sm">
         <button className={agent === "" ? "on" : ""} onClick={() => setAgent("")}>{t("全部")}</button>
-        {(["codex", "claude", "codebuddy"] as AgentName[]).map((a) => <button key={a} className={agent === a ? "on" : ""} onClick={() => setAgent(a)}>{AGENT_LABEL[a]}</button>)}
+        {(["codex", "claude", "codebuddy", "mimo"] as AgentName[]).map((a) => <button key={a} className={agent === a ? "on" : ""} onClick={() => setAgent(a)}>{AGENT_LABEL[a]}</button>)}
       </div>
       <label className="ck"><input type="checkbox" checked={missingOnly} onChange={(e) => setMissingOnly(e.target.checked)} /> {t("只看目录已删除")}</label>
       <span className="s dim">{shown.length} / {rows.length} {t("个项目")}</span>

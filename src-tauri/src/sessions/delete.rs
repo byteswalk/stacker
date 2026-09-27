@@ -163,6 +163,9 @@ pub fn plan(
                 Err(code) => blocked.push(block(code)),
                 Ok(()) => allowed.push((session.clone(), codex_paths(session))),
             },
+            // MiMo's turns live in a database shared by every session, so its own CLI
+            // removes them; nothing here is a file Stacker may delete.
+            Agent::MiMo => allowed.push((session.clone(), Vec::new())),
             // One transcript file, nothing beside it.
             Agent::CodeBuddy => {
                 let transcript = PathBuf::from(&session.path);
@@ -299,6 +302,19 @@ fn copy_tree(from: &Path, to: &Path) -> Result<(), String> {
     }
 }
 
+/// `mimo session delete <id>`: the only supported way to remove a row from its database.
+fn delete_mimo(session_id: &str) -> Result<(), String> {
+    let program = crate::agents::process::resolve_command(&["mimo.exe", "mimo.cmd", "mimo.bat"])
+        .ok_or("E_RUNNER_MISSING")?;
+    crate::agents::process::run_command_text(
+        &program,
+        &["session", "delete", session_id],
+        "mimo session delete",
+        std::time::Duration::from_secs(120),
+    )
+    .map(|_| ())
+}
+
 fn delete_codex(
     rpc: &mut Option<super::codex_rpc::Rpc>,
     root: &Path,
@@ -356,6 +372,7 @@ fn process(
         Agent::Claude => delete_claude(paths, roots)?,
         Agent::Codex => delete_codex(rpc, Path::new(&roots.codex), session)?,
         Agent::CodeBuddy => delete_files(paths, Path::new(&roots.codebuddy))?,
+        Agent::MiMo => delete_mimo(&session.native_id)?,
     }
     Ok(detail)
 }

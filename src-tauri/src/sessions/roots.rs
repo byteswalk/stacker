@@ -34,6 +34,11 @@ pub fn resolve(overrides: &Roots) -> Roots {
             roaming.join("Claude").join("claude-code-sessions"),
         ),
         codebuddy: pick(&overrides.codebuddy, None, home.join(".codebuddy")),
+        mimo: pick(
+            &overrides.mimo,
+            None,
+            home.join(".local").join("share").join("mimocode"),
+        ),
     }
 }
 

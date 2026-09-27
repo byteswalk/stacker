@@ -74,10 +74,7 @@ pub async fn sessions_list(query: SessionQuery) -> Result<SessionPage, String> {
             let already: HashSet<String> = filtered.iter().map(|s| s.id.clone()).collect();
             let extra: Vec<Session> = catalog::filter(&sessions, &without_text)
                 .into_iter()
-                .filter(|s| {
-                    !already.contains(&s.id)
-                        && transcript::contains(s.agent, Path::new(&s.path), &needle)
-                })
+                .filter(|s| !already.contains(&s.id) && transcript::session_contains(s, &needle))
                 .collect();
             filtered.extend(extra);
             if query.sort == "bytes" {
@@ -100,7 +97,7 @@ pub async fn sessions_projects() -> Result<Vec<ProjectRow>, String> {
 pub async fn sessions_read(id: String, offset: usize) -> Result<SessionDetail, String> {
     blocking(move || {
         let session = find(&id)?;
-        let (messages, complete) = transcript::read(session.agent, Path::new(&session.path))?;
+        let (messages, complete) = transcript::read_session(&session)?;
         let total = messages.len();
         let messages = messages
             .into_iter()
@@ -156,6 +153,7 @@ pub fn sessions_set_roots(overrides: Roots) -> Result<RootsView, String> {
         claude: overrides.claude.trim().to_string(),
         claude_desktop_index: overrides.claude_desktop_index.trim().to_string(),
         codebuddy: overrides.codebuddy.trim().to_string(),
+        mimo: overrides.mimo.trim().to_string(),
     };
     for value in [
         &trimmed.codex,

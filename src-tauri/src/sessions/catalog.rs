@@ -54,6 +54,9 @@ pub fn load(roots: &Roots) -> Catalog {
     if let Ok(found) = super::codebuddy_catalog::load(Path::new(&roots.codebuddy)) {
         sessions.extend(found);
     }
+    if let Ok(found) = super::mimo_catalog::load(Path::new(&roots.mimo)) {
+        sessions.extend(found);
+    }
     if let Ok(mut cache) = CACHE.lock() {
         *cache = Some(Cached {
             at: Instant::now(),

@@ -257,7 +257,10 @@ mod tests {
         assert_eq!(head.agent, "cli");
         assert_eq!(head.model, "hy4-preview");
         // The injected reminder is skipped; the first thing the user typed is the fallback.
-        assert_eq!(head.first_user_message.as_deref(), Some("list the dependencies"));
+        assert_eq!(
+            head.first_user_message.as_deref(),
+            Some("list the dependencies")
+        );
         assert!(head.first_command.is_none());
         assert_eq!(head.summary.as_deref(), Some("Dependency list"));
         assert_eq!(head.created_at, 1790126889);

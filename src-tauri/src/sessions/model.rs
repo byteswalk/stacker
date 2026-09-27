@@ -6,6 +6,7 @@ pub enum Agent {
     Codex,
     Claude,
     CodeBuddy,
+    MiMo,
 }
 
 impl Agent {
@@ -14,6 +15,7 @@ impl Agent {
             Agent::Codex => "codex",
             Agent::Claude => "claude",
             Agent::CodeBuddy => "codebuddy",
+            Agent::MiMo => "mimo",
         }
     }
 }
@@ -152,4 +154,6 @@ pub struct Roots {
     pub claude_desktop_index: String,
     #[serde(default)]
     pub codebuddy: String,
+    #[serde(default)]
+    pub mimo: String,
 }
