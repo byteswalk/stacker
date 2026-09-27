@@ -2,14 +2,21 @@ import { useI18n } from "../../i18n";
 import { Select } from "../../Select";
 import type { AgentName, AgentOptions, SummarySettings } from "./types";
 
+/** Only these two write summaries; sessions from other agents are summarised by one of them. */
+export type SummaryAgent = "codex" | "claude";
+
+export function summaryAgent(agent: AgentName): SummaryAgent {
+  return agent === "claude" ? "claude" : "codex";
+}
+
 const CUSTOM = "__custom__";
 
 type AgentKeys = { model: "codexModel" | "claudeModel"; effort: "codexEffort" | "claudeEffort" };
-const KEYS: Record<AgentName, AgentKeys> = {
+const KEYS: Record<SummaryAgent, AgentKeys> = {
   codex: { model: "codexModel", effort: "codexEffort" },
   claude: { model: "claudeModel", effort: "claudeEffort" },
 };
-const NAME: Record<AgentName, string> = { codex: "Codex", claude: "Claude" };
+const NAME: Record<SummaryAgent, string> = { codex: "Codex", claude: "Claude" };
 
 /** Runner, model and reasoning effort for summaries; used for saved defaults and one-off overrides. */
 export function RunnerFields({ value, options, onChange, agents }: {
@@ -17,7 +24,7 @@ export function RunnerFields({ value, options, onChange, agents }: {
   options: AgentOptions[];
   onChange: (next: SummarySettings) => void;
   /** Agents whose model/effort rows are shown; defaults to both. */
-  agents?: AgentName[];
+  agents?: SummaryAgent[];
 }) {
   const { tr: t } = useI18n();
   const shown = agents ?? ["codex", "claude"];

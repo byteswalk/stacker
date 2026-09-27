@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../../i18n";
 import { Modal } from "../../ui";
 import { cancelSummary, getSummarySettings, previewHandoff, previewSummary, runnerOptions, startHandoff, startSummary, summaryJob } from "./api";
-import { cleanSettings, RunnerFields } from "./RunnerFields";
+import { cleanSettings, RunnerFields, summaryAgent } from "./RunnerFields";
 import { AGENT_LABEL } from "./sessionsView";
 import { errorMessage, type AgentOptions, type RunnerChoice, type SummaryJob, type SummaryPreview, type SummarySettings } from "./types";
 
@@ -68,7 +68,7 @@ export function SummaryDialog({ target, onClose }: { target: Target; onClose: (c
   }
 
   const needed = preview?.items.filter((i) => i.needed) ?? [];
-  const agents = [...new Set([...needed.map((i) => i.runner.agent), ...(preview?.handoffRunner ? [preview.handoffRunner.agent] : [])])];
+  const agents = [...new Set([...needed.map((i) => summaryAgent(i.runner.agent)), ...(preview?.handoffRunner ? [summaryAgent(preview.handoffRunner.agent)] : [])])];
   const title = target.kind === "summary" ? t("生成会话摘要") : `${t("生成交接资料")} · ${preview?.projectName ?? ""}`;
   const canStart = !!preview && (needed.length > 0 || target.kind === "handoff");
 
