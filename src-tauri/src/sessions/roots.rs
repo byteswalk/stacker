@@ -33,6 +33,7 @@ pub fn resolve(overrides: &Roots) -> Roots {
             None,
             roaming.join("Claude").join("claude-code-sessions"),
         ),
+        codebuddy: pick(&overrides.codebuddy, None, home.join(".codebuddy")),
     }
 }
 

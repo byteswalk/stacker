@@ -163,6 +163,18 @@ pub fn plan(
                 Err(code) => blocked.push(block(code)),
                 Ok(()) => allowed.push((session.clone(), codex_paths(session))),
             },
+            // One transcript file, nothing beside it.
+            Agent::CodeBuddy => {
+                let transcript = PathBuf::from(&session.path);
+                let root = PathBuf::from(&roots.codebuddy);
+                if now.saturating_sub(modified_secs(&transcript)) < IN_USE_SECONDS {
+                    blocked.push(block("E_IN_USE"));
+                } else if is_link(&transcript) || !inside(&root, &transcript) {
+                    blocked.push(block("E_LINK"));
+                } else {
+                    allowed.push((session.clone(), vec![transcript]));
+                }
+            }
         }
     }
     (allowed, blocked)
@@ -170,7 +182,12 @@ pub fn plan(
 
 /// Removes a Claude session's files after checking every path again.
 pub fn delete_claude(paths: &[PathBuf], roots: &Roots) -> Result<(), String> {
-    let root = Path::new(&roots.claude);
+    delete_files(paths, Path::new(&roots.claude))
+}
+
+/// Removes a session's files after checking every path again: still inside the agent's own
+/// folder, and not a link pointing somewhere else.
+pub fn delete_files(paths: &[PathBuf], root: &Path) -> Result<(), String> {
     for path in paths.iter().filter(|p| p.exists()) {
         if is_link(path) || !inside(root, path) {
             return Err("E_LINK".into());
@@ -338,6 +355,7 @@ fn process(
     match session.agent {
         Agent::Claude => delete_claude(paths, roots)?,
         Agent::Codex => delete_codex(rpc, Path::new(&roots.codex), session)?,
+        Agent::CodeBuddy => delete_files(paths, Path::new(&roots.codebuddy))?,
     }
     Ok(detail)
 }

@@ -1,6 +1,7 @@
 pub mod annotations;
 pub mod catalog;
 pub mod claude_catalog;
+pub mod codebuddy_catalog;
 pub mod codex_catalog;
 pub mod codex_rpc;
 pub mod commands;

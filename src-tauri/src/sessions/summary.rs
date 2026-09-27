@@ -71,6 +71,13 @@ fn non_empty(s: &str) -> Option<String> {
 
 pub fn choice_for(settings: &SummarySettings, agent: Agent) -> RunnerChoice {
     match agent {
+        // Only Codex and Claude write summaries; a session from elsewhere is summarised by
+        // whichever of those two the settings name.
+        Agent::CodeBuddy => RunnerChoice {
+            agent: Agent::Codex,
+            model: non_empty(&settings.codex_model),
+            effort: non_empty(&settings.codex_effort),
+        },
         Agent::Codex => RunnerChoice {
             agent,
             model: non_empty(&settings.codex_model),

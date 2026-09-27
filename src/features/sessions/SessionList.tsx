@@ -5,10 +5,11 @@ import { formatSpaceBytes as bytes } from "../space-analysis/components/SpaceOve
 import { AGENT_LABEL, CLIENT_LABEL, STATUS_LABEL, formatAge, toggleSelection } from "./sessionsView";
 import { PAGE_SIZE, type AgentName, type ClientTag, type ProjectRow, type Session, type SessionPage, type SessionQuery } from "./types";
 
-/** Client tags each agent can produce (Codex: desktop, CLI, IDE, exec; Claude: desktop, CLI, SDK). */
+/** Client tags each agent can produce (CodeBuddy runs from a terminal or an IDE). */
 function clientsFor(agent: string): ClientTag[] {
   if (agent === "codex") return ["desktop", "terminal", "ide", "automation"];
   if (agent === "claude") return ["desktop", "terminal", "ide", "sdk"];
+  if (agent === "codebuddy") return ["terminal", "ide"];
   return ["desktop", "terminal", "ide", "automation", "sdk"];
 }
 
@@ -51,7 +52,7 @@ export function SessionList({ page, query, projects, loading, selected, onSelect
     <div className="session-filters">
       <label className="session-search"><i className="ti ti-search" /><input value={query.search} aria-label={t("搜索会话")} placeholder={t("搜索标题、项目或摘要")} onChange={(e) => onFilter({ search: e.target.value })} /></label>
       <label className="session-check"><input type="checkbox" checked={query.fullText} onChange={(e) => onFilter({ fullText: e.target.checked })} />{t("搜索原文")}</label>
-      <Select value={query.agent} onChange={pickAgent} options={[{ value: "", label: t("全部智能体") }, { value: "codex", label: "Codex" }, { value: "claude", label: "Claude" }]} />
+      <Select value={query.agent} onChange={pickAgent} options={[{ value: "", label: t("全部智能体") }, { value: "codex", label: "Codex" }, { value: "claude", label: "Claude" }, { value: "codebuddy", label: "CodeBuddy" }]} />
       <Select value={query.project} onChange={(project) => onFilter({ project })} options={[{ value: "", label: t("全部项目") }, ...agentProjects.map((p) => ({ value: p.project.key, label: p.project.name, title: p.project.path }))]} />
       <Select value={query.status} onChange={(status) => onFilter({ status })} options={[{ value: "", label: t("全部状态") }, ...(["active", "archived", "orphaned"] as const).map((value) => ({ value, label: t(STATUS_LABEL[value]) }))]} />
       <Select value={query.client} onChange={(client) => onFilter({ client })} options={[{ value: "", label: t("全部来源") }, ...clients.map((value) => ({ value, label: t(CLIENT_LABEL[value]) }))]} />

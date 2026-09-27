@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 pub enum Agent {
     Codex,
     Claude,
+    CodeBuddy,
 }
 
 impl Agent {
@@ -12,6 +13,7 @@ impl Agent {
         match self {
             Agent::Codex => "codex",
             Agent::Claude => "claude",
+            Agent::CodeBuddy => "codebuddy",
         }
     }
 }
@@ -103,7 +105,7 @@ pub struct Session {
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct SessionQuery {
-    /// "" | "codex" | "claude"
+    /// "" or an agent name.
     pub agent: String,
     /// Project key.
     pub project: String,
@@ -148,4 +150,6 @@ pub struct Roots {
     pub codex: String,
     pub claude: String,
     pub claude_desktop_index: String,
+    #[serde(default)]
+    pub codebuddy: String,
 }

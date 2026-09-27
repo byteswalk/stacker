@@ -86,6 +86,11 @@ fn parse(agent: Agent, v: &Value) -> Parsed {
             }
             _ => Parsed::Other,
         },
+        // CodeBuddy keeps the role beside the content instead of nesting a message object.
+        Agent::CodeBuddy => match kind {
+            "message" => Parsed::Message(str_at(v, "role").to_string(), content(&v["content"])),
+            _ => Parsed::Other,
+        },
     }
 }
 

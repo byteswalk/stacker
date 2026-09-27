@@ -57,6 +57,7 @@ pub fn parse_claude(text: &str) -> LoginStatus {
 
 pub fn login_status(agent: Agent) -> LoginStatus {
     let (cmd, parse): (Option<Command>, fn(&str) -> LoginStatus) = match agent {
+        Agent::CodeBuddy => return status("unknown", ""),
         Agent::Codex => (
             crate::sessions::codex_rpc::command().ok().map(|mut c| {
                 c.args(["login", "status"]);

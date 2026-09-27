@@ -50,6 +50,10 @@ pub fn load(roots: &Roots) -> Catalog {
         Ok(found) => sessions.extend(found),
         Err(code) => warnings.push(format!("claude:{code}")),
     }
+    // A missing store means the agent is not installed, which is not worth a warning.
+    if let Ok(found) = super::codebuddy_catalog::load(Path::new(&roots.codebuddy)) {
+        sessions.extend(found);
+    }
     if let Ok(mut cache) = CACHE.lock() {
         *cache = Some(Cached {
             at: Instant::now(),

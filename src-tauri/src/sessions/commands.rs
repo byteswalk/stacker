@@ -155,6 +155,7 @@ pub fn sessions_set_roots(overrides: Roots) -> Result<RootsView, String> {
         codex: overrides.codex.trim().to_string(),
         claude: overrides.claude.trim().to_string(),
         claude_desktop_index: overrides.claude_desktop_index.trim().to_string(),
+        codebuddy: overrides.codebuddy.trim().to_string(),
     };
     for value in [
         &trimmed.codex,

@@ -20,6 +20,7 @@ pub fn default_source(agent: Agent) -> PathBuf {
     match agent {
         Agent::Codex => home.join(".codex"),
         Agent::Claude => home.join(".claude"),
+        Agent::CodeBuddy => home.join(".codebuddy"),
     }
 }
 
@@ -27,6 +28,8 @@ fn env_name(agent: Agent) -> &'static str {
     match agent {
         Agent::Codex => "CODEX_HOME",
         Agent::Claude => "CLAUDE_CONFIG_DIR",
+        // CodeBuddy reads no environment variable for its data folder.
+        Agent::CodeBuddy => "",
     }
 }
 
@@ -58,6 +61,7 @@ pub fn agent_running(agent: Agent, images: &[PathBuf]) -> bool {
         let name = lower.rsplit('\\').next().unwrap_or("").to_string();
         match agent {
             Agent::Codex => name.starts_with("codex") || lower.contains("\\openai.codex_"),
+            Agent::CodeBuddy => name.starts_with("codebuddy") || name == "cbc.exe",
             Agent::Claude => {
                 name == "claude.exe"
                     || lower.contains("\\windowsapps\\claude_")
@@ -91,6 +95,7 @@ pub fn status(agent: Agent) -> LocationStatus {
     let folder = match agent {
         Agent::Codex => "codex",
         Agent::Claude => "claude",
+        Agent::CodeBuddy => "codebuddy",
     };
     let suggested = drives
         .first()

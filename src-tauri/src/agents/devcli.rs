@@ -72,6 +72,32 @@ pub(crate) fn run(args: &[String]) -> Option<i32> {
             }
             0
         }
+        ["sessions"] => {
+            let roots = crate::sessions::roots::resolve(&Default::default());
+            let catalog = crate::sessions::catalog::load(&roots);
+            for session in &catalog.sessions {
+                println!(
+                    "{:10} {:22} {:>9} {}",
+                    session.agent.as_str(),
+                    session.native_id.chars().take(22).collect::<String>(),
+                    session.bytes,
+                    session
+                        .title
+                        .lines()
+                        .next()
+                        .unwrap_or("")
+                        .chars()
+                        .take(48)
+                        .collect::<String>()
+                );
+            }
+            println!(
+                "{} sessions, warnings {:?}",
+                catalog.sessions.len(),
+                catalog.warnings
+            );
+            0
+        }
         ["python-report"] => {
             println!("{:#?}", crate::python_env::report());
             0
