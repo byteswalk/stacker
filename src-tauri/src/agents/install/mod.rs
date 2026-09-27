@@ -55,7 +55,6 @@ pub(crate) fn install_cli_tool(
             install_or_update_antigravity_cli(window, "安装")
         }
         Vendor::OpenCode => install_opencode(window),
-        Vendor::Trae => install_or_update_trae_cli(window, "安装"),
         Vendor::OpenClaw => install_openclaw(window),
         Vendor::Hermes => install_hermes(window),
         Vendor::Pi => install_or_update_pi(None, window),
@@ -166,24 +165,6 @@ pub(crate) fn update_cli_tool(
             ),
             (None, _) => install_cli_tool(spec, window),
         },
-        Vendor::Trae => {
-            if let Some(program) = program {
-                emit_progress(window, "正在执行 traecli update…");
-                match run_command_text(
-                    &program,
-                    &["update"],
-                    "traecli update",
-                    Duration::from_secs(1200),
-                ) {
-                    Ok(_) => return Ok("TRAE CLI 已更新".into()),
-                    Err(err) => emit_progress(
-                        window,
-                        format!("traecli update 未完成，改用官方安装脚本：{err}"),
-                    ),
-                }
-            }
-            install_or_update_trae_cli(window, "更新")
-        }
         Vendor::Hermes => {
             let program = program.ok_or_else(|| "未检测到 Hermes CLI。".to_string())?;
             emit_progress(window, "正在执行 hermes update…");
@@ -248,9 +229,6 @@ pub(crate) fn uninstall_cli_tool(
         emit_progress(window, "正在卸载 OpenClaw CLI…");
         npm_uninstall(pkg, Some(&program), window)?;
         return Ok("OpenClaw CLI 与网关服务已卸载，配置和工作区已保留".into());
-    }
-    if spec.vendor == Vendor::Trae {
-        return uninstall_trae_cli(window);
     }
     match method.as_deref() {
         Some("winget") => {

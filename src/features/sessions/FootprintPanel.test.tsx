@@ -52,6 +52,11 @@ describe("footprint panel", () => {
   it("asks for a tick only where the user has to judge, and cleans the safe ones in one go", async () => {
     const onShow = vi.fn();
     await act(async () => { root.render(<FootprintPanel onShowSessions={onShow} />); });
+    // The page opens on tiles; one click on an agent opens its detail.
+    const tile = host.querySelector<HTMLButtonElement>(".fp-tile")!;
+    expect(tile.textContent).toContain("Codex");
+    expect(host.querySelectorAll("input[type=checkbox]").length).toBe(0);
+    await act(async () => { tile.click(); });
     // Reclaimable items are handled by the one-click button, so only the review item is ticked.
     const boxes = [...host.querySelectorAll<HTMLInputElement>("input[type=checkbox]")];
     expect(boxes.map((b) => b.getAttribute("aria-label"))).toEqual(["Build output"]);

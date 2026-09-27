@@ -420,28 +420,6 @@ pub(crate) static CLIS: &[CliSpec] = &[
         docs_url: "https://help.aliyun.com/zh/lingma/qodercli-cn/user-guide/using-the-cli",
     },
     CliSpec {
-        id: "traecli",
-        name: "TRAE CLI",
-        description: "命令名 traecli，可在终端中运行 TRAE 智能体、处理项目任务并管理开发工作流。",
-        command: "traecli",
-        candidates: &[
-            "traecli.exe",
-            "traecli.cmd",
-            "traecli.bat",
-            "traecli.ps1",
-            "trae-cli.exe",
-            "trae-cli.cmd",
-            "trae-cli.bat",
-            "trae-cli.ps1",
-            "trae-agent.exe",
-            "ta.exe",
-        ],
-        npm_package: None,
-        winget_id: None,
-        install_url: "https://docs.trae.cn/cli_get-started-with-trae-cli",
-        docs_url: "https://docs.trae.cn/cli_get-started-with-trae-cli",
-    },
-    CliSpec {
         id: "dsh",
         name: "DeepSeek Harness CLI",
         description: "命令名 dsh；安装后可运行 dsh web 启动本地工作台。",
@@ -847,7 +825,11 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
         description: "TRAE 中国版，提供终端开发智能体和 Windows 桌面智能体。",
         icon: "trae-work.png",
         docs_url: "https://docs.trae.cn/cli_get-started-with-trae-cli",
-        cli: CliSlot::Shared("traecli"),
+        cli: CliSlot::Unavailable {
+            name: "TraeCode CLI",
+            description: "官方仅向 TRAE 企业版旗舰套餐开放，个人版账号无法登录，因此不纳入管理。",
+            url: "https://docs.trae.cn/cli_about-trae-code-cli-2",
+        },
         cli_note: None,
         desktop: DesktopSlot::App(DesktopSpec {
                 name: "TRAE Work 桌面端",
@@ -1278,13 +1260,11 @@ mod tests {
         assert!(!kimi.desktop.keywords.is_empty());
         assert!(direct_desktop_installer(Vendor::Kimi, Edition::Unified).is_some());
 
+        // TraeCode CLI only serves TRAE Enterprise flagship seats, so it is listed as
+        // unavailable rather than offered and then refusing to sign the user in.
         let trae = spec_by_id("trae-work").expect("TRAE catalog entry");
-        assert_eq!(trae.cli.command, "traecli");
-        assert!(trae.cli.candidates.contains(&"traecli.exe"));
-        assert_eq!(
-            trae.cli.docs_url,
-            "https://docs.trae.cn/cli_get-started-with-trae-cli"
-        );
+        assert_eq!(trae.cli_id, None);
+        assert!(trae.cli.description.contains("个人版账号无法登录"));
     }
 
     #[test]

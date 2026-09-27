@@ -1,5 +1,5 @@
 use crate::agents::{install::npm::*, install::winget::*, install::*, process::*, registry::*, *};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
 pub(crate) fn install_or_update_claude(
@@ -213,72 +213,14 @@ pub(crate) fn install_or_update_antigravity_cli(
     Ok(format!("Antigravity CLI 已{action}"))
 }
 
-pub(crate) fn install_or_update_trae_cli(
-    window: &Option<tauri::Window>,
-    action: &str,
-) -> Result<String, String> {
-    emit_progress(window, format!("正在通过官方脚本{action} TRAE CLI…"));
-    run_powershell_streamed(
-        &[
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            "irm https://trae.cn/trae-cli/install.ps1 | iex",
-        ],
-        "TRAE CLI Installer",
-        Duration::from_secs(1200),
-        window,
-    )?;
-    let spec = spec_by_id("trae-work").ok_or_else(|| "缺少 TRAE CLI 目录信息。".to_string())?;
-    if !cli_installed_after_action(&spec) {
-        return Err("TRAE CLI 安装程序已结束，但尚未检测到命令入口。请重新打开终端后重试。".into());
-    }
-    Ok(format!("TRAE CLI 已{action}"))
-}
-
-pub(crate) fn uninstall_trae_cli(window: &Option<tauri::Window>) -> Result<String, String> {
-    let local = std::env::var_os("LOCALAPPDATA")
-        .map(PathBuf::from)
-        .ok_or_else(|| "无法读取当前用户的本地应用目录。".to_string())?;
-    let install_dir = local.join("trae-cli");
-    if !install_dir.is_dir() {
-        return Err("未找到 TRAE CLI 官方安装目录。".into());
-    }
-    emit_progress(window, "正在卸载 TRAE CLI 并清理用户 PATH…");
-    let install = ps_single_quoted(&install_dir.to_string_lossy());
-    let bin = ps_single_quoted(&install_dir.join("bin").to_string_lossy());
-    let script = format!(
-        "$install={install}; $bin={bin}; \
-         if (Test-Path -LiteralPath $install) {{ Remove-Item -LiteralPath $install -Recurse -Force -ErrorAction Stop }}; \
-         $parts=([Environment]::GetEnvironmentVariable('Path','User') -split ';' | Where-Object {{ $_ -and $_.TrimEnd('\\') -ine $bin.TrimEnd('\\') }}); \
-         [Environment]::SetEnvironmentVariable('Path',($parts -join ';'),'User')"
-    );
-    run_powershell_streamed(
-        &[
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            &script,
-        ],
-        "TRAE CLI Uninstall",
-        Duration::from_secs(120),
-        window,
-    )?;
-    Ok("TRAE CLI 已卸载，账号配置和项目文件已保留".into())
-}
-
-/// pi moved from `@mariozechner/pi-coding-agent` to `@earendil-works/pi-coding-agent`.
-/// Both packages provide the `pi` command, so the old one is removed before installing.
-pub(crate) const PI_LEGACY_PACKAGE: &str = "@mariozechner/pi-coding-agent";
-pub(crate) const PI_PACKAGE: &str = "@earendil-works/pi-coding-agent";
-
 pub(crate) fn has_legacy_pi(program: Option<&Path>) -> bool {
     program
         .and_then(Path::parent)
         .is_some_and(|prefix| prefix.join("node_modules").join(PI_LEGACY_PACKAGE).is_dir())
 }
+
+pub(crate) const PI_LEGACY_PACKAGE: &str = "@mariozechner/pi-coding-agent";
+pub(crate) const PI_PACKAGE: &str = "@earendil-works/pi-coding-agent";
 
 pub(crate) fn install_or_update_pi(
     program: Option<&Path>,

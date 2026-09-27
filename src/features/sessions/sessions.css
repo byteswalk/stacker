@@ -71,8 +71,16 @@
 .a .session-note{color:var(--mut);font-size:12px;line-height:1.7;margin:8px 0;overflow-wrap:anywhere}
 .a .session-note code{color:var(--tx)}
 
+.a .session-projects-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.a .session-search{display:flex;align-items:center;gap:6px;height:30px;padding:0 9px;border:1px solid var(--line);border-radius:7px;background:var(--card);color:var(--mut)}
+.a .session-search input{width:210px;border:0;outline:0;background:transparent;color:var(--tx);font:inherit;font-size:11.5px}
+.a .session-projects-bar>.s.dim{margin-left:auto}
+.a .session-sort{border:0;background:transparent;padding:0;color:inherit;font:inherit;cursor:pointer;display:inline-flex;align-items:center;gap:3px}
+.a .session-sort:hover{color:var(--tx)}
+.a .session-project-acts{display:flex;align-items:center;gap:6px;justify-content:flex-end}
+.a .session-project-name>b>i{font-size:12px;color:var(--mut)}
 .a .session-projects{display:flex;flex-direction:column;border-top:1px solid var(--bd)}
-.a .session-project{display:grid;grid-template-columns:minmax(200px,1fr) 120px 60px 60px 80px 80px;gap:10px;align-items:center;padding:10px;border:0;border-bottom:1px solid var(--bd);background:none;color:var(--tx);font:inherit;font-size:12px;text-align:left;cursor:pointer}
+.a .session-project{display:grid;grid-template-columns:minmax(200px,1fr) 120px 60px 60px 80px 90px auto;gap:10px;align-items:center;padding:10px;border:0;border-bottom:1px solid var(--bd);background:none;color:var(--tx);font:inherit;font-size:12px;text-align:left;cursor:pointer}
 .a .session-project:hover{background:var(--card)}
 .a .session-project.head{cursor:default;color:var(--mut);font-size:11px}
 .a .session-project.head:hover{background:none}
@@ -148,6 +156,20 @@
 .a .footprint-section.reclaimable .footprint-section-head b{color:#5fb878}
 .a .footprint-section.review .footprint-section-head b{color:#e6b450}
 .a .footprint-section.keep .footprint-section-head b,.a .footprint-section.sessions .footprint-section-head b{color:var(--mut)}
+/* Agents as tiles first: the page opens with where the space went, not with a wall of rows. */
+.a .fp-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(212px,1fr));gap:9px}
+.a .fp-tile{display:flex;flex-direction:column;gap:8px;padding:12px;border:.5px solid var(--bd);border-radius:10px;background:var(--card);color:var(--tx);font:inherit;text-align:left;cursor:pointer;transition:border-color .15s,background .15s}
+.a .fp-tile:hover{background:var(--cardh);border-color:var(--bdh)}
+.a .fp-tile.on{border-color:color-mix(in srgb,var(--acc) 50%,var(--bd))}
+.a .fp-tile-head{display:flex;align-items:baseline;gap:8px}
+.a .fp-tile-head b{font-size:13px}
+.a .fp-tile-head>span{margin-left:auto;font-size:12px;color:var(--mut)}
+.a .fp-tile-foot{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--mut)}
+.a .fp-tile-foot em{font-style:normal}
+.a .fp-tile-foot em.green{color:#6bcf86}
+.a .fp-tile-foot>i{margin-left:auto}
+.a .fp-tile .fp-bar{width:100%}
+
 /* One agent's space: what it is (the bar), then what can be done about it. */
 .a .fp-agent{display:flex;flex-direction:column;gap:9px;padding:14px;border:1px solid var(--bd);border-radius:10px}
 .a .fp-agent>header{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:14px}
@@ -175,12 +197,15 @@
 .a .fp-sec{display:flex;align-items:baseline;gap:9px;margin-top:5px}
 .a .fp-sec b{font-size:13px}
 .a .fp-sec span{font-size:11.5px;color:var(--mut)}
-.a .fp-pick{display:grid;grid-template-columns:20px 32px minmax(0,1fr) auto;align-items:center;gap:11px;padding:10px 12px;border:1px solid var(--line);border-radius:9px;background:var(--card)}
+.a .fp-pick{display:grid;grid-template-columns:20px 32px minmax(0,1fr) auto auto;align-items:center;gap:11px;padding:10px 12px;border:1px solid var(--line);border-radius:9px;background:var(--card)}
 .a .fp-pick.on{border-color:color-mix(in srgb,var(--acc) 45%,var(--line))}
 .a .fp-pick input[type=checkbox]{width:15px;height:15px;accent-color:var(--acc)}
 .a .fp-lock{color:var(--mut);font-size:14px;text-align:center}
 .a .fp-pickbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .a .fp-keep{margin:2px 0 0;font-size:11.5px;color:var(--mut)}
+.a .fp-advanced{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.a .linkish{border:0;background:transparent;padding:0;color:var(--link);font:inherit;font-size:inherit;cursor:pointer}
+.a .linkish:hover{text-decoration:underline}
 .a .footprint-row{display:grid;grid-template-columns:18px minmax(0,1fr) auto 80px;gap:10px;align-items:center;padding:7px 14px;font-size:12px}
 .a .footprint-row:hover{background:var(--card)}
 .a .footprint-row.selected{background:var(--cardh)}

@@ -50,8 +50,14 @@ fn find(id: &str) -> Result<Session, String> {
         .ok_or_else(|| "E_NOT_FOUND".to_string())
 }
 
+/// Where trimmed exports are written: the user's own folder when they picked one.
 pub fn export_dir() -> PathBuf {
-    super::annotations::root().join("exports")
+    super::annotations::connect()
+        .ok()
+        .and_then(|conn| super::annotations::setting(&conn, "export_dir"))
+        .map(PathBuf::from)
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| super::annotations::root().join("exports"))
 }
 
 #[tauri::command]
@@ -123,6 +129,24 @@ fn roots_view(conn: &rusqlite::Connection) -> RootsView {
 #[tauri::command]
 pub fn sessions_roots() -> Result<RootsView, String> {
     Ok(roots_view(&super::annotations::connect()?))
+}
+
+/// Sets the export folder, or restores the default one when given nothing.
+#[tauri::command]
+pub fn sessions_set_export_dir(path: String) -> Result<RootsView, String> {
+    let conn = super::annotations::connect()?;
+    let path = path.trim();
+    if path.is_empty() {
+        super::annotations::set_setting(&conn, "export_dir", "")?;
+        return Ok(roots_view(&conn));
+    }
+    let dir = PathBuf::from(path);
+    if !dir.is_absolute() {
+        return Err("请选择一个完整路径".into());
+    }
+    std::fs::create_dir_all(&dir).map_err(|e| format!("无法创建导出目录：{e}"))?;
+    super::annotations::set_setting(&conn, "export_dir", &dir.to_string_lossy())?;
+    Ok(roots_view(&conn))
 }
 
 #[tauri::command]

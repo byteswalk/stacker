@@ -173,6 +173,7 @@ pub fn run() {
             sessions::commands::sessions_read,
             sessions::commands::sessions_roots,
             sessions::commands::sessions_set_roots,
+            sessions::commands::sessions_set_export_dir,
             sessions::commands::sessions_favorite,
             sessions::commands::sessions_open,
             sessions::commands::sessions_delete_preview,

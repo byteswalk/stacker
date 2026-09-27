@@ -6,6 +6,7 @@ import { LocationActions, locationText } from "./DataLocations";
 import { useBusyRead } from "../../ui";
 import { FootprintDialog } from "./FootprintDialog";
 import { AGENT_LABEL } from "./sessionsView";
+import { invoke } from "../../invoke";
 import { errorMessage, type FootprintItem, type FootprintKind, type FootprintReport, type LocationStatus } from "./types";
 
 // Survives tab switches; a scan takes several seconds.
@@ -51,6 +52,7 @@ export function FootprintPanel({ onShowSessions }: { onShowSessions: (agent: str
   const [open, setOpen] = useState<string | null>(null);
   const [details, setDetails] = useState<string | null>(null);
   const [cleaning, setCleaning] = useState<string[] | null>(null);
+  const [shown, setShown] = useState<string | null>(null);
   const request = useRef(0);
   const [locations, setLocations] = useState<LocationStatus[]>([]);
 
@@ -77,6 +79,13 @@ export function FootprintPanel({ onShowSessions }: { onShowSessions: (agent: str
 
   const toggle = (id: string) => setSelected((old) => old.includes(id) ? old.filter((x) => x !== id) : [...old, id]);
 
+  /** Opens the folder an item lives in, so the user can look before deciding. */
+  const openFolder = (item: FootprintItem) => {
+    const path = item.paths[0];
+    if (!path) return;
+    invoke("space_open_directory", { path }).catch((e) => setError(errorMessage(e)));
+  };
+
   const paths = (item: FootprintItem) => open === item.id && <ul className="footprint-paths">
     {item.paths.slice(0, 50).map((p) => <li key={p}><code>{p}</code></li>)}
     {item.paths.length > 50 && <li>{t("另有")} {item.paths.length - 50} {t("项")}</li>}
@@ -95,7 +104,23 @@ export function FootprintPanel({ onShowSessions }: { onShowSessions: (agent: str
     {error && <div role="alert" className="session-error">{t(error)}</div>}
     {!report && loading && <div className="session-empty"><i className="ti ti-loader spin" /><b>{t("正在统计智能体数据，约需 10 秒…")}</b></div>}
 
-    {report?.agents.map((agent) => {
+    {!!report?.agents.length && <div className="fp-tiles">
+      {report.agents.map((agent) => {
+        const parts = slices(agent.items);
+        const safe = agent.items.filter((i) => i.kind === "reclaimable" && !i.blocked).reduce((n, i) => n + i.bytes, 0);
+        return <button type="button" key={agent.agent} className={"fp-tile" + (shown === agent.agent ? " on" : "")}
+          onClick={() => setShown(shown === agent.agent ? null : agent.agent)}>
+          <span className="fp-tile-head"><b>{AGENT_LABEL[agent.agent]}</b><span>{bytes(agent.total)}</span></span>
+          <span className="fp-bar">{parts.map((p) => <i key={p.kind} style={{ width: `${(p.bytes / Math.max(agent.total, 1)) * 100}%`, background: p.color }} />)}</span>
+          <span className="fp-tile-foot">
+            {safe > 0 ? <em className="green">{t("可清理")} {bytes(safe)}</em> : <em>{t("无可清理")}</em>}
+            <i className={"ti " + (shown === agent.agent ? "ti-chevron-up" : "ti-chevron-down")} />
+          </span>
+        </button>;
+      })}
+    </div>}
+
+    {report?.agents.filter((agent) => shown === agent.agent).map((agent) => {
       const parts = slices(agent.items);
       const reclaimable = agent.items.filter((i) => i.kind === "reclaimable" && !i.blocked);
       const blocked = agent.items.filter((i) => i.kind === "reclaimable" && i.blocked);
@@ -115,11 +140,10 @@ export function FootprintPanel({ onShowSessions }: { onShowSessions: (agent: str
           </div>}
         </header>
 
-        <div className="fp-bar">{parts.map((s) => <i key={s.kind} style={{ width: `${(s.bytes / Math.max(agent.total, 1)) * 100}%`, background: s.color }} />)}</div>
         <div className="fp-legend">{parts.map((s) => <span key={s.kind}><em style={{ background: s.color }} />{t(s.label)} {bytes(s.bytes)}</span>)}</div>
 
         {!!reclaimable.length && <div className="fp-card">
-          <span className="ic green"><i className="ti ti-broom" /></span>
+          <span className="ic green"><i className="ti ti-recycle" /></span>
           <span className="tx">
             <b>{t("可安全清理")}</b>
             <span>{t("临时文件、缓存这类东西，删掉不影响任何会话，需要时智能体会自己重建。")}</span>
@@ -135,6 +159,7 @@ export function FootprintPanel({ onShowSessions }: { onShowSessions: (agent: str
               {item.blocked && <small className="warn"><i className="ti ti-lock" /> {t(errorMessage(item.blocked))}</small>}
             </button>
             <span className="footprint-size">{bytes(item.bytes)}</span>
+            <button className="gh xs" title={`${t("打开所在目录")}：${item.paths[0] ?? ""}`} disabled={!item.paths.length} onClick={() => openFolder(item)}><i className="ti ti-folder-open" /></button>
             {paths(item)}
           </div>)}
         </div>}
@@ -162,6 +187,7 @@ export function FootprintPanel({ onShowSessions }: { onShowSessions: (agent: str
               {item.blocked && <small className="warn">{t(errorMessage(item.blocked))}</small>}
             </button>
             <span className="footprint-size">{bytes(item.bytes)}</span>
+            <button className="gh xs" title={`${t("打开所在目录")}：${item.paths[0] ?? ""}`} disabled={!item.paths.length} onClick={() => openFolder(item)}><i className="ti ti-folder-open" /></button>
             {paths(item)}
           </div>)}
           <div className="fp-pickbar">

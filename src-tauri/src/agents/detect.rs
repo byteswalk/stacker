@@ -266,9 +266,6 @@ pub(crate) fn detect_install_method(spec: &ToolSpec, program: Option<&Path>) -> 
     {
         return Some("native".into());
     }
-    if spec.vendor == Vendor::Trae && p.contains("\\appdata\\local\\trae-cli\\bin\\") {
-        return Some("native".into());
-    }
     if spec.vendor == Vendor::Hermes
         && (p.contains("\\appdata\\local\\hermes\\") || p.contains("\\.hermes\\"))
     {
@@ -364,7 +361,6 @@ pub(crate) fn first_semver(text: &str) -> Option<String> {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum CliSource {
     Winget(&'static str),
-    TraeVersionFile,
     MimoRelease,
     /// `pyproject.toml` on the branch `hermes update` pulls.
     HermesRepo,
@@ -383,9 +379,6 @@ pub(crate) fn cli_source(spec: &ToolSpec, method: Option<&str>) -> CliSource {
     if spec.vendor == Vendor::Hermes {
         return CliSource::HermesRepo;
     }
-    if spec.vendor == Vendor::Trae {
-        return CliSource::TraeVersionFile;
-    }
     if method == Some("native") && spec.vendor == Vendor::MiMo {
         return CliSource::MimoRelease;
     }
@@ -403,9 +396,6 @@ pub(crate) fn cli_source(spec: &ToolSpec, method: Option<&str>) -> CliSource {
 pub(crate) fn latest_for_cli(spec: &ToolSpec, method: Option<&str>) -> LatestLookup {
     match cli_source(spec, method) {
         CliSource::Winget(id) => winget_latest(id, None).map(|version| Some((version, "WinGet"))),
-        CliSource::TraeVersionFile => {
-            trae_cli_latest().map(|version| Some((version, "TRAE 官方版本文件")))
-        }
         CliSource::MimoRelease => mimo_latest().map(|version| Some((version, "MiMo 官方发布"))),
         CliSource::HermesRepo => {
             super::feeds::hermes_cli_latest().map(|version| Some((version, "Hermes 官方仓库")))
@@ -564,27 +554,7 @@ fn usable_winget_version(listed: Option<String>) -> Result<String, String> {
     }
 }
 
-pub(crate) fn trae_cli_latest() -> Result<String, String> {
-    let agent = ureq::AgentBuilder::new()
-        .timeout_connect(Duration::from_millis(1500))
-        .timeout_read(Duration::from_millis(1500))
-        .build();
-    let version = agent
-        .get("https://lf-cdn.trae.com.cn/obj/trae-com-cn/trae-cli/trae-cli_latest_version.txt")
-        .set("User-Agent", "Stacker")
-        .call()
-        .map_err(|e| format!("获取 TRAE CLI 最新版本失败：{e}"))?
-        .into_string()
-        .map_err(|e| format!("读取 TRAE CLI 最新版本失败：{e}"))?;
-    let version = version.trim().trim_start_matches('v').trim();
-    if version.is_empty() {
-        Err("TRAE CLI 最新版本响应为空。".into())
-    } else {
-        Ok(version.to_string())
-    }
-}
-
-pub(crate) fn kimi_work_latest() -> Result<String, String> {
+fn kimi_work_latest() -> Result<String, String> {
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(5))
         .timeout_read(Duration::from_secs(5))
@@ -1334,10 +1304,8 @@ mod tests {
             desktop_source(&spec("codex")),
             DesktopSource::Winget("9PLM9XGG6VKS", Some("msstore"))
         );
-        assert_eq!(
-            cli_source(&spec("trae-work"), Some("native")),
-            CliSource::TraeVersionFile
-        );
+        // TRAE's CLI is enterprise-only, so the catalogue offers no CLI to install or check.
+        assert_eq!(spec("trae-work").cli_id, None);
         assert!(matches!(
             cli_source(&spec("codex"), Some("npm")),
             CliSource::Npm(_)
