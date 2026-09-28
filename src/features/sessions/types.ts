@@ -164,7 +164,7 @@ export type SummaryJob = { id: string; kind: "summary" | "handoff"; state: strin
 export type Volume = { root: string; fileSystem: string; free: number; fixed: boolean };
 export type MigrationStep = "copying" | "copied" | "renamed" | "linked" | "done" | "cleaned";
 export type LocationStatus = {
-  agent: AgentName; source: string; actual: string;
+  agent: AgentName; exists: boolean; source: string; actual: string;
   kind: "normal" | "migrated" | "incomplete" | "external_link" | "env" | "missing";
   step: MigrationStep | null; target: string; backup: string; backupExists: boolean; suggestedTarget: string; drives: Volume[];
 };

@@ -10,7 +10,7 @@ vi.mock("../../invoke", () => ({ invoke: vi.fn(), reportFrontendWarning: vi.fn()
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 
 const status: LocationStatus = {
-  agent: "codex", source: "C:/Users/u/.codex", actual: "C:/Users/u/.codex", kind: "normal", step: null,
+  agent: "codex", exists: true, source: "C:/Users/u/.codex", actual: "C:/Users/u/.codex", kind: "normal", step: null,
   target: "", backup: "", backupExists: false, suggestedTarget: "D:/AgentData/codex",
   drives: [{ root: "D:/", fileSystem: "NTFS", free: 200e9, fixed: true }],
 };

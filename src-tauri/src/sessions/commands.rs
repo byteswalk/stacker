@@ -493,10 +493,13 @@ fn agent_of(agent: &str) -> Result<Agent, String> {
 #[tauri::command]
 pub async fn migration_status() -> Result<Vec<super::migration::LocationStatus>, String> {
     blocking(|| {
-        Ok(vec![
-            super::migration::status(Agent::Codex),
-            super::migration::status(Agent::Claude),
-        ])
+        // Every agent whose folder Stacker knows, and only those with something in them:
+        // a product that was never installed is not a location to move.
+        Ok(super::migration::MOVABLE
+            .iter()
+            .map(|agent| super::migration::status(*agent))
+            .filter(|status| status.exists)
+            .collect())
     })
     .await
 }

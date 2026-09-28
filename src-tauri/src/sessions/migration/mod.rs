@@ -91,6 +91,8 @@ pub fn agent_running(agent: Agent, images: &[PathBuf]) -> bool {
 #[serde(rename_all = "camelCase")]
 pub struct LocationStatus {
     pub agent: Agent,
+    /// Whether this agent keeps anything at that location on this machine.
+    pub exists: bool,
     pub source: String,
     /// Where the data really is (the junction target when migrated).
     pub actual: String,
@@ -103,6 +105,19 @@ pub struct LocationStatus {
     pub suggested_target: String,
     pub drives: Vec<Volume>,
 }
+
+/// The agents whose whole data folder Stacker can move, in the order the page lists them.
+pub const MOVABLE: [Agent; 9] = [
+    Agent::Codex,
+    Agent::Claude,
+    Agent::WorkBuddy,
+    Agent::WorkBuddyAi,
+    Agent::Qoder,
+    Agent::QoderCn,
+    Agent::MiMo,
+    Agent::Kimi,
+    Agent::CodeBuddy,
+];
 
 pub fn status(agent: Agent) -> LocationStatus {
     let source = default_source(agent);
@@ -145,6 +160,7 @@ pub fn status(agent: Agent) -> LocationStatus {
     };
     LocationStatus {
         agent,
+        exists: source.exists(),
         source: source.to_string_lossy().into_owned(),
         actual: actual.to_string_lossy().into_owned(),
         kind: kind.into(),
@@ -388,8 +404,12 @@ mod tests {
     #[test]
     #[ignore]
     fn live_migration_check() {
-        for agent in [Agent::Codex, Agent::Claude] {
+        for agent in MOVABLE {
             let s = status(agent);
+            if !s.exists {
+                println!("{} not installed", agent.as_str());
+                continue;
+            }
             let started = std::time::Instant::now();
             let c = check(agent, Path::new(&s.suggested_target));
             println!(
