@@ -26,16 +26,17 @@ beforeEach(() => {
 });
 afterEach(() => { act(() => root.unmount()); host.remove(); });
 
-const button = (text: string) => [...host.querySelectorAll("button")].find((b) => b.textContent === text);
+/** The per-browser switch, in the order the browsers are listed. */
+const toggle = (index: number) => host.querySelectorAll<HTMLInputElement>(".ext-browser input")[index];
 
 describe("browser extension settings", () => {
   it("shows the folder and counts, and asks before writing the registry", async () => {
     vi.mocked(invoke).mockImplementation(async (command: string) => command === "webchat_connect" ? status("connected") : status("off"));
     await act(async () => { root.render(<BrowserExtension />); });
     expect(host.textContent).toContain("C:\\Stacker\\extension");
-    expect(host.textContent).toContain("对话 12");
-    expect(host.textContent).toContain("从未");
-    await act(async () => { button("连接")!.click(); });
+    // The counts are icons and numbers now, and only the last sync time is spelled out.
+    expect(host.textContent).toContain("12");
+    await act(async () => { toggle(0).click(); });
     expect(vi.mocked(invoke).mock.calls.map(([c]) => c)).not.toContain("webchat_connect");
     expect(host.textContent).toContain("HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\com.stacker.webchat");
     const confirm = [...host.querySelectorAll(".modal button")].find((b) => b.textContent === "连接") as HTMLElement;
@@ -48,7 +49,7 @@ describe("browser extension settings", () => {
   it("disconnects without asking", async () => {
     vi.mocked(invoke).mockImplementation(async (command: string) => command === "webchat_disconnect" ? status("off") : status("connected"));
     await act(async () => { root.render(<BrowserExtension />); });
-    await act(async () => { button("断开")!.click(); });
+    await act(async () => { toggle(0).click(); });
     expect(invoke).toHaveBeenCalledWith("webchat_disconnect", { browser: "chrome" });
   });
 

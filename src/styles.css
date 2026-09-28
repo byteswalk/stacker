@@ -1355,7 +1355,7 @@ button{ font-family:inherit; }
 .a .gw-modelhd>b{font-size:12.5px}
 .a .gw-search{display:flex;align-items:center;gap:6px;height:28px;padding:0 9px;border:1px solid var(--line);border-radius:7px;background:var(--card);color:var(--mut)}
 .a .gw-search input{width:180px;border:0;outline:0;background:transparent;color:var(--tx);font:inherit;font-size:11.5px}
-.a .gw-models{display:flex;flex-direction:column;gap:6px;margin-left:34px}
+.a .gw-models{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:6px;margin-left:34px}
 .a .gw-model{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;padding:9px 11px;border:1px solid var(--line);border-radius:8px;background:var(--card)}
 .a .gw-model.on{border-color:color-mix(in srgb,var(--acc) 50%,var(--line))}
 .a .gw-model .nm{display:flex;flex-direction:column;gap:3px;min-width:0}

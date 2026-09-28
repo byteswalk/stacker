@@ -3330,4 +3330,5 @@ export const GENERATED_EN: Record<string, string> = {
   "本机磁盘": "Disks on this machine",
   "先看本机磁盘，再决定扫哪里：快速扫描只看已知的缓存与临时目录，选择目录可以深入到任意范围（含磁盘根目录）。": "Start from the disks, then choose where to look: a quick scan covers the caches and temporary folders Stacker knows, and picking folders goes anywhere, a drive root included.",
   "分析": "Analyse",
+  "照上面四项填进客户端即可；推理强度不是客户端的设置项": "Type those four into the client; a reasoning level is not one of its settings",
 };

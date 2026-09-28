@@ -54,18 +54,25 @@ export function BrowserExtension() {
       <li>{t("点「加载已解压的扩展程序」，选择上面的插件文件夹。")}</li>
       <li>{t("在下方点对应浏览器的「连接」，然后在扩展管理页点插件的「重新加载」。")}</li>
     </ol>
-    {status.browsers.map((b) => <div className="data-location" key={b.browser}>
-      <div className="data-location-text">
-        <b>{BROWSER_LABEL[b.browser]}</b>
-        <small className={b.state === "stale" ? "warn" : ""}>{t(STATE_LABEL[b.state])}</small>
-      </div>
-      <div className="session-actions">
-        {b.state !== "connected" && <button className="pr sm" disabled={working} onClick={() => setAsking(b.browser)}>{t("连接")}</button>}
-        {b.state !== "off" && <button className="gh sm" disabled={working} onClick={() => void change(b.browser, false)}>{t("断开")}</button>}
-      </div>
-    </div>)}
-    <small className="session-note">{t("最近连接")}：{time(status.lastHelloAt)} · {t("最近同步")}：{time(status.lastSyncAt)}</small>
-    <small className="session-note">{t("账号")} {c.accounts} · {t("对话")} {c.conversations} · {t("已存正文")} {c.bodies} · {t("文件夹")} {c.folders} · {t("摘录")} {c.excerpts}</small>
+    <div className="ext-browsers">
+      {status.browsers.map((b) => <label className={"ext-browser" + (b.state === "connected" ? " on" : "")} key={b.browser}>
+        <span className="sw sm2">
+          <input type="checkbox" checked={b.state === "connected"} disabled={working}
+            onChange={(e) => e.target.checked ? setAsking(b.browser) : void change(b.browser, false)} />
+          <span className="tk" />
+        </span>
+        <span className="ext-browser-text">
+          <b>{BROWSER_LABEL[b.browser]}</b>
+          <small className={b.state === "stale" ? "warn" : ""}>{t(STATE_LABEL[b.state])}</small>
+        </span>
+      </label>)}
+    </div>
+    <div className="ext-counts">
+      {([["ti-user", c.accounts, "账号"], ["ti-messages", c.conversations, "对话"], ["ti-file-text", c.bodies, "已存正文"],
+        ["ti-folder", c.folders, "文件夹"], ["ti-quote", c.excerpts, "摘录"]] as const).map(([icon, value, label]) =>
+        <span key={label} title={t(label)}><i className={"ti " + icon} />{value}</span>)}
+      <em>{t("最近同步")} {time(status.lastSyncAt)}</em>
+    </div>
     {error && <p role="alert" className="session-error">{t(error)}</p>}
     {asking && <ConfirmModal title={`${t("连接")} ${BROWSER_LABEL[asking]}`} icon="ti-plug-connected" busy={working}
       message={`${t("将在当前用户的注册表写入")} ${REGISTRY_KEY[asking]}${t("，并在 Stacker 数据目录保存一个登记文件。浏览器插件之后可以启动 Stacker 同步数据，不会打开窗口。点「断开」会删除这两处。")}`}

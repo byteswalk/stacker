@@ -200,7 +200,7 @@ export function snippet(kind: Snippet, base: string, token: string, model: strin
   if (kind === "curl") {
     return `curl ${base}/v1/chat/completions \\\n  -H "Authorization: Bearer ${token}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"model":"${model}","messages":[{"role":"user","content":"你好"}]}'`;
   }
-  return `接口类型：OpenAI 兼容\nAPI 地址：${base}/v1\nAPI 密钥：${token}\n模型名称：${model}`;
+  return `接口类型：OpenAI 兼容（Chatbox、Cherry Studio、编辑器插件都选这个）\nAPI 地址：${base}/v1\nAPI 密钥：${token}\n模型名称：${model}  ← 只写 ${model} 就用下面设定的默认模型；要指定某个模型，换成下表里的调用名，例如 ${model}/xxx\n推理强度：客户端里没有这一项，不用填。要按次指定就在请求里加 reasoning_effort（low / medium / high），不加就用上面为该智能体设定的默认档位。`;
 }
 
 const SNIPPETS: [Snippet, string][] = [
@@ -274,7 +274,9 @@ function AgentBlock({ card, base, token, past, testLine, running, onTest, onTogg
         </div>
         <pre className="gw-use-code">{snippet(kind, base, token, card.id)}</pre>
         <div className="gw-use-bar">
-          <i className="ti ti-info-circle" /> {t("端口和密钥已经填好；要指定模型，把 model 换成下面表里的调用名")}
+          <i className="ti ti-info-circle" /> {t(kind === "client"
+            ? "照上面四项填进客户端即可；推理强度不是客户端的设置项"
+            : "端口和密钥已经填好；要指定模型，把 model 换成下面表里的调用名")}
           <button className="pr sm" onClick={() => onCopy(snippet(kind, base, token, card.id))}><i className="ti ti-copy" /> {t("复制")}</button>
         </div>
       </div>
