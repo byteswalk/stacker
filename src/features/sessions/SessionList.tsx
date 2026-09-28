@@ -38,10 +38,14 @@ export function SessionList({ page, query, projects, loading, selected, onSelect
   const selectedBytes = page.items.filter((s) => selected.includes(s.id)).reduce((sum, s) => sum + s.bytes, 0);
   const selectedFavorite = page.items.filter((s) => selected.includes(s.id)).every((s) => s.favorite);
   // Cascade: only projects that have sessions of the chosen agent.
-  const agentProjects = query.agent ? projects.filter((p) => p.agents.includes(query.agent as AgentName)) : projects;
+  const listable = projects.filter((p) => p.sessions > 0);
+  const agentProjects = query.agent ? listable.filter((p) => p.agents.includes(query.agent as AgentName)) : listable;
   const clients = clientsFor(query.agent);
   const agents = page.agents ?? [];
   const allSessions = agents.reduce((sum, a) => sum + a.sessions, 0);
+  const agentOptions = query.agent && !agents.some((a) => a.agent === query.agent)
+    ? [...agents, { agent: query.agent as AgentName, sessions: 0, bytes: 0 }]
+    : agents;
   const pickAgent = (agent: string) => onFilter({
     agent,
     project: !agent || !query.project || projects.some((p) => p.project.key === query.project && p.agents.includes(agent as AgentName)) ? query.project : "",
@@ -57,7 +61,7 @@ export function SessionList({ page, query, projects, loading, selected, onSelect
       <label className="session-check"><input type="checkbox" checked={query.fullText} onChange={(e) => onFilter({ fullText: e.target.checked })} />{t("搜索原文")}</label>
       <Select value={query.agent} onChange={pickAgent} width={170} options={[
         { value: "", label: `${t("全部智能体")}${allSessions ? ` (${allSessions})` : ""}` },
-        ...agents.map((a) => ({ value: a.agent, label: `${AGENT_LABEL[a.agent]} (${a.sessions})`, title: bytes(a.bytes) })),
+        ...agentOptions.map((a) => ({ value: a.agent, label: `${AGENT_LABEL[a.agent]} (${a.sessions})`, title: bytes(a.bytes) })),
       ]} />
       <Select value={query.project} onChange={(project) => onFilter({ project })} options={[{ value: "", label: t("全部项目") }, ...agentProjects.map((p) => ({ value: p.project.key, label: p.project.name, title: p.project.path }))]} />
       <Select value={query.status} onChange={(status) => onFilter({ status })} options={[{ value: "", label: t("全部状态") }, ...(["active", "archived", "orphaned", "discarded"] as const).map((value) => ({ value, label: t(STATUS_LABEL[value]) }))]} />

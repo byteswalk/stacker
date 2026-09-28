@@ -101,7 +101,7 @@ export function ProjectList({ rows, loading, onPick, onHandoff }: { rows: Projec
           <small title={row.project.path}>{row.project.path || t("未记录工作目录")}</small>
         </button>
         <span>{row.agents.map((a) => AGENT_LABEL[a]).join(" · ")}</span>
-        <span>{row.sessions}</span>
+        <span>{row.sessions}{!!row.discarded && <em className="dim" title={t("应用内已删除、转录还在磁盘上的对话")}> +{row.discarded}</em>}</span>
         <span className={row.orphans ? "warn" : ""}>{row.orphans}</span>
         <span>{bytes(row.bytes)}</span>
         <span>{t(formatAge(row.updatedAt, now))}</span>

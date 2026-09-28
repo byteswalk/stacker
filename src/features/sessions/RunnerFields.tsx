@@ -32,9 +32,8 @@ export function RunnerFields({ value, options, onChange, agents }: {
     <label className="runner-field">
       <span>{t("执行者")}</span>
       <Select value={value.runner} onChange={(runner) => onChange({ ...value, runner: runner as SummarySettings["runner"] })} options={[
-        { value: "same", label: t("同源（Codex 会话用 Codex，Claude 会话用 Claude）") },
-        { value: "codex", label: t("固定使用 Codex") },
-        { value: "claude", label: t("固定使用 Claude") },
+        { value: "codex", label: t("Codex") },
+        { value: "claude", label: t("Claude") },
       ]} />
     </label>
     {shown.map((agent) => {

@@ -86,8 +86,8 @@ describe("project filter", () => {
     const { SessionList } = await import("./SessionList");
     const onFilter = vi.fn();
     const projects: ProjectRow[] = [
-      { project: { key: "a", name: "only-codex", path: "A", exists: true }, agents: ["codex"], sessions: 1, orphans: 0, bytes: 1, updatedAt: 1 },
-      { project: { key: "b", name: "only-claude", path: "B", exists: true }, agents: ["claude"], sessions: 1, orphans: 0, bytes: 1, updatedAt: 1 },
+      { project: { key: "a", name: "only-codex", path: "A", exists: true }, agents: ["codex"], sessions: 1, orphans: 0, discarded: 0, bytes: 1, updatedAt: 1 },
+      { project: { key: "b", name: "only-claude", path: "B", exists: true }, agents: ["claude"], sessions: 1, orphans: 0, discarded: 0, bytes: 1, updatedAt: 1 },
     ];
     const query = { agent: "codex", project: "", status: "", client: "", search: "", fullText: false, includeAutomation: false, favoritesOnly: false, updatedAfter: 0, sort: "" as const, offset: 0 };
     await act(async () => { root.render(<SessionList page={{ items: [], total: 0, ids: [], totalBytes: 0, warnings: [], agents: [{ agent: "codex", sessions: 1, bytes: 1 }, { agent: "workbuddy", sessions: 4, bytes: 9 }] }} query={query} projects={projects} loading={false} selected={[]}

@@ -54,7 +54,7 @@ export type SessionQuery = {
 
 export type AgentCount = { agent: AgentName; sessions: number; bytes: number };
 export type SessionPage = { items: Session[]; total: number; ids: string[]; totalBytes: number; warnings: string[]; agents: AgentCount[] };
-export type ProjectRow = { project: ProjectRef; agents: AgentName[]; sessions: number; orphans: number; bytes: number; updatedAt: number };
+export type ProjectRow = { project: ProjectRef; agents: AgentName[]; sessions: number; orphans: number; discarded: number; bytes: number; updatedAt: number };
 export type Roots = { codex: string; claude: string; claudeDesktopIndex: string };
 export type RootsView = { effective: Roots; overrides: Roots; exportDir: string };
 export type Message = { line: number; role: string; text: string };

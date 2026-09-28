@@ -243,13 +243,18 @@ pub fn projects(sessions: &[Session]) -> Vec<ProjectRow> {
                 agents: vec![],
                 sessions: 0,
                 orphans: 0,
+                discarded: 0,
                 bytes: 0,
                 updated_at: 0,
             });
         if !row.agents.contains(&s.agent) {
             row.agents.push(s.agent);
         }
-        row.sessions += 1;
+        if s.status == SessionStatus::Discarded {
+            row.discarded += 1;
+        } else {
+            row.sessions += 1;
+        }
         row.orphans += usize::from(s.status == SessionStatus::Orphaned);
         row.bytes += s.bytes;
         row.updated_at = row.updated_at.max(s.updated_at);
@@ -404,6 +409,35 @@ mod tests {
         );
         assert_eq!(asked.len(), 1);
         assert_eq!(asked[0].id, "workbuddy:z");
+    }
+
+    #[test]
+    fn a_project_counts_what_the_list_will_show_apart_from_what_it_will_not() {
+        let mut live = session(
+            "workbuddy:a",
+            Agent::WorkBuddy,
+            ClientTag::Desktop,
+            SessionStatus::Active,
+            "p1",
+            10,
+        );
+        live.project.key = "p1".into();
+        let mut gone = session(
+            "workbuddy:b",
+            Agent::WorkBuddy,
+            ClientTag::Desktop,
+            SessionStatus::Discarded,
+            "p2",
+            11,
+        );
+        gone.project.key = "p2".into();
+        let rows = projects(&[live, gone]);
+        let p1 = rows.iter().find(|r| r.project.key == "p1").unwrap();
+        let p2 = rows.iter().find(|r| r.project.key == "p2").unwrap();
+        assert_eq!((p1.sessions, p1.discarded), (1, 0));
+        // Everything in p2 was deleted inside the app, so the sessions tab has nothing to
+        // show for it and the filter must not offer it.
+        assert_eq!((p2.sessions, p2.discarded), (0, 1));
     }
 
     fn sample() -> Vec<Session> {

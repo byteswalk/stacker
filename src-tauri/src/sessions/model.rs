@@ -173,8 +173,12 @@ pub struct AgentCount {
 pub struct ProjectRow {
     pub project: ProjectRef,
     pub agents: Vec<Agent>,
+    /// Conversations the sessions tab lists for this project.
     pub sessions: usize,
     pub orphans: usize,
+    /// Conversations deleted inside the agent's own app, whose transcripts are still here.
+    /// They are not listed as conversations, so they are counted apart from them.
+    pub discarded: usize,
     pub bytes: u64,
     pub updated_at: u64,
 }

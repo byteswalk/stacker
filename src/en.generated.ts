@@ -3297,4 +3297,6 @@ export const GENERATED_EN: Record<string, string> = {
   "账号已登录，但厂商不允许它使用：换一个有资格的账号登录，或先按下方提示验证账号。": "The account is signed in, but the vendor will not serve it: sign in with an account that has access, or verify this one as the message below says.",
   "账号已登录，但厂商不允许它使用该产品。": "The account is signed in, but the vendor will not serve it for this product.",
   "去处理": "Sort it out",
+  "应用内已删除、转录还在磁盘上的对话": "Conversations deleted in the app whose transcripts are still on disk",
+  "选择一个或多个目录深入分析；选磁盘根目录就是全盘分析。": "Analyse one or more folders in depth; picking a drive root analyses the whole disk.",
 };

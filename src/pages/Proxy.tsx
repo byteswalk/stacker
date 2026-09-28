@@ -46,7 +46,6 @@ export default function Proxy() {
   const [ov, setOv] = useState<Overview | null>(null);
   const [st, setSt] = useState<ProxyStatus | null>(null);
   const [manual, setManual] = useState<string[]>([]);
-  const [entry, setEntry] = useState("");
   const [host, setHost] = useState("");
   const [port, setPort] = useState("");
   const [busy, setBusy] = useState("");
@@ -80,11 +79,6 @@ export default function Proxy() {
   const write = (row: LocationRow) => run(row.id, () => invoke("proxy_location_write", { id: row.id }), `已写入 ${LOCATION_INFO[row.id]?.name ?? row.id} 代理`);
   const clear = (row: LocationRow) => run(row.id, () => invoke("proxy_location_clear", { id: row.id }), `已清除 ${LOCATION_INFO[row.id]?.name ?? row.id} 代理`);
 
-  function addEntry() {
-    const e = entry.trim();
-    if (e && !manual.includes(e) && !st?.no_proxy_auto.includes(e)) setManual([...manual, e]);
-    setEntry("");
-  }
   async function copy(text: string, which: string) {
     try { await navigator.clipboard.writeText(text); setCopied(which); setTimeout(() => setCopied(""), 1500); toast("已复制", "ok"); }
     catch { toast("复制失败，请手动选中复制", "err"); }
@@ -94,7 +88,6 @@ export default function Proxy() {
   if (!ov || !st) return <Loading text="正在读取各处代理设置…" />;
 
   const address = ov.write_address;
-  const manualDirty = manual.join("\u0000") !== st.no_proxy_manual.join("\u0000");
   const [h, p] = (address ?? ":").split(":");
   const httpUrl = `http://${h}:${p}`, socks = `socks5://${h}:${p}`;
   const noProxy = [...st.no_proxy_auto, ...manual].join(",");
@@ -146,7 +139,7 @@ export default function Proxy() {
       </div>
 
       <div className="pxcard">
-        <div className="pxsec"><i className="ti ti-list-details" /> 各处代理 <span className="pxhint">「外部设置」是你或其他工具配置的，Stacker 不会自动修改</span></div>
+        <div className="pxsec"><i className="ti ti-list-details" /> 应用代理 <span className="pxhint">「外部设置」是你或其他工具配置的，Stacker 不会自动修改</span></div>
         <div className="proxy-locations">
           {ov.locations.map((row) => {
             const info = LOCATION_INFO[row.id] ?? { name: row.id, detail: "", icon: "ti-point" };
@@ -163,20 +156,6 @@ export default function Proxy() {
               </button>
             </div>;
           })}
-        </div>
-      </div>
-
-      <div className="pxcard">
-        <div className="pxsec"><i className="ti ti-route-off" /> 直连白名单 NO_PROXY <span className="pxhint">写入终端环境变量时使用，名单内主机直连</span></div>
-        <div className="chips" style={{ marginBottom: 11 }}>
-          {st.no_proxy_auto.map((x) => <span className="chip auto" key={x}>{x} <span className="tag">自动</span></span>)}
-          {manual.map((x) => <span className="chip" key={x}>{x} <i className="ti ti-x x" onClick={() => setManual(manual.filter((y) => y !== x))} /></span>)}
-        </div>
-        <div className="npadd">
-          <input className="ip wide" placeholder="追加域名 / 主机，如 gitlab.mycorp.com" value={entry}
-            onChange={(e) => setEntry(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") addEntry(); }} />
-          <button className="gh sm" onClick={addEntry}>添加</button>
-          <button className={manualDirty ? "pr sm" : "gh sm"} disabled={!!busy || !manualDirty} onClick={() => void run("np", () => invoke("settings_set_proxy_manual", { manual }), "直连白名单已保存")}><i className="ti ti-device-floppy" /> 保存白名单</button>
         </div>
       </div>
 
