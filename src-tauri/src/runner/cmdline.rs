@@ -86,6 +86,7 @@ fn agy_command(home: &Path) -> Result<Command, String> {
     )?;
     write(gemini.join("config").join("hooks.json"), AGY_HOOKS)?;
     let mut cmd = Command::new(program);
+    super::hidden(&mut cmd);
     cmd.env("USERPROFILE", home)
         .env("HOME", home)
         .env("AGY_CLI_DISABLE_AUTO_UPDATE", "1");

@@ -195,10 +195,15 @@ pub(crate) fn system() -> SystemProxy {
 
 #[cfg(windows)]
 pub(crate) fn service() -> ServiceProxy {
-    let output = std::process::Command::new("netsh")
-        .args(["winhttp", "show", "proxy"])
-        .output()
-        .ok();
+    let mut command = std::process::Command::new("netsh");
+    command.args(["winhttp", "show", "proxy"]);
+    // Reading a setting is not something to flash a console window for.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    let output = command.output().ok();
     match output {
         Some(out) => {
             let text = format!(

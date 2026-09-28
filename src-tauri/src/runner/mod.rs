@@ -67,7 +67,7 @@ impl CancelFlag {
     }
 }
 
-fn hidden(cmd: &mut Command) {
+pub(crate) fn hidden(cmd: &mut Command) {
     crate::sessions::codex_rpc::hidden(cmd);
 }
 

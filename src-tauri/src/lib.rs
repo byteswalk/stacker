@@ -6,6 +6,7 @@ mod catalog;
 mod checkup;
 mod cleanup;
 mod composer;
+mod console_audit;
 mod custom;
 mod distill;
 mod dpapi;

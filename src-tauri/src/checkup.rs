@@ -233,6 +233,19 @@ fn resolve_command(candidates: &[&str]) -> Option<PathBuf> {
     None
 }
 
+/// Windows hands a console program its own window when a GUI app starts it. Everything built
+/// here runs on Stacker's behalf, so the window is refused; the places that mean to show one
+/// (a terminal for the user to watch an install in) build their command themselves.
+fn hide_console(cmd: &mut Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+    #[cfg(not(windows))]
+    let _ = cmd;
+}
+
 fn command_for_path(program: &Path, args: &[&str]) -> Command {
     let ext = program
         .extension()
@@ -243,16 +256,19 @@ fn command_for_path(program: &Path, args: &[&str]) -> Command {
         let mut cmd = Command::new("cmd.exe");
         cmd.args(["/d", "/c", "call"]).arg(program);
         cmd.args(args);
+        hide_console(&mut cmd);
         cmd
     } else if ext == "ps1" {
         let mut cmd = Command::new("powershell.exe");
         cmd.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
             .arg(program);
         cmd.args(args);
+        hide_console(&mut cmd);
         cmd
     } else {
         let mut cmd = Command::new(program);
         cmd.args(args);
+        hide_console(&mut cmd);
         cmd
     }
 }

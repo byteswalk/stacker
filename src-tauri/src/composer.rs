@@ -38,8 +38,21 @@ fn composer_home() -> PathBuf {
         })
 }
 
+/// Windows gives a console program its own window when a GUI app starts it; none of these
+/// are meant to be watched.
+fn hide(command: &mut Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+}
+
 fn first_command_path(name: &str) -> Option<PathBuf> {
-    let output = Command::new("where.exe").arg(name).output().ok()?;
+    let mut probe = Command::new("where.exe");
+    probe.arg(name);
+    hide(&mut probe);
+    let output = probe.output().ok()?;
     if !output.status.success() {
         return None;
     }
@@ -82,9 +95,12 @@ fn composer_entry() -> Option<PathBuf> {
 }
 
 fn composer_version(entry: &Path) -> String {
-    Command::new("cmd.exe")
+    let mut command = Command::new("cmd.exe");
+    command
         .args(["/D", "/S", "/C"])
-        .arg(format!("\"{}\" --version", entry.display()))
+        .arg(format!("\"{}\" --version", entry.display()));
+    hide(&mut command);
+    command
         .output()
         .ok()
         .filter(|output| output.status.success())
@@ -156,9 +172,10 @@ fn composer_install_impl(window: tauri::Window) -> Result<ComposerStatus, String
     )?;
 
     let _ = window.emit("install-progress", "正在验证 Composer 安装包…".to_string());
-    let verify = Command::new(&php)
-        .arg(&temp)
-        .arg("--version")
+    let mut verifier = Command::new(&php);
+    verifier.arg(&temp).arg("--version");
+    hide(&mut verifier);
+    let verify = verifier
         .output()
         .map_err(|error| format!("无法启动 PHP 验证 Composer：{error}"))?;
     if !verify.status.success() {

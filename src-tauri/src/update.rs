@@ -531,15 +531,23 @@ pub async fn app_download_update(
         "$p=Get-Process -Id {current_pid} -ErrorAction SilentlyContinue; if($p){{Wait-Process -Id {current_pid} -Timeout 30 -ErrorAction SilentlyContinue}}; Start-Process -FilePath '{}' -ArgumentList '/S'",
         target.to_string_lossy().replace('\'', "''")
     );
-    std::process::Command::new("powershell.exe")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-WindowStyle",
-            "Hidden",
-            "-Command",
-            &launch_script,
-        ])
+    let mut launcher = std::process::Command::new("powershell.exe");
+    launcher.args([
+        "-NoProfile",
+        "-NonInteractive",
+        "-WindowStyle",
+        "Hidden",
+        "-Command",
+        &launch_script,
+    ]);
+    // -WindowStyle reaches the host only once it has started; the console it is given has to
+    // be refused separately, or it flashes on screen first.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        launcher.creation_flags(0x08000000);
+    }
+    launcher
         .spawn()
         .map_err(|error| format!("启动安装程序失败：{error}"))?;
     let app = window.app_handle().clone();

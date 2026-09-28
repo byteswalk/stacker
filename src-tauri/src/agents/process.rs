@@ -598,6 +598,19 @@ pub(crate) fn resolve_command_including_windowsapps(candidates: &[&str]) -> Opti
     None
 }
 
+/// Windows hands a console program its own window when a GUI app starts it. Everything built
+/// here runs on Stacker's behalf, so the window is refused; the places that mean to show one
+/// (a terminal for the user to watch an install in) build their command themselves.
+fn hide_console(cmd: &mut Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+    #[cfg(not(windows))]
+    let _ = cmd;
+}
+
 pub(crate) fn command_for_path(program: &Path, args: &[&str]) -> Command {
     let ext = program
         .extension()
@@ -608,16 +621,19 @@ pub(crate) fn command_for_path(program: &Path, args: &[&str]) -> Command {
         let mut cmd = Command::new("cmd.exe");
         cmd.args(["/d", "/c", "call"]).arg(program);
         cmd.args(args);
+        hide_console(&mut cmd);
         cmd
     } else if ext == "ps1" {
         let mut cmd = Command::new("powershell.exe");
         cmd.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
             .arg(program);
         cmd.args(args);
+        hide_console(&mut cmd);
         cmd
     } else {
         let mut cmd = Command::new(program);
         cmd.args(args);
+        hide_console(&mut cmd);
         cmd
     }
 }
@@ -658,6 +674,13 @@ pub(crate) fn command_output_timeout_named(
     name: &str,
     timeout: Duration,
 ) -> Result<Output, String> {
+    // Windows gives a console program its own window when a GUI app starts it, unless it is
+    // told not to; nothing run through here is meant to be watched.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        c.creation_flags(0x08000000);
+    }
     let mut child = c
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
