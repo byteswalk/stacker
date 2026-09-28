@@ -209,6 +209,31 @@ pub(crate) struct DirectDesktopInstaller {
 pub(crate) const DEFAULT_DESKTOP_UNAVAILABLE_REASON: &str =
     "官方未提供可自动安装的独立 Windows 应用。";
 
+impl DataDir {
+    /// Where this folder is on this machine, or nothing when the base is unknown.
+    pub(crate) fn path(&self) -> Option<std::path::PathBuf> {
+        if let Some(name) = self.env_override {
+            let set = crate::winenv::get_user_raw(name)
+                .or_else(|| std::env::var(name).ok())
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty());
+            if let Some(value) = set {
+                return Some(std::path::PathBuf::from(value));
+            }
+        }
+        let base = match self.base {
+            DataBase::Home => dirs::home_dir(),
+            DataBase::Roaming => dirs::data_dir(),
+            DataBase::Local => dirs::data_local_dir(),
+        }?;
+        Some(
+            self.relative
+                .split('/')
+                .fold(base, |path, part| path.join(part)),
+        )
+    }
+}
+
 pub(crate) fn cli_by_id(id: &str) -> Option<&'static CliSpec> {
     CLIS.iter().find(|cli| cli.id == id)
 }
@@ -525,7 +550,15 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
         }),
         workbench_command: None,
         process_pattern: r#"(?i)(^|[\\/\s"])claude([\\/\s".]|$)|@anthropic-ai[\\/]claude-code"#,
-        data_dirs: &[DataDir { base: DataBase::Home, relative: ".claude", env_override: Some("CLAUDE_CONFIG_DIR") }, DataDir { base: DataBase::Roaming, relative: "Claude", env_override: None }],
+        data_dirs: &[
+            DataDir { base: DataBase::Home, relative: ".claude", env_override: Some("CLAUDE_CONFIG_DIR") },
+            DataDir { base: DataBase::Roaming, relative: "Claude", env_override: None },
+            roaming("Claude Code"),
+            local("Claude"),
+            local("Claude-3p"),
+            local("Claude-Data"),
+            local("claude-cli-nodejs"),
+        ],
     },
     ProductSpec {
         id: "codex",
@@ -557,7 +590,11 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
         }),
         workbench_command: None,
         process_pattern: r#"(?i)(^|[\\/\s"])codex([\\/\s".]|$)|@openai[\\/]codex"#,
-        data_dirs: &[DataDir { base: DataBase::Home, relative: ".codex", env_override: Some("CODEX_HOME") }, DataDir { base: DataBase::Roaming, relative: "Codex", env_override: None }],
+        data_dirs: &[
+            DataDir { base: DataBase::Home, relative: ".codex", env_override: Some("CODEX_HOME") },
+            DataDir { base: DataBase::Roaming, relative: "Codex", env_override: None },
+            local("OpenAI"),
+        ],
     },
     ProductSpec {
         id: "antigravity",
@@ -589,7 +626,14 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
         }),
         workbench_command: None,
         process_pattern: r#"(?i)antigravity|(^|[\\/])agy(\\.cmd|\\.exe)?"#,
-        data_dirs: &[home(".antigravity"), roaming("Antigravity")],
+        data_dirs: &[
+            home(".antigravity"),
+            home(".gemini/antigravity"),
+            home(".gemini/antigravity-cli"),
+            roaming("Antigravity"),
+            local("antigravity"),
+            local("antigravity-updater"),
+        ],
     },
     ProductSpec {
         id: "opencode",
@@ -621,7 +665,12 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
         }),
         workbench_command: None,
         process_pattern: r#"(?i)opencode"#,
-        data_dirs: &[home(".config/opencode"), local("opencode")],
+        data_dirs: &[
+            home(".config/opencode"),
+            local("opencode"),
+            roaming("ai.opencode.desktop"),
+            local("@opencode-aidesktop-updater"),
+        ],
     },
     ProductSpec {
         id: "zcode",
@@ -657,7 +706,7 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
         }),
         workbench_command: None,
         process_pattern: r#"(?i)zcode|z\.ai"#,
-        data_dirs: &[home(".zcode"), roaming("ZCode")],
+        data_dirs: &[home(".zcode"), roaming("ZCode"), local("@zcodedesktop-updater")],
     },
     ProductSpec {
         id: "kimi",
@@ -689,7 +738,7 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
         }),
         workbench_command: None,
         process_pattern: r#"(?i)(^|[\\/\s"])kimi(-cli|-code)?([\\/\s".]|$)"#,
-        data_dirs: &[home(".kimi"), roaming("Kimi")],
+        data_dirs: &[home(".kimi-code"), home(".kimi"), roaming("kimi-desktop")],
     },
     ProductSpec {
         id: "workbuddy-cn",
@@ -720,7 +769,15 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
         }),
         workbench_command: None,
         process_pattern: r#"(?i)workbuddy"#,
-        data_dirs: &[home(".workbuddy"), roaming("WorkBuddy"), home(".codebuddy")],
+        data_dirs: &[
+            home(".workbuddy"),
+            roaming("WorkBuddy"),
+            local("WorkBuddy"),
+            local("@genieworkbuddy-desktop-updater"),
+            home(".codebuddy"),
+            roaming("CodeBuddy CN"),
+            local("CodeBuddyExtension"),
+        ],
     },
     ProductSpec {
         id: "workbuddy-global",
@@ -751,7 +808,7 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
         }),
         workbench_command: None,
         process_pattern: r#"(?i)workbuddy"#,
-        data_dirs: &[home(".workbuddy-ai"), roaming("WorkBuddy AI"), home(".codebuddy")],
+        data_dirs: &[home(".workbuddy-ai"), roaming("WorkBuddy AI")],
     },
     ProductSpec {
         id: "qoder",
@@ -782,7 +839,12 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
         }),
         workbench_command: None,
         process_pattern: r#"(?i)(^|[\\/\s"])qoder([\\/\s".]|$)"#,
-        data_dirs: &[home(".qoder"), roaming("Qoder")],
+        data_dirs: &[
+            home(".qoder"),
+            roaming("Qoder"),
+            roaming("com.qoder.app.stable"),
+            local("Qoder"),
+        ],
     },
     ProductSpec {
         id: "qoder-cn",
@@ -813,7 +875,12 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
         }),
         workbench_command: None,
         process_pattern: r#"(?i)(^|[\\/\s"])qoder([\\/\s".]|$)"#,
-        data_dirs: &[home(".qoder-cn"), roaming("QoderCN")],
+        data_dirs: &[
+            home(".qoder-cn"),
+            roaming("QoderCN"),
+            roaming("com.qodercn.app.stable"),
+            local("Qoder CN"),
+        ],
     },
     ProductSpec {
         id: "trae-work",
@@ -851,7 +918,7 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
         }),
         workbench_command: None,
         process_pattern: r#"(?i)(^|[\\/\s"])trae([\\/\s".]|$)"#,
-        data_dirs: &[home(".trae"), roaming("Trae")],
+        data_dirs: &[home(".trae"), roaming("TRAE SOLO CN")],
     },
     ProductSpec {
         id: "trae-global",
@@ -889,7 +956,7 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
         }),
         workbench_command: None,
         process_pattern: r#"(?i)(^|[\\/\s"])trae([\\/\s".]|$)"#,
-        data_dirs: &[home(".trae"), roaming("Trae")],
+        data_dirs: &[home(".trae"), roaming("TRAE SOLO")],
     },
     ProductSpec {
         id: "deepseek-harness",
@@ -911,7 +978,7 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
         },
         workbench_command: Some("dsh web"),
         process_pattern: r#"(?i)deepseek-harness|@deepseek-ai[\\/]dsh|(^|[\\/])dsh(\.cmd|\.exe)?"#,
-        data_dirs: &[home(".deepseek"), roaming("DeepSeek Harness")],
+        data_dirs: &[home(".deepseek"), roaming("DeepSeek Harness"), local("DeepSeekHarness")],
     },
     ProductSpec {
         id: "openclaw",
@@ -943,7 +1010,12 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
         }),
         workbench_command: None,
         process_pattern: r#"(?i)openclaw"#,
-        data_dirs: &[home(".openclaw"), roaming("OpenClaw")],
+        data_dirs: &[
+            home(".openclaw"),
+            roaming("OpenClaw"),
+            roaming("OpenClawTray"),
+            local("OpenClawTray"),
+        ],
     },
     ProductSpec {
         id: "hermes",
@@ -975,7 +1047,7 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
         }),
         workbench_command: None,
         process_pattern: r#"(?i)(^|[\\/\s"])hermes(-agent)?([\\/\s".]|$)"#,
-        data_dirs: &[home(".hermes"), roaming("Hermes")],
+        data_dirs: &[home(".hermes"), roaming("Hermes"), local("com.nousresearch.hermes.setup")],
     },
     ProductSpec {
         id: "pi",
@@ -1067,7 +1139,7 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
         }),
         workbench_command: None,
         process_pattern: r#"(?i)(^|[\\/\s"])mimo(code)?([\\/\s".]|$)|@mimo-ai[\\/]cli|mimo desktop"#,
-        data_dirs: &[home(".mimocode")],
+        data_dirs: &[home(".mimocode"), home(".local/share/mimocode"), roaming("Xiaomi MiMo")],
     },
     ProductSpec {
         id: "mimo-global",
@@ -1097,7 +1169,7 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
         }),
         workbench_command: None,
         process_pattern: r#"(?i)(^|[\\/\s"])mimo(code)?([\\/\s".]|$)|@mimo-ai[\\/]cli|mimo desktop"#,
-        data_dirs: &[home(".mimocode")],
+        data_dirs: &[roaming("Xiaomi MiMo AI")],
     },
     ProductSpec {
         id: "agnes-cn",

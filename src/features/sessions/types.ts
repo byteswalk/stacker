@@ -131,7 +131,8 @@ export function errorMessage(error: unknown): string {
 export type FootprintKind = "sessions" | "reclaimable" | "review" | "keep";
 export type FootprintItem = {
   id: string;
-  agent: AgentName;
+  /** Product id; the group it sits in carries the name and icon. */
+  product: string;
   owner: "shared" | "desktop_app";
   kind: FootprintKind;
   label: string;
@@ -142,7 +143,9 @@ export type FootprintItem = {
   blocked: string | null;
   note: string | null;
 };
-export type AgentFootprint = { agent: AgentName; total: number; reclaimable: number; items: FootprintItem[] };
+/** One product in the agents catalogue, as the footprint page names it. */
+export type ProductRef = { id: string; name: string; icon: string; sessionsAgent: AgentName | null };
+export type AgentFootprint = { product: ProductRef; total: number; reclaimable: number; items: FootprintItem[] };
 export type FootprintReport = { agents: AgentFootprint[]; total: number; reclaimable: number; scannedAt: number; warnings: string[] };
 export type CleanupPreview = { token: string; items: FootprintItem[]; blocked: FootprintItem[]; bytes: number; created: number };
 export type CleanupItemResult = { id: string; label: string; status: string; detail: string; freed: number };

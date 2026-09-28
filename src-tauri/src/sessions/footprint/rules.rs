@@ -51,6 +51,9 @@ pub enum RootKind {
     CodexApp,
     ClaudeHome,
     ClaudeApp,
+    /// Any other agent's folder: read by what the folder names say, and nothing is
+    /// suggested for deletion unless it is provably spent.
+    Generic,
 }
 
 #[derive(Clone, Debug)]
@@ -181,7 +184,154 @@ pub fn classify_root(kind: RootKind, root: &Path, cx: &Context) -> Vec<Draft> {
         RootKind::CodexApp => codex_app(root),
         RootKind::ClaudeHome => claude_home(root, cx),
         RootKind::ClaudeApp => claude_app(root, cx),
+        RootKind::Generic => generic(root, cx),
     }
+}
+
+/// Folder names that mean the same thing across agents. Only the first group is ever
+/// suggested for deletion: logs the agent has moved on from, crash reports, and update
+/// packages it already installed. Caches and work products are shown and left alone,
+/// and anything unrecognised is kept without comment.
+fn generic_kind(name: &str) -> Option<(&'static str, FootprintKind, &'static str, &'static str)> {
+    use FootprintKind::*;
+    let is = |list: &[&str]| list.contains(&name);
+    if is(&["logs", "log", "traces", "trace", "audit-log", "observe"]) {
+        return Some((
+            "agent-logs",
+            Reclaimable,
+            "日志",
+            "智能体的运行日志，只用于排查问题，删除后会重新生成。",
+        ));
+    }
+    if is(&[
+        "crashpad",
+        "crashes",
+        "crash dumps",
+        "crashdumps",
+        "pending-telemetry",
+        "sentry",
+    ]) {
+        return Some((
+            "agent-crash",
+            Reclaimable,
+            "崩溃与遥测数据",
+            "崩溃转储和待上传的遥测数据，删除不影响使用。",
+        ));
+    }
+    if name.ends_with("-updater") || is(&["updates", "update-cache", "pending-updates"]) {
+        return Some((
+            "agent-updates",
+            Reclaimable,
+            "更新包缓存",
+            "已下载的安装包，装完就不再需要，下次更新会重新下载。",
+        ));
+    }
+    if is(&[
+        "cache",
+        "caches",
+        ".cache",
+        "code cache",
+        "gpucache",
+        "dawncache",
+        "dawngraphitecache",
+        "dawnwebgpucache",
+        "blob_storage",
+        "tmp",
+        "temp",
+        ".tmp",
+    ]) {
+        return Some((
+            "agent-cache",
+            Review,
+            "缓存与临时文件",
+            "删除后智能体会重建，但下次启动会慢一些；正在运行时不要删。",
+        ));
+    }
+    if is(&[
+        "projects",
+        "sessions",
+        "conversations",
+        "threads",
+        "history",
+        "chats",
+    ]) {
+        return Some((
+            "agent-sessions",
+            Sessions,
+            "会话记录",
+            "对话的完整记录，请在「会话」标签中按会话删除。",
+        ));
+    }
+    if is(&[
+        "binaries",
+        "app",
+        "vendor",
+        "plugins",
+        "extensions",
+        "blobs",
+        "snapshots",
+        "buddy-snapshots",
+        "file-history",
+        "artifact-index",
+        "workspace",
+        "storage",
+    ]) {
+        return Some((
+            "agent-work",
+            Review,
+            "程序文件与工作产物",
+            "智能体自带的程序、插件和它干活留下的产物，删除前请确认不再需要。",
+        ));
+    }
+    None
+}
+
+/// An agent folder Stacker has no special knowledge of.
+fn generic(root: &Path, cx: &Context) -> Vec<Draft> {
+    use FootprintKind::*;
+    let running = cx.in_use(root);
+    let mut b = Builder::new(Owner::Shared);
+    let mut grouped: Vec<(
+        &'static str,
+        FootprintKind,
+        &'static str,
+        &'static str,
+        Vec<PathBuf>,
+    )> = Vec::new();
+    let mut old_logs = Vec::new();
+    for path in entries(root) {
+        let n = name(&path);
+        // A log file the agent has moved past, wherever it keeps it.
+        if n.ends_with(".log") || n.ends_with(".log.old") {
+            if age_days(&path, cx.now) > LOG_KEEP_DAYS {
+                old_logs.push(path);
+            } else {
+                b.other.push(path);
+            }
+            continue;
+        }
+        match generic_kind(&n) {
+            Some((rule, kind, label, explain)) => {
+                match grouped.iter_mut().find(|(r, ..)| *r == rule) {
+                    Some((.., paths)) => paths.push(path),
+                    None => grouped.push((rule, kind, label, explain, vec![path])),
+                }
+            }
+            None => b.other.push(path),
+        }
+    }
+    for (rule, kind, label, explain, paths) in grouped {
+        b.add(rule, kind, label, explain, paths, running);
+    }
+    b.add(
+        "agent-old-logs",
+        Reclaimable,
+        "7 天前的日志文件",
+        "智能体留下的旧日志文件。",
+        old_logs,
+        false,
+    );
+    b.finish()
 }
 
 fn codex_home(root: &Path, cx: &Context) -> Vec<Draft> {

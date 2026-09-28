@@ -4,11 +4,14 @@ use crate::space_analysis::windows_fs::{display_path, file_identity, FileIdentit
 use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 
-#[derive(Default)]
+/// Shared by the threads that walk each agent's folders: a directory counted by one of them
+/// is not counted again by another.
+#[derive(Default, Clone)]
 pub struct Meter {
-    seen: HashSet<FileIdentity>,
-    pub warnings: Vec<String>,
+    seen: Arc<Mutex<HashSet<FileIdentity>>>,
+    warnings: Arc<Mutex<Vec<String>>>,
 }
 
 impl Meter {
@@ -16,13 +19,22 @@ impl Meter {
         Self::default()
     }
 
+    fn first_visit(&self, id: FileIdentity) -> bool {
+        self.seen.lock().map_or(true, |mut seen| seen.insert(id))
+    }
+
+    /// What the walk could not read, once the walk is over.
+    pub fn warnings(&self) -> Vec<String> {
+        self.warnings.lock().map(|w| w.clone()).unwrap_or_default()
+    }
+
     /// Marks a root as visited; false when the same directory was already scanned under another path.
-    pub fn claim(&mut self, root: &Path) -> bool {
-        file_identity(root).map_or(true, |id| self.seen.insert(id))
+    pub fn claim(&self, root: &Path) -> bool {
+        file_identity(root).map_or(true, |id| self.first_visit(id))
     }
 
     /// Returns `(bytes, files)` not yet counted by this meter. Links are never followed.
-    pub fn measure(&mut self, path: &Path) -> (u64, u64) {
+    pub fn measure(&self, path: &Path) -> (u64, u64) {
         let Ok(meta) = fs::symlink_metadata(path) else {
             return (0, 0);
         };
@@ -35,13 +47,14 @@ impl Meter {
         // Redirected roots (MSIX) alias whole directories, so directory identity is enough;
         // opening every file for its identity would make large trees slow.
         if let Ok(identity) = file_identity(path) {
-            if !self.seen.insert(identity) {
+            if !self.first_visit(identity) {
                 return (0, 0);
             }
         }
         let Ok(entries) = fs::read_dir(path) else {
-            self.warnings
-                .push(format!("{}: E_ACCESS", display_path(path)));
+            if let Ok(mut warnings) = self.warnings.lock() {
+                warnings.push(format!("{}: E_ACCESS", display_path(path)));
+            }
             return (0, 0);
         };
         let mut total = (0, 0);
@@ -64,7 +77,7 @@ mod tests {
         let a = dir.path().join("a");
         fs::create_dir(&a).unwrap();
         fs::write(a.join("f"), vec![0u8; 100]).unwrap();
-        let mut meter = Meter::new();
+        let meter = Meter::new();
         assert_eq!(meter.measure(&a), (100, 1));
         assert_eq!(meter.measure(&a), (0, 0), "a root seen twice counts once");
     }

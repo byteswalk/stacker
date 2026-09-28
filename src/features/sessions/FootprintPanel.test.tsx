@@ -9,11 +9,11 @@ import type { FootprintItem, FootprintReport } from "./types";
 vi.mock("../../invoke", () => ({ invoke: vi.fn(), reportFrontendWarning: vi.fn() }));
 
 const item = (id: string, kind: FootprintItem["kind"], label: string, blocked: string | null = null): FootprintItem => ({
-  id, agent: "codex", owner: "shared", kind, label, explain: `${label} explain`, paths: [`C:\\x\\${id}`], bytes: 1024 * 1024, files: 1, blocked, note: null,
+  id, product: "codex", owner: "shared", kind, label, explain: `${label} explain`, paths: [`C:\\x\\${id}`], bytes: 1024 * 1024, files: 1, blocked, note: null,
 });
 
 const report: FootprintReport = {
-  agents: [{ agent: "codex", total: 5 * 1024 * 1024, reclaimable: 1024 * 1024, items: [
+  agents: [{ product: { id: "codex", name: "Codex", icon: "codex.png", sessionsAgent: "codex" as const }, total: 5 * 1024 * 1024, reclaimable: 1024 * 1024, items: [
     item("codex-sessions:1", "sessions", "Session records"),
     item("codex-tmp:1", "reclaimable", "Temp files"),
     item("codex-cache:1", "reclaimable", "Cache", "E_APP_RUNNING"),

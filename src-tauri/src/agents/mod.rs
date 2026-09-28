@@ -9,7 +9,7 @@ mod install;
 pub(crate) mod net;
 pub(crate) mod process;
 pub(crate) mod pty;
-mod registry;
+pub(crate) mod registry;
 pub(crate) mod tasks;
 
 pub(crate) use activity::{scan_agent_activity, AgentProcess};

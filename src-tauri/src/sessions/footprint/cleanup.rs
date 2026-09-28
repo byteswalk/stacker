@@ -257,7 +257,6 @@ mod tests {
     use super::super::ledger::{scan, Root};
     use super::super::rules::RootKind;
     use super::*;
-    use crate::sessions::model::Agent;
     use std::collections::HashSet;
 
     fn fixture() -> (tempfile::TempDir, Scan) {
@@ -268,7 +267,7 @@ mod tests {
         fs::create_dir_all(home.join("sessions")).unwrap();
         fs::write(home.join("sessions").join("a.jsonl"), b"{}").unwrap();
         let roots = vec![Root {
-            agent: Agent::Codex,
+            product: crate::sessions::footprint::ledger::product("codex"),
             kind: RootKind::CodexHome,
             path: home,
             suffix: None,
@@ -303,7 +302,7 @@ mod tests {
         fs::write(dir.path().join("codex/.tmp/y"), vec![0u8; 500]).unwrap();
         let rescanned = scan(
             &[Root {
-                agent: Agent::Codex,
+                product: crate::sessions::footprint::ledger::product("codex"),
                 kind: RootKind::CodexHome,
                 path: dir.path().join("codex"),
                 suffix: None,

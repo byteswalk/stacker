@@ -5,7 +5,6 @@ import { migrationStatus, scanFootprint } from "./api";
 import { LocationActions, locationText } from "./DataLocations";
 import { useBusyRead } from "../../ui";
 import { FootprintDialog } from "./FootprintDialog";
-import { AGENT_LABEL } from "./sessionsView";
 import { invoke } from "../../invoke";
 import { errorMessage, type FootprintItem, type FootprintKind, type FootprintReport, type LocationStatus } from "./types";
 
@@ -65,7 +64,7 @@ export function FootprintPanel({ onShowSessions }: { onShowSessions: (agent: str
     const current = ++request.current;
     setLoading(true); setError("");
     try {
-      const next = await read("正在统计智能体数据", () => scanFootprint(refresh), "逐个目录计算占用，约需 10 秒。");
+      const next = await read("正在统计智能体数据", () => scanFootprint(refresh), "逐个目录计算占用，全部智能体约需 30 秒。");
       if (current !== request.current) return;
       cachedReport = next; setReport(next); setSelected([]);
     } catch (e) {
@@ -102,25 +101,29 @@ export function FootprintPanel({ onShowSessions }: { onShowSessions: (agent: str
       </div>
     </div>
     {error && <div role="alert" className="session-error">{t(error)}</div>}
-    {!report && loading && <div className="session-empty"><i className="ti ti-loader spin" /><b>{t("正在统计智能体数据，约需 10 秒…")}</b></div>}
+    {!report && loading && <div className="session-empty"><i className="ti ti-loader spin" /><b>{t("正在统计全部智能体的数据，约需 30 秒…")}</b></div>}
 
     {!!report?.agents.length && <div className="fp-tiles">
       {report.agents.map((agent) => {
         const parts = slices(agent.items);
         const safe = agent.items.filter((i) => i.kind === "reclaimable" && !i.blocked).reduce((n, i) => n + i.bytes, 0);
-        return <button type="button" key={agent.agent} className={"fp-tile" + (shown === agent.agent ? " on" : "")}
-          onClick={() => setShown(shown === agent.agent ? null : agent.agent)}>
-          <span className="fp-tile-head"><b>{AGENT_LABEL[agent.agent]}</b><span>{bytes(agent.total)}</span></span>
+        const id = agent.product.id;
+        return <button type="button" key={id} className={"fp-tile" + (shown === id ? " on" : "")}
+          onClick={() => setShown(shown === id ? null : id)}>
+          <span className="fp-tile-head">
+            {agent.product.icon && <img src={`/brands/${agent.product.icon}`} alt="" />}
+            <b>{t(agent.product.name)}</b><span>{bytes(agent.total)}</span>
+          </span>
           <span className="fp-bar">{parts.map((p) => <i key={p.kind} style={{ width: `${(p.bytes / Math.max(agent.total, 1)) * 100}%`, background: p.color }} />)}</span>
           <span className="fp-tile-foot">
             {safe > 0 ? <em className="green">{t("可清理")} {bytes(safe)}</em> : <em>{t("无可清理")}</em>}
-            <i className={"ti " + (shown === agent.agent ? "ti-chevron-up" : "ti-chevron-down")} />
+            <i className={"ti " + (shown === id ? "ti-chevron-up" : "ti-chevron-down")} />
           </span>
         </button>;
       })}
     </div>}
 
-    {report?.agents.filter((agent) => shown === agent.agent).map((agent) => {
+    {report?.agents.filter((agent) => shown === agent.product.id).map((agent) => {
       const parts = slices(agent.items);
       const reclaimable = agent.items.filter((i) => i.kind === "reclaimable" && !i.blocked);
       const blocked = agent.items.filter((i) => i.kind === "reclaimable" && i.blocked);
@@ -129,10 +132,11 @@ export function FootprintPanel({ onShowSessions }: { onShowSessions: (agent: str
       const review = agent.items.filter((i) => i.kind === "review");
       const keep = agent.items.filter((i) => i.kind === "keep");
       const picked = review.filter((i) => selected.includes(i.id));
-      const loc = locations.find((l) => l.agent === agent.agent);
-      return <section key={agent.agent} className="fp-agent">
+      const loc = locations.find((l) => l.agent === agent.product.sessionsAgent);
+      return <section key={agent.product.id} className="fp-agent">
         <header>
-          <b>{AGENT_LABEL[agent.agent]}</b>
+          {agent.product.icon && <img className="fp-icon" src={`/brands/${agent.product.icon}`} alt="" />}
+          <b>{t(agent.product.name)}</b>
           <span className="fp-total">{bytes(agent.total)}</span>
           {loc && <div className="footprint-location">
             <code title={locationText(loc, t)}>{locationText(loc, t)}</code>
@@ -150,9 +154,9 @@ export function FootprintPanel({ onShowSessions }: { onShowSessions: (agent: str
           </span>
           <span className="sz"><b>{bytes(reclaimableBytes)}</b><span>{reclaimable.length} {t("项")}</span></span>
           <button className="pr sm" disabled={loading} onClick={() => setCleaning(reclaimable.map((i) => i.id))}><i className="ti ti-trash" /> {t("一键清理")}</button>
-          <button className="gh sm" onClick={() => setDetails(details === agent.agent ? null : agent.agent)}>{t(details === agent.agent ? "收起明细" : "明细")}</button>
+          <button className="gh sm" onClick={() => setDetails(details === agent.product.id ? null : agent.product.id)}>{t(details === agent.product.id ? "收起明细" : "明细")}</button>
         </div>}
-        {details === agent.agent && <div className="fp-details">
+        {details === agent.product.id && <div className="fp-details">
           {reclaimable.concat(blocked).map((item) => <div key={item.id} className={item.blocked ? "blocked" : ""}>
             <button className="footprint-label" onClick={() => setOpen(open === item.id ? null : item.id)}>
               <b>{t(item.label)}</b><small>{t(item.explain)}</small>
@@ -168,7 +172,7 @@ export function FootprintPanel({ onShowSessions }: { onShowSessions: (agent: str
           <span className="ic blue"><i className="ti ti-message" /></span>
           <span className="tx"><b>{t(item.label)}</b><span>{t(item.explain)}</span></span>
           <span className="sz"><b>{bytes(item.bytes)}</b><span>{Math.round((item.bytes / Math.max(agent.total, 1)) * 100)}%</span></span>
-          <button className="gh sm" onClick={() => onShowSessions(item.agent)}>{t("查看最大的会话")}</button>
+          {agent.product.sessionsAgent && <button className="gh sm" onClick={() => onShowSessions(agent.product.sessionsAgent as string)}>{t("查看最大的会话")}</button>}
         </div>)}
 
         {!!review.length && <>

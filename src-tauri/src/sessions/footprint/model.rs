@@ -23,11 +23,24 @@ pub enum Owner {
     DesktopApp,
 }
 
+/// One of the products the agents catalogue knows, as the footprint page shows it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProductRef {
+    /// Catalogue id, e.g. "qoder-cn".
+    pub id: String,
+    pub name: String,
+    pub icon: String,
+    /// The source the 会话 tab lists for this product, when it keeps conversations there.
+    pub sessions_agent: Option<Agent>,
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FootprintItem {
     pub id: String,
-    pub agent: Agent,
+    /// Product id; the group it belongs to carries the rest.
+    pub product: String,
     pub owner: Owner,
     pub kind: FootprintKind,
     pub label: String,
@@ -42,7 +55,7 @@ pub struct FootprintItem {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentFootprint {
-    pub agent: Agent,
+    pub product: ProductRef,
     pub total: u64,
     pub reclaimable: u64,
     pub items: Vec<FootprintItem>,

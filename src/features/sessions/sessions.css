@@ -161,8 +161,10 @@
 .a .fp-tile{display:flex;flex-direction:column;gap:8px;padding:12px;border:.5px solid var(--bd);border-radius:10px;background:var(--card);color:var(--tx);font:inherit;text-align:left;cursor:pointer;transition:border-color .15s,background .15s}
 .a .fp-tile:hover{background:var(--cardh);border-color:var(--bdh)}
 .a .fp-tile.on{border-color:color-mix(in srgb,var(--acc) 50%,var(--bd))}
-.a .fp-tile-head{display:flex;align-items:baseline;gap:8px}
-.a .fp-tile-head b{font-size:13px}
+.a .fp-tile-head{display:flex;align-items:center;gap:8px}
+.a .fp-tile-head img{width:18px;height:18px;border-radius:5px;object-fit:contain;flex-shrink:0}
+.a .fp-tile-head b{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.a .fp-agent header img.fp-icon{width:20px;height:20px;border-radius:6px;object-fit:contain}
 .a .fp-tile-head>span{margin-left:auto;font-size:12px;color:var(--mut)}
 .a .fp-tile-foot{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--mut)}
 .a .fp-tile-foot em{font-style:normal}

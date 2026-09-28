@@ -10,11 +10,43 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 pub struct Root {
-    pub agent: Agent,
+    pub product: ProductRef,
     pub kind: RootKind,
     pub path: PathBuf,
     /// Shown after labels when one agent has several app roots.
     pub suffix: Option<String>,
+}
+
+/// The catalogue entry behind a product id, as the footprint page shows it.
+pub(crate) fn product(id: &str) -> ProductRef {
+    let spec = crate::agents::registry::spec_by_id(id);
+    ProductRef {
+        id: id.to_string(),
+        name: spec
+            .as_ref()
+            .map(|s| s.name.to_string())
+            .unwrap_or_else(|| id.to_string()),
+        icon: spec
+            .as_ref()
+            .map(|s| s.icon.to_string())
+            .unwrap_or_default(),
+        sessions_agent: sessions_agent(id),
+    }
+}
+
+/// Which source the 会话 tab lists for a product, for the products that keep conversations
+/// Stacker can read. The catalogue ids and the session sources are named apart, so the
+/// pairing is spelled out rather than guessed.
+fn sessions_agent(id: &str) -> Option<Agent> {
+    Some(match id {
+        "codex" => Agent::Codex,
+        "claude" => Agent::Claude,
+        "workbuddy-cn" => Agent::WorkBuddy,
+        "workbuddy-global" => Agent::WorkBuddyAi,
+        "mimo-cn" | "mimo-global" => Agent::MiMo,
+        "kimi" => Agent::Kimi,
+        _ => return None,
+    })
 }
 
 /// Where an item's paths live, kept for cleanup checks.
@@ -66,65 +98,107 @@ fn packages(prefix: &str) -> Vec<PathBuf> {
         .unwrap_or_default()
 }
 
-/// Real roots first, MSIX package folders last so redirected duplicates count once.
+/// Every agent's folders: the two Stacker knows in detail first, then whatever the rest of
+/// the catalogue registers, and MSIX package folders last so redirected duplicates count once.
 pub fn default_roots(roots: &Roots) -> Vec<Root> {
     let local = dirs::data_local_dir().unwrap_or_default();
     let roaming = dirs::data_dir().unwrap_or_default();
-    let root = |agent, kind, path: PathBuf, suffix: Option<&str>| Root {
-        agent,
+    let codex = product("codex");
+    let claude = product("claude");
+    let root = |product: &ProductRef, kind, path: PathBuf, suffix: Option<&str>| Root {
+        product: product.clone(),
         kind,
         path,
         suffix: suffix.map(str::to_string),
     };
     let mut list = vec![
         root(
-            Agent::Codex,
+            &codex,
             RootKind::CodexHome,
             PathBuf::from(&roots.codex),
             None,
         ),
         root(
-            Agent::Codex,
+            &codex,
             RootKind::CodexApp,
             local.join("OpenAI").join("Codex"),
             None,
         ),
         root(
-            Agent::Claude,
+            &claude,
             RootKind::ClaudeHome,
             PathBuf::from(&roots.claude),
             None,
         ),
+        root(&claude, RootKind::ClaudeApp, roaming.join("Claude"), None),
         root(
-            Agent::Claude,
-            RootKind::ClaudeApp,
-            roaming.join("Claude"),
-            None,
-        ),
-        root(
-            Agent::Claude,
+            &claude,
             RootKind::ClaudeApp,
             local.join("Claude"),
             Some("本地"),
         ),
         root(
-            Agent::Claude,
+            &claude,
             RootKind::ClaudeApp,
             local.join("Claude-3p"),
             Some("Claude-3p"),
         ),
     ];
+    list.extend(catalog_roots(roots));
     list.extend(
         packages("openai.codex_")
             .into_iter()
-            .map(|p| root(Agent::Codex, RootKind::CodexApp, p, Some("MSIX"))),
+            .map(|p| root(&codex, RootKind::CodexApp, p, Some("MSIX"))),
     );
     list.extend(
         packages("claude_")
             .into_iter()
-            .map(|p| root(Agent::Claude, RootKind::ClaudeApp, p, Some("MSIX"))),
+            .map(|p| root(&claude, RootKind::ClaudeApp, p, Some("MSIX"))),
     );
     list.into_iter().filter(|r| r.path.is_dir()).collect()
+}
+
+/// The folders every other product in the agents catalogue registers, plus the session
+/// stores the user pointed somewhere else.
+fn catalog_roots(roots: &Roots) -> Vec<Root> {
+    let mut list = Vec::new();
+    for spec in crate::agents::registry::tool_specs() {
+        if spec.id == "codex" || spec.id == "claude" {
+            continue;
+        }
+        let product = product(spec.id);
+        let mut paths: Vec<PathBuf> = spec.data_dirs.iter().filter_map(|d| d.path()).collect();
+        // A store the user moved is where their conversations actually are.
+        for moved in moved_root(&product.sessions_agent, roots) {
+            if !paths.contains(&moved) {
+                paths.insert(0, moved);
+            }
+        }
+        for path in paths {
+            list.push(Root {
+                product: product.clone(),
+                kind: RootKind::Generic,
+                path,
+                suffix: None,
+            });
+        }
+    }
+    list
+}
+
+fn moved_root(agent: &Option<Agent>, roots: &Roots) -> Vec<PathBuf> {
+    let path = match agent {
+        Some(Agent::WorkBuddy) => &roots.workbuddy,
+        Some(Agent::WorkBuddyAi) => &roots.workbuddy_ai,
+        Some(Agent::MiMo) => &roots.mimo,
+        Some(Agent::Kimi) => &roots.kimi,
+        _ => return Vec::new(),
+    };
+    if path.trim().is_empty() {
+        Vec::new()
+    } else {
+        vec![PathBuf::from(path)]
+    }
 }
 
 fn item_id(rule: &str, paths: &[PathBuf]) -> String {
@@ -141,19 +215,19 @@ pub fn scan(roots: &[Root], session_ids: &HashSet<String>, running: &[PathBuf], 
         running,
         now,
     };
-    let mut meter = Meter::new();
+    let meter = Meter::new();
     let mut agents: Vec<AgentFootprint> = Vec::new();
     let mut paths = HashMap::new();
-    for root in roots {
-        if !meter.claim(&root.path) {
-            continue;
-        }
-        let drafts: Vec<Draft> = classify_root(root.kind, &root.path, &cx);
-        let slot = match agents.iter().position(|a| a.agent == root.agent) {
+    // Claiming is ordered so a redirected copy never wins over the real folder; the walk
+    // itself is not, because it is all waiting on the disk.
+    let roots: Vec<&Root> = roots.iter().filter(|r| meter.claim(&r.path)).collect();
+    let measured = measure_roots(&roots, &cx, &meter);
+    for (root, drafts) in roots.into_iter().zip(measured) {
+        let slot = match agents.iter().position(|a| a.product.id == root.product.id) {
             Some(i) => i,
             None => {
                 agents.push(AgentFootprint {
-                    agent: root.agent,
+                    product: root.product.clone(),
                     total: 0,
                     reclaimable: 0,
                     items: Vec::new(),
@@ -161,13 +235,7 @@ pub fn scan(roots: &[Root], session_ids: &HashSet<String>, running: &[PathBuf], 
                 agents.len() - 1
             }
         };
-        for d in drafts {
-            let (mut bytes, mut files) = (0, 0);
-            for p in &d.paths {
-                let (b, f) = meter.measure(p);
-                bytes += b;
-                files += f;
-            }
+        for (d, bytes, files) in drafts {
             if bytes == 0 {
                 continue;
             }
@@ -198,7 +266,7 @@ pub fn scan(roots: &[Root], session_ids: &HashSet<String>, running: &[PathBuf], 
             );
             agent.items.push(FootprintItem {
                 id,
-                agent: root.agent,
+                product: root.product.id.clone(),
                 owner: d.owner,
                 kind: d.kind,
                 label,
@@ -211,6 +279,8 @@ pub fn scan(roots: &[Root], session_ids: &HashSet<String>, running: &[PathBuf], 
             });
         }
     }
+    // An agent with nothing on disk is not worth a tile.
+    agents.retain(|a| a.items.iter().any(|i| i.bytes > 0));
     for agent in &mut agents {
         agent.items.sort_by_key(|i| std::cmp::Reverse(i.bytes));
         agent.total = agent.items.iter().map(|i| i.bytes).sum();
@@ -221,14 +291,59 @@ pub fn scan(roots: &[Root], session_ids: &HashSet<String>, running: &[PathBuf], 
             .map(|i| i.bytes)
             .sum();
     }
+    agents.sort_by_key(|a| std::cmp::Reverse(a.total));
     let report = FootprintReport {
         total: agents.iter().map(|a| a.total).sum(),
         reclaimable: agents.iter().map(|a| a.reclaimable).sum(),
         agents,
         scanned_at: now,
-        warnings: meter.warnings,
+        warnings: meter.warnings(),
     };
     Scan { report, paths }
+}
+
+/// One root's drafts, each with what it measured.
+type Measured = Vec<(Draft, u64, u64)>;
+
+/// How many folders are walked at once: the work is disk-bound, and one thread per root
+/// would be dozens of them.
+const WALKERS: usize = 8;
+
+/// Classifies and measures every root, several at a time, keeping the roots' own order.
+fn measure_roots(roots: &[&Root], cx: &Context, meter: &Meter) -> Vec<Measured> {
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let results: Mutex<Vec<Option<Measured>>> = Mutex::new(vec![None; roots.len()]);
+    std::thread::scope(|scope| {
+        for _ in 0..roots.len().min(WALKERS) {
+            scope.spawn(|| loop {
+                let index = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let Some(root) = roots.get(index) else {
+                    return;
+                };
+                let measured = classify_root(root.kind, &root.path, cx)
+                    .into_iter()
+                    .map(|d| {
+                        let (mut bytes, mut files) = (0, 0);
+                        for p in &d.paths {
+                            let (b, f) = meter.measure(p);
+                            bytes += b;
+                            files += f;
+                        }
+                        (d, bytes, files)
+                    })
+                    .collect();
+                if let Ok(mut results) = results.lock() {
+                    results[index] = Some(measured);
+                }
+            });
+        }
+    });
+    results
+        .into_inner()
+        .unwrap_or_default()
+        .into_iter()
+        .map(Option::unwrap_or_default)
+        .collect()
 }
 
 /// Native ids of every session and sub-agent the catalog knows.
@@ -261,13 +376,13 @@ mod tests {
         fs::write(home.join("config.toml"), vec![0u8; 10]).unwrap();
         let roots = vec![
             Root {
-                agent: Agent::Codex,
+                product: product("codex"),
                 kind: RootKind::CodexHome,
                 path: home.clone(),
                 suffix: None,
             },
             Root {
-                agent: Agent::Codex,
+                product: product("codex"),
                 kind: RootKind::CodexHome,
                 path: home.clone(),
                 suffix: Some("MSIX".into()),
@@ -306,7 +421,7 @@ mod tests {
         for a in &scan.report.agents {
             println!(
                 "{} total {:.2} GB reclaimable {:.2} GB",
-                a.agent.as_str(),
+                a.product.id,
                 gb(a.total),
                 gb(a.reclaimable)
             );
