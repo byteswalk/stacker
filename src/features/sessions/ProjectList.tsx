@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { ProjectCleanupDialog } from "./ProjectCleanupDialog";
 import { invoke } from "../../invoke";
 import { useI18n } from "../../i18n";
 import { formatSpaceBytes as bytes } from "../space-analysis/components/SpaceOverview";
@@ -48,6 +49,7 @@ export function ProjectList({ rows, loading, onPick, onHandoff }: { rows: Projec
   const [missingOnly, setMissingOnly] = useState(false);
   const [sort, setSort] = useState<{ key: SortKey; ascending: boolean }>({ key: "bytes", ascending: false });
   const [error, setError] = useState("");
+  const [cleaning, setCleaning] = useState<ProjectRow | null>(null);
 
   const shown = useMemo(() => sortProjects(
     rows.filter((row) => matchProject(row, query)
@@ -55,6 +57,13 @@ export function ProjectList({ rows, loading, onPick, onHandoff }: { rows: Projec
       && (!missingOnly || (!row.project.exists && !!row.project.path))),
     sort.key, sort.ascending,
   ), [rows, query, agent, missingOnly, sort]);
+
+  // Only the agents these projects were actually worked on with.
+  const present = useMemo(() => {
+    const seen = new Set<AgentName>();
+    rows.forEach((row) => row.agents.forEach((a) => seen.add(a)));
+    return [...seen];
+  }, [rows]);
 
   const openFolder = (path: string) => {
     invoke("space_open_directory", { path }).catch((e) => setError(String(e)));
@@ -74,7 +83,7 @@ export function ProjectList({ rows, loading, onPick, onHandoff }: { rows: Projec
       </label>
       <div className="seg sm">
         <button className={agent === "" ? "on" : ""} onClick={() => setAgent("")}>{t("全部")}</button>
-        {(["codex", "claude", "codebuddy", "mimo", "kimi"] as AgentName[]).map((a) => <button key={a} className={agent === a ? "on" : ""} onClick={() => setAgent(a)}>{AGENT_LABEL[a]}</button>)}
+        {present.map((a) => <button key={a} className={agent === a ? "on" : ""} onClick={() => setAgent(a)}>{AGENT_LABEL[a]}</button>)}
       </div>
       <label className="ck"><input type="checkbox" checked={missingOnly} onChange={(e) => setMissingOnly(e.target.checked)} /> {t("只看目录已删除")}</label>
       <span className="s dim">{shown.length} / {rows.length} {t("个项目")}</span>
@@ -98,10 +107,12 @@ export function ProjectList({ rows, loading, onPick, onHandoff }: { rows: Projec
         <span>{t(formatAge(row.updatedAt, now))}</span>
         <span className="session-project-acts">
           <button className="gh xs" title={t("打开项目目录")} disabled={!row.project.exists || !row.project.path} onClick={() => openFolder(row.project.path)}><i className="ti ti-folder-open" /></button>
+          <button className="gh sm" title={t("分析项目目录里可以重建的部分：依赖、构建产物、缓存和旧的发布包")} disabled={!row.project.exists || !row.project.path} onClick={() => setCleaning(row)}><i className="ti ti-recycle" />{t("清理")}</button>
           <button className="gh sm" title={t("用本机智能体把该项目的会话整理成交接资料")} onClick={() => onHandoff(row.project.key)}><i className="ti ti-file-text" />{t("交接")}</button>
         </span>
       </div>)}
       {!shown.length && <div className="session-empty"><i className="ti ti-search-off" /><b>{t("没有匹配的项目")}</b></div>}
     </div>
+    {cleaning && <ProjectCleanupDialog name={cleaning.project.name} path={cleaning.project.path} onClose={() => setCleaning(null)} />}
   </>;
 }

@@ -18,6 +18,7 @@ mod installer;
 mod jdk;
 mod logging;
 mod profile;
+mod project_junk;
 mod proxy;
 mod proxy_ledger;
 mod pyenv;
@@ -406,6 +407,8 @@ pub fn run() {
             gateway::gateway_status,
             gateway::gateway_set,
             gateway::gateway_set_lan,
+            project_junk::project_junk_scan,
+            project_junk::project_junk_clean,
             gateway::gateway_new_token,
             gateway::agents::gateway_agents,
             gateway::agents::gateway_set_agent_default,

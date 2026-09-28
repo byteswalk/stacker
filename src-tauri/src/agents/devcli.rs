@@ -19,6 +19,25 @@ pub(crate) fn run(args: &[String]) -> Option<i32> {
         ["winget", args @ ..] => winget(args),
         ["check-installer", id] => check_installer(id),
         ["latest", id] => latest(id),
+        ["junk", path] => match crate::project_junk::scan(std::path::Path::new(path)) {
+            Ok(report) => {
+                for item in &report.items {
+                    println!(
+                        "{:>12} {:>7} {} {}",
+                        item.bytes,
+                        if item.recommended { "default" } else { "" },
+                        item.id,
+                        item.label
+                    );
+                }
+                println!("total {} recommended {}", report.total, report.recommended);
+                0
+            }
+            Err(err) => {
+                eprintln!("{err}");
+                1
+            }
+        },
         ["download-installer", id] => download_installer(id),
         ["try-install", id, args @ ..] => try_install(id, args),
         ["python-remove", paths @ ..] => {
