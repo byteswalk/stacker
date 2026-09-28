@@ -1423,3 +1423,19 @@ button{ font-family:inherit; }
 .a .proxy-unsynced-row>span:first-child{min-width:130px}
 .a .proxy-unsynced-row .proxy-value{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--mut)}
 .a .proxy-unsynced .proxy-note code{background:rgba(255,255,255,.06);padding:2px 6px;border-radius:5px}
+
+.a .disk-overview{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:9px;margin:12px 0 4px}
+.a .disk-card{display:flex;flex-direction:column;gap:7px;padding:11px 12px;border:.5px solid var(--bd);border-radius:10px;background:var(--card);color:var(--tx);font:inherit;text-align:left;cursor:pointer;transition:border-color .15s,background .15s}
+.a .disk-card:hover:not(:disabled){background:var(--cardh);border-color:var(--bdh)}
+.a .disk-card:disabled{opacity:.6;cursor:default}
+.a .disk-card-head{display:flex;align-items:center;gap:6px;font-size:12.5px}
+.a .disk-card-head b{font-size:13px}
+.a .disk-card-head em{font-style:normal;color:var(--mut);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.a .disk-card-head>span:last-child{margin-left:auto;color:var(--mut);font-size:11.5px}
+.a .disk-bar{display:block;height:6px;border-radius:4px;background:rgba(255,255,255,.08);overflow:hidden}
+.a .disk-bar>i{display:block;height:100%;border-radius:4px}
+.a .disk-bar>i.ok{background:#6bcf86}
+.a .disk-bar>i.warn{background:#e6b450}
+.a .disk-bar>i.bad{background:#e2625b}
+.a .disk-card-foot{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--mut)}
+.a .disk-card-foot em{margin-left:auto;font-style:normal}

@@ -71,6 +71,10 @@ pub fn known_candidates() -> Vec<KnownCandidate> {
     candidates
 }
 
+/// How many known folders are measured at once: the work is all disk, and one thread per
+/// folder would be dozens of them.
+const KNOWN_WALKERS: usize = 12;
+
 pub fn scan_known_candidates<F>(
     token: &CancellationToken,
     mut progress: F,
@@ -78,32 +82,61 @@ pub fn scan_known_candidates<F>(
 where
     F: FnMut(&WalkStats),
 {
-    let mut result = QuickScanResult::default();
-    let mut completed_stats = WalkStats::default();
-
-    for candidate in known_candidates() {
-        if token.is_cancelled() {
-            return Err(ScanWalkError::Cancelled);
+    let candidates = known_candidates();
+    let done = std::sync::Mutex::new((WalkStats::default(), vec![None; candidates.len()]));
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let finished = std::sync::atomic::AtomicUsize::new(0);
+    let order = std::sync::atomic::Ordering::Relaxed;
+    std::thread::scope(|scope| {
+        for _ in 0..candidates.len().min(KNOWN_WALKERS) {
+            scope.spawn(|| loop {
+                let index = next.fetch_add(1, order);
+                let Some(candidate) = candidates.get(index) else {
+                    return;
+                };
+                if token.is_cancelled() {
+                    finished.fetch_add(1, order);
+                    continue;
+                }
+                let measured = measure_path(&candidate.path, token, |_| {});
+                let mut guard = done.lock().unwrap_or_else(|e| e.into_inner());
+                if let Ok(stats) = measured {
+                    add_stats(&mut guard.0, &stats);
+                    guard.1[index] = Some(stats.logical_bytes);
+                }
+                drop(guard);
+                finished.fetch_add(1, order);
+            });
         }
-
-        let stats = measure_path(&candidate.path, token, |current| {
-            let aggregate = combined_stats(&completed_stats, current);
-            progress(&aggregate);
-        })?;
-        add_stats(&mut completed_stats, &stats);
-        progress(&completed_stats);
-
-        if !legacy_candidate_is_visible(&candidate, stats.logical_bytes) {
+        // The caller's progress callback stays on the caller's thread: it reports what the
+        // walkers have finished between them, which only ever grows.
+        while finished.load(order) < candidates.len() {
+            std::thread::sleep(std::time::Duration::from_millis(120));
+            let stats = done.lock().map(|guard| guard.0.clone()).unwrap_or_default();
+            progress(&stats);
+        }
+    });
+    if token.is_cancelled() {
+        return Err(ScanWalkError::Cancelled);
+    }
+    let (completed_stats, sizes) = done.into_inner().unwrap_or_else(|e| e.into_inner());
+    progress(&completed_stats);
+    let mut result = QuickScanResult::default();
+    for (candidate, bytes) in candidates.into_iter().zip(sizes) {
+        let Some(bytes) = bytes else { continue };
+        if !legacy_candidate_is_visible(&candidate, bytes) {
             continue;
         }
-
-        let bytes = stats.logical_bytes;
         result.total_bytes = result.total_bytes.saturating_add(bytes);
         if candidate.safety == SafetyClass::Safe {
             result.safely_releasable_bytes = result.safely_releasable_bytes.saturating_add(bytes);
         }
         result.items.push(candidate.into_space_item(bytes));
     }
+    // Biggest first: the list is read to decide what to clean.
+    result
+        .items
+        .sort_by_key(|item| std::cmp::Reverse(item.bytes));
 
     result.completed = true;
     result.errors = completed_stats.errors;
@@ -245,6 +278,121 @@ fn known_cache_rules() -> Vec<KnownRule> {
             safety: SafetyClass::NeedsConfirmation,
             candidates: vec![storage::effective_path("maven-local-repository")
                 .unwrap_or_else(|| home.join(".m2").join("repository"))],
+        },
+        KnownRule {
+            id: "yarn",
+            name_key: "spaceAnalysis.known.yarn",
+            ecosystem: "node",
+            safety: SafetyClass::Safe,
+            candidates: vec![
+                local.join("Yarn").join("Cache"),
+                home.join(".yarn").join("berry").join("cache"),
+            ],
+        },
+        KnownRule {
+            id: "bun",
+            name_key: "spaceAnalysis.known.bun",
+            ecosystem: "node",
+            safety: SafetyClass::Safe,
+            candidates: vec![home.join(".bun").join("install").join("cache")],
+        },
+        KnownRule {
+            id: "deno",
+            name_key: "spaceAnalysis.known.deno",
+            ecosystem: "node",
+            safety: SafetyClass::Safe,
+            candidates: vec![local.join("deno")],
+        },
+        KnownRule {
+            id: "nuget",
+            name_key: "spaceAnalysis.known.nuget",
+            ecosystem: "dotnet",
+            safety: SafetyClass::NeedsConfirmation,
+            candidates: vec![environment_path("NUGET_PACKAGES")
+                .unwrap_or_else(|| home.join(".nuget").join("packages"))],
+        },
+        KnownRule {
+            id: "uv",
+            name_key: "spaceAnalysis.known.uv",
+            ecosystem: "python",
+            safety: SafetyClass::Safe,
+            candidates: vec![local.join("uv").join("cache")],
+        },
+        KnownRule {
+            id: "poetry",
+            name_key: "spaceAnalysis.known.poetry",
+            ecosystem: "python",
+            safety: SafetyClass::Safe,
+            candidates: vec![local.join("pypoetry").join("Cache")],
+        },
+        KnownRule {
+            id: "conda",
+            name_key: "spaceAnalysis.known.conda",
+            ecosystem: "python",
+            safety: SafetyClass::NeedsConfirmation,
+            candidates: vec![
+                home.join(".conda").join("pkgs"),
+                home.join("miniconda3").join("pkgs"),
+                home.join("anaconda3").join("pkgs"),
+            ],
+        },
+        KnownRule {
+            id: "cargo-src",
+            name_key: "spaceAnalysis.known.cargoSources",
+            ecosystem: "rust",
+            safety: SafetyClass::Safe,
+            candidates: vec![environment_path("CARGO_HOME")
+                .unwrap_or_else(|| home.join(".cargo"))
+                .join("registry")
+                .join("src")],
+        },
+        KnownRule {
+            id: "sccache",
+            name_key: "spaceAnalysis.known.sccache",
+            ecosystem: "rust",
+            safety: SafetyClass::Safe,
+            candidates: vec![
+                local.join("Mozilla").join("sccache"),
+                home.join(".cache").join("sccache"),
+            ],
+        },
+        KnownRule {
+            id: "android-avd",
+            name_key: "spaceAnalysis.known.androidAvd",
+            ecosystem: "android",
+            safety: SafetyClass::NeedsConfirmation,
+            candidates: vec![home.join(".android").join("avd")],
+        },
+        KnownRule {
+            id: "crash-dumps",
+            name_key: "spaceAnalysis.known.crashDumps",
+            ecosystem: "windows",
+            safety: SafetyClass::Safe,
+            candidates: vec![local.join("CrashDumps")],
+        },
+        KnownRule {
+            id: "chrome-cache",
+            name_key: "spaceAnalysis.known.chromeCache",
+            ecosystem: "browser",
+            safety: SafetyClass::Safe,
+            candidates: vec![local
+                .join("Google")
+                .join("Chrome")
+                .join("User Data")
+                .join("Default")
+                .join("Cache")],
+        },
+        KnownRule {
+            id: "edge-cache",
+            name_key: "spaceAnalysis.known.edgeCache",
+            ecosystem: "browser",
+            safety: SafetyClass::Safe,
+            candidates: vec![local
+                .join("Microsoft")
+                .join("Edge")
+                .join("User Data")
+                .join("Default")
+                .join("Cache")],
         },
     ]
 }
@@ -444,12 +592,6 @@ fn legacy_candidate_is_visible(candidate: &KnownCandidate, bytes: u64) -> bool {
             || bytes > TEMP_VISIBILITY_THRESHOLD)
 }
 
-fn combined_stats(completed: &WalkStats, current: &WalkStats) -> WalkStats {
-    let mut combined = completed.clone();
-    add_stats(&mut combined, current);
-    combined
-}
-
 fn add_stats(total: &mut WalkStats, stats: &WalkStats) {
     total.files = total.files.saturating_add(stats.files);
     total.directories = total.directories.saturating_add(stats.directories);
@@ -609,24 +751,5 @@ mod tests {
 
         assert_eq!(completed.logical_bytes, 300);
         assert_eq!(completed.allocated_bytes, 192);
-    }
-
-    #[test]
-    fn active_candidate_progress_includes_prior_allocated_bytes() {
-        let completed = WalkStats {
-            logical_bytes: 100,
-            allocated_bytes: 64,
-            ..WalkStats::default()
-        };
-        let current = WalkStats {
-            logical_bytes: 50,
-            allocated_bytes: 32,
-            ..WalkStats::default()
-        };
-
-        let aggregate = combined_stats(&completed, &current);
-
-        assert_eq!(aggregate.logical_bytes, 150);
-        assert_eq!(aggregate.allocated_bytes, 96);
     }
 }

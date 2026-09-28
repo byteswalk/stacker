@@ -19,6 +19,28 @@ pub(crate) fn run(args: &[String]) -> Option<i32> {
         ["winget", args @ ..] => winget(args),
         ["check-installer", id] => check_installer(id),
         ["latest", id] => latest(id),
+        ["quickscan"] => {
+            let token = crate::space_analysis::walker::CancellationToken::default();
+            let started = std::time::Instant::now();
+            match crate::space_analysis::known::scan_known_candidates(&token, |_| {}) {
+                Ok(result) => {
+                    for item in &result.items {
+                        println!(
+                            "{:>12} {:22} {:18} {}",
+                            item.bytes, item.id, item.safety, item.path
+                        );
+                    }
+                    println!(
+                        "total {} safe {} in {:?}",
+                        result.total_bytes,
+                        result.safely_releasable_bytes,
+                        started.elapsed()
+                    );
+                    0
+                }
+                Err(_) => 1,
+            }
+        }
         ["proxy"] => {
             println!("system  {:?}", crate::proxy_system::system());
             println!("service {:?}", crate::proxy_system::service());

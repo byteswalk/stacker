@@ -3321,4 +3321,13 @@ export const GENERATED_EN: Record<string, string> = {
   "代理服务器": "Proxy server",
   "绕过": "Bypass",
   "用户级 HTTP_PROXY / HTTPS_PROXY / ALL_PROXY，写入时自带本地直连项，新开终端生效": "User-level HTTP_PROXY / HTTPS_PROXY / ALL_PROXY, written with the local direct-connect entries, in effect for new terminals",
+  "NuGet 包缓存": "NuGet package cache",
+  "Conda 包缓存": "Conda package cache",
+  "Cargo 源码缓存": "Cargo source cache",
+  "sccache 编译缓存": "sccache compilation cache",
+  "Android 模拟器镜像": "Android emulator images",
+  "崩溃转储": "Crash dumps",
+  "本机磁盘": "Disks on this machine",
+  "先看本机磁盘，再决定扫哪里：快速扫描只看已知的缓存与临时目录，选择目录可以深入到任意范围（含磁盘根目录）。": "Start from the disks, then choose where to look: a quick scan covers the caches and temporary folders Stacker knows, and picking folders goes anywhere, a drive root included.",
+  "分析": "Analyse",
 };
