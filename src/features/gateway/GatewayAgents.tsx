@@ -14,7 +14,7 @@ export type AgentCard = {
   defaultModel: string | null; defaultEffort: string | null; defaultIsChosen: boolean;
   efforts: string[]; models: AgentModel[];
 };
-type TestResult = { ok: boolean; reply: string; error: string; elapsedMs: number; model: string; effort: string };
+type TestResult = { ok: boolean; reply: string; error: string; detail?: string; elapsedMs: number; model: string; effort: string };
 
 /** How to sign in, in the user's own terminal. */
 const LOGIN_COMMAND: Record<string, string> = {
@@ -30,6 +30,7 @@ const LOGIN_COMMAND: Record<string, string> = {
 
 const RUN_ERRORS: Record<string, string> = {
   E_RUNNER_AUTH: "未登录：请在终端运行该智能体并完成登录。",
+  E_RUNNER_INELIGIBLE: "账号已登录，但厂商不允许它使用：换一个有资格的账号登录，或先按下方提示验证账号。",
   E_RUNNER_MISSING: "未找到命令行程序。",
   E_RUNNER_TIMEOUT: "5 分钟内没有回复。",
   E_PROMPT_TOO_LONG: "内容太长：这个智能体只能从命令行接收提问，上限约 3 万字。",
@@ -132,7 +133,7 @@ export function GatewayAgents({ base, token }: { base: string; token: string }) 
         return next;
       });
     } catch (e) {
-      setTests((old) => ({ ...old, [key]: { ok: false, reply: "", error: String(e), elapsedMs: 0, model: "", effort: "" } }));
+      setTests((old) => ({ ...old, [key]: { ok: false, reply: "", error: String(e), detail: "", elapsedMs: 0, model: "", effort: "" } }));
     }
   }
 
@@ -142,9 +143,11 @@ export function GatewayAgents({ base, token }: { base: string; token: string }) 
     const r = tests[key];
     if (!r) return null;
     if (r === "running") return <span className="gw-test"><i className="ti ti-loader spin" /> {t("测试中…")}</span>;
-    return r.ok
-      ? <span className="gw-test ok"><i className="ti ti-circle-check" /> {(r.elapsedMs / 1000).toFixed(1)}s {t("测试通过")}</span>
-      : <span className="gw-test bad"><i className="ti ti-alert-circle" /> {t(RUN_ERRORS[r.error] ?? r.error)}</span>;
+    if (r.ok) return <span className="gw-test ok"><i className="ti ti-circle-check" /> {(r.elapsedMs / 1000).toFixed(1)}s {t("测试通过")}</span>;
+    return <span className="gw-test bad" title={r.detail || undefined}>
+      <i className="ti ti-alert-circle" /> {t(RUN_ERRORS[r.error] ?? r.error)}
+      {r.detail && <em className="gw-test-detail">{r.detail}</em>}
+    </span>;
   };
 
   if (!cards) return <div className="pxcard"><p className="proxy-note"><i className="ti ti-loader spin" /> {t("正在检查本机智能体…")}</p></div>;

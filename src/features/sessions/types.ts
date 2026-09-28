@@ -106,6 +106,7 @@ export const ERRORS: Record<string, string> = {
   E_RUNNER_MISSING: "未找到该智能体的命令行，请在「安装更新」页安装，或在摘要设置中改用另一个。",
   E_RUNNER_AUTH: "该智能体尚未登录，请先在终端运行它并完成登录。",
   E_RUNNER_TIMEOUT: "智能体 5 分钟内没有完成，已停止。",
+  E_RUNNER_INELIGIBLE: "账号已登录，但厂商不允许它使用该产品。",
   E_RUNNER_FAILED: "智能体运行失败，请稍后重试或换一个模型。",
   E_RUNNER_EMPTY: "智能体没有返回内容。",
   E_NOT_MOVABLE: "该目录已经不在默认位置（链接或环境变量），不能在这里迁移。",

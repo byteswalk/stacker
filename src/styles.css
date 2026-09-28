@@ -1411,3 +1411,4 @@ button{ font-family:inherit; }
 .a .gw-lan span{font-size:11.5px;color:var(--mut);line-height:1.5}
 .a .gw-lan-rows{margin-top:10px}
 .a .gw-lan-rows .proxy-note{margin:8px 0 6px}
+.a .gw-test-detail{display:block;margin-top:3px;font-style:normal;font-size:10.5px;color:var(--mut);max-width:520px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

@@ -183,6 +183,9 @@ pub(crate) fn looks_unauthenticated(text: &str) -> bool {
         "log in",
         "login",
         "authenticate",
+        "authentication failed",
+        "please sign in",
+        "sign in to",
         "unauthorized",
         "401",
     ]
@@ -190,10 +193,98 @@ pub(crate) fn looks_unauthenticated(text: &str) -> bool {
     .any(|needle| lower.contains(needle))
 }
 
+/// An account the vendor will not serve: signed in, and refused all the same.
+fn looks_ineligible(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    [
+        "not eligible",
+        "eligibility check failed",
+        "not available in your country",
+        "not available in your region",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle))
+}
+
+/// The CLI's own words for the most recent failed run. Errors travel as stable codes, which
+/// the page can translate; this is the sentence behind the code, for the page to show under
+/// it. Nothing decides anything by reading it.
+static LAST_FAILURE: std::sync::Mutex<Option<(Instant, String)>> = std::sync::Mutex::new(None);
+
+fn note_failure(stdout: &str, stderr: &str) {
+    let sentence = [stderr, stdout]
+        .iter()
+        .flat_map(|text| text.lines())
+        .map(str::trim)
+        .find(|line| !line.is_empty() && !line.starts_with('{') && !line.starts_with('['))
+        .unwrap_or_default()
+        .chars()
+        .take(300)
+        .collect::<String>();
+    if let Ok(mut slot) = LAST_FAILURE.lock() {
+        *slot = (!sentence.is_empty()).then(|| (Instant::now(), sentence));
+    }
+}
+
+/// What the CLI said about the failure that just happened, when it is recent enough to be
+/// about the run the caller is asking about.
+pub fn last_failure(within: Duration) -> Option<String> {
+    let slot = LAST_FAILURE.lock().ok()?;
+    let (at, sentence) = slot.as_ref()?;
+    (at.elapsed() <= within).then(|| sentence.clone())
+}
+
+#[cfg(test)]
+mod failure_tests {
+    use super::*;
+
+    fn failed(stdout: &str, stderr: &str) -> String {
+        #[cfg(windows)]
+        let status = {
+            use std::os::windows::process::ExitStatusExt;
+            ExitStatus::from_raw(1)
+        };
+        finish(status, stdout, stderr).unwrap_err()
+    }
+
+    /// One test, because the kept sentence is one slot shared by every run.
+    #[test]
+    fn a_refusal_is_told_apart_from_a_crash_and_keeps_its_sentence() {
+        // What Antigravity answers an account without access, word for word.
+        let refused = "error: Eligibility check failed: Your current account is not eligible for Antigravity.";
+        assert_eq!(failed(refused, ""), "E_RUNNER_INELIGIBLE");
+        assert_eq!(
+            last_failure(Duration::from_secs(5)).as_deref(),
+            Some(refused)
+        );
+
+        assert_eq!(
+            failed("", "Please sign in to view available models."),
+            "E_RUNNER_AUTH"
+        );
+        assert_eq!(failed("", "panicked at src/main.rs"), "E_RUNNER_FAILED");
+
+        // The sentence kept is the CLI's own, not the JSON envelope around it.
+        failed(
+            "{\"status\":\"ERROR\"}
+rate limit reached",
+            "",
+        );
+        assert_eq!(
+            last_failure(Duration::from_secs(5)).as_deref(),
+            Some("rate limit reached")
+        );
+    }
+}
+
 /// Maps a finished process to text or a stable error code.
 pub(crate) fn finish(status: ExitStatus, stdout: &str, stderr: &str) -> Result<(), String> {
     if status.success() {
         return Ok(());
+    }
+    note_failure(stdout, stderr);
+    if looks_ineligible(stderr) || looks_ineligible(stdout) {
+        return Err("E_RUNNER_INELIGIBLE".into());
     }
     if looks_unauthenticated(stderr) || looks_unauthenticated(stdout) {
         return Err("E_RUNNER_AUTH".into());

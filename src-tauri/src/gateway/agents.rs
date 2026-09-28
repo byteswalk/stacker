@@ -232,6 +232,9 @@ pub struct TestResult {
     pub ok: bool,
     pub reply: String,
     pub error: String,
+    /// What the CLI itself said, when it said anything; the code alone cannot explain an
+    /// account the vendor refuses.
+    pub detail: String,
     pub elapsed_ms: u64,
     pub model: String,
     pub effort: String,
@@ -268,10 +271,16 @@ pub async fn gateway_test(agent: String, model: Option<String>) -> Result<TestRe
             },
             &crate::runner::CancelFlag::default(),
         );
+        let detail = result
+            .as_ref()
+            .err()
+            .and_then(|_| crate::runner::last_failure(std::time::Duration::from_secs(30)))
+            .unwrap_or_default();
         Ok(TestResult {
             ok: result.is_ok(),
             reply: result.as_ref().map(|o| o.text.clone()).unwrap_or_default(),
             error: result.err().unwrap_or_default(),
+            detail,
             elapsed_ms: started.elapsed().as_millis() as u64,
             model: model.unwrap_or_default(),
             effort: effort.unwrap_or_default(),
