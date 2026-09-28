@@ -37,7 +37,7 @@ const MODES: { value: Mode; label: string; hint: string }[] = [
 ];
 
 const LOCATION_INFO: Record<string, { name: string; detail: string; icon: string }> = {
-  env: { name: "终端环境变量", detail: "用户级 HTTP_PROXY / HTTPS_PROXY / ALL_PROXY / NO_PROXY，新开终端生效", icon: "ti-terminal-2" },
+  env: { name: "终端环境变量", detail: "用户级 HTTP_PROXY / HTTPS_PROXY / ALL_PROXY，写入时自带本地直连项，新开终端生效", icon: "ti-terminal-2" },
   winhttp: { name: "服务代理 WinHTTP", detail: "系统服务使用，修改需要管理员权限（netsh winhttp）", icon: "ti-settings-cog" },
   git: { name: "Git", detail: "全局 http.proxy / https.proxy", icon: "ti-brand-git" },
   npm: { name: "npm / pnpm", detail: "~/.npmrc 的 proxy / https-proxy", icon: "ti-brand-npm" },

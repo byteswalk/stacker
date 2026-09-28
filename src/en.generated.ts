@@ -3320,4 +3320,5 @@ export const GENERATED_EN: Record<string, string> = {
   "直接访问": "Direct access",
   "代理服务器": "Proxy server",
   "绕过": "Bypass",
+  "用户级 HTTP_PROXY / HTTPS_PROXY / ALL_PROXY，写入时自带本地直连项，新开终端生效": "User-level HTTP_PROXY / HTTPS_PROXY / ALL_PROXY, written with the local direct-connect entries, in effect for new terminals",
 };
