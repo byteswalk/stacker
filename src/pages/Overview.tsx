@@ -3,6 +3,7 @@ import { invoke } from "../invoke";
 import type { Page } from "../pageState";
 import { useBusy, useBusyRead, useToast } from "../ui";
 import { useNotifications } from "../notifications";
+import { WorkstationGroups } from "../features/overview/WorkstationGroups";
 
 type Mirror = { id: string; name: string; url: string; host: string };
 type ToolState = {
@@ -400,6 +401,9 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
           )}
         </>
       )}
+
+      <div className="seclabel"><i className="ti ti-layout-grid" /> 工作站</div>
+      <WorkstationGroups onOpen={goto} />
 
       {hasChecked && !allOk && !emptySetup && extra.length > 0 && <div className="seclabel"><i className="ti ti-list-check" /> 可优化项</div>}
 

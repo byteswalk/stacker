@@ -1439,3 +1439,16 @@ button{ font-family:inherit; }
 .a .disk-bar>i.bad{background:#e2625b}
 .a .disk-card-foot{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--mut)}
 .a .disk-card-foot em{margin-left:auto;font-style:normal}
+
+.a .ws-groups{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:9px;margin-bottom:12px}
+.a .ws-group{display:flex;align-items:center;gap:11px;padding:12px 14px;border:.5px solid var(--bd);border-radius:11px;background:var(--card);color:var(--tx);font:inherit;text-align:left;cursor:pointer;transition:border-color .15s,background .15s}
+.a .ws-group:hover{background:var(--cardh);border-color:var(--bdh)}
+.a .ws-group>i{margin-left:auto;color:var(--mut)}
+.a .ws-icon{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:17px;background:rgba(106,176,245,.14);color:#6ab0f5}
+.a .ws-group.ok .ws-icon{background:rgba(107,207,134,.14);color:#6bcf86}
+.a .ws-group.warn .ws-icon{background:rgba(230,180,80,.16);color:#e6b450}
+.a .ws-group.bad .ws-icon{background:rgba(226,98,91,.16);color:#e2625b}
+.a .ws-group.idle .ws-icon{background:rgba(255,255,255,.07);color:var(--mut)}
+.a .ws-text{display:flex;flex-direction:column;gap:2px;min-width:0}
+.a .ws-text b{font-size:13px}
+.a .ws-text small{font-size:11.5px;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
