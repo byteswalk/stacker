@@ -80,7 +80,8 @@ fn parse(agent: Agent, v: &Value) -> Parsed {
                 _ => Parsed::Other,
             }
         }
-        Agent::Claude => match kind {
+        // Qoder's CLI writes the same records, with extra lines this parser skips.
+        Agent::Claude | Agent::Qoder | Agent::QoderCn => match kind {
             "user" | "assistant" => {
                 Parsed::Message(kind.to_string(), content(&v["message"]["content"]))
             }

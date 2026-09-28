@@ -127,8 +127,9 @@ pub fn plan(
             reason: reason.into(),
         };
         match session.agent {
-            Agent::Claude => {
-                let root = Path::new(&roots.claude);
+            // Qoder's CLI keeps the same shape in its own folder.
+            Agent::Claude | Agent::Qoder | Agent::QoderCn => {
+                let root = Path::new(claude_root(session.agent, roots));
                 let transcript = Path::new(&session.path);
                 let transcripts: Vec<&Path> = std::iter::once(session.path.as_str())
                     .chain(session.copies.iter().map(String::as_str))
@@ -198,8 +199,13 @@ pub fn plan(
 }
 
 /// Removes a Claude session's files after checking every path again.
-pub fn delete_claude(paths: &[PathBuf], roots: &Roots) -> Result<(), String> {
-    delete_files(paths, Path::new(&roots.claude))
+/// Which store a Claude-shaped transcript belongs to.
+fn claude_root(agent: Agent, roots: &Roots) -> &str {
+    match agent {
+        Agent::Qoder => &roots.qoder,
+        Agent::QoderCn => &roots.qoder_cn,
+        _ => &roots.claude,
+    }
 }
 
 /// Which store a CodeBuddy-shaped transcript belongs to: the three products share the
@@ -393,7 +399,9 @@ fn process(
         Mode::Direct => {}
     }
     match session.agent {
-        Agent::Claude => delete_claude(paths, roots)?,
+        Agent::Claude | Agent::Qoder | Agent::QoderCn => {
+            delete_files(paths, Path::new(claude_root(session.agent, roots)))?
+        }
         Agent::Codex => delete_codex(rpc, Path::new(&roots.codex), session)?,
         Agent::CodeBuddy | Agent::WorkBuddy | Agent::WorkBuddyAi => {
             delete_files(paths, Path::new(buddy_root(session.agent, roots)))?
@@ -555,7 +563,7 @@ mod tests {
             &roots(&root),
             super::super::now() + 1_000,
         );
-        delete_claude(&allowed[0].1, &roots(&root)).unwrap();
+        delete_files(&allowed[0].1, Path::new(&roots(&root).claude)).unwrap();
         assert!(!root.join("projects").join("p").join("gone.jsonl").exists());
         assert!(!root.join("projects").join("p").join("gone").exists());
         assert!(!root.join("file-history").join("gone").exists());
@@ -568,7 +576,11 @@ mod tests {
         fs::write(&outside, b"keep").unwrap();
         let root = dir.path().join(".claude");
         fs::create_dir_all(&root).unwrap();
-        assert!(delete_claude(std::slice::from_ref(&outside), &roots(&root)).is_err());
+        assert!(delete_files(
+            std::slice::from_ref(&outside),
+            Path::new(&roots(&root).claude)
+        )
+        .is_err());
         assert!(outside.exists());
     }
 

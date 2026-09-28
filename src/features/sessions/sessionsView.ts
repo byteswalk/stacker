@@ -6,6 +6,8 @@ export const AGENT_LABEL: Record<AgentName, string> = {
   codebuddy: "CodeBuddy",
   workbuddy: "WorkBuddy \u4e2d\u56fd\u7248",
   "workbuddy-ai": "WorkBuddy \u56fd\u9645\u7248",
+  qoder: "Qoder 国际版",
+  "qoder-cn": "Qoder 中国版",
   mimo: "MiMo",
   kimi: "Kimi",
 };

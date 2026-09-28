@@ -7,7 +7,7 @@ import { FoldCard } from "../features/gateway/Fold";
 import { GatewayLog } from "../features/gateway/GatewayLog";
 
 type LogEntry = { at: number; endpoint: string; model: string; status: number; elapsedMs: number };
-type Status = { enabled: boolean; running: boolean; port: number; token: string; error: string; recent: LogEntry[]; logEnabled: boolean; logRetentionDays: number };
+type Status = { enabled: boolean; running: boolean; port: number; token: string; error: string; recent: LogEntry[]; logEnabled: boolean; logRetentionDays: number; lanAccess: boolean; addresses: string[] };
 
 const ERRORS: Record<string, string> = { E_PORT: "端口被占用或无效（需 1024–65535），请换一个端口。" };
 
@@ -46,6 +46,14 @@ export default function Gateway() {
     } catch (e) { toast(t(ERRORS[String(e)] ?? String(e)), "err"); }
     finally { setBusy(false); }
   }
+  async function setLan(enabled: boolean) {
+    setBusy(true);
+    try {
+      setStatus(await invoke<Status>("gateway_set_lan", { enabled }));
+    } catch (e) { toast(String(e), "err"); }
+    finally { setBusy(false); }
+  }
+
   async function setLogPolicy(logEnabled: boolean, retentionDays: number) {
     try {
       await invoke("gateway_set_log", { enabled: logEnabled, retentionDays });
@@ -67,6 +75,8 @@ export default function Gateway() {
   if (!status) return <Loading text={t("正在读取接口服务状态…")} />;
 
   const base = `http://127.0.0.1:${status.port}`;
+  // The rule the user runs themselves; Stacker never changes the firewall on its own.
+  const firewall = `netsh advfirewall firewall add rule name="Stacker API ${status.port}" dir=in action=allow protocol=TCP localport=${status.port} profile=private`;
   const key = showKey ? status.token : `${status.token.slice(0, 14)}••••••••••••`;
   const EXAMPLES = {
     curl: `curl ${base}/v1/chat/completions \\\n  -H "Authorization: Bearer ${status.token}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"model":"claude/sonnet","reasoning_effort":"high","messages":[{"role":"user","content":"Hello"}]}'`,
@@ -100,6 +110,24 @@ export default function Gateway() {
             <button className="gh sm" disabled={busy} onClick={() => void regenerate()}><i className="ti ti-refresh" /> {t("重新生成")}</button>
           </div>
         </div>
+        <div className="gw-lan">
+          <label className="sw"><input type="checkbox" checked={status.lanAccess} disabled={busy} onChange={(e) => void setLan(e.target.checked)} /><span className="tk" /></label>
+          <div>
+            <b>{t("允许局域网访问")}</b>
+            <span>{t(status.lanAccess ? "同一网络里的设备拿到密钥就能调用，耗的是你登录的智能体额度。" : "开启后，同一网络里的设备可以用下面的地址和密钥调用本机的智能体。")}</span>
+          </div>
+        </div>
+        {status.lanAccess && <div className="gw-rows gw-lan-rows">
+          {status.addresses.map((address) => <div key={address}>
+            <span>{t("局域网地址")}</span>
+            <code>{`http://${address}:${status.port}`}</code>
+            <button className="gh sm" onClick={() => void copy(`http://${address}:${status.port}`)}><i className="ti ti-copy" /></button>
+          </div>)}
+          {!status.addresses.length && <div><span>{t("局域网地址")}</span><code>{t("未读到本机的网络地址")}</code></div>}
+          <p className="proxy-note">{t("如果别的设备连不上，先在 Windows 防火墙里放行这个端口（以管理员身份运行）：")}</p>
+          <pre className="console gw-example">{firewall}</pre>
+          <button className="gh sm" onClick={() => void copy(firewall)}><i className="ti ti-copy" /> {t("复制命令")}</button>
+        </div>}
         <p className="proxy-note">{t("可以发图片（claude/*、codex/*）和 PDF 文档（claude/*），文本类文档会直接并入对话；不支持工具调用。stream 请求：claude/* 逐字返回，codex/* 在生成完成后一次性返回。")}</p>
       </div>
 
@@ -118,7 +146,10 @@ export default function Gateway() {
 
       <div className="callout">
         <i className="ti ti-shield-lock" />
-        <div><b>{t("仅供本机自用")}</b> {t("服务只监听 127.0.0.1，拒绝浏览器网页发起的请求，每个请求都需要上面的密钥。调用会消耗你在对应智能体中登录账号的额度；请勿把端口或密钥提供给他人，也不要通过转发对外开放。")}</div>
+        <div>{status.lanAccess
+          ? <><b>{t("已对局域网开放")}</b> {t("每个请求仍然需要上面的密钥，也仍然拒绝浏览器网页发起的请求。密钥就是钥匙：只给你信得过的设备，换了网络环境（例如公共 Wi-Fi）先关掉这个开关，态势不对劲时随时重新生成密钥。")}</>
+          : <><b>{t("仅供本机自用")}</b> {t("服务只监听 127.0.0.1，拒绝浏览器网页发起的请求，每个请求都需要上面的密钥。调用会消耗你在对应智能体中登录账号的额度；请勿把端口或密钥提供给他人。")}</>}
+        </div>
       </div>
     </>
   );

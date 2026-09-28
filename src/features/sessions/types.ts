@@ -1,4 +1,4 @@
-export type AgentName = "codex" | "claude" | "codebuddy" | "workbuddy" | "workbuddy-ai" | "mimo" | "kimi";
+export type AgentName = "codex" | "claude" | "codebuddy" | "workbuddy" | "workbuddy-ai" | "qoder" | "qoder-cn" | "mimo" | "kimi";
 export type ClientTag = "desktop" | "terminal" | "ide" | "automation" | "sdk" | "unknown";
 export type SessionStatus = "active" | "archived" | "orphaned" | "discarded";
 export type TitleSource = "client" | "custom" | "summary" | "first_message";

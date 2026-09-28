@@ -28,6 +28,9 @@ pub struct GatewayConfig {
     /// Days of history kept; 0 keeps everything until the user clears it.
     #[serde(default = "default_retention")]
     pub log_retention_days: u32,
+    /// Whether the service answers other machines on the network as well as this one.
+    #[serde(default)]
+    pub lan_access: bool,
 }
 
 fn yes() -> bool {
@@ -56,6 +59,7 @@ impl Default for GatewayConfig {
             agent_defaults: Vec::new(),
             log_enabled: true,
             log_retention_days: default_retention(),
+            lan_access: false,
         }
     }
 }
@@ -165,7 +169,7 @@ fn start_locked(state: &mut State, config: &GatewayConfig) {
     state.error.clear();
     let shared = Shared::new(config.token.clone(), live_runner(), live_defaults());
     agents::apply_enabled(&shared, config);
-    match server::start(config.port, shared.clone()) {
+    match server::start(config.port, config.lan_access, shared.clone()) {
         Ok(running) => {
             log::info!(target: "stacker::gateway", "listening on 127.0.0.1:{}", running.port);
             state.running = Some((running, shared));
@@ -196,6 +200,50 @@ pub struct GatewayStatus {
     /// Whether requests are written to the log, and for how long they are kept.
     pub log_enabled: bool,
     pub log_retention_days: u32,
+    /// Whether the service answers the rest of the network.
+    pub lan_access: bool,
+    /// Every address the service can be reached at, this machine's first.
+    pub addresses: Vec<String>,
+}
+
+/// This machine's addresses on the networks it is attached to. Asking a UDP socket where it
+/// would send from names the interface that actually carries traffic, without sending
+/// anything; the rest come from the adapters Windows lists.
+pub fn lan_addresses() -> Vec<String> {
+    let mut found: Vec<String> = Vec::new();
+    let mut add = |address: String| {
+        if !address.is_empty() && !found.contains(&address) {
+            found.push(address);
+        }
+    };
+    for probe in ["223.5.5.5:53", "8.8.8.8:53"] {
+        if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0") {
+            if socket.connect(probe).is_ok() {
+                if let Ok(local) = socket.local_addr() {
+                    let ip = local.ip().to_string();
+                    if !ip.starts_with("127.") && ip != "0.0.0.0" {
+                        add(ip);
+                    }
+                }
+            }
+        }
+    }
+    add(hostname());
+    found
+}
+
+/// The name other machines can use instead of the address, when Windows gives one.
+fn hostname() -> String {
+    std::env::var("COMPUTERNAME")
+        .map(|name| name.trim().to_lowercase())
+        .map(|name| {
+            if name.is_empty() {
+                name
+            } else {
+                format!("{name}.local")
+            }
+        })
+        .unwrap_or_default()
 }
 
 pub fn status() -> GatewayStatus {
@@ -211,6 +259,12 @@ pub fn status() -> GatewayStatus {
             .unwrap_or(config.port),
         log_enabled: config.log_enabled,
         log_retention_days: config.log_retention_days,
+        lan_access: config.lan_access,
+        addresses: if config.lan_access {
+            lan_addresses()
+        } else {
+            Vec::new()
+        },
         token: config.token,
         error: state.error.clone(),
         recent: state
@@ -243,6 +297,27 @@ pub async fn gateway_set(enabled: bool, port: u16) -> Result<GatewayStatus, Stri
             } else {
                 stop_locked(&mut state);
                 state.error.clear();
+            }
+        }
+        Ok(status())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Opening the service to the network restarts it on the other address; the token stays
+/// the same, because it is what keeps the service the user's own.
+#[tauri::command]
+pub async fn gateway_set_lan(enabled: bool) -> Result<GatewayStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut config = load();
+        config.lan_access = enabled;
+        save(&config)?;
+        {
+            let mut state = STATE.lock().map_err(crate::sessions::err)?;
+            if config.enabled {
+                stop_locked(&mut state);
+                start_locked(&mut state, &config);
             }
         }
         Ok(status())

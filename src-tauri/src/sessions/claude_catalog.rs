@@ -250,7 +250,7 @@ fn mtime(path: &Path) -> u64 {
         .unwrap_or(0)
 }
 
-fn children_of(side_dir: &Path, session_id: &str) -> Vec<ChildSummary> {
+fn children_of(side_dir: &Path, session_id: &str, agent: Agent) -> Vec<ChildSummary> {
     let Ok(entries) = fs::read_dir(side_dir.join("subagents")) else {
         return Vec::new();
     };
@@ -260,7 +260,8 @@ fn children_of(side_dir: &Path, session_id: &str) -> Vec<ChildSummary> {
         .filter(|p| p.extension().is_some_and(|e| e == "jsonl") && !is_link(p))
         .map(|p| ChildSummary {
             id: format!(
-                "claude:{session_id}:{}",
+                "{}:{session_id}:{}",
+                agent.as_str(),
                 p.file_stem().unwrap_or_default().to_string_lossy()
             ),
             kind: "subagent".into(),
@@ -279,6 +280,7 @@ fn session_from(
     project_dir: &Path,
     path: &Path,
     index: &HashMap<String, DesktopEntry>,
+    agent: Agent,
 ) -> Option<Session> {
     let head = read_head(path).ok()?;
     let session_id = if head.session_id.is_empty() {
@@ -331,9 +333,9 @@ fn session_from(
         .sum();
     let file_time = mtime(path);
     Some(Session {
-        id: format!("claude:{session_id}"),
-        agent: Agent::Claude,
-        children: children_of(&side_dir, &session_id),
+        id: format!("{}:{session_id}", agent.as_str()),
+        agent,
+        children: children_of(&side_dir, &session_id, agent),
         native_id: session_id,
         title,
         title_source,
@@ -366,11 +368,21 @@ fn session_from(
 }
 
 pub fn load(root: &Path, desktop_index: &Path) -> Result<Vec<Session>, String> {
+    load_as(root, Agent::Claude, Some(desktop_index))
+}
+
+/// The same store, read for whichever product wrote it. Qoder's CLI writes the same
+/// transcripts under its own folder and keeps no desktop index.
+pub fn load_as(
+    root: &Path,
+    agent: Agent,
+    desktop_index: Option<&Path>,
+) -> Result<Vec<Session>, String> {
     let projects = root.join("projects");
     if !projects.is_dir() {
         return Err("E_SOURCE_MISSING".into());
     }
-    let index = read_desktop_index(desktop_index);
+    let index = desktop_index.map(read_desktop_index).unwrap_or_default();
     let mut sessions = Vec::new();
     for project_dir in subdirs(&projects) {
         let Ok(files) = fs::read_dir(&project_dir) else {
@@ -380,7 +392,7 @@ pub fn load(root: &Path, desktop_index: &Path) -> Result<Vec<Session>, String> {
             if !path.extension().is_some_and(|e| e == "jsonl") || is_link(&path) {
                 continue;
             }
-            if let Some(session) = session_from(root, &project_dir, &path, &index) {
+            if let Some(session) = session_from(root, &project_dir, &path, &index, agent) {
                 sessions.push(session);
             }
         }

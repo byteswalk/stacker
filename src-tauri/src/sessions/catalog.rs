@@ -69,6 +69,14 @@ pub fn load(roots: &Roots) -> Catalog {
     if let Ok(found) = super::kimi_catalog::load(Path::new(&roots.kimi)) {
         sessions.extend(found);
     }
+    for (root, agent) in [
+        (&roots.qoder, Agent::Qoder),
+        (&roots.qoder_cn, Agent::QoderCn),
+    ] {
+        if let Ok(found) = super::claude_catalog::load_as(Path::new(root), agent, None) {
+            sessions.extend(found);
+        }
+    }
     fold_imports(
         &mut sessions,
         &super::mimo_catalog::imports(Path::new(&roots.mimo)),

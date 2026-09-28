@@ -1,4 +1,5 @@
-//! The 127.0.0.1-only HTTP server.
+//! The HTTP server: on 127.0.0.1, or on every interface when the user opens it to the
+//! local network.
 use super::protocol::{self, ApiError, ChatRequest, SseStream};
 use crate::runner::{CancelFlag, DeltaSink, RunOutput, RunRequest, DEFAULT_TIMEOUT};
 use serde::Serialize;
@@ -106,9 +107,11 @@ impl Running {
     }
 }
 
-/// Binds 127.0.0.1 only. Port 0 picks a free port (tests).
-pub fn start(port: u16, shared: Arc<Shared>) -> Result<Running, String> {
-    let server = Server::http(("127.0.0.1", port)).map_err(|_| "E_PORT".to_string())?;
+/// Binds 127.0.0.1, or 0.0.0.0 when the user opened the service to the local network.
+/// Port 0 picks a free port (tests).
+pub fn start(port: u16, lan: bool, shared: Arc<Shared>) -> Result<Running, String> {
+    let host = if lan { "0.0.0.0" } else { "127.0.0.1" };
+    let server = Server::http((host, port)).map_err(|_| "E_PORT".to_string())?;
     let port = server
         .server_addr()
         .to_ip()
@@ -640,7 +643,7 @@ mod tests {
 
     #[test]
     fn serves_both_styles_with_auth() {
-        let server = start(0, fake()).unwrap();
+        let server = start(0, false, fake()).unwrap();
         let port = server.port;
         let chat = r#"{"model":"claude","messages":[{"role":"user","content":"hi"}]}"#;
 
@@ -769,7 +772,7 @@ mod tests {
 
     #[test]
     fn streams_deltas_as_they_arrive() {
-        let server = start(0, fake()).unwrap();
+        let server = start(0, false, fake()).unwrap();
         let port = server.port;
         let (status, head, chunks) = stream_post(
             port,
@@ -829,7 +832,7 @@ mod tests {
 
     #[test]
     fn stream_failures_and_non_streaming_agents() {
-        let server = start(0, fake()).unwrap();
+        let server = start(0, false, fake()).unwrap();
         let port = server.port;
         let auth = "Authorization: Bearer sk-test\r\n";
         // Failure before any text: a plain JSON error with the real status.
@@ -877,7 +880,7 @@ mod tests {
 
     #[test]
     fn attachments_reach_the_runner_and_unsupported_ones_are_400() {
-        let server = start(0, fake()).unwrap();
+        let server = start(0, false, fake()).unwrap();
         let port = server.port;
         let png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
         let body = format!(
@@ -904,7 +907,7 @@ mod tests {
 
     #[test]
     fn a_client_that_leaves_mid_stream_cancels_the_run() {
-        let server = start(0, fake()).unwrap();
+        let server = start(0, false, fake()).unwrap();
         let mut s = TcpStream::connect(("127.0.0.1", server.port)).unwrap();
         let body =
             r#"{"model":"claude","stream":true,"messages":[{"role":"user","content":"forever"}]}"#;
@@ -935,7 +938,7 @@ mod tests {
                 c.effort.clone().or(Some("low".into())),
             )
         });
-        let server = start(0, Shared::new("sk-live".into(), runner, defaults)).unwrap();
+        let server = start(0, false, Shared::new("sk-live".into(), runner, defaults)).unwrap();
         let png = crate::runner::attachment::encode_base64(&two_color_png());
         let question = "The image is split into two halves of solid color. Name the color of the left half and the right half, in English, in the form: left=<color>, right=<color>.";
         let mut answers = Vec::new();
@@ -1121,7 +1124,7 @@ mod tests {
                 c.effort.clone().or(Some("low".into())),
             )
         });
-        let server = start(0, Shared::new("sk-live".into(), runner, defaults)).unwrap();
+        let server = start(0, false, Shared::new("sk-live".into(), runner, defaults)).unwrap();
         let started = Instant::now();
         let (status, body) = post(
             server.port,
@@ -1145,10 +1148,25 @@ mod tests {
     }
 
     #[test]
-    fn binds_loopback_only() {
-        let server = start(0, fake()).unwrap();
+    fn binds_loopback_until_the_network_is_asked_for() {
+        let server = start(0, false, fake()).unwrap();
         let addr = server.server.server_addr().to_ip().unwrap();
         assert!(addr.ip().is_loopback());
+        server.stop();
+
+        // Opened to the network, it listens on every interface, and this machine's own
+        // address reaches it.
+        let server = start(0, true, fake()).unwrap();
+        let addr = server.server.server_addr().to_ip().unwrap();
+        assert!(addr.ip().is_unspecified(), "{addr}");
+        let port = server.port;
+        for address in crate::gateway::lan_addresses() {
+            if address.parse::<std::net::Ipv4Addr>().is_err() {
+                continue;
+            }
+            let reached = std::net::TcpStream::connect((address.as_str(), port));
+            assert!(reached.is_ok(), "{address}:{port} refused the connection");
+        }
         server.stop();
     }
 }

@@ -43,6 +43,8 @@ fn sessions_agent(id: &str) -> Option<Agent> {
         "claude" => Agent::Claude,
         "workbuddy-cn" => Agent::WorkBuddy,
         "workbuddy-global" => Agent::WorkBuddyAi,
+        "qoder" => Agent::Qoder,
+        "qoder-cn" => Agent::QoderCn,
         "mimo-cn" | "mimo-global" => Agent::MiMo,
         "kimi" => Agent::Kimi,
         _ => return None,

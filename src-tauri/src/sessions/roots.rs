@@ -36,6 +36,8 @@ pub fn resolve(overrides: &Roots) -> Roots {
         codebuddy: pick(&overrides.codebuddy, None, home.join(".codebuddy")),
         workbuddy: pick(&overrides.workbuddy, None, home.join(".workbuddy")),
         workbuddy_ai: pick(&overrides.workbuddy_ai, None, home.join(".workbuddy-ai")),
+        qoder: pick(&overrides.qoder, None, home.join(".qoder")),
+        qoder_cn: pick(&overrides.qoder_cn, None, home.join(".qoder-cn")),
         mimo: pick(
             &overrides.mimo,
             None,

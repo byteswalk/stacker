@@ -405,6 +405,7 @@ pub fn run() {
             proxy_ledger::proxy_overview,
             gateway::gateway_status,
             gateway::gateway_set,
+            gateway::gateway_set_lan,
             gateway::gateway_new_token,
             gateway::agents::gateway_agents,
             gateway::agents::gateway_set_agent_default,

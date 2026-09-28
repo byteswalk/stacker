@@ -3255,4 +3255,13 @@ export const GENERATED_EN: Record<string, string> = {
   "程序文件与工作产物": "Program files and work products",
   "智能体自带的程序、插件和它干活留下的产物，删除前请确认不再需要。": "The agent's own programs and plugins, and what its work left behind; make sure you no longer need them.",
   "智能体留下的旧日志文件。": "Old log files the agent left behind.",
+  "允许局域网访问": "Allow local network access",
+  "同一网络里的设备拿到密钥就能调用，耗的是你登录的智能体额度。": "Any device on this network that has the key can call the agents, and it spends the quota of the accounts you signed in.",
+  "开启后，同一网络里的设备可以用下面的地址和密钥调用本机的智能体。": "Turn this on and devices on the same network can call this machine's agents with the address and key below.",
+  "局域网地址": "Network address",
+  "未读到本机的网络地址": "This machine's network address could not be read",
+  "如果别的设备连不上，先在 Windows 防火墙里放行这个端口（以管理员身份运行）：": "If other devices cannot reach it, allow the port through Windows Firewall first (run as administrator):",
+  "已对局域网开放": "Open to the local network",
+  "每个请求仍然需要上面的密钥，也仍然拒绝浏览器网页发起的请求。密钥就是钥匙：只给你信得过的设备，换了网络环境（例如公共 Wi-Fi）先关掉这个开关，态势不对劲时随时重新生成密钥。": "Every request still needs the key above, and requests from browser pages are still refused. The key is the lock: give it only to devices you trust, turn this off when you move to another network such as public Wi-Fi, and generate a new key whenever something looks wrong.",
+  "服务只监听 127.0.0.1，拒绝浏览器网页发起的请求，每个请求都需要上面的密钥。调用会消耗你在对应智能体中登录账号的额度；请勿把端口或密钥提供给他人。": "The service listens on 127.0.0.1 only, refuses requests from browser pages, and needs the key above for every request. Calls spend the quota of the accounts you signed in; do not hand the port or the key to anyone else.",
 };

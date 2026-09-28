@@ -156,6 +156,8 @@ pub fn sessions_set_roots(overrides: Roots) -> Result<RootsView, String> {
         codebuddy: overrides.codebuddy.trim().to_string(),
         workbuddy: overrides.workbuddy.trim().to_string(),
         workbuddy_ai: overrides.workbuddy_ai.trim().to_string(),
+        qoder: overrides.qoder.trim().to_string(),
+        qoder_cn: overrides.qoder_cn.trim().to_string(),
         mimo: overrides.mimo.trim().to_string(),
         kimi: overrides.kimi.trim().to_string(),
     };
