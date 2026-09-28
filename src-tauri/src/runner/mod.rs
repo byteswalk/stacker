@@ -211,16 +211,31 @@ fn looks_ineligible(text: &str) -> bool {
 /// it. Nothing decides anything by reading it.
 static LAST_FAILURE: std::sync::Mutex<Option<(Instant, String)>> = std::sync::Mutex::new(None);
 
-fn note_failure(stdout: &str, stderr: &str) {
-    let sentence = [stderr, stdout]
+/// The one sentence worth keeping out of what a CLI printed before it gave up.
+fn failure_sentence(stdout: &str, stderr: &str) -> String {
+    let lines: Vec<&str> = [stderr, stdout]
         .iter()
         .flat_map(|text| text.lines())
         .map(str::trim)
-        .find(|line| !line.is_empty() && !line.starts_with('{') && !line.starts_with('['))
-        .unwrap_or_default()
-        .chars()
-        .take(300)
-        .collect::<String>();
+        .filter(|line| !line.is_empty() && !line.starts_with('{') && !line.starts_with('['))
+        .collect();
+    let mut sentence: String = lines.first().unwrap_or(&"").chars().take(300).collect();
+    // A CLI that refuses often says where to go and sort it out; that link is the useful part.
+    let link = lines
+        .iter()
+        .flat_map(|line| line.split_whitespace())
+        .find(|word| word.starts_with("https://"));
+    if let Some(link) = link {
+        if !sentence.contains(link) {
+            sentence.push(' ');
+            sentence.push_str(link);
+        }
+    }
+    sentence
+}
+
+fn note_failure(stdout: &str, stderr: &str) {
+    let sentence = failure_sentence(stdout, stderr);
     if let Ok(mut slot) = LAST_FAILURE.lock() {
         *slot = (!sentence.is_empty()).then(|| (Instant::now(), sentence));
     }
@@ -247,33 +262,35 @@ mod failure_tests {
         finish(status, stdout, stderr).unwrap_err()
     }
 
-    /// One test, because the kept sentence is one slot shared by every run.
     #[test]
-    fn a_refusal_is_told_apart_from_a_crash_and_keeps_its_sentence() {
+    fn a_refusal_is_told_apart_from_a_crash() {
         // What Antigravity answers an account without access, word for word.
-        let refused = "error: Eligibility check failed: Your current account is not eligible for Antigravity.";
+        let refused =
+            "error: Eligibility check failed: Your current account is not eligible for Antigravity.";
         assert_eq!(failed(refused, ""), "E_RUNNER_INELIGIBLE");
-        assert_eq!(
-            last_failure(Duration::from_secs(5)).as_deref(),
-            Some(refused)
-        );
-
         assert_eq!(
             failed("", "Please sign in to view available models."),
             "E_RUNNER_AUTH"
         );
         assert_eq!(failed("", "panicked at src/main.rs"), "E_RUNNER_FAILED");
+    }
 
-        // The sentence kept is the CLI's own, not the JSON envelope around it.
-        failed(
-            "{\"status\":\"ERROR\"}
-rate limit reached",
-            "",
-        );
+    #[test]
+    fn the_kept_sentence_is_the_clis_own_words_and_its_link() {
+        // The JSON envelope is the machine's; the line beside it is what a person can read.
         assert_eq!(
-            last_failure(Duration::from_secs(5)).as_deref(),
-            Some("rate limit reached")
+            failure_sentence("{\"status\":\"ERROR\"}\nrate limit reached", ""),
+            "rate limit reached"
         );
+        // A link to sort it out travels with the sentence, however far down it was printed.
+        assert_eq!(
+            failure_sentence(
+                "error: verify your account\nnoise\nhttps://accounts.google.com/verify?x=1",
+                "",
+            ),
+            "error: verify your account https://accounts.google.com/verify?x=1"
+        );
+        assert_eq!(failure_sentence("", ""), "");
     }
 }
 

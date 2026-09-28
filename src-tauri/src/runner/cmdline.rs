@@ -539,10 +539,11 @@ mod tests {
         )
         .is_err());
         assert!(parse_agy(r#"{"status":"ERROR","error":"invalid model"}"#, "").is_err());
-        let models = parse_agy_models("Fetching available models...\ng-flash\tGemini Flash\n");
+        let models =
+            parse_agy_models("Fetching available models...\nagy-flash\tAntigravity Flash\n");
         assert_eq!(
             (models[0].id.as_str(), models[0].label.as_str()),
-            ("g-flash", "Gemini Flash")
+            ("agy-flash", "Antigravity Flash")
         );
     }
 

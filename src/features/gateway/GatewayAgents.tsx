@@ -52,6 +52,17 @@ function writeJson(key: string, value: unknown) {
 }
 
 /** "刚刚" / "13 分钟前" / "3 小时前": how fresh the last successful test is. */
+/** The link a CLI printed with its refusal, for the button that opens it. */
+export function detailLink(detail: string): string | null {
+  return detail.split(/\s+/).find((word) => word.startsWith("https://")) ?? null;
+}
+
+/** The same message without the link, which the button carries instead. */
+export function detailText(detail: string): string {
+  const link = detailLink(detail);
+  return (link ? detail.replace(link, "") : detail).trim();
+}
+
 export function sinceText(at: number, now = Date.now()): string {
   const minutes = Math.floor((now - at) / 60_000);
   if (minutes < 1) return "刚刚";
@@ -146,7 +157,7 @@ export function GatewayAgents({ base, token }: { base: string; token: string }) 
     if (r.ok) return <span className="gw-test ok"><i className="ti ti-circle-check" /> {(r.elapsedMs / 1000).toFixed(1)}s {t("测试通过")}</span>;
     return <span className="gw-test bad" title={r.detail || undefined}>
       <i className="ti ti-alert-circle" /> {t(RUN_ERRORS[r.error] ?? r.error)}
-      {r.detail && <em className="gw-test-detail">{r.detail}</em>}
+      {r.detail && <em className="gw-test-detail" title={r.detail}>{detailText(r.detail)}{detailLink(r.detail) && <button className="lk" onClick={() => void invoke("app_open_url", { url: detailLink(r.detail as string) })}>{t("去处理")}</button>}</em>}
     </span>;
   };
 

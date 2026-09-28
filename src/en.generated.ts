@@ -3296,4 +3296,5 @@ export const GENERATED_EN: Record<string, string> = {
   "清理项目": "Clean up project",
   "账号已登录，但厂商不允许它使用：换一个有资格的账号登录，或先按下方提示验证账号。": "The account is signed in, but the vendor will not serve it: sign in with an account that has access, or verify this one as the message below says.",
   "账号已登录，但厂商不允许它使用该产品。": "The account is signed in, but the vendor will not serve it for this product.",
+  "去处理": "Sort it out",
 };

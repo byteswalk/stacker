@@ -12,7 +12,7 @@ const kindLabels: Record<ProjectKind, string> = {
 
 const traceLabels: Record<string, string> = {
   agents: "AGENTS.md", codex: "Codex", claude: "Claude Code", cursor: "Cursor",
-  gemini: "Gemini", opencode: "OpenCode", qoder: "Qoder", trae: "TRAE", copilot: "GitHub Copilot",
+  gemini: "Antigravity", opencode: "OpenCode", qoder: "Qoder", trae: "TRAE", copilot: "GitHub Copilot",
 };
 
 function projectActivity(value: string | null, locale: string) {
