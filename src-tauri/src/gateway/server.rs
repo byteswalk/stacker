@@ -76,6 +76,14 @@ impl Shared {
     }
 
     fn log(&self, entry: LogEntry) {
+        // Kept on disk: the page searches it, removes rows and forgets old ones on a
+        // schedule, none of which survives a ring buffer in memory.
+        super::requests::record(
+            &entry.endpoint,
+            &entry.model,
+            entry.status,
+            entry.elapsed_ms,
+        );
         if let Ok(mut recent) = self.recent.lock() {
             recent.push_front(entry);
             recent.truncate(RECENT);

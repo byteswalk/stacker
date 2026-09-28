@@ -1304,9 +1304,18 @@ button{ font-family:inherit; }
 .a .gw-rows>div>span{width:130px;color:var(--mut)}
 .a .gw-rows code{font-size:12px;overflow-wrap:anywhere}
 .a .gw-example{white-space:pre;overflow:auto;margin:0 0 10px;user-select:text}
+/* The request log: searchable, removable, and kept only as long as the user wants. */
+.a .gw-log-bar{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:9px}
+.a .gw-log-bar>.s.dim{margin-left:auto}
 .a .gw-log{display:flex;flex-direction:column;font-size:12px}
-.a .gw-log>div{display:grid;grid-template-columns:80px minmax(150px,1fr) minmax(120px,1fr) 50px 60px;gap:10px;padding:6px 0;border-top:1px solid var(--bd)}
-.a .gw-log>div:first-child{border-top:0}
+.a .gw-log>div{display:grid;grid-template-columns:24px 140px minmax(150px,1fr) minmax(130px,1fr) 50px 60px 30px;gap:10px;align-items:center;padding:6px 0;border-top:1px solid var(--bd)}
+.a .gw-log>div.head{color:var(--mut);font-size:11px;border-top:0}
+.a .gw-log>div.on{background:var(--cardh)}
+.a .gw-log .ck{margin:0}
+.a .gw-log input[type=checkbox]{width:14px;height:14px;accent-color:var(--acc)}
+.a .gw-log-foot{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-top:10px}
+.a .gw-log-pager{display:flex;align-items:center;gap:8px;margin-left:auto}
+.a .gw-log-policy{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px;padding-top:10px;border-top:1px solid var(--bd);font-size:11.5px;color:var(--mut)}
 .a .gw-log .ok{color:#6bcf86}
 .a .gw-log .bad{color:#e6b450}
 

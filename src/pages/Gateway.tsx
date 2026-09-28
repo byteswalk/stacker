@@ -4,9 +4,10 @@ import { useI18n } from "../i18n";
 import { useToast, ErrorState, Loading } from "../ui";
 import { GatewayAgents } from "../features/gateway/GatewayAgents";
 import { FoldCard } from "../features/gateway/Fold";
+import { GatewayLog } from "../features/gateway/GatewayLog";
 
 type LogEntry = { at: number; endpoint: string; model: string; status: number; elapsedMs: number };
-type Status = { enabled: boolean; running: boolean; port: number; token: string; error: string; recent: LogEntry[] };
+type Status = { enabled: boolean; running: boolean; port: number; token: string; error: string; recent: LogEntry[]; logEnabled: boolean; logRetentionDays: number };
 
 const ERRORS: Record<string, string> = { E_PORT: "端口被占用或无效（需 1024–65535），请换一个端口。" };
 
@@ -45,6 +46,13 @@ export default function Gateway() {
     } catch (e) { toast(t(ERRORS[String(e)] ?? String(e)), "err"); }
     finally { setBusy(false); }
   }
+  async function setLogPolicy(logEnabled: boolean, retentionDays: number) {
+    try {
+      await invoke("gateway_set_log", { enabled: logEnabled, retentionDays });
+      setStatus(await invoke<Status>("gateway_status"));
+    } catch (e) { toast(String(e), "err"); }
+  }
+
   async function regenerate() {
     setBusy(true);
     try { setStatus(await invoke<Status>("gateway_new_token")); toast(t("已生成新密钥，旧密钥立即失效"), "ok"); }
@@ -61,9 +69,9 @@ export default function Gateway() {
   const base = `http://127.0.0.1:${status.port}`;
   const key = showKey ? status.token : `${status.token.slice(0, 14)}••••••••••••`;
   const EXAMPLES = {
-    curl: `curl ${base}/v1/chat/completions \\\n  -H "Authorization: Bearer ${status.token}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"model":"claude/sonnet","messages":[{"role":"user","content":"Hello"}]}'`,
-    openai: `from openai import OpenAI\n\nclient = OpenAI(base_url="${base}/v1", api_key="${status.token}")\nreply = client.chat.completions.create(\n    model="codex",\n    messages=[{"role": "user", "content": "Hello"}],\n)\nprint(reply.choices[0].message.content)`,
-    anthropic: `from anthropic import Anthropic\n\nclient = Anthropic(base_url="${base}", api_key="${status.token}")\nreply = client.messages.create(\n    model="claude/sonnet", max_tokens=1024,\n    messages=[{"role": "user", "content": "Hello"}],\n)\nprint(reply.content[0].text)`,
+    curl: `curl ${base}/v1/chat/completions \\\n  -H "Authorization: Bearer ${status.token}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"model":"claude/sonnet","reasoning_effort":"high","messages":[{"role":"user","content":"Hello"}]}'`,
+    openai: `from openai import OpenAI\n\nclient = OpenAI(base_url="${base}/v1", api_key="${status.token}")\nreply = client.chat.completions.create(\n    model="codex",\n    reasoning_effort="high",  # 推理强度：省略则用页面上为该智能体设定的默认\n    messages=[{"role": "user", "content": "Hello"}],\n)\nprint(reply.choices[0].message.content)`,
+    anthropic: `from anthropic import Anthropic\n\nclient = Anthropic(base_url="${base}", api_key="${status.token}")\nreply = client.messages.create(\n    model="claude/sonnet", max_tokens=1024,\n    # Anthropic 风格的请求没有推理强度字段，用页面上为该智能体设定的默认\n    messages=[{"role": "user", "content": "Hello"}],\n)\nprint(reply.content[0].text)`,
   };
 
   return (
@@ -105,15 +113,8 @@ export default function Gateway() {
         <button className="gh sm" onClick={() => void copy(EXAMPLES[example])}><i className="ti ti-copy" /> {t("复制")}</button>
       </FoldCard>
 
-      <div className="pxcard">
-        <div className="pxsec"><i className="ti ti-list" /> {t("最近请求")} <span className="pxhint">{t("只记录接口、模型、耗时和结果，不记录内容")}</span></div>
-        {!status.recent.length ? <p className="proxy-note">{t("还没有请求。")}</p> : <div className="gw-log">
-          {status.recent.map((r, i) => <div key={i}>
-            <span>{new Date(r.at * 1000).toLocaleTimeString()}</span><code>{r.endpoint}</code><span>{r.model || "—"}</span>
-            <b className={r.status < 400 ? "ok" : "bad"}>{r.status}</b><span>{(r.elapsedMs / 1000).toFixed(1)}s</span>
-          </div>)}
-        </div>}
-      </div>
+      <GatewayLog enabled={status.logEnabled} retentionDays={status.logRetentionDays}
+        onSettings={(logEnabled, retentionDays) => void setLogPolicy(logEnabled, retentionDays)} />
 
       <div className="callout">
         <i className="ti ti-shield-lock" />

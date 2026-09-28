@@ -1,6 +1,7 @@
 //! Local-only OpenAI / Anthropic style gateway over the agent runner.
 pub mod agents;
 pub mod protocol;
+pub mod requests;
 pub mod server;
 
 use serde::{Deserialize, Serialize};
@@ -21,6 +22,20 @@ pub struct GatewayConfig {
     /// which is a value Stacker cannot read or show, so the page lets the user pick one.
     #[serde(default)]
     pub agent_defaults: Vec<AgentDefault>,
+    /// Whether requests are written to the log at all.
+    #[serde(default = "yes")]
+    pub log_enabled: bool,
+    /// Days of history kept; 0 keeps everything until the user clears it.
+    #[serde(default = "default_retention")]
+    pub log_retention_days: u32,
+}
+
+fn yes() -> bool {
+    true
+}
+
+fn default_retention() -> u32 {
+    7
 }
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
@@ -39,6 +54,8 @@ impl Default for GatewayConfig {
             token: String::new(),
             disabled_agents: Vec::new(),
             agent_defaults: Vec::new(),
+            log_enabled: true,
+            log_retention_days: default_retention(),
         }
     }
 }
@@ -176,6 +193,9 @@ pub struct GatewayStatus {
     pub token: String,
     pub error: String,
     pub recent: Vec<LogEntry>,
+    /// Whether requests are written to the log, and for how long they are kept.
+    pub log_enabled: bool,
+    pub log_retention_days: u32,
 }
 
 pub fn status() -> GatewayStatus {
@@ -189,6 +209,8 @@ pub fn status() -> GatewayStatus {
             .as_ref()
             .map(|(r, _)| r.port)
             .unwrap_or(config.port),
+        log_enabled: config.log_enabled,
+        log_retention_days: config.log_retention_days,
         token: config.token,
         error: state.error.clone(),
         recent: state

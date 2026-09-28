@@ -178,6 +178,39 @@ pub fn gateway_set_agent_default(
     save(&config)
 }
 
+/// The request log: what it holds, what a filter matches, and how long rows are kept.
+#[tauri::command]
+pub async fn gateway_log(
+    query: super::requests::LogQuery,
+) -> Result<super::requests::LogPage, String> {
+    tauri::async_runtime::spawn_blocking(move || super::requests::list(&query))
+        .await
+        .map_err(crate::sessions::err)?
+}
+
+#[tauri::command]
+pub fn gateway_log_remove(ids: Vec<i64>) -> Result<usize, String> {
+    super::requests::remove(&ids)
+}
+
+/// Removes everything the filter matches; an empty filter empties the log.
+#[tauri::command]
+pub fn gateway_log_clear(query: super::requests::LogQuery) -> Result<usize, String> {
+    super::requests::clear(&query)
+}
+
+#[tauri::command]
+pub fn gateway_set_log(enabled: bool, retention_days: u32) -> Result<(), String> {
+    let mut config = load();
+    config.log_enabled = enabled;
+    config.log_retention_days = retention_days;
+    save(&config)?;
+    if let Ok(conn) = crate::sessions::annotations::connect() {
+        super::requests::prune(&conn, retention_days);
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn gateway_set_agent(agent: String, enabled: bool) -> Result<(), String> {
     let mut config = load();
