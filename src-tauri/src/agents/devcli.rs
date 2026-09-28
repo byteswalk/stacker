@@ -78,10 +78,12 @@ pub(crate) fn run(args: &[String]) -> Option<i32> {
             let catalog = crate::sessions::catalog::load(&roots);
             for session in &catalog.sessions {
                 println!(
-                    "{:10} {:22} {:>9} {}",
+                    "{:12} {:22} {:>9} {:?} {:?} {}",
                     session.agent.as_str(),
                     session.native_id.chars().take(22).collect::<String>(),
                     session.bytes,
+                    session.status,
+                    session.client,
                     session
                         .title
                         .lines()

@@ -6,6 +6,10 @@ pub enum Agent {
     Codex,
     Claude,
     CodeBuddy,
+    #[serde(rename = "workbuddy")]
+    WorkBuddy,
+    #[serde(rename = "workbuddy-ai")]
+    WorkBuddyAi,
     MiMo,
     Kimi,
 }
@@ -16,6 +20,8 @@ impl Agent {
             Agent::Codex => "codex",
             Agent::Claude => "claude",
             Agent::CodeBuddy => "codebuddy",
+            Agent::WorkBuddy => "workbuddy",
+            Agent::WorkBuddyAi => "workbuddy-ai",
             Agent::MiMo => "mimo",
             Agent::Kimi => "kimi",
         }
@@ -39,6 +45,8 @@ pub enum SessionStatus {
     Active,
     Archived,
     Orphaned,
+    /// Deleted inside the agent's own app, but its transcript is still on disk.
+    Discarded,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -104,6 +112,14 @@ pub struct Session {
     /// when a session moves between worktrees); deleted together with `path`.
     #[serde(default)]
     pub copies: Vec<String>,
+    /// The agent this conversation was imported from, set only when the original is gone;
+    /// while the original is still listed, the import is folded into it instead.
+    #[serde(default)]
+    pub imported_from: Option<Agent>,
+    /// Agents that imported a copy of this conversation into their own store. The copy is
+    /// listed here so it is counted once, and it is never deleted with this session.
+    #[serde(default)]
+    pub imported_by: Vec<Agent>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -135,6 +151,16 @@ pub struct SessionPage {
     pub ids: Vec<String>,
     pub total_bytes: u64,
     pub warnings: Vec<String>,
+    /// What each agent holds under the rest of the filters, for the source picker.
+    pub agents: Vec<AgentCount>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentCount {
+    pub agent: Agent,
+    pub sessions: usize,
+    pub bytes: u64,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -160,4 +186,8 @@ pub struct Roots {
     pub mimo: String,
     #[serde(default)]
     pub kimi: String,
+    #[serde(default)]
+    pub workbuddy: String,
+    #[serde(default)]
+    pub workbuddy_ai: String,
 }

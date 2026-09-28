@@ -11,6 +11,54 @@ use std::path::Path;
 
 pub const DB_NAME: &str = "mimocode.db";
 
+/// Where a session came from, for the sessions MiMo imported rather than held. `cc` is
+/// Claude Code, whose transcripts MiMo reads straight out of `~/.claude/projects`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Import {
+    pub session_id: String,
+    pub agent: Agent,
+    pub source_path: String,
+}
+
+fn imported_agent(source: &str) -> Option<Agent> {
+    match source {
+        "cc" | "claude" | "claude-code" => Some(Agent::Claude),
+        _ => None,
+    }
+}
+
+/// Every session MiMo imported, as far as its own bookkeeping goes. A store that has never
+/// imported anything has no rows, and an older store has no table at all.
+pub fn imports(root: &Path) -> Vec<Import> {
+    let Ok(conn) = open(&root.join(DB_NAME)) else {
+        return Vec::new();
+    };
+    let Ok(mut stmt) = conn.prepare("SELECT source, session_id, source_path FROM external_import")
+    else {
+        return Vec::new();
+    };
+    let rows = stmt.query_map([], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, Option<String>>(2)?.unwrap_or_default(),
+        ))
+    });
+    match rows {
+        Ok(rows) => rows
+            .flatten()
+            .filter_map(|(source, session_id, source_path)| {
+                Some(Import {
+                    session_id,
+                    agent: imported_agent(&source)?,
+                    source_path,
+                })
+            })
+            .collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
 fn open(db: &Path) -> Result<Connection, String> {
     if !db.is_file() {
         return Err("E_SOURCE_MISSING".into());
@@ -109,6 +157,8 @@ pub fn load(root: &Path) -> Result<Vec<Session>, String> {
                     summary_by: String::new(),
                     summary_at: 0,
                     copies: Vec::new(),
+                    imported_from: None,
+                    imported_by: Vec::new(),
                     native_id: id,
                 }
             },

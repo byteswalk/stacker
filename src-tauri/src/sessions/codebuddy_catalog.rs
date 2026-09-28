@@ -16,6 +16,8 @@ pub struct Head {
     pub session_id: String,
     pub cwd: String,
     pub summary: Option<String>,
+    /// The title the app itself generated (`ai-title`), which WorkBuddy writes.
+    pub app_title: Option<String>,
     pub first_user_message: Option<String>,
     /// The first slash command, for sessions that only ran commands.
     pub first_command: Option<String>,
@@ -82,6 +84,16 @@ fn absorb(head: &mut Head, value: &Value) {
         }
     }
     match value.get("type").and_then(Value::as_str) {
+        Some("ai-title") => {
+            if let Some(title) = value
+                .get("aiTitle")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+            {
+                head.app_title = Some(title.to_string());
+            }
+        }
         Some("summary") => {
             if let Some(summary) = value
                 .get("summary")
@@ -133,6 +145,50 @@ fn mtime(path: &Path) -> u64 {
         .unwrap_or(0)
 }
 
+/// What a conversation keeps beside its transcript: sub-agent runs and their tool output,
+/// in a folder named after the session.
+pub(crate) fn side_dir(transcript: &Path, session_id: &str) -> Option<PathBuf> {
+    let dir = transcript.parent()?.join(session_id);
+    (dir.is_dir() && !is_link(&dir)).then_some(dir)
+}
+
+/// Everything the conversation owns on disk, for measuring and for deleting.
+pub(crate) fn related_paths(transcript: &Path, session_id: &str) -> Vec<PathBuf> {
+    let mut paths = vec![transcript.to_path_buf()];
+    paths.extend(side_dir(transcript, session_id));
+    paths.into_iter().filter(|p| p.exists()).collect()
+}
+
+fn children_of(transcript: &Path, session_id: &str, agent: Agent) -> Vec<ChildSummary> {
+    let Some(dir) = side_dir(transcript, session_id) else {
+        return Vec::new();
+    };
+    let Ok(entries) = fs::read_dir(dir.join("subagents")) else {
+        return Vec::new();
+    };
+    let mut children: Vec<ChildSummary> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|e| e == "jsonl") && !is_link(p))
+        .map(|p| ChildSummary {
+            id: format!(
+                "{}:{session_id}:{}",
+                agent.as_str(),
+                p.file_stem().unwrap_or_default().to_string_lossy()
+            ),
+            kind: "subagent".into(),
+            title: read_head(&p)
+                .ok()
+                .and_then(|h| h.first_user_message)
+                .unwrap_or_default(),
+            bytes: tree_size(&p),
+            path: p.to_string_lossy().into_owned(),
+        })
+        .collect();
+    children.sort_by(|a, b| a.id.cmp(&b.id));
+    children
+}
+
 fn subdirs(dir: &Path) -> Vec<PathBuf> {
     fs::read_dir(dir)
         .map(|entries| {
@@ -145,16 +201,17 @@ fn subdirs(dir: &Path) -> Vec<PathBuf> {
         .unwrap_or_default()
 }
 
-fn session_from(path: &Path) -> Option<Session> {
+pub(crate) fn session_from(path: &Path, agent: Agent) -> Option<Session> {
     let head = read_head(path).ok()?;
     let session_id = if head.session_id.is_empty() {
         path.file_stem()?.to_string_lossy().into_owned()
     } else {
         head.session_id.clone()
     };
-    let (title, title_source) = match (&head.summary, &head.first_user_message) {
-        (Some(summary), _) => (summary.clone(), TitleSource::Summary),
-        (None, Some(first)) => (first.clone(), TitleSource::FirstMessage),
+    let (title, title_source) = match (&head.app_title, &head.summary, &head.first_user_message) {
+        (Some(title), _, _) => (title.clone(), TitleSource::Client),
+        (None, Some(summary), _) => (summary.clone(), TitleSource::Summary),
+        (None, None, Some(first)) => (first.clone(), TitleSource::FirstMessage),
         // Sessions that only ran slash commands are named after the first one.
         _ => match &head.first_command {
             Some(command) => (command.clone(), TitleSource::FirstMessage),
@@ -175,10 +232,10 @@ fn session_from(path: &Path) -> Option<Session> {
         SessionStatus::Orphaned
     };
     Some(Session {
-        id: format!("codebuddy:{session_id}"),
-        agent: Agent::CodeBuddy,
-        children: Vec::new(),
-        native_id: session_id,
+        id: format!("{}:{session_id}", agent.as_str()),
+        agent,
+        children: children_of(path, &session_id, agent),
+        native_id: session_id.clone(),
         title,
         title_source,
         project,
@@ -196,7 +253,11 @@ fn session_from(path: &Path) -> Option<Session> {
         archived: false,
         pinned: false,
         status,
-        bytes: tree_size(path),
+        // The sub-agent runs and their tool output sit in a folder beside the transcript.
+        bytes: related_paths(path, &session_id)
+            .iter()
+            .map(|p| tree_size(p))
+            .sum(),
         path: path.to_string_lossy().into_owned(),
         in_desktop_index: false,
         parent_missing: false,
@@ -206,10 +267,17 @@ fn session_from(path: &Path) -> Option<Session> {
         summary_by: String::new(),
         summary_at: 0,
         copies: Vec::new(),
+        imported_from: None,
+        imported_by: Vec::new(),
     })
 }
 
 pub fn load(root: &Path) -> Result<Vec<Session>, String> {
+    load_as(root, Agent::CodeBuddy)
+}
+
+/// The same store read for one of the products that writes it.
+pub fn load_as(root: &Path, agent: Agent) -> Result<Vec<Session>, String> {
     let projects = root.join("projects");
     if !projects.is_dir() {
         return Err("E_SOURCE_MISSING".into());
@@ -223,7 +291,7 @@ pub fn load(root: &Path) -> Result<Vec<Session>, String> {
             if !path.extension().is_some_and(|e| e == "jsonl") || is_link(&path) {
                 continue;
             }
-            if let Some(session) = session_from(&path) {
+            if let Some(session) = session_from(&path, agent) {
                 sessions.push(session);
             }
         }
@@ -266,7 +334,7 @@ mod tests {
         assert_eq!(head.created_at, 1790126889);
         assert_eq!(head.updated_at, 1790126899);
 
-        let session = session_from(&path).unwrap();
+        let session = session_from(&path, Agent::CodeBuddy).unwrap();
         assert_eq!(session.id, "codebuddy:s-1");
         assert_eq!(session.agent, Agent::CodeBuddy);
         assert_eq!(session.title, "Dependency list");
@@ -295,7 +363,10 @@ mod tests {
         let head = read_head(&path).unwrap();
         assert_eq!(head.first_user_message, None);
         assert_eq!(head.first_command.as_deref(), Some("/model"));
-        assert_eq!(session_from(&path).unwrap().title, "/model");
+        assert_eq!(
+            session_from(&path, Agent::CodeBuddy).unwrap().title,
+            "/model"
+        );
     }
 
     #[test]

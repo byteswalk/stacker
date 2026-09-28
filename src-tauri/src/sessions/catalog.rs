@@ -57,9 +57,22 @@ pub fn load(roots: &Roots) -> Catalog {
     if let Ok(found) = super::mimo_catalog::load(Path::new(&roots.mimo)) {
         sessions.extend(found);
     }
+    if let Ok(found) = super::workbuddy_catalog::load(Path::new(&roots.workbuddy), Agent::WorkBuddy)
+    {
+        sessions.extend(found);
+    }
+    if let Ok(found) =
+        super::workbuddy_catalog::load(Path::new(&roots.workbuddy_ai), Agent::WorkBuddyAi)
+    {
+        sessions.extend(found);
+    }
     if let Ok(found) = super::kimi_catalog::load(Path::new(&roots.kimi)) {
         sessions.extend(found);
     }
+    fold_imports(
+        &mut sessions,
+        &super::mimo_catalog::imports(Path::new(&roots.mimo)),
+    );
     if let Ok(mut cache) = CACHE.lock() {
         *cache = Some(Cached {
             at: Instant::now(),
@@ -69,6 +82,52 @@ pub fn load(roots: &Roots) -> Catalog {
         });
     }
     Catalog { sessions, warnings }
+}
+
+/// An agent that imports another's history holds the same conversation twice. The one the
+/// user actually had is the original, so the import is folded into it — counted once, shown
+/// once — and only an import whose original is gone stays on its own.
+pub fn fold_imports(sessions: &mut Vec<Session>, imports: &[super::mimo_catalog::Import]) {
+    if imports.is_empty() {
+        return;
+    }
+    let by_path: std::collections::HashMap<String, usize> = sessions
+        .iter()
+        .enumerate()
+        .map(|(index, session)| (session.path.to_lowercase(), index))
+        .collect();
+    let mut folded: Vec<usize> = Vec::new();
+    let mut holds: Vec<(usize, Agent)> = Vec::new();
+    let mut came_from: Vec<(usize, Agent)> = Vec::new();
+    for (index, session) in sessions.iter().enumerate() {
+        if session.agent != Agent::MiMo {
+            continue;
+        }
+        let Some(import) = imports.iter().find(|i| i.session_id == session.native_id) else {
+            continue;
+        };
+        match by_path.get(&import.source_path.to_lowercase()) {
+            Some(&original) if original != index => {
+                folded.push(index);
+                holds.push((original, session.agent));
+            }
+            // The conversation it was imported from is no longer on disk, so this copy is
+            // all that is left of it: keep it, and say where it came from.
+            _ => came_from.push((index, import.agent)),
+        }
+    }
+    for (index, agent) in holds {
+        if !sessions[index].imported_by.contains(&agent) {
+            sessions[index].imported_by.push(agent);
+        }
+    }
+    for (index, agent) in came_from {
+        sessions[index].imported_from = Some(agent);
+    }
+    folded.sort_unstable();
+    for index in folded.into_iter().rev() {
+        sessions.remove(index);
+    }
 }
 
 fn client_name(client: ClientTag) -> &'static str {
@@ -98,7 +157,10 @@ pub fn filter(sessions: &[Session], q: &SessionQuery) -> Vec<Session> {
             "active" => s.status == SessionStatus::Active,
             "archived" => s.status == SessionStatus::Archived,
             "orphaned" => s.status == SessionStatus::Orphaned,
-            _ => true,
+            "discarded" => s.status == SessionStatus::Discarded,
+            // A conversation the user deleted in the agent's own app is only shown when
+            // asked for: on disk it is leftovers, not a conversation they still keep.
+            _ => s.status != SessionStatus::Discarded,
         })
         .filter(|s| !q.favorites_only || s.favorite)
         .filter(|s| q.updated_after == 0 || s.updated_at >= q.updated_after)
@@ -121,14 +183,46 @@ pub fn filter(sessions: &[Session], q: &SessionQuery) -> Vec<Session> {
     out
 }
 
-pub fn page(filtered: Vec<Session>, offset: usize, warnings: Vec<String>) -> SessionPage {
+pub fn page(
+    filtered: Vec<Session>,
+    offset: usize,
+    warnings: Vec<String>,
+    agents: Vec<AgentCount>,
+) -> SessionPage {
     SessionPage {
         total: filtered.len(),
         ids: filtered.iter().map(|s| s.id.clone()).collect(),
         total_bytes: filtered.iter().map(|s| s.bytes).sum(),
         items: filtered.into_iter().skip(offset).take(PAGE_SIZE).collect(),
         warnings,
+        agents,
     }
+}
+
+/// What every agent holds under the current filters, the agent filter itself aside: the
+/// picker has to show the other agents' counts to be worth opening.
+pub fn agent_counts(sessions: &[Session], q: &SessionQuery) -> Vec<AgentCount> {
+    let without_agent = SessionQuery {
+        agent: String::new(),
+        offset: 0,
+        ..q.clone()
+    };
+    let mut rows: Vec<AgentCount> = Vec::new();
+    for session in filter(sessions, &without_agent) {
+        match rows.iter_mut().find(|row| row.agent == session.agent) {
+            Some(row) => {
+                row.sessions += 1;
+                row.bytes += session.bytes;
+            }
+            None => rows.push(AgentCount {
+                agent: session.agent,
+                sessions: 1,
+                bytes: session.bytes,
+            }),
+        }
+    }
+    rows.sort_by_key(|row| std::cmp::Reverse(row.sessions));
+    rows
 }
 
 pub fn projects(sessions: &[Session]) -> Vec<ProjectRow> {
@@ -186,6 +280,8 @@ pub(crate) mod tests_support {
             summary_by: String::new(),
             summary_at: 0,
             copies: Vec::new(),
+            imported_from: None,
+            imported_by: Vec::new(),
         }
     }
 }
@@ -216,6 +312,90 @@ mod tests {
         s.updated_at = updated;
         s.bytes = 10;
         s
+    }
+
+    #[test]
+    fn an_imported_conversation_is_folded_into_the_one_it_came_from() {
+        use super::super::mimo_catalog::Import;
+        let mut original = session(
+            "claude:a",
+            Agent::Claude,
+            ClientTag::Terminal,
+            SessionStatus::Active,
+            "p1",
+            10,
+        );
+        original.path = r"C:\Users\me\.claude\projects\p1\a.jsonl".into();
+        let mut copy = session(
+            "mimo:x",
+            Agent::MiMo,
+            ClientTag::Terminal,
+            SessionStatus::Active,
+            "p1",
+            11,
+        );
+        copy.native_id = "x".into();
+        let mut orphan = session(
+            "mimo:y",
+            Agent::MiMo,
+            ClientTag::Terminal,
+            SessionStatus::Active,
+            "p1",
+            12,
+        );
+        orphan.native_id = "y".into();
+        let mut sessions = vec![original.clone(), copy, orphan];
+
+        let imports = vec![
+            Import {
+                session_id: "x".into(),
+                agent: Agent::Claude,
+                // The same file, spelled the way MiMo recorded it.
+                source_path: r"C:\USERS\me\.claude\projects\p1\A.JSONL".into(),
+            },
+            Import {
+                session_id: "y".into(),
+                agent: Agent::Claude,
+                source_path: r"C:\Users\me\.claude\projects\p1\gone.jsonl".into(),
+            },
+        ];
+        fold_imports(&mut sessions, &imports);
+
+        // The conversation the user actually had is listed once, and says who else holds it.
+        assert_eq!(sessions.len(), 2);
+        assert_eq!(sessions[0].id, "claude:a");
+        assert_eq!(sessions[0].imported_by, vec![Agent::MiMo]);
+        assert_eq!(sessions[0].imported_from, None);
+        // The import whose original is gone stays, and says where it came from.
+        assert_eq!(sessions[1].id, "mimo:y");
+        assert_eq!(sessions[1].imported_from, Some(Agent::Claude));
+        assert!(sessions[1].imported_by.is_empty());
+    }
+
+    #[test]
+    fn a_conversation_discarded_in_its_app_is_out_of_the_way_until_asked_for() {
+        let mut sessions = sample();
+        let mut gone = session(
+            "workbuddy:z",
+            Agent::WorkBuddy,
+            ClientTag::Desktop,
+            SessionStatus::Discarded,
+            "p1",
+            99,
+        );
+        gone.title = "deleted in the app".into();
+        sessions.push(gone);
+        let listed = filter(&sessions, &SessionQuery::default());
+        assert!(!listed.iter().any(|s| s.id == "workbuddy:z"));
+        let asked = filter(
+            &sessions,
+            &SessionQuery {
+                status: "discarded".into(),
+                ..Default::default()
+            },
+        );
+        assert_eq!(asked.len(), 1);
+        assert_eq!(asked[0].id, "workbuddy:z");
     }
 
     fn sample() -> Vec<Session> {
@@ -374,7 +554,7 @@ mod tests {
         let many: Vec<_> = (0..45)
             .map(|i| tests_support::session(&i.to_string()))
             .collect();
-        let page = page(many, 40, vec![]);
+        let page = page(many, 40, vec![], vec![]);
         assert_eq!(page.items.len(), 5);
         assert_eq!(page.ids.len(), 45);
     }

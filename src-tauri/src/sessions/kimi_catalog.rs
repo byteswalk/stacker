@@ -212,6 +212,8 @@ fn session_from(session_dir: &Path, index_cwd: Option<&str>) -> Option<Session> 
         summary_by: String::new(),
         summary_at: 0,
         copies: Vec::new(),
+        imported_from: None,
+        imported_by: Vec::new(),
         native_id: id,
     })
 }

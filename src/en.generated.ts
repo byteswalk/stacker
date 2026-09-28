@@ -3237,4 +3237,9 @@ export const GENERATED_EN: Record<string, string> = {
   "Agnes 只发布桌面应用，官方没有提供命令行。": "Agnes ships a desktop app only; the vendor offers no command line.",
   "agnes-ai.cn 发布的 Windows 桌面应用，安装后以发行方名称“爱思办公”登记，账号与国际站不互通。": "The Windows desktop app published on agnes-ai.cn. It registers under the publisher's own name, and its accounts are separate from the international site.",
   "agnes-ai.com 发布的 Windows 桌面应用，安装包未带数字签名，按官方发布的 SHA-512 校验后安装。": "The Windows desktop app published on agnes-ai.com. The package carries no digital signature, so it is checked against the SHA-512 the vendor publishes before it runs.",
+  "应用内已删除": "Deleted in the app",
+  "导入自 ": "Imported from ",
+  "这条对话被导入过另一个智能体的库；只算一份，删除本条不会动那份副本。": "Another agent imported this conversation into its own store. It is counted once here, and deleting this one leaves that copy alone.",
+  "这条对话是从别的智能体导入的，原件已不在磁盘上。": "This conversation was imported from another agent, and the original is no longer on disk.",
+  "导入自": "Imported from",
 };

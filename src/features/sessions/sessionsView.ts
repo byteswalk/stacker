@@ -1,6 +1,14 @@
 import type { AgentName, ClientTag, SessionStatus } from "./types";
 
-export const AGENT_LABEL: Record<AgentName, string> = { codex: "Codex", claude: "Claude", codebuddy: "CodeBuddy", mimo: "MiMo", kimi: "Kimi" };
+export const AGENT_LABEL: Record<AgentName, string> = {
+  codex: "Codex",
+  claude: "Claude",
+  codebuddy: "CodeBuddy",
+  workbuddy: "WorkBuddy \u4e2d\u56fd\u7248",
+  "workbuddy-ai": "WorkBuddy \u56fd\u9645\u7248",
+  mimo: "MiMo",
+  kimi: "Kimi",
+};
 
 export const CLIENT_LABEL: Record<ClientTag, string> = {
   desktop: "桌面端",
@@ -16,6 +24,8 @@ export const STATUS_LABEL: Record<SessionStatus, string> = {
   active: "未归档",
   archived: "已归档",
   orphaned: "孤儿",
+  // Deleted inside the agent's own app; the transcript it left behind is still on disk.
+  discarded: "应用内已删除",
 };
 
 export function toggleSelection(current: string[], id: string): string[] {

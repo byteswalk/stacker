@@ -83,7 +83,8 @@ pub async fn sessions_list(query: SessionQuery) -> Result<SessionPage, String> {
                 filtered.sort_by_key(|s| std::cmp::Reverse(s.updated_at));
             }
         }
-        Ok(catalog::page(filtered, query.offset, warnings))
+        let agents = catalog::agent_counts(&sessions, &query);
+        Ok(catalog::page(filtered, query.offset, warnings, agents))
     })
     .await
 }
@@ -153,6 +154,8 @@ pub fn sessions_set_roots(overrides: Roots) -> Result<RootsView, String> {
         claude: overrides.claude.trim().to_string(),
         claude_desktop_index: overrides.claude_desktop_index.trim().to_string(),
         codebuddy: overrides.codebuddy.trim().to_string(),
+        workbuddy: overrides.workbuddy.trim().to_string(),
+        workbuddy_ai: overrides.workbuddy_ai.trim().to_string(),
         mimo: overrides.mimo.trim().to_string(),
         kimi: overrides.kimi.trim().to_string(),
     };

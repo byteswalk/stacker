@@ -72,11 +72,13 @@ pub fn choice_for(settings: &SummarySettings, agent: Agent) -> RunnerChoice {
     match agent {
         // Only Codex and Claude write summaries; a session from elsewhere is summarised by
         // whichever of those two the settings name.
-        Agent::CodeBuddy | Agent::MiMo | Agent::Kimi => RunnerChoice {
-            agent: Agent::Codex,
-            model: non_empty(&settings.codex_model),
-            effort: non_empty(&settings.codex_effort),
-        },
+        Agent::CodeBuddy | Agent::WorkBuddy | Agent::WorkBuddyAi | Agent::MiMo | Agent::Kimi => {
+            RunnerChoice {
+                agent: Agent::Codex,
+                model: non_empty(&settings.codex_model),
+                effort: non_empty(&settings.codex_effort),
+            }
+        }
         Agent::Codex => RunnerChoice {
             agent,
             model: non_empty(&settings.codex_model),

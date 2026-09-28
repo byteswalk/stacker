@@ -178,16 +178,18 @@ pub fn plan(
                     allowed.push((session.clone(), vec![dir]));
                 }
             }
-            // One transcript file, nothing beside it.
-            Agent::CodeBuddy => {
+            // The transcript, plus the folder of sub-agent runs beside it.
+            Agent::CodeBuddy | Agent::WorkBuddy | Agent::WorkBuddyAi => {
                 let transcript = PathBuf::from(&session.path);
-                let root = PathBuf::from(&roots.codebuddy);
+                let root = PathBuf::from(buddy_root(session.agent, roots));
+                let paths =
+                    super::codebuddy_catalog::related_paths(&transcript, &session.native_id);
                 if now.saturating_sub(modified_secs(&transcript)) < IN_USE_SECONDS {
                     blocked.push(block("E_IN_USE"));
-                } else if is_link(&transcript) || !inside(&root, &transcript) {
+                } else if paths.iter().any(|p| is_link(p) || !inside(&root, p)) {
                     blocked.push(block("E_LINK"));
                 } else {
-                    allowed.push((session.clone(), vec![transcript]));
+                    allowed.push((session.clone(), paths));
                 }
             }
         }
@@ -198,6 +200,16 @@ pub fn plan(
 /// Removes a Claude session's files after checking every path again.
 pub fn delete_claude(paths: &[PathBuf], roots: &Roots) -> Result<(), String> {
     delete_files(paths, Path::new(&roots.claude))
+}
+
+/// Which store a CodeBuddy-shaped transcript belongs to: the three products share the
+/// format and each keeps its own folder.
+fn buddy_root(agent: Agent, roots: &Roots) -> &str {
+    match agent {
+        Agent::WorkBuddy => &roots.workbuddy,
+        Agent::WorkBuddyAi => &roots.workbuddy_ai,
+        _ => &roots.codebuddy,
+    }
 }
 
 /// Removes a session's files after checking every path again: still inside the agent's own
@@ -383,7 +395,9 @@ fn process(
     match session.agent {
         Agent::Claude => delete_claude(paths, roots)?,
         Agent::Codex => delete_codex(rpc, Path::new(&roots.codex), session)?,
-        Agent::CodeBuddy => delete_files(paths, Path::new(&roots.codebuddy))?,
+        Agent::CodeBuddy | Agent::WorkBuddy | Agent::WorkBuddyAi => {
+            delete_files(paths, Path::new(buddy_root(session.agent, roots)))?
+        }
         Agent::MiMo => delete_mimo(&session.native_id)?,
         Agent::Kimi => delete_files(paths, Path::new(&roots.kimi))?,
     }

@@ -21,6 +21,8 @@ pub fn default_source(agent: Agent) -> PathBuf {
         Agent::Codex => home.join(".codex"),
         Agent::Claude => home.join(".claude"),
         Agent::CodeBuddy => home.join(".codebuddy"),
+        Agent::WorkBuddy => home.join(".workbuddy"),
+        Agent::WorkBuddyAi => home.join(".workbuddy-ai"),
         Agent::MiMo => home.join(".local").join("share").join("mimocode"),
         Agent::Kimi => home.join(".kimi-code"),
     }
@@ -31,7 +33,7 @@ fn env_name(agent: Agent) -> &'static str {
         Agent::Codex => "CODEX_HOME",
         Agent::Claude => "CLAUDE_CONFIG_DIR",
         // These read no environment variable for their data folder.
-        Agent::CodeBuddy | Agent::MiMo | Agent::Kimi => "",
+        Agent::CodeBuddy | Agent::WorkBuddy | Agent::WorkBuddyAi | Agent::MiMo | Agent::Kimi => "",
     }
 }
 
@@ -64,6 +66,7 @@ pub fn agent_running(agent: Agent, images: &[PathBuf]) -> bool {
         match agent {
             Agent::Codex => name.starts_with("codex") || lower.contains("\\openai.codex_"),
             Agent::CodeBuddy => name.starts_with("codebuddy") || name == "cbc.exe",
+            Agent::WorkBuddy | Agent::WorkBuddyAi => name.starts_with("workbuddy"),
             Agent::MiMo => name.starts_with("mimo"),
             Agent::Kimi => name.starts_with("kimi"),
             Agent::Claude => {
@@ -100,6 +103,8 @@ pub fn status(agent: Agent) -> LocationStatus {
         Agent::Codex => "codex",
         Agent::Claude => "claude",
         Agent::CodeBuddy => "codebuddy",
+        Agent::WorkBuddy => "workbuddy",
+        Agent::WorkBuddyAi => "workbuddy-ai",
         Agent::MiMo => "mimo",
         Agent::Kimi => "kimi",
     };

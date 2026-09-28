@@ -360,6 +360,8 @@ fn session_from(
         summary_by: String::new(),
         summary_at: 0,
         copies: Vec::new(),
+        imported_from: None,
+        imported_by: Vec::new(),
     })
 }
 

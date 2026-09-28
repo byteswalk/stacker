@@ -34,6 +34,8 @@ pub fn resolve(overrides: &Roots) -> Roots {
             roaming.join("Claude").join("claude-code-sessions"),
         ),
         codebuddy: pick(&overrides.codebuddy, None, home.join(".codebuddy")),
+        workbuddy: pick(&overrides.workbuddy, None, home.join(".workbuddy")),
+        workbuddy_ai: pick(&overrides.workbuddy_ai, None, home.join(".workbuddy-ai")),
         mimo: pick(
             &overrides.mimo,
             None,

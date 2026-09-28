@@ -1,6 +1,6 @@
-export type AgentName = "codex" | "claude" | "codebuddy" | "mimo" | "kimi";
+export type AgentName = "codex" | "claude" | "codebuddy" | "workbuddy" | "workbuddy-ai" | "mimo" | "kimi";
 export type ClientTag = "desktop" | "terminal" | "ide" | "automation" | "sdk" | "unknown";
-export type SessionStatus = "active" | "archived" | "orphaned";
+export type SessionStatus = "active" | "archived" | "orphaned" | "discarded";
 export type TitleSource = "client" | "custom" | "summary" | "first_message";
 export type DeleteMode = "slim_export" | "direct" | "full_backup";
 
@@ -28,6 +28,10 @@ export type Session = {
   favorite: boolean;
   summary: string | null;
   summaryStale: boolean;
+  /** Set when this conversation was imported from an agent whose own copy is gone. */
+  importedFrom?: AgentName | null;
+  /** Agents holding an imported copy of this conversation; counted here, not twice. */
+  importedBy?: AgentName[];
   summaryBy: string;
   summaryAt: number;
   /** Older transcripts of the same session in other worktree folders. */
@@ -48,7 +52,8 @@ export type SessionQuery = {
   offset: number;
 };
 
-export type SessionPage = { items: Session[]; total: number; ids: string[]; totalBytes: number; warnings: string[] };
+export type AgentCount = { agent: AgentName; sessions: number; bytes: number };
+export type SessionPage = { items: Session[]; total: number; ids: string[]; totalBytes: number; warnings: string[]; agents: AgentCount[] };
 export type ProjectRow = { project: ProjectRef; agents: AgentName[]; sessions: number; orphans: number; bytes: number; updatedAt: number };
 export type Roots = { codex: string; claude: string; claudeDesktopIndex: string };
 export type RootsView = { effective: Roots; overrides: Roots; exportDir: string };
@@ -73,7 +78,7 @@ export const EMPTY_QUERY: SessionQuery = {
   agent: "", project: "", status: "", client: "", search: "", fullText: false,
   includeAutomation: false, favoritesOnly: false, updatedAfter: 0, sort: "", offset: 0,
 };
-export const EMPTY_PAGE: SessionPage = { items: [], total: 0, ids: [], totalBytes: 0, warnings: [] };
+export const EMPTY_PAGE: SessionPage = { items: [], total: 0, ids: [], totalBytes: 0, warnings: [], agents: [] };
 export const PAGE_SIZE = 40;
 
 export const ERRORS: Record<string, string> = {

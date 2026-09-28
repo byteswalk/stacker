@@ -40,6 +40,8 @@ export function SessionList({ page, query, projects, loading, selected, onSelect
   // Cascade: only projects that have sessions of the chosen agent.
   const agentProjects = query.agent ? projects.filter((p) => p.agents.includes(query.agent as AgentName)) : projects;
   const clients = clientsFor(query.agent);
+  const agents = page.agents ?? [];
+  const allSessions = agents.reduce((sum, a) => sum + a.sessions, 0);
   const pickAgent = (agent: string) => onFilter({
     agent,
     project: !agent || !query.project || projects.some((p) => p.project.key === query.project && p.agents.includes(agent as AgentName)) ? query.project : "",
@@ -53,9 +55,12 @@ export function SessionList({ page, query, projects, loading, selected, onSelect
     <div className="session-filters">
       <label className="session-search"><i className="ti ti-search" /><input value={query.search} aria-label={t("搜索会话")} placeholder={t("搜索标题、项目或摘要")} onChange={(e) => onFilter({ search: e.target.value })} /></label>
       <label className="session-check"><input type="checkbox" checked={query.fullText} onChange={(e) => onFilter({ fullText: e.target.checked })} />{t("搜索原文")}</label>
-      <Select value={query.agent} onChange={pickAgent} options={[{ value: "", label: t("全部智能体") }, { value: "codex", label: "Codex" }, { value: "claude", label: "Claude" }, { value: "codebuddy", label: "CodeBuddy" }, { value: "mimo", label: "MiMo" }, { value: "kimi", label: "Kimi" }]} />
+      <Select value={query.agent} onChange={pickAgent} width={170} options={[
+        { value: "", label: `${t("全部智能体")}${allSessions ? ` (${allSessions})` : ""}` },
+        ...agents.map((a) => ({ value: a.agent, label: `${AGENT_LABEL[a.agent]} (${a.sessions})`, title: bytes(a.bytes) })),
+      ]} />
       <Select value={query.project} onChange={(project) => onFilter({ project })} options={[{ value: "", label: t("全部项目") }, ...agentProjects.map((p) => ({ value: p.project.key, label: p.project.name, title: p.project.path }))]} />
-      <Select value={query.status} onChange={(status) => onFilter({ status })} options={[{ value: "", label: t("全部状态") }, ...(["active", "archived", "orphaned"] as const).map((value) => ({ value, label: t(STATUS_LABEL[value]) }))]} />
+      <Select value={query.status} onChange={(status) => onFilter({ status })} options={[{ value: "", label: t("全部状态") }, ...(["active", "archived", "orphaned", "discarded"] as const).map((value) => ({ value, label: t(STATUS_LABEL[value]) }))]} />
       <Select value={query.client} onChange={(client) => onFilter({ client })} options={[{ value: "", label: t("全部来源") }, ...clients.map((value) => ({ value, label: t(CLIENT_LABEL[value]) }))]} />
       <Select value={query.updatedAfter ? String(Math.round((now - query.updatedAfter) / 86400)) : ""} onChange={(days) => onFilter({ updatedAfter: days ? now - Number(days) * 86400 : 0 })} options={[{ value: "", label: t("全部时间") }, ...[7, 30, 90].map((days) => ({ value: String(days), label: `${t("最近")} ${days} ${t("天")}` }))]} />
       <Select value={query.sort} onChange={(sort) => onFilter({ sort: sort as SessionQuery["sort"] })} options={[{ value: "", label: t("最近活动优先") }, { value: "bytes", label: t("占用最大优先") }]} />
@@ -81,6 +86,8 @@ export function SessionList({ page, query, projects, loading, selected, onSelect
               <span className={`session-tag agent-${s.agent}`}>{AGENT_LABEL[s.agent]}</span>
               <span className="session-tag">{t(CLIENT_LABEL[s.client])}</span>
               {!!s.copies.length && <span className="session-tag" title={t("这个会话切换过工作目录，Claude 在其他 worktree 目录里另存了记录；占用已合并计算，删除时一起删除。")}>{t("副本")} {s.copies.length}</span>}
+              {s.importedBy?.map((by) => <span key={by} className="session-tag" title={t("这条对话被导入过另一个智能体的库；只算一份，删除本条不会动那份副本。")}>{t("副本 · ")}{AGENT_LABEL[by]}{t(" 导入")}</span>)}
+              {s.importedFrom && <span className="session-tag" title={t("这条对话是从别的智能体导入的，原件已不在磁盘上。")}>{t("导入自 ")}{AGENT_LABEL[s.importedFrom]}</span>}
               {!!s.children.length && <button className="session-tag link" aria-expanded={expanded === s.id} onClick={() => setExpanded(expanded === s.id ? null : s.id)}>{t("子任务")} {s.children.length}</button>}
             </span>
             <span className={`session-status ${s.status}`}>{t(STATUS_LABEL[s.status])}{s.parentMissing && <small>{t("父会话已不存在")}</small>}</span>

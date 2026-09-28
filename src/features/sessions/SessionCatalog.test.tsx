@@ -90,7 +90,7 @@ describe("project filter", () => {
       { project: { key: "b", name: "only-claude", path: "B", exists: true }, agents: ["claude"], sessions: 1, orphans: 0, bytes: 1, updatedAt: 1 },
     ];
     const query = { agent: "codex", project: "", status: "", client: "", search: "", fullText: false, includeAutomation: false, favoritesOnly: false, updatedAfter: 0, sort: "" as const, offset: 0 };
-    await act(async () => { root.render(<SessionList page={{ items: [], total: 0, ids: [], totalBytes: 0, warnings: [] }} query={query} projects={projects} loading={false} selected={[]}
+    await act(async () => { root.render(<SessionList page={{ items: [], total: 0, ids: [], totalBytes: 0, warnings: [], agents: [{ agent: "codex", sessions: 1, bytes: 1 }, { agent: "workbuddy", sessions: 4, bytes: 9 }] }} query={query} projects={projects} loading={false} selected={[]}
       onSelect={() => {}} onFilter={onFilter} onPage={() => {}} onOpen={() => {}} onFavorite={() => {}} onDelete={() => {}} onSummarize={() => {}} onDistill={() => {}} />); });
     const selects = [...host.querySelectorAll("button")].filter((b) => b.textContent?.includes("全部项目"));
     await click(selects[0]);
