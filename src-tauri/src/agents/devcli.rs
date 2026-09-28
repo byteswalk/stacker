@@ -19,6 +19,17 @@ pub(crate) fn run(args: &[String]) -> Option<i32> {
         ["winget", args @ ..] => winget(args),
         ["check-installer", id] => check_installer(id),
         ["latest", id] => latest(id),
+        ["proxy"] => {
+            println!("system  {:?}", crate::proxy_system::system());
+            println!("service {:?}", crate::proxy_system::service());
+            for row in crate::proxy_ledger::sync_report().rows {
+                println!(
+                    "  {:14} {:9} ours={} {}",
+                    row.id, row.issue, row.ours, row.value
+                );
+            }
+            0
+        }
         ["junk", path] => match crate::project_junk::scan(std::path::Path::new(path)) {
             Ok(report) => {
                 for item in &report.items {

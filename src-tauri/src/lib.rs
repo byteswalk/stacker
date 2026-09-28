@@ -21,6 +21,7 @@ mod profile;
 mod project_junk;
 mod proxy;
 mod proxy_ledger;
+mod proxy_system;
 mod pyenv;
 pub(crate) mod python_env;
 pub(crate) mod python_venv;
@@ -418,6 +419,7 @@ pub fn run() {
             gateway::agents::gateway_set_log,
             gateway::agents::gateway_set_agent,
             gateway::agents::gateway_test,
+            proxy_ledger::proxy_sync_report,
             proxy_ledger::proxy_location_write,
             proxy_ledger::proxy_location_clear,
             proxy_ledger::proxy_clear_stale,

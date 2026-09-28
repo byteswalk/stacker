@@ -269,6 +269,91 @@ pub fn overview() -> Overview {
     }
 }
 
+/// One place whose proxy no longer matches what Windows is set to.
+#[derive(Clone, Debug, Serialize)]
+pub struct SyncRow {
+    pub id: String,
+    pub value: String,
+    /// missing | elsewhere | leftover
+    pub issue: String,
+    /// Whether Stacker wrote what is there now, and may change it without asking.
+    pub ours: bool,
+}
+
+/// The system's setting, the service setting, and everywhere that disagrees with them.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncReport {
+    pub system: crate::proxy_system::SystemProxy,
+    pub service: crate::proxy_system::ServiceProxy,
+    pub rows: Vec<SyncRow>,
+}
+
+/// Compares every place Stacker knows against the system setting. Nothing is changed here;
+/// the page decides what to offer, and the user decides what to do.
+pub fn sync_report() -> SyncReport {
+    let system = crate::proxy_system::system();
+    let service = crate::proxy_system::service();
+    let on = system.state == crate::proxy_system::SystemState::On;
+    let wanted = crate::proxy_system::first_endpoint(&system.server);
+    let overview = overview();
+    let mut rows = Vec::new();
+    for row in &overview.locations {
+        let ours = row.owner == "managed";
+        let current = row.value.clone().unwrap_or_default();
+        let endpoint = endpoint(&current).map(|(h, p)| format!("{h}:{p}"));
+        let issue = match (on, current.is_empty()) {
+            // The system routes through a proxy and this place does not know about it.
+            (true, true) => "missing",
+            (true, false) if endpoint.as_deref() != Some(wanted.as_str()) => "elsewhere",
+            (true, false) => continue,
+            // The system goes direct, so a proxy left here sends traffic nowhere.
+            (false, false) => "leftover",
+            (false, true) => continue,
+        };
+        rows.push(SyncRow {
+            id: row.id.clone(),
+            value: current,
+            issue: issue.into(),
+            ours,
+        });
+    }
+    // The service proxy is Windows' own setting, changed with an elevated netsh; it is
+    // reported the same way so nothing about it is a surprise.
+    if service.known {
+        let issue = match (on, service.server.is_empty()) {
+            (true, true) => Some("missing"),
+            (true, false) if service.server != wanted => Some("elsewhere"),
+            (false, false) => Some("leftover"),
+            _ => None,
+        };
+        if let Some(issue) = issue {
+            rows.push(SyncRow {
+                id: "winhttp".into(),
+                value: service.server.clone(),
+                issue: issue.into(),
+                ours: false,
+            });
+        }
+    }
+    SyncReport {
+        system,
+        service,
+        rows,
+    }
+}
+
+#[tauri::command]
+pub async fn proxy_sync_report() -> SyncReport {
+    tauri::async_runtime::spawn_blocking(sync_report)
+        .await
+        .unwrap_or_else(|_| SyncReport {
+            system: crate::proxy_system::system(),
+            service: crate::proxy_system::service(),
+            rows: Vec::new(),
+        })
+}
+
 #[tauri::command]
 pub async fn proxy_overview() -> Overview {
     tauri::async_runtime::spawn_blocking(overview)

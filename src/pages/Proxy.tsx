@@ -10,6 +10,26 @@ type ProxyStatus = {
 type LocationRow = { id: string; value: string | null; owner: "managed" | "external" | "none" };
 type Overview = { mode: Mode; host: string; port: number; windows: string | null; write_address: string | null; locations: LocationRow[] };
 
+type SystemState = "on" | "off" | "stale" | "unknown";
+type SystemProxy = { state: SystemState; server: string; recorded: string; bypass: string };
+type ServiceProxy = { server: string; bypass: string; known: boolean };
+type SyncRow = { id: string; value: string; issue: "missing" | "elsewhere" | "leftover"; ours: boolean };
+type SyncReport = { system: SystemProxy; service: ServiceProxy; rows: SyncRow[] };
+
+/** Windows' own setting, which Stacker reads and never writes. */
+const SYSTEM_STATE: Record<SystemState, { label: string; cls: string; hint: string }> = {
+  on: { label: "已开启", cls: "g", hint: "浏览器等读系统设置的程序走这个地址。" },
+  off: { label: "未开启", cls: "n", hint: "系统目前直连（或由 TUN / VPN 在网络层接管）。" },
+  stale: { label: "设置残留", cls: "y", hint: "注册表里还写着地址，但连接记录说直连；新启动的程序不会走它。" },
+  unknown: { label: "未知", cls: "n", hint: "读不到 Windows 的代理设置。" },
+};
+
+const ISSUE: Record<SyncRow["issue"], { label: string; cls: string }> = {
+  missing: { label: "尚未写入", cls: "y" },
+  elsewhere: { label: "指向别处", cls: "y" },
+  leftover: { label: "系统已关，此处残留", cls: "r" },
+};
+
 const MODES: { value: Mode; label: string; hint: string }[] = [
   { value: "hands_off", label: "不干预", hint: "Stacker 不会自动写入或清除任何代理设置，只在你点击下方按钮时写入。" },
   { value: "system", label: "跟随系统", hint: "启动时和点击「同步」时，把 Stacker 写入的代理更新为 Windows 系统代理地址；你自己改过的不会动。" },
@@ -18,6 +38,7 @@ const MODES: { value: Mode; label: string; hint: string }[] = [
 
 const LOCATION_INFO: Record<string, { name: string; detail: string; icon: string }> = {
   env: { name: "终端环境变量", detail: "用户级 HTTP_PROXY / HTTPS_PROXY / ALL_PROXY / NO_PROXY，新开终端生效", icon: "ti-terminal-2" },
+  winhttp: { name: "服务代理 WinHTTP", detail: "系统服务使用，修改需要管理员权限（netsh winhttp）", icon: "ti-settings-cog" },
   git: { name: "Git", detail: "全局 http.proxy / https.proxy", icon: "ti-brand-git" },
   npm: { name: "npm / pnpm", detail: "~/.npmrc 的 proxy / https-proxy", icon: "ti-brand-npm" },
   yarn: { name: "Yarn", detail: "~/.yarnrc 的 proxy / https-proxy", icon: "ti-brand-yarn" },
@@ -53,10 +74,15 @@ export default function Proxy() {
   const [copied, setCopied] = useState("");
   const [shell, setShell] = useState<"powershell" | "cmd" | "bash">("powershell");
   const [loadErr, setLoadErr] = useState(false);
+  const [report, setReport] = useState<SyncReport | null>(null);
 
   const load = useCallback(async () => {
-    const [nextOv, nextSt] = await Promise.all([invoke<Overview>("proxy_overview"), invoke<ProxyStatus>("proxy_status")]);
-    setOv(nextOv); setSt(nextSt); setManual(nextSt.no_proxy_manual);
+    const [nextOv, nextSt, nextReport] = await Promise.all([
+      invoke<Overview>("proxy_overview"),
+      invoke<ProxyStatus>("proxy_status"),
+      invoke<SyncReport>("proxy_sync_report"),
+    ]);
+    setOv(nextOv); setSt(nextSt); setReport(nextReport); setManual(nextSt.no_proxy_manual);
     if (nextOv.mode === "manual") { setHost(nextOv.host); setPort(nextOv.port ? String(nextOv.port) : ""); }
     setLoadErr(false);
   }, []);
@@ -122,10 +148,45 @@ export default function Proxy() {
         </div>
       </div>
 
+      {report && <div className="pxcard">
+        <div className="pxsec"><i className="ti ti-device-desktop" /> 系统代理 <span className="pxhint">Windows 自己的设置，Stacker 只读不改</span></div>
+        <div className="proxy-system">
+          <span className={"bd " + SYSTEM_STATE[report.system.state].cls}>{SYSTEM_STATE[report.system.state].label}</span>
+          <b className="mono">{report.system.server || report.system.recorded || "—"}</b>
+          <span className="s dim">{SYSTEM_STATE[report.system.state].hint}</span>
+        </div>
+        <div className="proxy-system">
+          <span className={"bd " + (report.service.known ? (report.service.server ? "g" : "n") : "n")}>服务代理 WinHTTP</span>
+          <b className="mono">{report.service.known ? (report.service.server || "直连") : "未知"}</b>
+          <span className="s dim">系统服务使用；修改需要管理员权限。</span>
+        </div>
+        {!!report.rows.length && <div className="proxy-unsynced">
+          <div className="t">
+            <i className="ti ti-alert-triangle" />
+            {report.system.state === "on" ? "以下位置与系统代理不一致" : "系统没有开启代理，以下位置仍写着代理"}
+          </div>
+          {report.rows.map((row) => <div className="proxy-unsynced-row" key={row.id}>
+            <span>{LOCATION_INFO[row.id]?.name ?? row.id}</span>
+            <span className={"bd " + ISSUE[row.issue].cls}>{ISSUE[row.issue].label}</span>
+            <span className="mono proxy-value">{row.value || "—"}</span>
+            {row.id !== "winhttp" && <button className="gh sm" disabled={!!busy || (row.issue !== "leftover" && !address)}
+              onClick={() => row.issue === "leftover"
+                ? (row.ours ? void clear({ id: row.id, value: row.value, owner: "managed" }) : setConfirmClear({ id: row.id, value: row.value, owner: "external" }))
+                : void write({ id: row.id, value: row.value, owner: row.ours ? "managed" : "external" })}>
+              <i className={"ti " + (busy === row.id ? "ti-loader spin" : row.issue === "leftover" ? "ti-eraser" : "ti-pencil")} />
+              {row.issue === "leftover" ? "清除" : "写入"}
+            </button>}
+          </div>)}
+          {report.rows.some((r) => r.id === "winhttp") && <p className="proxy-note">
+            服务代理要用管理员身份运行：<code>netsh winhttp {report.system.state === "on" ? `set proxy ${report.system.server}` : "reset proxy"}</code>
+          </p>}
+        </div>}
+        {!report.rows.length && <p className="proxy-note"><i className="ti ti-circle-check" /> 各处代理与系统设置一致。</p>}
+      </div>}
+
       <div className="pxcard">
-        <div className="pxsec"><i className="ti ti-map-pin" /> 代理地址</div>
+        <div className="pxsec"><i className="ti ti-map-pin" /> 写入地址</div>
         <div className="proxy-address">
-          <div><span>Windows 系统代理</span><b className="mono">{ov.windows ?? "未开启"}</b></div>
           {ov.mode === "manual"
             ? <div><span>手动地址</span>
               <input className="ip" value={host} placeholder="127.0.0.1" onChange={(e) => setHost(e.target.value)} style={{ width: 150 }} />

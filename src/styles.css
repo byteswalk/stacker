@@ -1412,3 +1412,14 @@ button{ font-family:inherit; }
 .a .gw-lan-rows{margin-top:10px}
 .a .gw-lan-rows .proxy-note{margin:8px 0 6px}
 .a .gw-test-detail{display:block;margin-top:3px;font-style:normal;font-size:10.5px;color:var(--mut);max-width:520px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+.a .proxy-system{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:.5px solid var(--bd)}
+.a .proxy-system:last-of-type{border-bottom:0}
+.a .proxy-system b{font-size:12.5px;min-width:140px}
+.a .proxy-system .s{flex:1;min-width:0}
+.a .proxy-unsynced{margin-top:10px;padding:10px 12px;border:.5px solid rgba(230,180,80,.35);border-radius:9px;background:rgba(230,180,80,.06)}
+.a .proxy-unsynced>.t{display:flex;align-items:center;gap:6px;font-size:12px;color:#e6b450;margin-bottom:8px}
+.a .proxy-unsynced-row{display:flex;align-items:center;gap:10px;padding:5px 0;font-size:12px}
+.a .proxy-unsynced-row>span:first-child{min-width:130px}
+.a .proxy-unsynced-row .proxy-value{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--mut)}
+.a .proxy-unsynced .proxy-note code{background:rgba(255,255,255,.06);padding:2px 6px;border-radius:5px}
