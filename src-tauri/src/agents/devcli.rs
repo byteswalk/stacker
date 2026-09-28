@@ -18,6 +18,7 @@ pub(crate) fn run(args: &[String]) -> Option<i32> {
         ["update-desktop", id] => desktop(id, super::install::update_desktop_tool),
         ["winget", args @ ..] => winget(args),
         ["check-installer", id] => check_installer(id),
+        ["latest", id] => latest(id),
         ["download-installer", id] => download_installer(id),
         ["try-install", id, args @ ..] => try_install(id, args),
         ["python-remove", paths @ ..] => {
@@ -227,6 +228,28 @@ fn download_installer(id: &str) -> i32 {
 }
 
 /// Resolves, downloads and verifies a product's official desktop installer without running it.
+/// What the update source answers for a product's desktop app, without installing anything.
+fn latest(id: &str) -> i32 {
+    let Some(spec) = spec_by_id(id) else {
+        eprintln!("no such product: {id}");
+        return 2;
+    };
+    match super::detect::desktop_latest(&spec, None) {
+        Ok(Some((version, source))) => {
+            println!("{id}: {version} ({source})");
+            0
+        }
+        Ok(None) => {
+            println!("{id}: no public source");
+            0
+        }
+        Err(err) => {
+            eprintln!("{id}: {err}");
+            1
+        }
+    }
+}
+
 fn check_installer(id: &str) -> i32 {
     use super::install::direct::*;
     let Some(spec) = spec_by_id(id) else {

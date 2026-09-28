@@ -20,6 +20,7 @@ pub(crate) enum Vendor {
     Pi,
     Copilot,
     MiMo,
+    Agnes,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
@@ -1098,6 +1099,77 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
         process_pattern: r#"(?i)(^|[\\/\s"])mimo(code)?([\\/\s".]|$)|@mimo-ai[\\/]cli|mimo desktop"#,
         data_dirs: &[home(".mimocode")],
     },
+    ProductSpec {
+        id: "agnes-cn",
+        vendor: Vendor::Agnes,
+        family: "agnes",
+        edition: Edition::Cn,
+        edition_label: "中国版",
+        sort: 160,
+        name: "Agnes Code 中国版",
+        description: "桌面 AI 工作台：一个输入框连接本地项目、专家模式、技能扩展与 MCP 应用连接，账号与网页端同步。",
+        icon: "agnes.svg",
+        docs_url: "https://agnes-ai.cn/agnescode",
+        cli: CliSlot::Unavailable {
+            name: "Agnes Code CLI",
+            description: "Agnes 只发布桌面应用，官方没有提供命令行。",
+            url: "https://agnes-ai.cn/agnescode",
+        },
+        cli_note: None,
+        desktop: DesktopSlot::App(DesktopSpec {
+            name: "Agnes Code 桌面端（中国版）",
+            description: "agnes-ai.cn 发布的 Windows 桌面应用，安装后以发行方名称“爱思办公”登记，账号与国际站不互通。",
+            winget_id: None,
+            winget_source: None,
+            appx_names: &[],
+            install_url: "https://agnes-ai.cn/agnescode",
+            docs_url: "https://agnes-ai.cn/agnescode",
+            // This edition ships under the publisher's own name: the installer's product
+            // name, its folder and its executable are all "爱思办公".
+            keywords: &["爱思办公"],
+            excludes: &[],
+            install_unavailable_reason: None,
+            reject_sibling_files: &[],
+        }),
+        workbench_command: None,
+        process_pattern: r#"(?i)(^|[\\/\s"])agnes ?code([\\/\s".]|$)|爱思办公"#,
+        data_dirs: &[roaming("爱思办公"), home(".agnes")],
+    },
+    ProductSpec {
+        id: "agnes-global",
+        vendor: Vendor::Agnes,
+        family: "agnes",
+        edition: Edition::Global,
+        edition_label: "国际版",
+        sort: 161,
+        name: "Agnes Code 国际版",
+        description: "桌面 AI 工作台：一个输入框连接本地项目、专家模式、技能扩展与 MCP 应用连接，账号与网页端同步。",
+        icon: "agnes.svg",
+        docs_url: "https://agnes-ai.com/agnescode",
+        cli: CliSlot::Unavailable {
+            name: "Agnes Code CLI",
+            description: "Agnes 只发布桌面应用，官方没有提供命令行。",
+            url: "https://agnes-ai.com/agnescode",
+        },
+        cli_note: None,
+        desktop: DesktopSlot::App(DesktopSpec {
+            name: "Agnes Code 桌面端（国际版）",
+            description: "agnes-ai.com 发布的 Windows 桌面应用，安装包未带数字签名，按官方发布的 SHA-512 校验后安装。",
+            winget_id: None,
+            winget_source: None,
+            appx_names: &[],
+            install_url: "https://agnes-ai.com/agnescode",
+            docs_url: "https://agnes-ai.com/agnescode",
+            // Registered as "Agnes Code <version>"; the executable is AgnesCode.exe.
+            keywords: &["agnes"],
+            excludes: &[],
+            install_unavailable_reason: None,
+            reject_sibling_files: &[],
+        }),
+        workbench_command: None,
+        process_pattern: r#"(?i)(^|[\\/\s"])agnes ?code([\\/\s".]|$)"#,
+        data_dirs: &[roaming("Agnes Code"), roaming("AgnesCode"), home(".agnes")],
+    },
 ];
 
 /// The two MiMo Desktop editions' official installers (x64 only; the site offers no ARM build).
@@ -1105,6 +1177,13 @@ pub(crate) const MIMO_DESKTOP_CN_INSTALLER: &str =
     "https://mimocode-cdn.xiaomimimo.com/mimocode/mimodesktop/XiaomiMiMo-latest-x64-setup.exe";
 pub(crate) const MIMO_DESKTOP_GLOBAL_INSTALLER: &str =
     "https://mimocode-cdn.xiaomimimo.com/mimocode/mimodesktopai/XiaomiMiMo-AI-latest-x64-setup.exe";
+
+/// Agnes Code keeps an electron-builder feed per edition on the same CDN its own updater
+/// reads: `release-cn` for the China site, `release` for the international one.
+pub(crate) const AGNES_CN_RELEASE_BASE: &str =
+    "https://cos-agnes-code.agnes-ai.cn/release-cn/latest";
+pub(crate) const AGNES_GLOBAL_RELEASE_BASE: &str =
+    "https://cos-agnes-code.agnes-ai.cn/release/latest";
 
 pub(crate) fn direct_desktop_installer(
     vendor: Vendor,
@@ -1213,6 +1292,20 @@ pub(crate) fn direct_desktop_installer(
             },
             silent_args: &["/S"],
             signed: true,
+        }),
+        // Agnes Code: electron-builder NSIS, per user. Only the China package carries an
+        // Authenticode signature (DigiCert EV); the international one is checked against the
+        // SHA-512 its own feed publishes.
+        Vendor::Agnes => Some(DirectDesktopInstaller {
+            source: InstallerSource::ElectronRelease {
+                base_url: if edition == Edition::Cn {
+                    AGNES_CN_RELEASE_BASE
+                } else {
+                    AGNES_GLOBAL_RELEASE_BASE
+                },
+            },
+            silent_args: &["/S"],
+            signed: edition == Edition::Cn,
         }),
         // Third-party open-source pi desktop app; its Windows installer is not signed.
         Vendor::Pi => Some(DirectDesktopInstaller {
@@ -1382,6 +1475,39 @@ mod tests {
         assert!(matches!(
             installer.source,
             InstallerSource::ElectronRelease { .. }
+        ));
+    }
+
+    #[test]
+    fn agnes_editions_are_told_apart_by_the_name_each_one_registers() {
+        let cn = spec_by_id("agnes-cn").unwrap();
+        let global = spec_by_id("agnes-global").unwrap();
+        // The China build installs under the publisher's own name, the international one
+        // under the product name, so one installation never lights up both cards.
+        assert!(desktop_matches(&cn.desktop, "爱思办公 1.0.67"));
+        assert!(!desktop_matches(&cn.desktop, "Agnes Code 1.0.67"));
+        assert!(desktop_matches(&global.desktop, "Agnes Code 1.0.67"));
+        assert!(!desktop_matches(&global.desktop, "爱思办公 1.0.67"));
+        // Neither edition ships a CLI.
+        assert_eq!(cn.cli_id, None);
+        assert_eq!(global.cli_id, None);
+
+        let cn_installer = direct_desktop_installer(Vendor::Agnes, Edition::Cn).unwrap();
+        assert!(cn_installer.signed);
+        assert!(matches!(
+            cn_installer.source,
+            InstallerSource::ElectronRelease {
+                base_url: AGNES_CN_RELEASE_BASE
+            }
+        ));
+        // The international package carries no signature; its SHA-512 stands in.
+        let global_installer = direct_desktop_installer(Vendor::Agnes, Edition::Global).unwrap();
+        assert!(!global_installer.signed);
+        assert!(matches!(
+            global_installer.source,
+            InstallerSource::ElectronRelease {
+                base_url: AGNES_GLOBAL_RELEASE_BASE
+            }
         ));
     }
 

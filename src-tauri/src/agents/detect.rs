@@ -424,7 +424,9 @@ pub(crate) fn mimo_latest() -> Result<String, String> {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum DesktopSource {
     KimiDownload,
-    GithubRelease(&'static str),
+    /// An electron-builder feed: a GitHub release's download base, or a vendor's own CDN
+    /// folder holding `latest.yml` (Agnes Code).
+    ElectronFeed(&'static str),
     /// A repository's newest stable release, read through the GitHub API.
     GithubLatest(&'static str),
     Winget(&'static str, Option<&'static str>),
@@ -484,7 +486,7 @@ pub(crate) fn desktop_source(spec: &ToolSpec) -> DesktopSource {
     }
     if let Some(installer) = direct_desktop_installer(spec.vendor, spec.edition) {
         if let InstallerSource::ElectronRelease { base_url } = installer.source {
-            return DesktopSource::GithubRelease(base_url);
+            return DesktopSource::ElectronFeed(base_url);
         }
     }
     match spec.desktop.winget_id {
@@ -506,9 +508,9 @@ pub(crate) fn desktop_latest(spec: &ToolSpec, current: Option<&str>) -> LatestLo
         DesktopSource::KimiDownload => {
             kimi_work_latest().map(|version| Some((version, "Kimi 官方下载地址")))
         }
-        DesktopSource::GithubRelease(base_url) => {
+        DesktopSource::ElectronFeed(base_url) => {
             super::install::direct::electron_release_latest(base_url)
-                .map(|release| Some((release.version, "GitHub Releases")))
+                .map(|release| Some((release.version, electron_feed_label(base_url))))
         }
         DesktopSource::GithubLatest(repo) => {
             super::feeds::github_latest(repo).map(|version| Some((version, "GitHub Releases")))
@@ -538,6 +540,15 @@ pub(crate) fn desktop_latest(spec: &ToolSpec, current: Option<&str>) -> LatestLo
             super::feeds::hermes_desktop_latest().map(|version| Some((version, "Hermes 官方仓库")))
         }
         DesktopSource::None => Ok(None),
+    }
+}
+
+/// Where an electron-builder feed lives, named the way the page shows a version's source.
+fn electron_feed_label(base_url: &str) -> &'static str {
+    if base_url.starts_with("https://github.com/") {
+        "GitHub Releases"
+    } else {
+        "官方发布清单"
     }
 }
 
@@ -1298,8 +1309,18 @@ mod tests {
         );
         assert!(matches!(
             desktop_source(&spec("pi")),
-            DesktopSource::GithubRelease(_)
+            DesktopSource::ElectronFeed(_)
         ));
+        // Agnes publishes the same kind of feed from its own CDN, so the source is named
+        // for the vendor rather than for GitHub.
+        assert_eq!(
+            desktop_source(&spec("agnes-cn")),
+            DesktopSource::ElectronFeed(crate::agents::registry::AGNES_CN_RELEASE_BASE)
+        );
+        assert_eq!(
+            electron_feed_label(crate::agents::registry::AGNES_CN_RELEASE_BASE),
+            "官方发布清单"
+        );
         assert_eq!(
             desktop_source(&spec("codex")),
             DesktopSource::Winget("9PLM9XGG6VKS", Some("msstore"))

@@ -3231,4 +3231,10 @@ export const GENERATED_EN: Record<string, string> = {
   "清空请求记录": "Clear the request log",
   "将删除当前筛选条件匹配的全部记录，其余记录保留。": "Every record the current filters match will be deleted; the rest stay.",
   "将删除全部请求记录。记录里只有接口、模型、耗时和状态，删除不影响任何会话。": "Every request record will be deleted. A record holds only the endpoint, model, elapsed time and status, so no session is touched.",
+  "官方发布清单": "the vendor's release feed",
+  "爱思办公": "爱思办公",
+  "桌面 AI 工作台：一个输入框连接本地项目、专家模式、技能扩展与 MCP 应用连接，账号与网页端同步。": "A desktop AI workbench: one input box reaches local projects, expert mode, skills and MCP app connections, with the account shared with the web app.",
+  "Agnes 只发布桌面应用，官方没有提供命令行。": "Agnes ships a desktop app only; the vendor offers no command line.",
+  "agnes-ai.cn 发布的 Windows 桌面应用，安装后以发行方名称“爱思办公”登记，账号与国际站不互通。": "The Windows desktop app published on agnes-ai.cn. It registers under the publisher's own name, and its accounts are separate from the international site.",
+  "agnes-ai.com 发布的 Windows 桌面应用，安装包未带数字签名，按官方发布的 SHA-512 校验后安装。": "The Windows desktop app published on agnes-ai.com. The package carries no digital signature, so it is checked against the SHA-512 the vendor publishes before it runs.",
 };
