@@ -208,32 +208,31 @@ pub async fn space_cleanup_start(
     let needs_elevation = plan.plan.items.iter().any(|item| {
         item.requires_elevation && node_ids.iter().any(|node_id| node_id == &item.node_id)
     });
-    if needs_elevation {
-        // Waits for UAC and the elevated helper; must not run on the main thread.
-        let selected = node_ids.clone();
-        let result = blocking(move || elevated::run_cleanup(plan, &selected)).await?;
-        let cleanup_manager = app.state::<CleanupTaskManager>();
-        let task_id = cleanup_manager.import_completed(result);
-        let progress = cleanup_manager.status(&task_id)?;
-        if let Err(error) = window.emit("space-cleanup-progress", &progress) {
+    let emit = move |progress: &CleanupProgress| {
+        if let Err(error) = window.emit("space-cleanup-progress", progress) {
             log::warn!(
-                "failed to emit progress for elevated space cleanup task {}: {}",
+                "failed to emit progress for space cleanup task {}: {}",
                 progress.task_id,
                 error
             );
         }
-        return Ok(task_id);
+    };
+    if needs_elevation {
+        // The UAC prompt and the delete both happen in the helper process, so the task runs on
+        // its own thread and reports the same progress a plain cleanup does.
+        return app.state::<CleanupTaskManager>().start_elevated(
+            plan,
+            &node_ids,
+            emit,
+            |task_id, plan, token, mut report| {
+                elevated::run_cleanup(&task_id, plan, &token, &mut |completed, bytes, node| {
+                    report(completed, bytes, node)
+                })
+            },
+        );
     }
     app.state::<CleanupTaskManager>()
-        .start(plan, &node_ids, move |progress| {
-            if let Err(error) = window.emit("space-cleanup-progress", progress) {
-                log::warn!(
-                    "failed to emit progress for space cleanup task {}: {}",
-                    progress.task_id,
-                    error
-                );
-            }
-        })
+        .start(plan, &node_ids, emit)
 }
 
 #[tauri::command]

@@ -28,6 +28,11 @@ const REASON_CLASSIFICATION_CHANGED: &str = "spaceAnalysis.cleanup.reason.classi
 const REASON_ACCESS_DENIED: &str = "spaceAnalysis.cleanup.reason.accessDenied";
 const REASON_DELETE_FAILED: &str = "spaceAnalysis.cleanup.reason.deleteFailed";
 const REASON_CANCELLED: &str = "spaceAnalysis.cleanup.reason.cancelled";
+const REASON_ELEVATION_FAILED: &str = "spaceAnalysis.cleanup.reason.elevationFailed";
+
+/// How an elevated run tells the window what it has finished: items done, bytes freed,
+/// and the item it is on.
+pub type ElevatedReport = Box<dyn FnMut(u64, u64, Option<String>) + Send>;
 
 struct CleanupTaskRecord {
     token: CancellationToken,
@@ -149,6 +154,133 @@ impl CleanupTaskManager {
         Ok(task_id)
     }
 
+    /// The same work, done by the elevated helper in another process. The runner is passed in
+    /// so this stays testable and platform-free: it is handed the task id, the selected plan,
+    /// a token it should honour, and a channel for the progress it sees.
+    pub fn start_elevated<E, R>(
+        &self,
+        stored_plan: StoredCleanupPlan,
+        selected_node_ids: &[String],
+        emit: E,
+        run: R,
+    ) -> Result<String, String>
+    where
+        E: Fn(&CleanupProgress) + Send + Sync + 'static,
+        R: FnOnce(
+                String,
+                StoredCleanupPlan,
+                CancellationToken,
+                ElevatedReport,
+            ) -> Result<CleanupResult, String>
+            + Send
+            + 'static,
+    {
+        let execution_plan = select_plan_items(stored_plan, selected_node_ids)?;
+        let task_id = format!("cleanup-{}", self.next_id.fetch_add(1, Ordering::Relaxed));
+        let token = CancellationToken::default();
+        let total_items = execution_plan.plan.items.len() as u64;
+        let progress = CleanupProgress {
+            task_id: task_id.clone(),
+            plan_id: execution_plan.plan.plan_id.clone(),
+            state: CleanupTaskState::Queued,
+            completed_items: 0,
+            total_items,
+            actual_released_bytes: 0,
+            current_node_id: None,
+        };
+
+        let mut tasks = lock_tasks(&self.tasks);
+        tasks.insert(
+            task_id.clone(),
+            CleanupTaskRecord {
+                token: token.clone(),
+                progress,
+                result: None,
+                terminal_order: None,
+                handle: None,
+            },
+        );
+
+        let worker_task_id = task_id.clone();
+        let worker_tasks = Arc::clone(&self.tasks);
+        let worker_terminal_order = Arc::clone(&self.next_terminal_order);
+        let worker_token = token.clone();
+        let handle = thread::Builder::new().name(task_id.clone()).spawn(move || {
+            update_progress(&worker_tasks, &worker_task_id, &emit, |progress| {
+                progress.state = CleanupTaskState::Running;
+            });
+
+            let report_tasks = Arc::clone(&worker_tasks);
+            let report_task_id = worker_task_id.clone();
+            let report_emit = Arc::new(emit);
+            let progress_emit = Arc::clone(&report_emit);
+            let report: ElevatedReport = Box::new(move |completed, released, node_id| {
+                update_progress(
+                    &report_tasks,
+                    &report_task_id,
+                    progress_emit.as_ref(),
+                    |progress| {
+                        progress.completed_items = completed;
+                        progress.actual_released_bytes = released;
+                        progress.current_node_id = node_id.clone();
+                    },
+                );
+            });
+            let outcome = run(
+                worker_task_id.clone(),
+                execution_plan.clone(),
+                worker_token.clone(),
+                report,
+            );
+            // A helper that never returned a result says nothing about the items, so the plan
+            // itself supplies them: cancelled if that is what was asked, failed otherwise.
+            let result = outcome.unwrap_or_else(|error| {
+                log::warn!("elevated cleanup {worker_task_id} did not finish: {error}");
+                failed_result(
+                    &worker_task_id,
+                    &execution_plan,
+                    worker_token.is_cancelled(),
+                )
+            });
+
+            let final_progress = {
+                let mut tasks = lock_tasks(&worker_tasks);
+                let Some(record) = tasks.get_mut(&worker_task_id) else {
+                    return;
+                };
+                record.progress.state = result.state;
+                record.progress.completed_items = result.items.len() as u64;
+                record.progress.actual_released_bytes = result.actual_released_bytes;
+                record.progress.current_node_id = None;
+                record.result = Some(result);
+                record.terminal_order = Some(worker_terminal_order.fetch_add(1, Ordering::Relaxed));
+                let progress = record.progress.clone();
+                prune_tasks(&mut tasks);
+                progress
+            };
+            report_emit.as_ref()(&final_progress);
+
+            let completed_handle = lock_tasks(&worker_tasks)
+                .get_mut(&worker_task_id)
+                .and_then(|record| record.handle.take());
+            drop(completed_handle);
+        });
+
+        let handle = match handle {
+            Ok(handle) => handle,
+            Err(error) => {
+                tasks.remove(&task_id);
+                return Err(format!("Unable to start cleanup task: {error}"));
+            }
+        };
+
+        tasks
+            .get_mut(&task_id)
+            .expect("cleanup task was just inserted")
+            .handle = Some(handle);
+        Ok(task_id)
+    }
+
     pub fn status(&self, task_id: &str) -> Result<CleanupProgress, String> {
         lock_tasks(&self.tasks)
             .get(task_id)
@@ -177,32 +309,6 @@ impl CleanupTaskManager {
             .result
             .clone()
             .ok_or_else(|| TASK_NOT_FINISHED.to_string())
-    }
-
-    pub(crate) fn import_completed(&self, result: CleanupResult) -> String {
-        let task_id = result.task_id.clone();
-        let progress = CleanupProgress {
-            task_id: task_id.clone(),
-            plan_id: result.plan_id.clone(),
-            state: result.state,
-            completed_items: result.items.len() as u64,
-            total_items: result.items.len() as u64,
-            actual_released_bytes: result.actual_released_bytes,
-            current_node_id: None,
-        };
-        let mut tasks = lock_tasks(&self.tasks);
-        tasks.insert(
-            task_id.clone(),
-            CleanupTaskRecord {
-                token: CancellationToken::default(),
-                progress,
-                result: Some(result),
-                terminal_order: Some(self.next_terminal_order.fetch_add(1, Ordering::Relaxed)),
-                handle: None,
-            },
-        );
-        prune_tasks(&mut tasks);
-        task_id
     }
 
     pub fn cancel_all_and_wait(&self, timeout: Duration) {
@@ -381,6 +487,42 @@ where
         state,
         actual_released_bytes: total_released,
         items,
+    }
+}
+
+/// Every item of a run that produced no result of its own.
+fn failed_result(task_id: &str, stored: &StoredCleanupPlan, cancelled: bool) -> CleanupResult {
+    let (state, item_state, reason) = if cancelled {
+        (
+            CleanupTaskState::Cancelled,
+            CleanupItemState::Cancelled,
+            REASON_CANCELLED,
+        )
+    } else {
+        (
+            CleanupTaskState::Failed,
+            CleanupItemState::Failed,
+            REASON_ELEVATION_FAILED,
+        )
+    };
+    CleanupResult {
+        task_id: task_id.to_string(),
+        plan_id: stored.plan.plan_id.clone(),
+        state,
+        actual_released_bytes: 0,
+        items: stored
+            .plan
+            .items
+            .iter()
+            .map(|item| CleanupItemResult {
+                node_id: item.node_id.clone(),
+                path: item.path.clone(),
+                state: item_state,
+                validated_bytes: 0,
+                actual_released_bytes: 0,
+                reason_key: Some(reason.into()),
+            })
+            .collect(),
     }
 }
 
@@ -762,6 +904,118 @@ mod tests {
             .map(|item| item.node_id.clone())
             .collect::<Vec<_>>();
         build_deep_plan_record(&result, "scan-1", "plan-1".into(), &node_ids).unwrap()
+    }
+
+    #[test]
+    fn an_elevated_task_reports_progress_and_finishes_with_the_helper_s_result() {
+        let temp = tempfile::tempdir().unwrap();
+        let plan = rust_plan(temp.path(), &["target"]);
+        let selected = node_ids(&plan);
+        let manager = CleanupTaskManager::default();
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let recorder = Arc::clone(&seen);
+        let task_id = manager
+            .start_elevated(
+                plan,
+                &selected,
+                move |progress| {
+                    recorder.lock().unwrap().push((
+                        progress.state,
+                        progress.completed_items,
+                        progress.actual_released_bytes,
+                    ));
+                },
+                |task_id, plan, _token, mut report| {
+                    report(1, 4_096, Some("node-1".into()));
+                    Ok(CleanupResult {
+                        task_id,
+                        plan_id: plan.plan.plan_id.clone(),
+                        state: CleanupTaskState::Completed,
+                        actual_released_bytes: 4_096,
+                        items: vec![CleanupItemResult {
+                            node_id: "node-1".into(),
+                            path: plan.plan.items[0].path.clone(),
+                            state: CleanupItemState::Completed,
+                            validated_bytes: 4_096,
+                            actual_released_bytes: 4_096,
+                            reason_key: None,
+                        }],
+                    })
+                },
+            )
+            .unwrap();
+        let result = wait_for_result(&manager, &task_id);
+        assert_eq!(result.state, CleanupTaskState::Completed);
+        assert_eq!(result.actual_released_bytes, 4_096);
+        let seen = seen.lock().unwrap().clone();
+        // Running, then the progress the helper reported, then the finished state.
+        assert!(seen.contains(&(CleanupTaskState::Running, 0, 0)));
+        assert!(seen.contains(&(CleanupTaskState::Running, 1, 4_096)));
+        assert_eq!(seen.last().unwrap().0, CleanupTaskState::Completed);
+    }
+
+    #[test]
+    fn an_elevated_run_that_returns_nothing_still_says_what_happened() {
+        let temp = tempfile::tempdir().unwrap();
+        let manager = CleanupTaskManager::default();
+        // Refused approval, or a helper that broke: every item failed, and the reason says why.
+        let plan = rust_plan(temp.path(), &["target"]);
+        let selected = node_ids(&plan);
+        let task_id = manager
+            .start_elevated(
+                plan,
+                &selected,
+                |_| {},
+                |_, _, _, _| Err("Administrator approval was cancelled.".into()),
+            )
+            .unwrap();
+        let result = wait_for_result(&manager, &task_id);
+        assert_eq!(result.state, CleanupTaskState::Failed);
+        assert_eq!(result.items[0].state, CleanupItemState::Failed);
+        assert_eq!(
+            result.items[0].reason_key.as_deref(),
+            Some(REASON_ELEVATION_FAILED)
+        );
+
+        // Cancelled by the window: the same silence means cancelled, not failed.
+        let temp = tempfile::tempdir().unwrap();
+        let plan = rust_plan(temp.path(), &["target"]);
+        let selected = node_ids(&plan);
+        let task_id = manager
+            .start_elevated(
+                plan,
+                &selected,
+                |_| {},
+                |_, _, token, _| {
+                    token.cancel();
+                    Err("The elevated helper was cancelled.".into())
+                },
+            )
+            .unwrap();
+        let result = wait_for_result(&manager, &task_id);
+        assert_eq!(result.state, CleanupTaskState::Cancelled);
+        assert_eq!(result.items[0].state, CleanupItemState::Cancelled);
+        // The plan's artifact is untouched: nothing claimed to have deleted it.
+        assert!(temp.path().join("target").exists());
+    }
+
+    fn node_ids(plan: &StoredCleanupPlan) -> Vec<String> {
+        plan.plan
+            .items
+            .iter()
+            .map(|item| item.node_id.clone())
+            .collect()
+    }
+
+    fn wait_for_result(manager: &CleanupTaskManager, task_id: &str) -> CleanupResult {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline {
+            if let Ok(result) = manager.result(task_id) {
+                return result;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        panic!("the elevated task never finished");
     }
 
     #[test]
