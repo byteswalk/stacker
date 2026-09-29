@@ -36,7 +36,8 @@ describe("ScanHeader stable shell", () => {
 
       expect(html).toContain('class="clhero space-scan-header"');
       expect(html).toContain(`data-phase="${state}"`);
-      expect(html.match(/class="scan-metric"/g)).toHaveLength(5);
+      // Each metric keeps its own tone class, and there are still five of them.
+      expect(html.match(/class="scan-metric [a-z]+"/g)).toHaveLength(5);
       expect(html).toContain('class="scan-header-progress"');
       expect(html).toContain('class="scan-header-actions"');
     },

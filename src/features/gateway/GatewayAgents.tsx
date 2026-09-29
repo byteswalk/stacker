@@ -225,6 +225,8 @@ function AgentBlock({ card, base, token, past, testLine, running, onTest, onTogg
   const { tr: t } = useI18n();
   const [open, toggleOpen] = useFold(`agent:${card.id}`, false);
   const [kind, setKind] = useState<Snippet>("openai");
+  // The examples are reference material, not the first thing to read about an agent.
+  const [showUse, setShowUse] = useState(false);
   const [query, setQuery] = useState("");
   const [all, setAll] = useState(false);
   const state = agentState(card, past[card.id]);
@@ -268,7 +270,11 @@ function AgentBlock({ card, base, token, past, testLine, running, onTest, onTogg
     </div>
 
     {open && <>
-      <div className="gw-use">
+      <button className="gw-use-toggle" onClick={() => setShowUse(!showUse)}>
+        <i className={"ti " + (showUse ? "ti-chevron-down" : "ti-chevron-right")} />
+        {t("接入示例与客户端填写")}
+      </button>
+      {showUse && <div className="gw-use">
         <div className="gw-use-tabs">
           {SNIPPETS.map(([k, label]) => <button key={k} className={k === kind ? "on" : ""} onClick={() => setKind(k)}>{t(label)}</button>)}
         </div>
@@ -279,7 +285,7 @@ function AgentBlock({ card, base, token, past, testLine, running, onTest, onTogg
             : "端口和密钥已经填好；要指定模型，把 model 换成下面表里的调用名")}
           <button className="pr sm" onClick={() => onCopy(snippet(kind, base, token, card.id))}><i className="ti ti-copy" /> {t("复制")}</button>
         </div>
-      </div>
+      </div>}
 
       <div className="gw-modelhd">
         <b>{t("可指定的模型")}</b>

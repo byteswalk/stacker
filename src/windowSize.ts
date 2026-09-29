@@ -1,7 +1,6 @@
 import {
   getCurrentWindow,
   LogicalSize,
-  PhysicalSize,
   type Window as AppWindow,
 } from "@tauri-apps/api/window";
 
@@ -55,20 +54,9 @@ function saveWindowSize(size: SavedWindowSize): void {
   }
 }
 
-/** The smallest the window may be, in the display's own pixels. A minimum given in logical
- *  pixels rounds down on a scaled display, which is how a window ends up a hair under it. */
-async function applyMinimumSize(appWindow: AppWindow): Promise<void> {
-  const scaleFactor = await appWindow.scaleFactor();
-  await appWindow.setMinSize(new PhysicalSize(
-    Math.ceil(MINIMUM_WINDOW_SIZE.width * scaleFactor),
-    Math.ceil(MINIMUM_WINDOW_SIZE.height * scaleFactor),
-  ));
-}
-
 export async function initializeMainWindowSize(
   appWindow: AppWindow = getCurrentWindow(),
 ): Promise<void> {
-  await applyMinimumSize(appWindow);
   const saved = readSavedWindowSize();
   if (saved) {
     await appWindow.setSize(new LogicalSize(saved.width, saved.height));
@@ -89,11 +77,9 @@ export async function initializeMainWindowSize(
         const inner = await appWindow.innerSize();
         const normalized = normalizeClientSize(inner, scaleFactor);
         if (!normalized) return;
-        // A drag that got under the floor is put back on it, and never saved.
+        // The window itself holds the floor; a size under it is simply never remembered.
         if (inner.width / scaleFactor < MINIMUM_WINDOW_SIZE.width - 0.5
           || inner.height / scaleFactor < MINIMUM_WINDOW_SIZE.height - 0.5) {
-          await applyMinimumSize(appWindow);
-          await appWindow.setSize(new LogicalSize(normalized.width, normalized.height));
           return;
         }
         saveWindowSize(normalized);

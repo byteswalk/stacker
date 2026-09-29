@@ -38,6 +38,53 @@ mod versions;
 mod webchat;
 mod winadmin;
 mod winenv;
+/// The smallest the main window may be, in logical pixels: every page is drawn for it.
+const MIN_WINDOW: (f64, f64) = (1280.0, 720.0);
+
+/// The floor Windows is given: the client area Stacker needs, plus the frame it measures
+/// along with it. Without the frame the client area ends up a dozen pixels short.
+fn set_minimum_size(window: &tauri::WebviewWindow) {
+    let scale = window.scale_factor().unwrap_or(1.0);
+    let (Ok(inner), Ok(outer)) = (window.inner_size(), window.outer_size()) else {
+        return;
+    };
+    let frame_width = outer.width.saturating_sub(inner.width);
+    let frame_height = outer.height.saturating_sub(inner.height);
+    let _ = window.set_min_size(Some(tauri::PhysicalSize::new(
+        (MIN_WINDOW.0 * scale).ceil() as u32 + frame_width,
+        (MIN_WINDOW.1 * scale).ceil() as u32 + frame_height,
+    )));
+}
+
+/// Whatever the frame does, the size that matters is put back here. The last correction is
+/// remembered so a window that cannot reach the floor is not pushed at forever.
+fn hold_minimum_size(window: &tauri::Window, size: tauri::PhysicalSize<u32>) {
+    use std::sync::Mutex;
+    use std::time::{Duration, Instant};
+    static LAST: Mutex<Option<((u32, u32), Instant)>> = Mutex::new(None);
+    if window.is_maximized().unwrap_or(false)
+        || window.is_minimized().unwrap_or(false)
+        || window.is_fullscreen().unwrap_or(false)
+    {
+        return;
+    }
+    let scale = window.scale_factor().unwrap_or(1.0);
+    let min_width = (MIN_WINDOW.0 * scale).ceil() as u32;
+    let min_height = (MIN_WINDOW.1 * scale).ceil() as u32;
+    if size.width >= min_width && size.height >= min_height {
+        return;
+    }
+    let target = (size.width.max(min_width), size.height.max(min_height));
+    if let Ok(mut last) = LAST.lock() {
+        if last
+            .is_some_and(|(size, at)| size == target && at.elapsed() < Duration::from_millis(400))
+        {
+            return;
+        }
+        *last = Some((target, Instant::now()));
+    }
+    let _ = window.set_size(tauri::PhysicalSize::new(target.0, target.1));
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -127,6 +174,12 @@ pub fn run() {
                 logging::current_log_path(&settings::logs_dir()).display(),
                 logging::MAX_LOG_FILE_BYTES
             );
+            {
+                use tauri::Manager;
+                if let Some(window) = app.get_webview_window("main") {
+                    set_minimum_size(&window);
+                }
+            }
             settings::init();
             settings::start_log_retention_worker();
             gateway::restore();
@@ -136,6 +189,11 @@ pub fn run() {
         })
         // 主窗口按已保存策略退出、隐藏到托盘，或通知前端首次询问。
         .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Resized(size) = event {
+                if window.label() == "main" {
+                    hold_minimum_size(window, *size);
+                }
+            }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() == "main" {
                     match settings::close_behavior() {

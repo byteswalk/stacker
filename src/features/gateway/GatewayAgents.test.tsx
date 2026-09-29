@@ -41,6 +41,9 @@ describe("gateway agents", () => {
     expect(host.textContent).toContain("请求里写");
     await act(async () => { host.querySelector<HTMLButtonElement>(".gw-fold")!.click(); });
     expect(host.textContent).toContain("codex/gpt-5.6-sol");
+    // The examples are reference material: they open from a fold of their own.
+    expect(host.textContent).not.toContain("sk-stacker-test");
+    await act(async () => { host.querySelector<HTMLButtonElement>(".gw-use-toggle")!.click(); });
     expect(host.textContent).toContain("sk-stacker-test");
     expect(host.textContent).toContain("MiMo Code CLI");
     expect(host.textContent).toContain("mimo auth login");

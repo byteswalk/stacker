@@ -74,14 +74,14 @@ export function ScanHeader({
   const copy = isDeep
     ? deepScanCopy(view.phase, tr)
     : { title: tr(view.title), description: view.phase === "idle" && idleDescription ? idleDescription : tr(view.description) };
-  const currentPath = progress?.currentPath || (active ? tr("等待扫描进度…") : tr("等待手动开始扫描"));
   const number = new Intl.NumberFormat(locale);
-  const metrics = [
-    [tr("已扫描文件"), number.format(progress?.scannedFiles ?? 0)],
-    [tr("已扫描目录"), number.format(progress?.scannedDirectories ?? 0)],
-    [tr("已统计分配空间"), formatBytes(progress?.accountedBytes ?? 0)],
-    [tr("耗时"), `${number.format((progress?.elapsedMs ?? 0) / 1000)} s`],
-    [tr("已跳过"), number.format(progress?.skippedPaths ?? 0)],
+  // Each number keeps its own colour, so the row reads as five things rather than one block.
+  const metrics: [string, string, string][] = [
+    [tr("已扫描文件"), number.format(progress?.scannedFiles ?? 0), "files"],
+    [tr("已扫描目录"), number.format(progress?.scannedDirectories ?? 0), "dirs"],
+    [tr("已统计分配空间"), formatBytes(progress?.accountedBytes ?? 0), "bytes"],
+    [tr("耗时"), `${number.format((progress?.elapsedMs ?? 0) / 1000)} s`, "time"],
+    [tr("已跳过"), number.format(progress?.skippedPaths ?? 0), "skipped"],
   ];
 
   return (
@@ -107,8 +107,8 @@ export function ScanHeader({
       </div>
       <div className="scan-header-progress" aria-live="polite">
         <div className="scan-metrics">
-          {metrics.map(([label, value]) => (
-            <div className="scan-metric" key={label} title={label === tr("已跳过")
+          {metrics.map(([label, value, tone]) => (
+            <div className={"scan-metric " + tone} key={label} title={label === tr("已跳过")
               ? tr("包括无权访问、扫描期间消失、无效或无法读取的路径；这些路径未计入占用统计。")
               : `${label}: ${value}`}>
               <span>{label}</span>
@@ -116,10 +116,12 @@ export function ScanHeader({
             </div>
           ))}
         </div>
-        <div className="scan-current-path" title={currentPath}>
-          <i className="ti ti-folder-search" aria-hidden="true" />
-          <span>{currentPath}</span>
-        </div>
+        {active && progress?.currentPath && (
+          <div className="scan-current-path" title={progress.currentPath}>
+            <i className="ti ti-folder-search" aria-hidden="true" />
+            <span>{progress.currentPath}</span>
+          </div>
+        )}
       </div>
       <div className="scan-header-actions">
         {(view.phase === "running" || view.phase === "cancelling") && (

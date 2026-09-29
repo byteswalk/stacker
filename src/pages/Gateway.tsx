@@ -112,18 +112,18 @@ export default function Gateway() {
         <div className="gw-rows">
           <div><span>OpenAI base URL</span><code>{base}/v1</code><button className="gh sm" onClick={() => void copy(`${base}/v1`)}><i className="ti ti-copy" /></button></div>
           <div><span>Anthropic base URL</span><code>{base}</code><button className="gh sm" onClick={() => void copy(base)}><i className="ti ti-copy" /></button></div>
-          <div><span>API Key</span><code>{key}</code>
+          <div className="gw-wide"><span>API Key</span><code>{key}</code>
             <button className="gh sm" onClick={() => setShowKey(!showKey)}><i className={"ti " + (showKey ? "ti-eye-off" : "ti-eye")} /></button>
             <button className="gh sm" onClick={() => void copy(status.token)}><i className="ti ti-copy" /></button>
             <button className="gh sm" disabled={busy} onClick={() => void regenerate()}><i className="ti ti-refresh" /> {t("重新生成")}</button>
           </div>
         </div>
         <div className="gw-lan">
-          <label className="sw"><input type="checkbox" checked={status.lanAccess} disabled={busy} onChange={(e) => void setLan(e.target.checked)} /><span className="tk" /></label>
           <div>
             <b>{t("允许局域网访问")}</b>
             <span>{t(status.lanAccess ? "同一网络里的设备拿到密钥就能调用，耗的是你登录的智能体额度。" : "开启后，同一网络里的设备可以用下面的地址和密钥调用本机的智能体。")}</span>
           </div>
+          <label className="sw"><input type="checkbox" checked={status.lanAccess} disabled={busy} onChange={(e) => void setLan(e.target.checked)} /><span className="tk" /></label>
         </div>
         {status.lanAccess && <div className="gw-rows gw-lan-rows">
           {status.addresses.map((address) => <div key={address}>
