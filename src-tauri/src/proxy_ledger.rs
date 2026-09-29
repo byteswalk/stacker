@@ -103,91 +103,9 @@ pub fn normalize(value: Option<&str>) -> String {
     rest.to_ascii_lowercase()
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Action {
-    /// Already as desired.
-    Keep,
-    Write,
-    Clear,
-    /// Changed by someone else: stop managing it.
-    Forget,
-}
-
-/// What reconcile does with one managed location.
-pub fn plan(recorded: &str, current: &str, desired: Option<&str>) -> Action {
-    if current != recorded {
-        return Action::Forget;
-    }
-    match desired {
-        Some(d) if d == current => Action::Keep,
-        Some(_) => Action::Write,
-        None if current.is_empty() => Action::Keep,
-        None => Action::Clear,
-    }
-}
-
-/// The address Stacker writes in the current mode; None in hands-off mode or without an address.
-fn desired() -> Option<(String, u16)> {
-    let settings = crate::settings::load();
-    if settings.proxy_mode == "hands_off" {
-        return None;
-    }
-    Some((settings.proxy_host, settings.proxy_port)).filter(|(h, p)| !h.trim().is_empty() && *p > 0)
-}
-
-/// Brings Stacker-managed locations in line with the mode's address. Never touches others.
-pub fn reconcile() -> Result<Vec<String>, String> {
-    let settings = crate::settings::load();
-    if settings.proxy_mode == "hands_off" {
-        return Ok(Vec::new());
-    }
-    let target = desired();
-    let wanted = target
-        .as_ref()
-        .map(|(h, p)| normalize(Some(&format!("{h}:{p}"))));
-    let mut managed = settings.proxy_managed.clone();
-    let mut changed = Vec::new();
-    for (id, recorded) in settings.proxy_managed.iter() {
-        let Some(location) = Location::from_id(id) else {
-            managed.remove(id);
-            continue;
-        };
-        let current = normalize(location.read().as_deref());
-        match plan(recorded, &current, wanted.as_deref()) {
-            Action::Keep => {}
-            Action::Forget => {
-                managed.remove(id);
-            }
-            Action::Write => {
-                let (host, port) = target.as_ref().ok_or("E_PROXY_ADDR")?;
-                location.write(host, *port)?;
-                managed.insert(id.clone(), wanted.clone().unwrap_or_default());
-                changed.push(id.clone());
-            }
-            Action::Clear => {
-                location.clear()?;
-                managed.insert(id.clone(), String::new());
-                changed.push(id.clone());
-            }
-        }
-    }
-    crate::settings::save_proxy_managed(managed)?;
-    if !changed.is_empty() {
-        log::info!(target: "stacker::proxy", "synced Stacker-managed proxies: {changed:?}");
-    }
-    Ok(changed)
-}
-
-/// Startup: hands-off does nothing; other modes sync only Stacker-managed locations.
-pub fn reconcile_on_startup() {
-    if let Err(error) = reconcile() {
-        log::warn!(target: "stacker::proxy", "proxy reconcile failed: {error}");
-    }
-}
-
-/// The address used by explicit "write" actions: the mode's address, or the Windows proxy.
+/// The address a "write" puts there: what Windows itself is set to, and nothing else.
 fn write_address() -> Option<(String, u16)> {
-    desired().or_else(crate::settings::detected_proxy_addr)
+    crate::settings::detected_proxy_addr()
 }
 
 /// User action: write the current address here and manage it from now on.
@@ -228,9 +146,6 @@ pub struct LocationRow {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Overview {
-    pub mode: String,
-    pub host: String,
-    pub port: u16,
     pub windows: Option<String>,
     pub write_address: Option<String>,
     pub locations: Vec<LocationRow>,
@@ -260,9 +175,6 @@ pub fn overview() -> Overview {
         })
         .collect();
     Overview {
-        mode: settings.proxy_mode.clone(),
-        host: settings.proxy_host.clone(),
-        port: settings.proxy_port,
         windows: crate::settings::detected_proxy_addr().map(|(h, p)| format!("{h}:{p}")),
         write_address: write_address().map(|(h, p)| format!("{h}:{p}")),
         locations,
@@ -286,8 +198,6 @@ pub struct SyncRow {
 pub struct SyncReport {
     pub system: crate::proxy_system::SystemProxy,
     pub service: crate::proxy_system::ServiceProxy,
-    /// The adapter traffic leaves by, when it is a tunnel that carries everything.
-    pub tunnel: crate::proxy_system::TunState,
     pub rows: Vec<SyncRow>,
 }
 
@@ -341,7 +251,6 @@ pub fn sync_report() -> SyncReport {
     SyncReport {
         system,
         service,
-        tunnel: crate::proxy_system::tunnel(),
         rows,
     }
 }
@@ -358,6 +267,56 @@ pub async fn proxy_service_set(address: Option<String>) -> Result<SyncReport, St
     .map_err(|e| e.to_string())?
 }
 
+/// Everywhere at once. What Windows is set to is what gets written, so when the system has
+/// no proxy the only honest thing left is to take it back out of every place that has one.
+#[tauri::command]
+pub async fn proxy_follow_system(release: bool) -> Result<SyncReport, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let system = crate::proxy_system::system();
+        let wanted = crate::proxy_system::first_endpoint(&system.server);
+        if !release && wanted.is_empty() {
+            return Err("E_PROXY_ADDR".to_string());
+        }
+        let mut failed = Vec::new();
+        for location in LOCATIONS {
+            let current = normalize(location.read().as_deref());
+            let result = if release {
+                if current.is_empty() {
+                    continue;
+                }
+                clear_location(location)
+            } else {
+                if endpoint(&current)
+                    .map(|(h, p)| format!("{h}:{p}"))
+                    .as_deref()
+                    == Some(&wanted)
+                {
+                    continue;
+                }
+                write_location(location)
+            };
+            if let Err(error) = result {
+                failed.push(format!("{}：{error}", location.id()));
+            }
+        }
+        // The service proxy is Windows' own, so it takes the elevated path and one prompt.
+        let service = crate::proxy_system::service();
+        let service_wanted = if release { None } else { Some(wanted.as_str()) };
+        if service.known && service.server != service_wanted.unwrap_or_default() {
+            if let Err(error) = crate::winadmin::set_service_proxy(service_wanted) {
+                failed.push(format!("winhttp：{error}"));
+            }
+        }
+        if failed.is_empty() {
+            Ok(sync_report())
+        } else {
+            Err(failed.join("；"))
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub async fn proxy_sync_report() -> SyncReport {
     tauri::async_runtime::spawn_blocking(sync_report)
@@ -365,7 +324,6 @@ pub async fn proxy_sync_report() -> SyncReport {
         .unwrap_or_else(|_| SyncReport {
             system: crate::proxy_system::system(),
             service: crate::proxy_system::service(),
-            tunnel: crate::proxy_system::tunnel(),
             rows: Vec::new(),
         })
 }
@@ -375,9 +333,6 @@ pub async fn proxy_overview() -> Overview {
     tauri::async_runtime::spawn_blocking(overview)
         .await
         .unwrap_or_else(|_| Overview {
-            mode: String::new(),
-            host: String::new(),
-            port: 0,
             windows: None,
             write_address: None,
             locations: Vec::new(),
@@ -496,46 +451,12 @@ mod tests {
         assert_eq!(normalize(Some("  ")), "");
     }
 
-    #[test]
-    fn only_untouched_managed_values_change() {
-        // User changed it: forget, never write.
-        assert_eq!(
-            plan("127.0.0.1:7890", "127.0.0.1:1080", Some("127.0.0.1:7897")),
-            Action::Forget
-        );
-        // Still ours: follow the new port.
-        assert_eq!(
-            plan("127.0.0.1:7890", "127.0.0.1:7890", Some("127.0.0.1:7897")),
-            Action::Write
-        );
-        assert_eq!(
-            plan("127.0.0.1:7890", "127.0.0.1:7890", Some("127.0.0.1:7890")),
-            Action::Keep
-        );
-        // System proxy gone (TUN, app not started): clear ours but keep managing it.
-        assert_eq!(
-            plan("127.0.0.1:7890", "127.0.0.1:7890", None),
-            Action::Clear
-        );
-        // Cleared by us earlier and still empty: write again once an address is back.
-        assert_eq!(plan("", "", Some("127.0.0.1:7890")), Action::Write);
-        assert_eq!(plan("", "", None), Action::Keep);
-        // Cleared by us, then the user set their own: theirs now.
-        assert_eq!(
-            plan("", "10.0.0.1:3128", Some("127.0.0.1:7890")),
-            Action::Forget
-        );
-    }
-
     /// Live, read-only: `cargo test --lib live_proxy_overview -- --ignored --nocapture`.
     #[test]
     #[ignore]
     fn live_proxy_overview() {
         let o = overview();
-        println!(
-            "mode={} windows={:?} write={:?}",
-            o.mode, o.windows, o.write_address
-        );
+        println!("windows={:?} write={:?}", o.windows, o.write_address);
         for l in o.locations {
             println!("  {:<12} {:<9} {:?}", l.id, l.owner, l.value);
         }

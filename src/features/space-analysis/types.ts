@@ -209,14 +209,6 @@ export interface MonitorFileChange {
   modifiedAt: string | null;
 }
 
-export interface MonitorAgentProcess {
-  agentId: string;
-  agent: string;
-  pid: number;
-  parentPid: number;
-  processName: string;
-}
-
 export interface MonitorDirectoryChange {
   path: string;
   deltaBytes: number;
@@ -236,9 +228,7 @@ export interface MonitorSnapshot {
   filesChanged: number;
   directoriesScanned: number;
   skippedPaths: number;
-  runningAgents: MonitorAgentProcess[];
   directories: MonitorDirectoryChange[];
   events: MonitorFileChange[];
-  attributionNote: string;
   error: string | null;
 }

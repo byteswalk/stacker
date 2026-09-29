@@ -1,4 +1,3 @@
-mod activity;
 pub mod commands;
 mod detect;
 #[cfg(debug_assertions)]
@@ -12,7 +11,6 @@ pub(crate) mod pty;
 pub(crate) mod registry;
 pub(crate) mod tasks;
 
-pub(crate) use activity::{scan_agent_activity, AgentProcess};
 pub(crate) use process::command_for_path;
 
 use crate::agents::{detect::*, install::*, process::*, registry::*};

@@ -144,7 +144,6 @@ export function ScanLauncher({ disabled = false }: { disabled?: boolean }) {
           <strong>{tr("开始空间分析")}</strong>
           <span>{tr("先看本机磁盘，再决定扫哪里：快速扫描只看已知的缓存与临时目录，选择目录可以深入到任意范围（含磁盘根目录）。")}</span>
         </div>
-        <DiskOverview disabled={controlsDisabled} onScan={(root) => launch({ mode: "directories", targets: [root] })} />
         <div className="scan-launcher-toolbar">
           <button className="pr" disabled={controlsDisabled} title={tr("扫描常见开发缓存、历史版本和 Windows 临时目录，不会遍历整个磁盘。")} onClick={() => launch({ mode: "quick", targets: [] })}>
             <i className={`ti ${busy ? "ti-loader spin" : "ti-bolt"}`} aria-hidden="true" />
@@ -155,6 +154,7 @@ export function ScanLauncher({ disabled = false }: { disabled?: boolean }) {
             {tr("选择目录")}
           </button>
         </div>
+        <DiskOverview disabled={controlsDisabled} onScan={(root) => launch({ mode: "directories", targets: [root] })} />
         {commonDirectories.length > 0 && (
           <div className="scan-common-directories" aria-label={tr("常用扫描目录")}>
             <span>{tr("常用目录")}</span>

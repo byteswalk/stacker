@@ -152,7 +152,6 @@ pub(crate) struct ProductSpec {
     pub(crate) workbench_command: Option<&'static str>,
     /// PowerShell regex matched against "<process name> <command line>". Short vendor
     /// names must be anchored to a path segment or executable name.
-    pub(crate) process_pattern: &'static str,
     pub(crate) data_dirs: &'static [DataDir],
 }
 
@@ -549,7 +548,6 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
             reject_sibling_files: &[],
         }),
         workbench_command: None,
-        process_pattern: r#"(?i)(^|[\\/\s"])claude([\\/\s".]|$)|@anthropic-ai[\\/]claude-code"#,
         data_dirs: &[
             DataDir { base: DataBase::Home, relative: ".claude", env_override: Some("CLAUDE_CONFIG_DIR") },
             DataDir { base: DataBase::Roaming, relative: "Claude", env_override: None },
@@ -589,7 +587,6 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
             reject_sibling_files: &[],
         }),
         workbench_command: None,
-        process_pattern: r#"(?i)(^|[\\/\s"])codex([\\/\s".]|$)|@openai[\\/]codex"#,
         data_dirs: &[
             DataDir { base: DataBase::Home, relative: ".codex", env_override: Some("CODEX_HOME") },
             DataDir { base: DataBase::Roaming, relative: "Codex", env_override: None },
@@ -625,7 +622,6 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
             reject_sibling_files: &[],
         }),
         workbench_command: None,
-        process_pattern: r#"(?i)antigravity|(^|[\\/])agy(\\.cmd|\\.exe)?"#,
         data_dirs: &[
             home(".antigravity"),
             home(".gemini/antigravity"),
@@ -664,7 +660,6 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
             reject_sibling_files: &[],
         }),
         workbench_command: None,
-        process_pattern: r#"(?i)opencode"#,
         data_dirs: &[
             home(".config/opencode"),
             local("opencode"),
@@ -705,7 +700,6 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
             reject_sibling_files: &[],
         }),
         workbench_command: None,
-        process_pattern: r#"(?i)zcode|z\.ai"#,
         data_dirs: &[home(".zcode"), roaming("ZCode"), local("@zcodedesktop-updater")],
     },
     ProductSpec {
@@ -737,7 +731,6 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
             reject_sibling_files: &[],
         }),
         workbench_command: None,
-        process_pattern: r#"(?i)(^|[\\/\s"])kimi(-cli|-code)?([\\/\s".]|$)"#,
         data_dirs: &[home(".kimi-code"), home(".kimi"), roaming("kimi-desktop")],
     },
     ProductSpec {
@@ -768,7 +761,6 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
             reject_sibling_files: &[],
         }),
         workbench_command: None,
-        process_pattern: r#"(?i)workbuddy"#,
         data_dirs: &[
             home(".workbuddy"),
             roaming("WorkBuddy"),
@@ -807,7 +799,6 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
             reject_sibling_files: &[],
         }),
         workbench_command: None,
-        process_pattern: r#"(?i)workbuddy"#,
         data_dirs: &[home(".workbuddy-ai"), roaming("WorkBuddy AI")],
     },
     ProductSpec {
@@ -838,7 +829,6 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
             reject_sibling_files: &["unins000.exe"],
         }),
         workbench_command: None,
-        process_pattern: r#"(?i)(^|[\\/\s"])qoder([\\/\s".]|$)"#,
         data_dirs: &[
             home(".qoder"),
             roaming("Qoder"),
@@ -874,7 +864,6 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
             reject_sibling_files: &["unins000.exe"],
         }),
         workbench_command: None,
-        process_pattern: r#"(?i)(^|[\\/\s"])qoder([\\/\s".]|$)"#,
         data_dirs: &[
             home(".qoder-cn"),
             roaming("QoderCN"),
@@ -917,7 +906,6 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
             reject_sibling_files: &[],
         }),
         workbench_command: None,
-        process_pattern: r#"(?i)(^|[\\/\s"])trae([\\/\s".]|$)"#,
         data_dirs: &[home(".trae"), roaming("TRAE SOLO CN")],
     },
     ProductSpec {
@@ -955,7 +943,6 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
             reject_sibling_files: &[],
         }),
         workbench_command: None,
-        process_pattern: r#"(?i)(^|[\\/\s"])trae([\\/\s".]|$)"#,
         data_dirs: &[home(".trae"), roaming("TRAE SOLO")],
     },
     ProductSpec {
@@ -977,7 +964,6 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
             url: "https://www.deepseek.com/harness/",
         },
         workbench_command: Some("dsh web"),
-        process_pattern: r#"(?i)deepseek-harness|@deepseek-ai[\\/]dsh|(^|[\\/])dsh(\.cmd|\.exe)?"#,
         data_dirs: &[home(".deepseek"), roaming("DeepSeek Harness"), local("DeepSeekHarness")],
     },
     ProductSpec {
@@ -1009,7 +995,6 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
             reject_sibling_files: &[],
         }),
         workbench_command: None,
-        process_pattern: r#"(?i)openclaw"#,
         data_dirs: &[
             home(".openclaw"),
             roaming("OpenClaw"),
@@ -1046,7 +1031,6 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
             reject_sibling_files: &[],
         }),
         workbench_command: None,
-        process_pattern: r#"(?i)(^|[\\/\s"])hermes(-agent)?([\\/\s".]|$)"#,
         data_dirs: &[home(".hermes"), roaming("Hermes"), local("com.nousresearch.hermes.setup")],
     },
     ProductSpec {
@@ -1077,7 +1061,6 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
             reject_sibling_files: &[],
         }),
         workbench_command: None,
-        process_pattern: r#"(?i)@(mariozechner|earendil-works)[\\/]pi-coding-agent|(^|[\\/\s"])pi(\.cmd|\.exe)([\s"]|$)|pi-desktop"#,
         data_dirs: &[home(".pi")],
     },
     ProductSpec {
@@ -1107,7 +1090,6 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
             reject_sibling_files: &[],
         }),
         workbench_command: None,
-        process_pattern: r#"(?i)(^|[\\/\s"])copilot([\\/\s".]|$)|@github[\\/]copilot"#,
         data_dirs: &[home(".copilot")],
     },
     ProductSpec {
@@ -1138,7 +1120,6 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
             reject_sibling_files: &[],
         }),
         workbench_command: None,
-        process_pattern: r#"(?i)(^|[\\/\s"])mimo(code)?([\\/\s".]|$)|@mimo-ai[\\/]cli|mimo desktop"#,
         data_dirs: &[home(".mimocode"), home(".local/share/mimocode"), roaming("Xiaomi MiMo")],
     },
     ProductSpec {
@@ -1168,7 +1149,6 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
             reject_sibling_files: &[],
         }),
         workbench_command: None,
-        process_pattern: r#"(?i)(^|[\\/\s"])mimo(code)?([\\/\s".]|$)|@mimo-ai[\\/]cli|mimo desktop"#,
         data_dirs: &[roaming("Xiaomi MiMo AI")],
     },
     ProductSpec {
@@ -1204,7 +1184,6 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
             reject_sibling_files: &[],
         }),
         workbench_command: None,
-        process_pattern: r#"(?i)(^|[\\/\s"])agnes ?code([\\/\s".]|$)|爱思办公"#,
         data_dirs: &[roaming("爱思办公"), home(".agnes")],
     },
     ProductSpec {
@@ -1239,7 +1218,6 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
             reject_sibling_files: &[],
         }),
         workbench_command: None,
-        process_pattern: r#"(?i)(^|[\\/\s"])agnes ?code([\\/\s".]|$)"#,
         data_dirs: &[roaming("Agnes Code"), roaming("AgnesCode"), home(".agnes")],
     },
 ];

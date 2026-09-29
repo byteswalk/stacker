@@ -19,7 +19,7 @@ import { SpaceOverview } from "./SpaceOverview";
 import { SpaceChanges } from "./SpaceChanges";
 import { SpaceMonitorModal } from "./SpaceMonitorModal";
 
-export const ANALYSIS_TABS = ["overview", "map", "projects", "directories", "large-files", "duplicates", "development-artifacts", "cache-downloads", "skipped-paths", "changes"] as const;
+export const ANALYSIS_TABS = ["overview", "projects", "directories", "large-files", "duplicates", "development-artifacts", "cache-downloads", "skipped-paths", "changes"] as const;
 type AnalysisTab = (typeof ANALYSIS_TABS)[number];
 
 type SpaceAnalysisSettings = { large_file_threshold_bytes: number };
@@ -91,7 +91,7 @@ export function AnalysisTabs({ taskId, request }: { taskId: string; request: Sca
 
   const labels: Record<AnalysisTab, string> = {
     projects: t("space.projects.tab"),
-    overview: tr("空间概览"), map: tr("空间地图"), directories: tr("目录排行"), "large-files": tr("大文件"),
+    overview: tr("空间概览"), directories: tr("目录排行"), "large-files": tr("大文件"),
     duplicates: tr("重复文件"),
     "development-artifacts": tr("开发产物"), "cache-downloads": tr("缓存与下载"),
     "skipped-paths": tr("已跳过路径"),
@@ -129,9 +129,11 @@ export function AnalysisTabs({ taskId, request }: { taskId: string; request: Sca
       </div>
     </div>
     <div className="space-analysis-tab-panel" role="tabpanel">
-      {activeTab === "overview" && <SpaceOverview taskId={taskId} summary={summary} freeBytes={freeBytes} />}
+      {activeTab === "overview" && <>
+        <SpaceOverview taskId={taskId} summary={summary} freeBytes={freeBytes} />
+        <SpaceMap taskId={taskId} roots={summary.rootNodes} />
+      </>}
       {activeTab === "projects" && <DevelopmentProjects projects={summary.projects} candidates={cleanup.candidates} />}
-      {activeTab === "map" && <SpaceMap taskId={taskId} roots={summary.rootNodes} />}
       {activeTab === "directories" && <DirectoryRanking taskId={taskId} roots={summary.rootNodes} />}
       {activeTab === "large-files" && <LargeFiles taskId={taskId} thresholdBytes={largeFileThreshold} />}
       {activeTab === "duplicates" && <DuplicateFiles taskId={taskId} />}

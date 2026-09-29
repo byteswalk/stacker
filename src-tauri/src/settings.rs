@@ -169,14 +169,10 @@ pub(crate) fn detected_proxy_addr() -> Option<(String, u16)> {
     }
     None
 }
-/// Old settings: only an explicit "manual" choice survives; the old default "system"
-/// and "off" become "hands_off" so Stacker stops rewriting proxies on its own.
-fn normalize_proxy_mode(mode: &str, version: u8) -> &'static str {
-    match (mode.trim().to_ascii_lowercase().as_str(), version) {
-        ("manual", _) => "manual",
-        ("system", 1) => "system",
-        _ => "hands_off",
-    }
+/// There are no proxy modes any more: every install reads the Windows proxy, and nothing is
+/// written anywhere except when the user clicks it. Old settings all land here.
+fn normalize_proxy_mode(_mode: &str, _version: u8) -> &'static str {
+    "hands_off"
 }
 fn default_proxy_host() -> String {
     String::new()
@@ -686,47 +682,6 @@ pub fn settings_set_proxy_manual(manual: Vec<String>) -> Result<Vec<String>, Str
     Ok(manual)
 }
 
-#[tauri::command]
-pub fn settings_set_proxy_addr(host: String, port: u16) -> Result<AppSettings, String> {
-    let host = host.trim().to_string();
-    if host.is_empty() {
-        return Err("代理主机不能为空".into());
-    }
-    if port == 0 {
-        return Err("代理端口无效".into());
-    }
-    let mut s = load();
-    s.proxy_mode = "manual".into();
-    s.proxy_host = host;
-    s.proxy_port = port;
-    save(&s)?;
-    crate::proxy_ledger::reconcile()?;
-    Ok(load())
-}
-
-#[tauri::command]
-pub fn settings_set_proxy_mode(mode: String) -> Result<AppSettings, String> {
-    let mode = match mode.trim().to_ascii_lowercase().as_str() {
-        "hands_off" => "hands_off",
-        "system" => "system",
-        "manual" => "manual",
-        _ => return Err("无效的代理模式".into()),
-    };
-    let mut settings = load();
-    settings.proxy_mode = mode.into();
-    settings.proxy_mode_version = 1;
-    save(&settings)?;
-    crate::proxy_ledger::reconcile()?;
-    Ok(load())
-}
-
-/// Re-reads the Windows proxy and syncs Stacker-managed entries (follow-system / manual only).
-#[tauri::command]
-pub fn settings_sync_system_proxy() -> Result<AppSettings, String> {
-    crate::proxy_ledger::reconcile()?;
-    Ok(load())
-}
-
 pub(crate) fn proxy_managed() -> std::collections::BTreeMap<String, String> {
     load().proxy_managed
 }
@@ -802,21 +757,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn old_proxy_modes_become_hands_off_unless_manual() {
-        assert_eq!(
-            normalize_proxy_mode("system", 0),
-            "hands_off",
-            "old default"
-        );
-        assert_eq!(normalize_proxy_mode("off", 0), "hands_off");
-        assert_eq!(normalize_proxy_mode("manual", 0), "manual");
-        assert_eq!(normalize_proxy_mode("", 0), "hands_off");
-        assert_eq!(
-            normalize_proxy_mode("system", 1),
-            "system",
-            "chosen after the upgrade"
-        );
-        assert_eq!(normalize_proxy_mode("hands_off", 1), "hands_off");
+    fn every_stored_proxy_mode_now_follows_the_system() {
+        // Whatever an older version wrote, including a manual address, ends up here: the page
+        // reads the Windows proxy and writes only when clicked.
+        for stored in ["system", "off", "manual", "hands_off", ""] {
+            assert_eq!(normalize_proxy_mode(stored, 0), "hands_off");
+            assert_eq!(normalize_proxy_mode(stored, 1), "hands_off");
+        }
     }
 
     fn settings_with_threshold(large_file_threshold_bytes: u64) -> AppSettings {

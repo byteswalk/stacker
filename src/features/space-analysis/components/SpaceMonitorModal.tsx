@@ -103,13 +103,7 @@ export function SpaceMonitorModal({ roots, onClose }: { roots: string[]; onClose
           <div><span>{tr("追踪期间空间变化")}</span><strong className={snapshot.deltaBytes > 0 ? "negative" : "positive"}>{signedBytes(snapshot.deltaBytes)}</strong></div>
           <div><span>{tr("变更文件")}</span><strong>{snapshot.filesChanged.toLocaleString()}</strong></div>
           <div><span>{tr("当前占用")}</span><strong>{formatSpaceBytes(snapshot.currentBytes)}</strong></div>
-          <div><span>{tr("运行中的智能体")}</span><strong>{snapshot.runningAgents.length.toLocaleString()}</strong></div>
         </div>
-        <div className="space-monitor-agents">
-          <strong>{tr("追踪期间检测到的智能体")}</strong>
-          {snapshot.runningAgents.length > 0 ? snapshot.runningAgents.map((agent) => <span key={`${agent.agent}:${agent.pid}`}>{agent.agent} · PID {agent.pid}</span>) : <span>{tr("当前未检测到支持的智能体进程")}</span>}
-        </div>
-        <div className="space-monitor-note"><i className="ti ti-info-circle" /> {tr("文件变化无法仅凭目录扫描可靠归属到具体进程；上方智能体列表仅用于提供运行上下文。")}</div>
         <div className="space-monitor-events-head"><strong>{tr("空间变化集中目录")}</strong><span>{directories.length.toLocaleString()}</span></div>
         {directories.length > 0 ? <div className="space-monitor-directories">
           {directories.map((directory) => <div className="space-monitor-directory" key={directory.path}>

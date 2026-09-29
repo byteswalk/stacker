@@ -4,7 +4,7 @@ import { collectFrontendSettings, restoreFrontendSettings, type FrontendSettings
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { getVersion } from "@tauri-apps/api/app";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { ToastProvider, ToastHost, useToast, Modal, ConfirmModal, BusyProvider, BusyHost } from "./ui";
 import { Select } from "./Select";
 import { useI18n } from "./i18n";
@@ -140,6 +140,48 @@ type SavedProfile = {
   created: string;
   frontend_settings?: FrontendSettings;
 };
+
+/** The window's own size when it first opens, from tauri.conf.json. */
+const DEFAULT_WINDOW = { width: 1280, height: 720 };
+
+/** Keep this window above the others, and put it back to where and how it opened. */
+function WindowControls() {
+  const { tr } = useI18n();
+  const toast = useToast();
+  const [onTop, setOnTop] = useState(false);
+
+  async function toggleTop() {
+    const next = !onTop;
+    try {
+      await getCurrentWindow().setAlwaysOnTop(next);
+      setOnTop(next);
+    } catch (error) {
+      reportFrontendWarning("failed to toggle always on top", error);
+      toast(tr("无法切换窗口置顶"), "err");
+    }
+  }
+
+  async function restore() {
+    try {
+      const appWindow = getCurrentWindow();
+      if (await appWindow.isMaximized()) await appWindow.unmaximize();
+      await appWindow.setSize(new LogicalSize(DEFAULT_WINDOW.width, DEFAULT_WINDOW.height));
+      await appWindow.center();
+      toast(tr("窗口已恢复默认大小并居中"), "ok");
+    } catch (error) {
+      reportFrontendWarning("failed to restore the window", error);
+      toast(tr("无法恢复窗口位置"), "err");
+    }
+  }
+
+  return <div className="hdwin">
+    <button className={"pbtn" + (onTop ? " on" : "")} aria-pressed={onTop}
+      title={tr(onTop ? "取消置顶" : "窗口置顶")} aria-label={tr(onTop ? "取消置顶" : "窗口置顶")}
+      onClick={() => void toggleTop()}><i className={"ti " + (onTop ? "ti-pinned-filled" : "ti-pin")} /></button>
+    <button className="pbtn" title={tr("恢复默认位置和大小")} aria-label={tr("恢复默认位置和大小")}
+      onClick={() => void restore()}><i className="ti ti-frame" /></button>
+  </div>;
+}
 
 function Shell() {
   useTaskToasts();
@@ -341,6 +383,7 @@ function Shell() {
               </div>
             </div>
           )}
+          <WindowControls />
         </div>
         <div className="route-progress" aria-hidden="true" />
 

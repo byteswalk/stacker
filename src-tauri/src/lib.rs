@@ -129,7 +129,6 @@ pub fn run() {
             );
             settings::init();
             settings::start_log_retention_worker();
-            proxy_ledger::reconcile_on_startup();
             gateway::restore();
             binary::migrate_legacy_envs();
             build_tray(app.handle())?;
@@ -402,9 +401,6 @@ pub fn run() {
             settings::settings_open_log_window,
             settings::settings_read_log,
             settings::settings_clear_old_logs,
-            settings::settings_set_proxy_addr,
-            settings::settings_set_proxy_mode,
-            settings::settings_sync_system_proxy,
             settings::settings_set_proxy_manual,
             proxy_ledger::proxy_overview,
             gateway::gateway_status,
@@ -422,6 +418,7 @@ pub fn run() {
             gateway::agents::gateway_set_agent,
             gateway::agents::gateway_test,
             proxy_ledger::proxy_sync_report,
+            proxy_ledger::proxy_follow_system,
             proxy_ledger::proxy_service_set,
             proxy_ledger::proxy_location_write,
             proxy_ledger::proxy_location_clear,

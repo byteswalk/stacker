@@ -722,22 +722,6 @@ pub(crate) fn output_text(out: &Output) -> String {
     decode_command_bytes(bytes).trim().to_string()
 }
 
-pub(crate) fn output_all_text(out: &Output) -> String {
-    let mut text = String::new();
-    let stdout = decode_command_bytes(&out.stdout);
-    let stderr = decode_command_bytes(&out.stderr);
-    if !stdout.trim().is_empty() {
-        text.push_str(stdout.trim());
-    }
-    if !stderr.trim().is_empty() {
-        if !text.is_empty() {
-            text.push('\n');
-        }
-        text.push_str(stderr.trim());
-    }
-    text
-}
-
 pub(crate) fn first_output_line(text: &str) -> Option<String> {
     text.lines()
         .map(str::trim)

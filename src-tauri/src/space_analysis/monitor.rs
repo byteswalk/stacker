@@ -1,5 +1,4 @@
 use super::windows_fs::{allocated_size, display_path};
-use crate::agents::scan_agent_activity;
 use chrono::Local;
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
@@ -15,7 +14,6 @@ use std::thread;
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
 const EVENT_WAIT: Duration = Duration::from_secs(1);
-const AGENT_REFRESH_INTERVAL: Duration = Duration::from_secs(10);
 const MAX_EVENTS: usize = 100;
 const MAX_TRACKED_FILES: usize = 750_000;
 const MAX_DIRECTORY_TOTALS: usize = 20_000;
@@ -40,17 +38,6 @@ pub struct MonitorDirectoryChange {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct MonitorAgentProcess {
-    #[serde(default)]
-    pub agent_id: String,
-    pub agent: String,
-    pub pid: u32,
-    pub parent_pid: u32,
-    pub process_name: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct MonitorSnapshot {
     pub task_id: String,
     pub state: String,
@@ -64,10 +51,8 @@ pub struct MonitorSnapshot {
     pub files_changed: u64,
     pub directories_scanned: u64,
     pub skipped_paths: u64,
-    pub running_agents: Vec<MonitorAgentProcess>,
     pub directories: Vec<MonitorDirectoryChange>,
     pub events: Vec<MonitorFileChange>,
-    pub attribution_note: String,
     pub error: Option<String>,
 }
 
@@ -120,10 +105,8 @@ impl SpaceMonitorManager {
             files_changed: 0,
             directories_scanned: 0,
             skipped_paths: 0,
-            running_agents: Vec::new(),
             directories: Vec::new(),
             events: Vec::new(),
-            attribution_note: "File changes cannot be reliably attributed to a specific process. Running agents are shown for context only.".into(),
             error: None,
         };
         self.records
@@ -236,10 +219,6 @@ fn run_monitor(task_id: String, roots: Vec<PathBuf>, cancel: Arc<AtomicBool>, re
             return;
         }
     }
-    let agents = scan_agent_activity()
-        .map(|snapshot| monitor_processes(snapshot.processes))
-        .unwrap_or_default();
-    let mut last_agent_refresh = std::time::Instant::now();
     update_snapshot(&records, &task_id, |snapshot| {
         snapshot.state = "running".into();
         snapshot.baseline_bytes = baseline_bytes;
@@ -247,7 +226,6 @@ fn run_monitor(task_id: String, roots: Vec<PathBuf>, cancel: Arc<AtomicBool>, re
         snapshot.files_scanned = initial.files_scanned;
         snapshot.directories_scanned = initial.directories;
         snapshot.skipped_paths = initial.skipped;
-        snapshot.running_agents = agents;
     });
 
     while !cancel.load(Ordering::Relaxed) {
@@ -295,17 +273,7 @@ fn run_monitor(task_id: String, roots: Vec<PathBuf>, cancel: Arc<AtomicBool>, re
             events.truncate(MAX_EVENTS);
         }
 
-        let agents = if last_agent_refresh.elapsed() >= AGENT_REFRESH_INTERVAL {
-            last_agent_refresh = std::time::Instant::now();
-            Some(
-                scan_agent_activity()
-                    .map(|snapshot| monitor_processes(snapshot.processes))
-                    .unwrap_or_default(),
-            )
-        } else {
-            None
-        };
-        if had_changes || agents.is_some() {
+        if had_changes {
             update_snapshot(&records, &task_id, |snapshot| {
                 snapshot.updated_at = now();
                 snapshot.current_bytes = current_bytes;
@@ -313,9 +281,6 @@ fn run_monitor(task_id: String, roots: Vec<PathBuf>, cancel: Arc<AtomicBool>, re
                 snapshot.files_changed = files_changed;
                 snapshot.directories = rank_directory_changes(&directory_deltas);
                 snapshot.events = events.clone();
-                if let Some(agents) = agents {
-                    snapshot.running_agents = agents;
-                }
             });
         }
     }
@@ -324,19 +289,6 @@ fn run_monitor(task_id: String, roots: Vec<PathBuf>, cancel: Arc<AtomicBool>, re
         snapshot.state = "stopped".into();
         snapshot.updated_at = now();
     });
-}
-
-fn monitor_processes(processes: Vec<crate::agents::AgentProcess>) -> Vec<MonitorAgentProcess> {
-    processes
-        .into_iter()
-        .map(|process| MonitorAgentProcess {
-            agent_id: process.agent_id,
-            agent: process.agent,
-            pid: process.pid,
-            parent_pid: process.parent_pid,
-            process_name: process.process_name,
-        })
-        .collect()
 }
 
 fn apply_event(
