@@ -124,6 +124,7 @@ export default function Gateway() {
             <button className="gh sm" onClick={() => void copy(`http://${address}:${status.port}`)}><i className="ti ti-copy" /></button>
           </div>)}
           {!status.addresses.length && <div><span>{t("局域网地址")}</span><code>{t("未读到本机的网络地址")}</code></div>}
+          <p className="proxy-note">{t("列出的是本机所有网卡地址，挑与对方同一网段的那个；虚拟机走的是宿主机虚拟网卡的地址。对方如果设了系统代理，要让它绕开这个地址（curl 加 --noproxy，或把地址加进 NO_PROXY）。")}</p>
           <p className="proxy-note">{t("如果别的设备连不上，先在 Windows 防火墙里放行这个端口（以管理员身份运行）：")}</p>
           <pre className="console gw-example">{firewall}</pre>
           <button className="gh sm" onClick={() => void copy(firewall)}><i className="ti ti-copy" /> {t("复制命令")}</button>

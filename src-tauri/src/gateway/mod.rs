@@ -206,30 +206,66 @@ pub struct GatewayStatus {
     pub addresses: Vec<String>,
 }
 
-/// This machine's addresses on the networks it is attached to. Asking a UDP socket where it
-/// would send from names the interface that actually carries traffic, without sending
-/// anything; the rest come from the adapters Windows lists.
+/// This machine's addresses on the networks it is attached to. Windows is asked for every
+/// adapter that is up, because the one a caller needs is often not the one carrying the
+/// default route: a virtual machine reaches its host through the host-only adapter, and a
+/// second network card is just as valid an answer.
 pub fn lan_addresses() -> Vec<String> {
-    let mut found: Vec<String> = Vec::new();
-    let mut add = |address: String| {
-        if !address.is_empty() && !found.contains(&address) {
-            found.push(address);
-        }
-    };
+    let mut found = adapter_addresses();
+    // Whatever the adapter list missed, the interface the default route uses still answers.
     for probe in ["223.5.5.5:53", "8.8.8.8:53"] {
         if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0") {
             if socket.connect(probe).is_ok() {
                 if let Ok(local) = socket.local_addr() {
                     let ip = local.ip().to_string();
-                    if !ip.starts_with("127.") && ip != "0.0.0.0" {
-                        add(ip);
+                    if usable(&ip) && !found.contains(&ip) {
+                        found.insert(0, ip);
                     }
                 }
             }
         }
     }
-    add(hostname());
+    // Ordinary home and office networks first: they are what a caller on another machine
+    // will recognise, ahead of a VPN's or a hypervisor's own range.
+    found.sort_by_key(|ip| u8::from(!is_private_lan(ip)));
+    let name = hostname();
+    if !name.is_empty() {
+        found.push(name);
+    }
     found
+}
+
+fn is_private_lan(ip: &str) -> bool {
+    ip.starts_with("192.168.")
+        || ip.starts_with("10.")
+        || (172..=172).contains(&ip.split('.').next().unwrap_or("").parse().unwrap_or(0))
+}
+
+/// Addresses Stacker would hand to someone else: not loopback, not the "no address yet"
+/// range Windows assigns when a network never came up.
+fn usable(ip: &str) -> bool {
+    !ip.starts_with("127.") && !ip.starts_with("169.254.") && ip != "0.0.0.0"
+}
+
+/// Every adapter that is up, as the operating system lists them.
+fn adapter_addresses() -> Vec<String> {
+    let Ok(interfaces) = if_addrs::get_if_addrs() else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for interface in interfaces {
+        if interface.is_loopback() {
+            continue;
+        }
+        let std::net::IpAddr::V4(ip) = interface.ip() else {
+            continue;
+        };
+        let ip = ip.to_string();
+        if usable(&ip) && !out.contains(&ip) {
+            out.push(ip);
+        }
+    }
+    out
 }
 
 /// The name other machines can use instead of the address, when Windows gives one.

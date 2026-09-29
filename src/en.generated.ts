@@ -3346,4 +3346,5 @@ export const GENERATED_EN: Record<string, string> = {
   "系统代理未开启": "System proxy off",
   "系统代理设置残留": "System proxy setting left over",
   "个可更新": "can be updated",
+  "列出的是本机所有网卡地址，挑与对方同一网段的那个；虚拟机走的是宿主机虚拟网卡的地址。对方如果设了系统代理，要让它绕开这个地址（curl 加 --noproxy，或把地址加进 NO_PROXY）。": "Every adapter on this machine is listed; use the one on the caller's own network — a virtual machine reaches the host through the hypervisor's adapter. If the caller has a system proxy, it must bypass this address (curl --noproxy, or add it to NO_PROXY).",
 };

@@ -41,6 +41,12 @@ pub(crate) fn run(args: &[String]) -> Option<i32> {
                 Err(_) => 1,
             }
         }
+        ["lan"] => {
+            for address in crate::gateway::lan_addresses() {
+                println!("{address}");
+            }
+            0
+        }
         ["proxy"] => {
             println!("system  {:?}", crate::proxy_system::system());
             println!("service {:?}", crate::proxy_system::service());
