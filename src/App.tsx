@@ -4,13 +4,13 @@ import { collectFrontendSettings, restoreFrontendSettings, type FrontendSettings
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { getVersion } from "@tauri-apps/api/app";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ToastProvider, ToastHost, useToast, Modal, ConfirmModal, BusyProvider, BusyHost } from "./ui";
 import { Select } from "./Select";
 import { useI18n } from "./i18n";
 import { NotificationProvider, useNotifications, formatBytes } from "./notifications";
 import { readLastPage, saveLastPage, type Page } from "./pageState";
-import { DEFAULT_WINDOW_SIZE } from "./windowSize";
+import { resetMainWindowSize } from "./windowSize";
 import { ALL_NAV_ITEMS, NAV_FOOT, NAV_SECTIONS, initialCollapsedSections, sectionKeyOf, toggleSection, type NavItem, type NavSection } from "./navigation";
 import { TaskCenter } from "./features/agent-tasks/TaskCenter";
 import { useTaskToasts } from "./features/agent-tasks/useTaskToasts";
@@ -179,10 +179,7 @@ function WindowControls() {
 
   async function restore() {
     await act("restore the window", async () => {
-      const appWindow = getCurrentWindow();
-      if (await appWindow.isMaximized()) await appWindow.unmaximize();
-      await appWindow.setSize(new LogicalSize(DEFAULT_WINDOW_SIZE.width, DEFAULT_WINDOW_SIZE.height));
-      await appWindow.center();
+      await resetMainWindowSize();
       toast(tr("窗口已恢复默认大小并居中"), "ok");
     }, "无法恢复窗口位置");
   }
@@ -355,6 +352,11 @@ function Shell() {
 
   return (
     <div className="a">
+      <div className="titlebar" data-tauri-drag-region>
+        <span className="tb-title" data-tauri-drag-region>Stacker</span>
+        <WindowControls />
+      </div>
+      <div className="ashell">
       <aside className={"side" + (sideNarrow ? " narrow" : "")}>
         <div className="brand" data-tauri-drag-region>
           <span className="logo" aria-hidden="true">
@@ -405,7 +407,6 @@ function Shell() {
               </div>
             </div>
           )}
-          <WindowControls />
         </div>
         <div className="route-progress" aria-hidden="true" />
 
@@ -438,6 +439,7 @@ function Shell() {
               : <Stub item={cur} />}
           </Suspense>
         </div>
+      </div>
       </div>
 
       {saveOpen && (

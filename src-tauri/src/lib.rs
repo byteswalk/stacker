@@ -406,6 +406,7 @@ pub fn run() {
             gateway::gateway_status,
             gateway::gateway_set,
             gateway::gateway_set_lan,
+            gateway::gateway_allow_firewall,
             project_junk::project_junk_scan,
             project_junk::project_junk_clean,
             gateway::gateway_new_token,

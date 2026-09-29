@@ -343,6 +343,16 @@ pub async fn gateway_set(enabled: bool, port: u16) -> Result<GatewayStatus, Stri
 
 /// Opening the service to the network restarts it on the other address; the token stays
 /// the same, because it is what keeps the service the user's own.
+/// Adds the inbound rule for this build, so Windows stops asking about the firewall every
+/// time the service starts listening on the network.
+#[tauri::command]
+pub async fn gateway_allow_firewall() -> Result<(), String> {
+    let port = load().port;
+    tauri::async_runtime::spawn_blocking(move || crate::winadmin::allow_firewall_port(port))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub async fn gateway_set_lan(enabled: bool) -> Result<GatewayStatus, String> {
     tauri::async_runtime::spawn_blocking(move || {

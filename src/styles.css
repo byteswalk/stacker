@@ -16,7 +16,13 @@ button{ font-family:inherit; }
 .a{ --bg:#13161c;--side:#10131a;--card:#1b2029;--cardh:#20262f;--bd:rgba(255,255,255,.07);
   --bdh:rgba(255,255,255,.14);--tx:#e7e9ec;--mut:#828995;--link:#6aa3f5;--acc:#f5821f;
   --green:#6bcf86;--blue:#6aa3f5;--red:#e2625b;--amber:#e4b450;
-  display:flex; background:var(--bg); color:var(--tx); height:100vh; overflow:hidden; }
+  display:flex; flex-direction:column; background:var(--bg); color:var(--tx); height:100vh; overflow:hidden; }
+.a .ashell{ display:flex; flex:1; min-height:0; }
+
+/* The window's own caption strip: the app's name, empty space to drag by, its buttons. */
+.a .titlebar{ display:flex; align-items:center; flex:0 0 34px; height:34px; background:var(--side);
+  border-bottom:.5px solid var(--bd); user-select:none; }
+.a .tb-title{ padding-left:14px; color:var(--mut); font-size:11.5px; letter-spacing:.3px; }
 
 /* 侧栏 */
 .a .side{ width:188px; background:var(--side); border-right:.5px solid var(--bd);
@@ -65,8 +71,7 @@ button{ font-family:inherit; }
 
 /* 主区 */
 .a .main{ flex:1; display:flex; flex-direction:column; min-width:0; }
-/* The window's caption: the page's name on the left, the window controls flush right. */
-.a .hd{ display:flex; align-items:center; height:46px; padding:0 0 0 16px; border-bottom:.5px solid var(--bd); gap:10px; }
+.a .hd{ display:flex; align-items:center; padding:11px 16px; border-bottom:.5px solid var(--bd); gap:10px; }
 .a .htitle{ display:flex; align-items:center; gap:9px; min-width:0; margin-right:auto; }
 .a .htitle .bk{ width:28px; height:28px; border-radius:7px; display:flex; align-items:center;
   justify-content:center; color:var(--mut); background:transparent; border:none; cursor:pointer; }
@@ -74,10 +79,10 @@ button{ font-family:inherit; }
 .a .ttl{ font-size:16px; font-weight:600; white-space:nowrap; display:flex; align-items:center; gap:8px; }
 .a .ttl .eco{ width:26px; height:26px; border-radius:7px; display:flex; align-items:center; justify-content:center; font-size:15px; }
 .a .hdright{ display:flex; align-items:center; gap:10px; }
-.a .hdwin{ display:flex; align-items:stretch; align-self:stretch; gap:0; margin-left:4px; }
+.a .hdwin{ display:flex; align-items:stretch; align-self:stretch; gap:0; margin-left:auto; }
 .a .hdwin .pbtn{ align-self:center; }
 .a .hdwin .pbtn:first-child{ margin-left:4px; }
-.a .capbtn{ width:46px; display:flex; align-items:center; justify-content:center; background:transparent;
+.a .capbtn{ width:44px; display:flex; align-items:center; justify-content:center; background:transparent;
   border:none; color:var(--mut); cursor:pointer; font-size:15px; }
 .a .capbtn:hover{ background:rgba(255,255,255,.09); color:var(--tx); }
 .a .capbtn.close:hover{ background:#c42b1c; color:#fff; }
@@ -1299,13 +1304,16 @@ button{ font-family:inherit; }
 .a .proxy-address>button{align-self:flex-start}
 .a .proxy-note{font-size:12px;color:var(--mut);line-height:1.7;margin:10px 0 0}
 /* Two to a row on a wide window, so a long list fills the width instead of stretching. */
-.a .proxy-locations{display:grid;grid-template-columns:repeat(auto-fit,minmax(520px,1fr));gap:0 24px}
-.a .proxy-location{display:grid;grid-template-columns:22px minmax(150px,1fr) minmax(110px,180px) auto auto;gap:10px;align-items:center;padding:9px 0;border-top:1px solid var(--bd)}
+.a .proxy-locations{display:grid;grid-template-columns:repeat(auto-fit,minmax(470px,1fr));gap:0 20px}
+.a .proxy-location{display:grid;grid-template-columns:22px minmax(0,1fr) auto auto;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--bd)}
 .a .proxy-location>i{color:var(--mut);font-size:16px}
-.a .proxy-location .t{font-size:13px;display:flex;align-items:center;gap:8px}
-.a .proxy-location .s{font-size:11.5px}
-.a .proxy-value{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-@media(max-width:900px){.a .proxy-location{grid-template-columns:22px minmax(140px,1fr) auto auto}.a .proxy-value{display:none}}
+.a .proxy-location .mt{min-width:0}
+.a .proxy-location .t{font-size:13px;display:flex;align-items:center;gap:8px;flex-wrap:nowrap;min-width:0}
+.a .proxy-location .t .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.a .proxy-location .t .bd{flex:0 0 auto}
+.a .proxy-sub{display:flex;align-items:baseline;gap:10px;min-width:0;margin-top:2px}
+.a .proxy-sub .s{flex:1 1 auto;min-width:0;font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.a .proxy-value{flex:0 0 auto;font-size:11.5px;color:var(--mut);white-space:nowrap;max-width:45%;overflow:hidden;text-overflow:ellipsis}
 
 .a .gw-port{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--mut)}
 .a .gw-port .ip{width:70px}
@@ -1314,6 +1322,7 @@ button{ font-family:inherit; }
 .a .gw-rows>div{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .a .gw-rows>div>span{width:130px;color:var(--mut)}
 .a .gw-rows code{font-size:12px;overflow-wrap:anywhere}
+.a .gw-firewall{display:flex;gap:8px;flex-wrap:wrap;grid-column:1/-1}
 .a .gw-example{white-space:pre;overflow:auto;margin:0 0 10px;user-select:text}
 /* The request log: searchable, removable, and kept only as long as the user wants. */
 .a .gw-log-bar{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:9px}

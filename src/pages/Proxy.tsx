@@ -163,8 +163,13 @@ export default function Proxy() {
             const writable = info.on && (service ? report.service.known : true);
             return <div className="proxy-location" key={row.id}>
               <i className={"ti " + meta.icon} />
-              <div className="mt"><div className="t">{meta.name} <span className={"bd " + state.cls}>{state.label}</span></div><div className="s dim">{meta.detail}</div></div>
-              <span className="mono proxy-value" title={row.value ?? ""}>{row.value ?? "—"}</span>
+              <div className="mt">
+                <div className="t"><span className="nm">{meta.name}</span><span className={"bd " + state.cls}>{state.label}</span></div>
+                <div className="proxy-sub">
+                  <span className="s dim" title={meta.detail}>{meta.detail}</span>
+                  <span className="mono proxy-value" title={row.value ?? ""}>{row.value ?? "—"}</span>
+                </div>
+              </div>
               <button className="gh sm" disabled={!!busy || !writable || state.label === "已设置"}
                 title={info.on ? `写入 ${system.server}` : "系统代理未开启，没有可写入的地址"}
                 onClick={() => service ? void setService(system.server) : void write(row)}>

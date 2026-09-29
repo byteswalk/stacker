@@ -161,6 +161,41 @@ pub fn set_service_proxy(_: Option<&str>) -> Result<(), String> {
     Err("E_UNSUPPORTED".into())
 }
 
+/// Lets this program answer the local network on one port, so Windows stops asking each time
+/// it starts. The rule names the program, not the port alone.
+#[cfg(windows)]
+pub fn allow_firewall_port(port: u16) -> Result<(), String> {
+    let token = request_id();
+    let program = std::env::current_exe()
+        .map_err(|e| e.to_string())?
+        .to_string_lossy()
+        .into_owned();
+    let req = SysReq {
+        kind: format!("__firewall:{port}"),
+        path: program,
+        siblings: Vec::new(),
+        vars: Default::default(),
+        token: token.clone(),
+    };
+    let file = req_file(&token);
+    if let Some(parent) = file.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&file, serde_json::to_vec(&req).map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())?;
+    if run_elevated_self(&file.to_string_lossy(), &token)? {
+        Ok(())
+    } else {
+        let _ = std::fs::remove_file(&file);
+        Err("防火墙规则未添加（UAC 取消或写入失败）".into())
+    }
+}
+
+#[cfg(not(windows))]
+pub fn allow_firewall_port(_: u16) -> Result<(), String> {
+    Err("E_UNSUPPORTED".into())
+}
+
 /// 被提权实例执行：读请求文件 → 写 HKLM → 返回退出码。
 #[cfg(windows)]
 pub fn apply_from_file(file: &str, token: &str) -> i32 {
@@ -173,7 +208,25 @@ pub fn apply_from_file(file: &str, token: &str) -> i32 {
     if req.token != token {
         return 3;
     }
-    let r = if let Some(address) = req.kind.strip_prefix("__winhttp:set:") {
+    let r = if let Some(port) = req.kind.strip_prefix("__firewall:") {
+        // Replace any rule of the same name first, so an old build's path is not left behind.
+        let name = format!("name=Stacker API {port}");
+        let _ = run_netsh(&["advfirewall", "firewall", "delete", "rule", &name]);
+        run_netsh(&[
+            "advfirewall",
+            "firewall",
+            "add",
+            "rule",
+            &name,
+            "dir=in",
+            "action=allow",
+            "protocol=TCP",
+            &format!("localport={port}"),
+            &format!("program={}", req.path),
+            "profile=private",
+            "enable=yes",
+        ])
+    } else if let Some(address) = req.kind.strip_prefix("__winhttp:set:") {
         run_netsh(&["winhttp", "set", "proxy", address])
     } else if req.kind == "__winhttp:reset" {
         run_netsh(&["winhttp", "reset", "proxy"])
