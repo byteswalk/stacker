@@ -1464,29 +1464,34 @@ pub fn apply_source(
     Ok(())
 }
 
+/// 系统级换源要提权，会等 UAC 和子进程，因此不能占着主线程（窗口会卡住）。
 #[tauri::command]
-pub fn apply_source_scoped(
+pub async fn apply_source_scoped(
     tool_id: String,
     mirror_id: String,
     scope: Option<String>,
 ) -> Result<(), String> {
-    let tools = tools();
-    let tool = tools.iter().find(|t| t.id == tool_id).ok_or("未知工具")?;
-    let mirror = tool
-        .mirrors
-        .iter()
-        .find(|m| m.id == mirror_id)
-        .ok_or("未知镜像")?;
-    match (tool.handler.as_str(), scope.as_deref().unwrap_or("user")) {
-        ("go_env", "user") => apply(tool, mirror),
-        ("go_env", "system") => crate::winadmin::set_env_system(
-            "go-source",
-            vec![("GOPROXY".to_string(), mirror.url.clone())],
-        ),
-        (_, "user") => apply(tool, mirror),
-        (_, "system") => Err("该工具的系统级换源暂不支持".into()),
-        (_, other) => Err(format!("未知作用范围：{other}")),
-    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let tools = tools();
+        let tool = tools.iter().find(|t| t.id == tool_id).ok_or("未知工具")?;
+        let mirror = tool
+            .mirrors
+            .iter()
+            .find(|m| m.id == mirror_id)
+            .ok_or("未知镜像")?;
+        match (tool.handler.as_str(), scope.as_deref().unwrap_or("user")) {
+            ("go_env", "user") => apply(tool, mirror),
+            ("go_env", "system") => crate::winadmin::set_env_system(
+                "go-source",
+                vec![("GOPROXY".to_string(), mirror.url.clone())],
+            ),
+            (_, "user") => apply(tool, mirror),
+            (_, "system") => Err("该工具的系统级换源暂不支持".into()),
+            (_, other) => Err(format!("未知作用范围：{other}")),
+        }
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
