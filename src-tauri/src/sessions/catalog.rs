@@ -77,6 +77,27 @@ pub fn load(roots: &Roots) -> Catalog {
             sessions.extend(found);
         }
     }
+    // The desktop apps keep their own stores, which their CLIs never touch.
+    if let Some(app_data) = dirs::data_dir() {
+        for (folder, agent) in [
+            ("Qoder", Agent::Qoder),
+            ("QoderCN", Agent::QoderCn),
+        ] {
+            if let Ok(found) =
+                super::desktop_catalog::qoder_app(&app_data.join(folder), agent)
+            {
+                sessions.extend(found);
+            }
+        }
+    }
+    if let Ok(found) =
+        super::desktop_catalog::antigravity(Path::new(&roots.antigravity), Agent::Antigravity)
+    {
+        sessions.extend(found);
+    }
+    if let Ok(found) = super::desktop_catalog::trae_cli(Path::new(&roots.trae), Agent::Trae) {
+        sessions.extend(found);
+    }
     fold_imports(
         &mut sessions,
         &super::mimo_catalog::imports(Path::new(&roots.mimo)),

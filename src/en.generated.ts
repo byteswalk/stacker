@@ -2754,6 +2754,7 @@ export const GENERATED_EN: Record<string, string> = {
   "精简导出后删除": "Slim export, then delete",
   "精简导出目录": "Slim export folder",
   "自动化": "Automation",
+  "该会话存在应用自己的数据库里，Stacker 只读不写，请在应用内删除。": "This conversation lives in the app's own database. Stacker reads it but never writes to it, so delete it inside the app.",
   "该会话仍在 Claude 桌面端侧栏中，请先在桌面端删除。": "This session is still in the Claude desktop sidebar. Delete it in the desktop app first.",
   "该会话最近 2 分钟内仍有写入，可能正在使用。": "This session was written in the last 2 minutes and may be in use.",
   "请先完全退出 Codex 桌面端和 CLI。": "Fully quit the Codex desktop app and CLI first.",

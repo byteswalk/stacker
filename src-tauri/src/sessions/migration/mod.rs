@@ -25,6 +25,11 @@ pub fn default_source(agent: Agent) -> PathBuf {
         Agent::WorkBuddyAi => home.join(".workbuddy-ai"),
         Agent::Qoder => home.join(".qoder"),
         Agent::QoderCn => home.join(".qoder-cn"),
+        Agent::Antigravity => home.join(".gemini").join("antigravity"),
+        Agent::Trae => dirs::data_local_dir()
+            .unwrap_or_default()
+            .join("trae-cli")
+            .join("sessions"),
         Agent::MiMo => home.join(".local").join("share").join("mimocode"),
         Agent::Kimi => home.join(".kimi-code"),
     }
@@ -40,6 +45,8 @@ fn env_name(agent: Agent) -> &'static str {
         | Agent::WorkBuddyAi
         | Agent::Qoder
         | Agent::QoderCn
+        | Agent::Antigravity
+        | Agent::Trae
         | Agent::MiMo
         | Agent::Kimi => "",
     }
@@ -76,6 +83,8 @@ pub fn agent_running(agent: Agent, images: &[PathBuf]) -> bool {
             Agent::CodeBuddy => name.starts_with("codebuddy") || name == "cbc.exe",
             Agent::WorkBuddy | Agent::WorkBuddyAi => name.starts_with("workbuddy"),
             Agent::Qoder | Agent::QoderCn => name.starts_with("qoder"),
+            Agent::Antigravity => name.starts_with("antigravity") || name.starts_with("agy"),
+            Agent::Trae => name.starts_with("trae"),
             Agent::MiMo => name.starts_with("mimo"),
             Agent::Kimi => name.starts_with("kimi"),
             Agent::Claude => {
@@ -107,7 +116,7 @@ pub struct LocationStatus {
 }
 
 /// The agents whose whole data folder Stacker can move, in the order the page lists them.
-pub const MOVABLE: [Agent; 9] = [
+pub const MOVABLE: [Agent; 10] = [
     Agent::Codex,
     Agent::Claude,
     Agent::WorkBuddy,
@@ -117,6 +126,7 @@ pub const MOVABLE: [Agent; 9] = [
     Agent::MiMo,
     Agent::Kimi,
     Agent::CodeBuddy,
+    Agent::Antigravity,
 ];
 
 pub fn status(agent: Agent) -> LocationStatus {
@@ -131,6 +141,8 @@ pub fn status(agent: Agent) -> LocationStatus {
         Agent::WorkBuddyAi => "workbuddy-ai",
         Agent::Qoder => "qoder",
         Agent::QoderCn => "qoder-cn",
+        Agent::Antigravity => "antigravity",
+        Agent::Trae => "trae",
         Agent::MiMo => "mimo",
         Agent::Kimi => "kimi",
     };

@@ -1,4 +1,4 @@
-export type AgentName = "codex" | "claude" | "codebuddy" | "workbuddy" | "workbuddy-ai" | "qoder" | "qoder-cn" | "mimo" | "kimi";
+export type AgentName = "codex" | "claude" | "codebuddy" | "workbuddy" | "workbuddy-ai" | "qoder" | "qoder-cn" | "antigravity" | "trae" | "mimo" | "kimi";
 export type ClientTag = "desktop" | "terminal" | "ide" | "automation" | "sdk" | "unknown";
 export type SessionStatus = "active" | "archived" | "orphaned" | "discarded";
 export type TitleSource = "client" | "custom" | "summary" | "first_message";
@@ -93,6 +93,7 @@ export const ERRORS: Record<string, string> = {
   E_PREVIEW: "删除预览已过期或已执行，请重新预览。",
   E_CHANGED: "会话在预览后发生了变化，请刷新后重新预览。",
   E_IN_DESKTOP: "该会话仍在 Claude 桌面端侧栏中，请先在桌面端删除。",
+  E_READ_ONLY: "该会话存在应用自己的数据库里，Stacker 只读不写，请在应用内删除。",
   E_IN_USE: "该会话最近 2 分钟内仍有写入，可能正在使用。",
   E_CLOSE_CODEX: "请先完全退出 Codex 桌面端和 CLI。",
   E_PROCESS_CHECK: "无法确认智能体是否已退出，已阻止操作。",

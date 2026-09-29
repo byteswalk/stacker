@@ -13,6 +13,8 @@ pub enum Agent {
     Qoder,
     #[serde(rename = "qoder-cn")]
     QoderCn,
+    Antigravity,
+    Trae,
     MiMo,
     Kimi,
 }
@@ -27,6 +29,8 @@ impl Agent {
             Agent::WorkBuddyAi => "workbuddy-ai",
             Agent::Qoder => "qoder",
             Agent::QoderCn => "qoder-cn",
+            Agent::Antigravity => "antigravity",
+            Agent::Trae => "trae",
             Agent::MiMo => "mimo",
             Agent::Kimi => "kimi",
         }
@@ -203,4 +207,8 @@ pub struct Roots {
     pub qoder: String,
     #[serde(default)]
     pub qoder_cn: String,
+    #[serde(default)]
+    pub antigravity: String,
+    #[serde(default)]
+    pub trae: String,
 }

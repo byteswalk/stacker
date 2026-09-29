@@ -62,6 +62,8 @@ pub fn login_status(agent: Agent) -> LoginStatus {
         | Agent::WorkBuddyAi
         | Agent::Qoder
         | Agent::QoderCn
+        | Agent::Antigravity
+        | Agent::Trae
         | Agent::MiMo
         | Agent::Kimi => return status("unknown", ""),
         Agent::Codex => (

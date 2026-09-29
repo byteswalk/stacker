@@ -21,6 +21,7 @@ fn pick(override_value: &str, env_name: Option<&str>, fallback: PathBuf) -> Stri
 pub fn resolve(overrides: &Roots) -> Roots {
     let home = dirs::home_dir().unwrap_or_default();
     let roaming = dirs::data_dir().unwrap_or_default();
+    let local = dirs::data_local_dir().unwrap_or_default();
     Roots {
         codex: pick(&overrides.codex, Some("CODEX_HOME"), home.join(".codex")),
         claude: pick(
@@ -38,6 +39,16 @@ pub fn resolve(overrides: &Roots) -> Roots {
         workbuddy_ai: pick(&overrides.workbuddy_ai, None, home.join(".workbuddy-ai")),
         qoder: pick(&overrides.qoder, None, home.join(".qoder")),
         qoder_cn: pick(&overrides.qoder_cn, None, home.join(".qoder-cn")),
+        antigravity: pick(
+            &overrides.antigravity,
+            None,
+            home.join(".gemini").join("antigravity"),
+        ),
+        trae: pick(
+            &overrides.trae,
+            None,
+            local.join("trae-cli").join("sessions"),
+        ),
         mimo: pick(
             &overrides.mimo,
             None,

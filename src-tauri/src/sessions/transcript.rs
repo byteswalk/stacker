@@ -94,7 +94,9 @@ fn parse(agent: Agent, v: &Value) -> Parsed {
             _ => Parsed::Other,
         },
         // Read from their own stores instead; nothing reaches this parser.
-        Agent::MiMo | Agent::Kimi => Parsed::Other,
+        // Antigravity's desktop store is protobuf without a schema, and Qoder's app keeps
+        // only the chat list; neither has a transcript to parse here.
+        Agent::MiMo | Agent::Kimi | Agent::Antigravity | Agent::Trae => Parsed::Other,
     }
 }
 

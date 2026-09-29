@@ -134,10 +134,14 @@ const findings = sourceFiles.flatMap(collectVisibleText);
 const rustFindings = walk(RUST_SOURCE_ROOT)
   .filter((filePath) => filePath.endsWith(".rs"))
   .flatMap((filePath) => {
-    const sourceText = fs.readFileSync(filePath, "utf8");
-    if (sourceText.includes("\uFFFD")) {
+    const wholeFile = fs.readFileSync(filePath, "utf8");
+    if (wholeFile.includes("\uFFFD")) {
       throw new Error(`Invalid replacement character found in ${path.relative(ROOT, filePath)}`);
     }
+    // A test's fixtures are not interface text, so the trailing test module is left out of
+    // the count, the same way .test.ts files are.
+    const testsAt = wholeFile.search(/^#\[cfg\(test\)\]\r?\nmod tests \{/m);
+    const sourceText = testsAt === -1 ? wholeFile : wholeFile.slice(0, testsAt);
     return sourceText.split(/\r?\n/).flatMap((line, index) => {
       if (line.trimStart().startsWith("//")) return [];
       const values = [];

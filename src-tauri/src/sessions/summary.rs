@@ -77,6 +77,8 @@ pub fn choice_for(settings: &SummarySettings, agent: Agent) -> RunnerChoice {
         | Agent::WorkBuddyAi
         | Agent::Qoder
         | Agent::QoderCn
+        | Agent::Antigravity
+        | Agent::Trae
         | Agent::MiMo
         | Agent::Kimi => RunnerChoice {
             agent: Agent::Codex,

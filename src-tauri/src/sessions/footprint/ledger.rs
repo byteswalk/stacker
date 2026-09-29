@@ -47,6 +47,8 @@ fn sessions_agent(id: &str) -> Option<Agent> {
         "qoder-cn" => Agent::QoderCn,
         "mimo-cn" | "mimo-global" => Agent::MiMo,
         "kimi" => Agent::Kimi,
+        "antigravity" => Agent::Antigravity,
+        "trae-work" | "trae-global" => Agent::Trae,
         _ => return None,
     })
 }
@@ -194,6 +196,7 @@ fn moved_root(agent: &Option<Agent>, roots: &Roots) -> Vec<PathBuf> {
         Some(Agent::WorkBuddyAi) => &roots.workbuddy_ai,
         Some(Agent::MiMo) => &roots.mimo,
         Some(Agent::Kimi) => &roots.kimi,
+        Some(Agent::Antigravity) => &roots.antigravity,
         _ => return Vec::new(),
     };
     if path.trim().is_empty() {

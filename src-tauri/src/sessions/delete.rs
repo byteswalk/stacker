@@ -127,6 +127,15 @@ pub fn plan(
             reason: reason.into(),
         };
         match session.agent {
+            // A desktop app's own database: listed, never written to. This comes first because
+            // Qoder's app and its CLI share an agent, and only the CLI's files are Stacker's
+            // to delete.
+            Agent::Antigravity => blocked.push(block("E_READ_ONLY")),
+            _ if session.client == ClientTag::Desktop
+                && matches!(session.agent, Agent::Qoder | Agent::QoderCn) =>
+            {
+                blocked.push(block("E_READ_ONLY"))
+            }
             // Qoder's CLI keeps the same shape in its own folder.
             Agent::Claude | Agent::Qoder | Agent::QoderCn => {
                 let root = Path::new(claude_root(session.agent, roots));
@@ -167,10 +176,14 @@ pub fn plan(
             // MiMo's turns live in a database shared by every session, so its own CLI
             // removes them; nothing here is a file Stacker may delete.
             Agent::MiMo => allowed.push((session.clone(), Vec::new())),
-            // A folder per session, inside Kimi's own store.
-            Agent::Kimi => {
+            // A folder per session, inside the agent's own store.
+            Agent::Kimi | Agent::Trae => {
                 let dir = PathBuf::from(&session.path);
-                let root = PathBuf::from(&roots.kimi);
+                let root = PathBuf::from(if session.agent == Agent::Trae {
+                    &roots.trae
+                } else {
+                    &roots.kimi
+                });
                 if now.saturating_sub(modified_secs(&dir)) < IN_USE_SECONDS {
                     blocked.push(block("E_IN_USE"));
                 } else if is_link(&dir) || !inside(&root, &dir) {
@@ -402,12 +415,14 @@ fn process(
         Agent::Claude | Agent::Qoder | Agent::QoderCn => {
             delete_files(paths, Path::new(claude_root(session.agent, roots)))?
         }
+        Agent::Antigravity => return Err("E_READ_ONLY".into()),
         Agent::Codex => delete_codex(rpc, Path::new(&roots.codex), session)?,
         Agent::CodeBuddy | Agent::WorkBuddy | Agent::WorkBuddyAi => {
             delete_files(paths, Path::new(buddy_root(session.agent, roots)))?
         }
         Agent::MiMo => delete_mimo(&session.native_id)?,
         Agent::Kimi => delete_files(paths, Path::new(&roots.kimi))?,
+        Agent::Trae => delete_files(paths, Path::new(&roots.trae))?,
     }
     Ok(detail)
 }
@@ -518,6 +533,33 @@ mod tests {
             claude: root.to_string_lossy().into_owned(),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn an_app_s_own_database_is_never_deleted() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join(".claude");
+        // The Qoder app and the Qoder CLI share an agent; only the CLI's transcripts are
+        // Stacker's to delete, and this one belongs to the app.
+        let mut app = claude_session(&root, "app", false);
+        app.id = "qoder:app".into();
+        app.agent = Agent::Qoder;
+        app.client = ClientTag::Desktop;
+        let mut agy = claude_session(&root, "agy", false);
+        agy.id = "antigravity:agy".into();
+        agy.agent = Agent::Antigravity;
+        agy.client = ClientTag::Desktop;
+        let (allowed, blocked) = plan(
+            &[app, agy],
+            &["qoder:app".into(), "antigravity:agy".into()],
+            &roots(&root),
+            super::super::now() + 1_000,
+        );
+        assert!(allowed.is_empty());
+        assert_eq!(
+            blocked.iter().map(|b| b.reason.as_str()).collect::<Vec<_>>(),
+            ["E_READ_ONLY", "E_READ_ONLY"]
+        );
     }
 
     #[test]
