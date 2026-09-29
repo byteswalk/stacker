@@ -122,7 +122,11 @@ pub fn qoder_app(app_data: &Path, agent: Agent) -> Result<Vec<Session>, String> 
             sessions.push(session(
                 agent,
                 id.to_string(),
-                if title.is_empty() { id.to_string() } else { title },
+                if title.is_empty() {
+                    id.to_string()
+                } else {
+                    title
+                },
                 if at > 0 { at } else { mtime(&db) },
                 "",
                 &db,
@@ -138,7 +142,10 @@ pub fn trae_cli(dir: &Path, agent: Agent) -> Result<Vec<Session>, String> {
         return Err("E_SOURCE_MISSING".into());
     }
     let mut sessions = Vec::new();
-    for entry in fs::read_dir(dir).map_err(|_| "E_READ".to_string())?.flatten() {
+    for entry in fs::read_dir(dir)
+        .map_err(|_| "E_READ".to_string())?
+        .flatten()
+    {
         let path = entry.path();
         if !path.is_dir() {
             continue;
@@ -251,9 +258,10 @@ pub fn readable_strings(bytes: &[u8], want: usize) -> Vec<String> {
 
 /// The workspace a conversation ran in, out of the `file:///…` URI its metadata carries.
 pub fn workspace_of(texts: &[String]) -> String {
-    let uri = texts
-        .iter()
-        .find_map(|text| text.split_whitespace().find(|word| word.starts_with("file:///")));
+    let uri = texts.iter().find_map(|text| {
+        text.split_whitespace()
+            .find(|word| word.starts_with("file:///"))
+    });
     uri.map(decode_uri).unwrap_or_default()
 }
 
@@ -283,7 +291,10 @@ pub fn antigravity(dir: &Path, agent: Agent) -> Result<Vec<Session>, String> {
         return Err("E_SOURCE_MISSING".into());
     }
     let mut sessions = Vec::new();
-    for entry in fs::read_dir(&conversations).map_err(|_| "E_READ".to_string())?.flatten() {
+    for entry in fs::read_dir(&conversations)
+        .map_err(|_| "E_READ".to_string())?
+        .flatten()
+    {
         let path = entry.path();
         if path.extension().is_some_and(|e| e == "db") {
             if let Some(found) = antigravity_one(&path, agent) {
@@ -298,9 +309,11 @@ fn antigravity_one(db: &Path, agent: Agent) -> Option<Session> {
     let id = db.file_stem()?.to_string_lossy().into_owned();
     let conn = open(db).ok()?;
     let meta: Vec<u8> = conn
-        .query_row("SELECT data FROM trajectory_metadata_blob LIMIT 1", [], |r| {
-            r.get(0)
-        })
+        .query_row(
+            "SELECT data FROM trajectory_metadata_blob LIMIT 1",
+            [],
+            |r| r.get(0),
+        )
         .unwrap_or_default();
     let cwd = workspace_of(&readable_strings(&meta, 12));
     let first = conn
@@ -384,7 +397,11 @@ mod tests {
         };
         std::fs::write(
             run.join("traces.jsonl"),
-            format!("{}\n{}\n", span("cmd.root", "-"), span("query.do", "fix the build")),
+            format!(
+                "{}\n{}\n",
+                span("cmd.root", "-"),
+                span("query.do", "fix the build")
+            ),
         )
         .unwrap();
         // A run with nothing asked in it is not a conversation.

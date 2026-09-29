@@ -557,7 +557,10 @@ mod tests {
         );
         assert!(allowed.is_empty());
         assert_eq!(
-            blocked.iter().map(|b| b.reason.as_str()).collect::<Vec<_>>(),
+            blocked
+                .iter()
+                .map(|b| b.reason.as_str())
+                .collect::<Vec<_>>(),
             ["E_READ_ONLY", "E_READ_ONLY"]
         );
     }

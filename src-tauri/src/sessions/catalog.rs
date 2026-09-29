@@ -79,13 +79,8 @@ pub fn load(roots: &Roots) -> Catalog {
     }
     // The desktop apps keep their own stores, which their CLIs never touch.
     if let Some(app_data) = dirs::data_dir() {
-        for (folder, agent) in [
-            ("Qoder", Agent::Qoder),
-            ("QoderCN", Agent::QoderCn),
-        ] {
-            if let Ok(found) =
-                super::desktop_catalog::qoder_app(&app_data.join(folder), agent)
-            {
+        for (folder, agent) in [("Qoder", Agent::Qoder), ("QoderCN", Agent::QoderCn)] {
+            if let Ok(found) = super::desktop_catalog::qoder_app(&app_data.join(folder), agent) {
                 sessions.extend(found);
             }
         }
