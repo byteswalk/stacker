@@ -230,6 +230,61 @@ pub(crate) fn service() -> ServiceProxy {
     }
 }
 
+/// A virtual adapter that carries everything, which no proxy setting mentions.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TunState {
+    /// Whether traffic currently leaves through one.
+    pub active: bool,
+    /// The adapter's name, for the page to show.
+    pub name: String,
+}
+
+/// Names the tunnelling tools give their adapters. Matching by name is what any tool in this
+/// space does: the alternative is reading the routing table's interface types, which says
+/// nothing about who put them there.
+const TUNNEL_NAMES: &[&str] = &[
+    "tun",
+    "tap",
+    "wintun",
+    "wireguard",
+    "tailscale",
+    "clash",
+    "mihomo",
+    "nexa",
+    "openvpn",
+    "zerotier",
+    "wg",
+];
+
+fn looks_like_tunnel(name: &str) -> bool {
+    let lower = name.to_lowercase();
+    TUNNEL_NAMES.iter().any(|needle| lower.contains(needle))
+}
+
+/// Which adapter the traffic leaves by, and whether it is a tunnel. Asking a UDP socket
+/// where it would send from names the interface the default route uses, without sending
+/// anything.
+pub fn tunnel() -> TunState {
+    let outgoing = std::net::UdpSocket::bind("0.0.0.0:0")
+        .ok()
+        .and_then(|socket| socket.connect("223.5.5.5:53").ok().map(|_| socket))
+        .and_then(|socket| socket.local_addr().ok())
+        .map(|address| address.ip().to_string())
+        .unwrap_or_default();
+    let name = if_addrs::get_if_addrs()
+        .ok()
+        .into_iter()
+        .flatten()
+        .find(|interface| interface.ip().to_string() == outgoing)
+        .map(|interface| interface.name)
+        .unwrap_or_default();
+    TunState {
+        active: looks_like_tunnel(&name),
+        name,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -264,6 +319,17 @@ mod tests {
         );
         assert_eq!(first_endpoint("http://127.0.0.1:6789/"), "127.0.0.1:6789");
         assert_eq!(first_endpoint(""), "");
+    }
+
+    #[test]
+    fn an_adapter_is_a_tunnel_when_its_name_says_so() {
+        assert!(looks_like_tunnel("Tailscale"));
+        assert!(looks_like_tunnel("WireGuard Tunnel"));
+        assert!(looks_like_tunnel("Mihomo TUN"));
+        // An ordinary adapter is not a tunnel, however virtual it is.
+        assert!(!looks_like_tunnel("Ethernet0"));
+        assert!(!looks_like_tunnel("VMware Network Adapter VMnet8"));
+        assert!(!looks_like_tunnel("WLAN"));
     }
 
     #[test]

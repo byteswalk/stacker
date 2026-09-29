@@ -113,6 +113,54 @@ pub fn set_env_system(label: &str, vars: Vec<(String, String)>) -> Result<(), St
     }
 }
 
+/// netsh, run by the elevated instance, with no console window of its own.
+#[cfg(windows)]
+fn run_netsh(args: &[&str]) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+    let mut command = std::process::Command::new("netsh");
+    command.args(args).creation_flags(0x08000000);
+    let output = command.output().map_err(|e| e.to_string())?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+    }
+}
+
+/// The service proxy (WinHTTP) is a machine-wide setting: netsh writes it, and netsh needs
+/// administrator rights, so it goes through the same elevated helper as the rest.
+#[cfg(windows)]
+pub fn set_service_proxy(address: Option<&str>) -> Result<(), String> {
+    let token = request_id();
+    let req = SysReq {
+        kind: match address {
+            Some(address) => format!("__winhttp:set:{address}"),
+            None => "__winhttp:reset".into(),
+        },
+        path: String::new(),
+        siblings: Vec::new(),
+        vars: Default::default(),
+        token: token.clone(),
+    };
+    let file = req_file(&token);
+    if let Some(parent) = file.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&file, serde_json::to_vec(&req).map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())?;
+    if run_elevated_self(&file.to_string_lossy(), &token)? {
+        Ok(())
+    } else {
+        let _ = std::fs::remove_file(&file);
+        Err("服务代理未完成写入（UAC 取消或写入失败）".into())
+    }
+}
+
+#[cfg(not(windows))]
+pub fn set_service_proxy(_: Option<&str>) -> Result<(), String> {
+    Err("E_UNSUPPORTED".into())
+}
+
 /// 被提权实例执行：读请求文件 → 写 HKLM → 返回退出码。
 #[cfg(windows)]
 pub fn apply_from_file(file: &str, token: &str) -> i32 {
@@ -125,7 +173,11 @@ pub fn apply_from_file(file: &str, token: &str) -> i32 {
     if req.token != token {
         return 3;
     }
-    let r = if let Some(kind) = req.kind.strip_prefix("__clear_sdk:") {
+    let r = if let Some(address) = req.kind.strip_prefix("__winhttp:set:") {
+        run_netsh(&["winhttp", "set", "proxy", address])
+    } else if req.kind == "__winhttp:reset" {
+        run_netsh(&["winhttp", "reset", "proxy"])
+    } else if let Some(kind) = req.kind.strip_prefix("__clear_sdk:") {
         crate::env::clear_default(crate::winenv::Hive::System, kind, &req.siblings)
     } else if req.kind.starts_with("__setenv:") {
         let names: Vec<&str> = req.vars.keys().map(String::as_str).collect();

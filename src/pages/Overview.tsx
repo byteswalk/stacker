@@ -434,7 +434,7 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
           </button>
         </div>
       </div>}
-      {hasChecked && (ecosystem?.ecosystems ?? []).map((item) => {
+      {hasChecked && <div className="ecocards">{(ecosystem?.ecosystems ?? []).map((item) => {
         const eco = item.id;
         const meta = ECO_META[eco];
         const sourceTool = (ECOSYSTEM_SOURCE_TOOLS[eco] ?? [])
@@ -448,18 +448,17 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
         const statusText = pageIssue || item.status === "warn" ? "需处理" : item.status === "missing" ? "未配置" : "正常";
         const statusColor = pageIssue || item.status === "warn" ? "#ef6f6f" : item.status === "missing" ? "#828995" : "#6bcf86";
         return (
-          <div className="ecorow" key={eco} onClick={() => goto(eco)}>
-            <span className={"av " + meta.av + " big"}><i className={"ti " + meta.icon} /></span>
-            <div className="ecocols">
-              <div className="ecocell"><div className="k">生态</div><div className="v">{meta.label}</div></div>
-              <div className="ecocell"><div className="k">当前环境</div><div className="v" title={item.detail}>{item.summary}</div></div>
-              <div className="ecocell"><div className="k">环境源</div><div className="v" title={sourceLabel}>{sourceLabel}</div></div>
-              <div className="ecocell"><div className="k">状态</div><div className="v" style={{ color: statusColor }}>{statusText}</div></div>
-            </div>
-            <i className="ti ti-chevron-right chev" />
-          </div>
+          <button type="button" className="ecocard" key={eco} onClick={() => goto(eco)}>
+            <span className="ecocard-head">
+              <span className={"av " + meta.av}><i className={"ti " + meta.icon} /></span>
+              <b>{meta.label}</b>
+              <em style={{ color: statusColor }}>{statusText}</em>
+            </span>
+            <span className="ecocard-line" title={item.detail}>{item.summary}</span>
+            <span className="ecocard-line dim" title={sourceLabel}>{sourceLabel}</span>
+          </button>
         );
-      })}
+      })}</div>}
 
     </>
   );

@@ -3347,4 +3347,12 @@ export const GENERATED_EN: Record<string, string> = {
   "系统代理设置残留": "System proxy setting left over",
   "个可更新": "can be updated",
   "列出的是本机所有网卡地址，挑与对方同一网段的那个；虚拟机走的是宿主机虚拟网卡的地址。对方如果设了系统代理，要让它绕开这个地址（curl 加 --noproxy，或把地址加进 NO_PROXY）。": "Every adapter on this machine is listed; use the one on the caller's own network — a virtual machine reaches the host through the hypervisor's adapter. If the caller has a system proxy, it must bypass this address (curl --noproxy, or add it to NO_PROXY).",
+  "服务代理已跟随系统": "The service proxy now follows the system",
+  "服务代理已清除": "The service proxy was cleared",
+  "全局代理 TUN": "Whole-traffic tunnel (TUN)",
+  "流量在网络层被这个虚拟网卡接管，代理设置对它没有影响；由代理软件负责。": "This virtual adapter carries the traffic at the network layer, where proxy settings have no say; the proxy software owns it.",
+  "当前流量走": "Traffic currently leaves by",
+  "默认网卡": "the default adapter",
+  "，没有虚拟网卡接管。": ", with no virtual adapter in the way.",
+  "服务代理未完成写入（UAC 取消或写入失败）": "The service proxy was not written (UAC was declined, or the write failed)",
 };

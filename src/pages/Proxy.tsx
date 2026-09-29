@@ -14,7 +14,8 @@ type SystemState = "on" | "off" | "stale" | "unknown";
 type SystemProxy = { state: SystemState; server: string; recorded: string; bypass: string };
 type ServiceProxy = { server: string; bypass: string; known: boolean };
 type SyncRow = { id: string; value: string; issue: "missing" | "elsewhere" | "leftover"; ours: boolean };
-type SyncReport = { system: SystemProxy; service: ServiceProxy; rows: SyncRow[] };
+type TunState = { active: boolean; name: string };
+type SyncReport = { system: SystemProxy; service: ServiceProxy; tunnel: TunState; rows: SyncRow[] };
 
 /** Windows' own setting, which Stacker reads and never writes. */
 const SYSTEM_STATE: Record<SystemState, { label: string; cls: string; hint: string }> = {
@@ -102,6 +103,11 @@ export default function Proxy() {
     void run("addr", () => invoke("settings_set_proxy_addr", { host: host.trim(), port: p }), "代理地址已保存，并同步了 Stacker 管理的条目");
   };
   const sync = () => run("sync", () => invoke("settings_sync_system_proxy"), "已同步 Stacker 管理的代理条目");
+  const setService = (address: string | null) => run(
+    "winhttp",
+    async () => { setReport(await invoke<SyncReport>("proxy_service_set", { address })); },
+    address ? "服务代理已跟随系统" : "服务代理已清除",
+  );
   const write = (row: LocationRow) => run(row.id, () => invoke("proxy_location_write", { id: row.id }), `已写入 ${LOCATION_INFO[row.id]?.name ?? row.id} 代理`);
   const clear = (row: LocationRow) => run(row.id, () => invoke("proxy_location_clear", { id: row.id }), `已清除 ${LOCATION_INFO[row.id]?.name ?? row.id} 代理`);
 
@@ -159,6 +165,20 @@ export default function Proxy() {
           <span className={"bd " + (report.service.known ? (report.service.server ? "g" : "n") : "n")}>服务代理 WinHTTP</span>
           <b className="mono">{report.service.known ? (report.service.server || "直连") : "未知"}</b>
           <span className="s dim">系统服务使用；修改需要管理员权限。</span>
+          <button className="gh sm" disabled={!!busy || report.system.state !== "on" || report.service.server === report.system.server}
+            onClick={() => void setService(report.system.server)}>
+            <i className={"ti " + (busy === "winhttp" ? "ti-loader spin" : "ti-pencil")} /> 跟随系统
+          </button>
+          <button className="gh sm" disabled={!!busy || !report.service.server} onClick={() => void setService(null)}>
+            <i className="ti ti-eraser" /> 清除
+          </button>
+        </div>
+        <div className="proxy-system">
+          <span className={"bd " + (report.tunnel.active ? "g" : "n")}>全局代理 TUN</span>
+          <b className="mono">{report.tunnel.active ? report.tunnel.name : "未检测到"}</b>
+          <span className="s dim">{report.tunnel.active
+            ? "流量在网络层被这个虚拟网卡接管，代理设置对它没有影响；由代理软件负责。"
+            : "当前流量走 " + (report.tunnel.name || "默认网卡") + "，没有虚拟网卡接管。"}</span>
         </div>
         {!!report.rows.length && <div className="proxy-unsynced">
           <div className="t">

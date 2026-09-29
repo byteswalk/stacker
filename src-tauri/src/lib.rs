@@ -421,6 +421,7 @@ pub fn run() {
             gateway::agents::gateway_set_agent,
             gateway::agents::gateway_test,
             proxy_ledger::proxy_sync_report,
+            proxy_ledger::proxy_service_set,
             proxy_ledger::proxy_location_write,
             proxy_ledger::proxy_location_clear,
             proxy_ledger::proxy_clear_stale,

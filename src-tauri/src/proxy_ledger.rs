@@ -286,6 +286,8 @@ pub struct SyncRow {
 pub struct SyncReport {
     pub system: crate::proxy_system::SystemProxy,
     pub service: crate::proxy_system::ServiceProxy,
+    /// The adapter traffic leaves by, when it is a tunnel that carries everything.
+    pub tunnel: crate::proxy_system::TunState,
     pub rows: Vec<SyncRow>,
 }
 
@@ -339,8 +341,21 @@ pub fn sync_report() -> SyncReport {
     SyncReport {
         system,
         service,
+        tunnel: crate::proxy_system::tunnel(),
         rows,
     }
+}
+
+/// Writes or clears the service proxy through the elevated helper. Windows asks the user to
+/// approve it; a refusal comes back as an error, not a silent no-op.
+#[tauri::command]
+pub async fn proxy_service_set(address: Option<String>) -> Result<SyncReport, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::winadmin::set_service_proxy(address.as_deref())?;
+        Ok(sync_report())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -350,6 +365,7 @@ pub async fn proxy_sync_report() -> SyncReport {
         .unwrap_or_else(|_| SyncReport {
             system: crate::proxy_system::system(),
             service: crate::proxy_system::service(),
+            tunnel: crate::proxy_system::tunnel(),
             rows: Vec::new(),
         })
 }

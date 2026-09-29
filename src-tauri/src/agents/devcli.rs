@@ -50,6 +50,7 @@ pub(crate) fn run(args: &[String]) -> Option<i32> {
         ["proxy"] => {
             println!("system  {:?}", crate::proxy_system::system());
             println!("service {:?}", crate::proxy_system::service());
+            println!("tunnel  {:?}", crate::proxy_system::tunnel());
             for row in crate::proxy_ledger::sync_report().rows {
                 println!(
                     "  {:14} {:9} ours={} {}",

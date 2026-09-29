@@ -132,8 +132,6 @@ export default function Gateway() {
         <p className="proxy-note">{t("可以发图片（claude/*、codex/*）和 PDF 文档（claude/*），文本类文档会直接并入对话；不支持工具调用。stream 请求：claude/* 逐字返回，codex/* 在生成完成后一次性返回。")}</p>
       </div>
 
-      <GatewayAgents base={base} token={status.token} />
-
       <FoldCard id="examples" title={<><i className="ti ti-code" /> {t("调用示例")}</>}>
         <div className="seg" style={{ marginBottom: 10 }}>
           {([["curl", "curl"], ["openai", "OpenAI SDK"], ["anthropic", "Anthropic SDK"]] as const).map(([k, label]) => <button key={k} className={example === k ? "on" : ""} onClick={() => setExample(k)}>{label}</button>)}
@@ -141,6 +139,8 @@ export default function Gateway() {
         <pre className="console gw-example">{EXAMPLES[example]}</pre>
         <button className="gh sm" onClick={() => void copy(EXAMPLES[example])}><i className="ti ti-copy" /> {t("复制")}</button>
       </FoldCard>
+
+      <GatewayAgents base={base} token={status.token} />
 
       <GatewayLog enabled={status.logEnabled} retentionDays={status.logRetentionDays}
         onSettings={(logEnabled, retentionDays) => void setLogPolicy(logEnabled, retentionDays)} />
