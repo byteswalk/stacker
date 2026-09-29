@@ -10,6 +10,7 @@ import { Select } from "./Select";
 import { useI18n } from "./i18n";
 import { NotificationProvider, useNotifications, formatBytes } from "./notifications";
 import { readLastPage, saveLastPage, type Page } from "./pageState";
+import { DEFAULT_WINDOW_SIZE } from "./windowSize";
 import { ALL_NAV_ITEMS, NAV_FOOT, NAV_SECTIONS, initialCollapsedSections, sectionKeyOf, toggleSection, type NavItem, type NavSection } from "./navigation";
 import { TaskCenter } from "./features/agent-tasks/TaskCenter";
 import { useTaskToasts } from "./features/agent-tasks/useTaskToasts";
@@ -141,45 +142,66 @@ type SavedProfile = {
   frontend_settings?: FrontendSettings;
 };
 
-/** The window's own size when it first opens, from tauri.conf.json. */
-const DEFAULT_WINDOW = { width: 1280, height: 720 };
-
-/** Keep this window above the others, and put it back to where and how it opened. */
+/** The window's controls, in the row that replaced the system title bar. */
 function WindowControls() {
   const { tr } = useI18n();
   const toast = useToast();
   const [onTop, setOnTop] = useState(false);
+  const [maximized, setMaximized] = useState(false);
 
-  async function toggleTop() {
-    const next = !onTop;
+  useEffect(() => {
+    let alive = true;
+    const appWindow = getCurrentWindow();
+    void appWindow.isMaximized().then((value) => { if (alive) setMaximized(value); }).catch(() => undefined);
+    // The window can also be maximized by dragging it to the top edge or by Win+Up.
+    const unlisten = appWindow.onResized(() => {
+      void appWindow.isMaximized().then((value) => { if (alive) setMaximized(value); }).catch(() => undefined);
+    });
+    return () => { alive = false; void unlisten.then((stop) => stop()).catch(() => undefined); };
+  }, []);
+
+  async function act(what: string, run: () => Promise<unknown>, failure: string) {
     try {
-      await getCurrentWindow().setAlwaysOnTop(next);
-      setOnTop(next);
+      await run();
     } catch (error) {
-      reportFrontendWarning("failed to toggle always on top", error);
-      toast(tr("无法切换窗口置顶"), "err");
+      reportFrontendWarning(`failed to ${what}`, error);
+      toast(tr(failure), "err");
     }
   }
 
+  async function toggleTop() {
+    const next = !onTop;
+    await act("toggle always on top", async () => {
+      await getCurrentWindow().setAlwaysOnTop(next);
+      setOnTop(next);
+    }, "无法切换窗口置顶");
+  }
+
   async function restore() {
-    try {
+    await act("restore the window", async () => {
       const appWindow = getCurrentWindow();
       if (await appWindow.isMaximized()) await appWindow.unmaximize();
-      await appWindow.setSize(new LogicalSize(DEFAULT_WINDOW.width, DEFAULT_WINDOW.height));
+      await appWindow.setSize(new LogicalSize(DEFAULT_WINDOW_SIZE.width, DEFAULT_WINDOW_SIZE.height));
       await appWindow.center();
       toast(tr("窗口已恢复默认大小并居中"), "ok");
-    } catch (error) {
-      reportFrontendWarning("failed to restore the window", error);
-      toast(tr("无法恢复窗口位置"), "err");
-    }
+    }, "无法恢复窗口位置");
   }
 
   return <div className="hdwin">
     <button className={"pbtn" + (onTop ? " on" : "")} aria-pressed={onTop}
       title={tr(onTop ? "取消置顶" : "窗口置顶")} aria-label={tr(onTop ? "取消置顶" : "窗口置顶")}
-      onClick={() => void toggleTop()}><i className={"ti " + (onTop ? "ti-pinned-filled" : "ti-pin")} /></button>
+      onClick={() => void toggleTop()}><i className={"ti " + (onTop ? "ti-pinned" : "ti-pin")} /></button>
     <button className="pbtn" title={tr("恢复默认位置和大小")} aria-label={tr("恢复默认位置和大小")}
       onClick={() => void restore()}><i className="ti ti-frame" /></button>
+    <button className="capbtn" title={tr("最小化")} aria-label={tr("最小化")}
+      onClick={() => void act("minimize", () => getCurrentWindow().minimize(), "无法最小化窗口")}>
+      <i className="ti ti-minus" /></button>
+    <button className="capbtn" title={tr(maximized ? "向下还原" : "最大化")} aria-label={tr(maximized ? "向下还原" : "最大化")}
+      onClick={() => void act("toggle maximize", () => getCurrentWindow().toggleMaximize(), "无法切换窗口大小")}>
+      <i className={"ti " + (maximized ? "ti-squares" : "ti-square")} /></button>
+    <button className="capbtn close" title={tr("关闭")} aria-label={tr("关闭")}
+      onClick={() => void act("close the window", () => getCurrentWindow().close(), "无法关闭窗口")}>
+      <i className="ti ti-x" /></button>
   </div>;
 }
 
@@ -334,7 +356,7 @@ function Shell() {
   return (
     <div className="a">
       <aside className={"side" + (sideNarrow ? " narrow" : "")}>
-        <div className="brand">
+        <div className="brand" data-tauri-drag-region>
           <span className="logo" aria-hidden="true">
             <svg className="logo-mark" viewBox="0 0 32 32" focusable="false">
               <path className="logo-layer-1" d="M16 4 28 10 16 16 4 10Z" />
@@ -361,9 +383,9 @@ function Shell() {
       </aside>
 
       <div className="main">
-        <div className="hd">
-          <div className="htitle">
-            <span className="ttl">
+        <div className="hd" data-tauri-drag-region>
+          <div className="htitle" data-tauri-drag-region>
+            <span className="ttl" data-tauri-drag-region>
               {page !== "overview" && <span className="eco av st"><i className={"ti " + cur.icon} /></span>}
               {t(cur.labelKey)}
               {currentNoticeCount > 0 && <span className="navdot title-dot" title={currentNoticeTitle} aria-label={currentNoticeTitle}>{currentNoticeCount > 9 ? "9+" : currentNoticeCount}</span>}

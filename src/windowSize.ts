@@ -5,7 +5,7 @@ import {
 } from "@tauri-apps/api/window";
 
 export const DEFAULT_WINDOW_SIZE = { width: 1280, height: 720 } as const;
-export const MINIMUM_WINDOW_SIZE = { width: 960, height: 540 } as const;
+export const MINIMUM_WINDOW_SIZE = { width: 1280, height: 720 } as const;
 
 const WINDOW_SIZE_STORAGE_KEY = "stackerLocal.mainWindowSize.v1";
 const RESIZE_SAVE_DELAY_MS = 250;

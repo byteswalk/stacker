@@ -65,7 +65,8 @@ button{ font-family:inherit; }
 
 /* 主区 */
 .a .main{ flex:1; display:flex; flex-direction:column; min-width:0; }
-.a .hd{ display:flex; align-items:center; padding:11px 16px; border-bottom:.5px solid var(--bd); gap:10px; }
+/* The window's caption: the page's name on the left, the window controls flush right. */
+.a .hd{ display:flex; align-items:center; height:46px; padding:0 0 0 16px; border-bottom:.5px solid var(--bd); gap:10px; }
 .a .htitle{ display:flex; align-items:center; gap:9px; min-width:0; margin-right:auto; }
 .a .htitle .bk{ width:28px; height:28px; border-radius:7px; display:flex; align-items:center;
   justify-content:center; color:var(--mut); background:transparent; border:none; cursor:pointer; }
@@ -73,7 +74,14 @@ button{ font-family:inherit; }
 .a .ttl{ font-size:16px; font-weight:600; white-space:nowrap; display:flex; align-items:center; gap:8px; }
 .a .ttl .eco{ width:26px; height:26px; border-radius:7px; display:flex; align-items:center; justify-content:center; font-size:15px; }
 .a .hdright{ display:flex; align-items:center; gap:10px; }
-.a .hdwin{ display:flex; align-items:center; gap:4px; }
+.a .hdwin{ display:flex; align-items:stretch; align-self:stretch; gap:0; margin-left:4px; }
+.a .hdwin .pbtn{ align-self:center; }
+.a .hdwin .pbtn:first-child{ margin-left:4px; }
+.a .capbtn{ width:46px; display:flex; align-items:center; justify-content:center; background:transparent;
+  border:none; color:var(--mut); cursor:pointer; font-size:15px; }
+.a .capbtn:hover{ background:rgba(255,255,255,.09); color:var(--tx); }
+.a .capbtn.close:hover{ background:#c42b1c; color:#fff; }
+.a .capbtn:first-of-type{ margin-left:6px; }
 .a .hdwin .pbtn.on{ background:rgba(245,130,31,.16); color:var(--acc); }
 .a .profile{ display:flex; align-items:center; gap:4px; background:rgba(255,255,255,.04);
   border:.5px solid var(--bd); border-radius:9px; padding:0 4px 0 10px; color:var(--mut); }

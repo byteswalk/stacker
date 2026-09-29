@@ -15,10 +15,11 @@
         "title": "Stacker",
         "width": 1280,
         "height": 720,
-        "minWidth": 960,
-        "minHeight": 540,
+        "minWidth": 1280,
+        "minHeight": 720,
         "center": true,
         "resizable": true,
+        "decorations": false,
         "fullscreen": false
       }
     ],
