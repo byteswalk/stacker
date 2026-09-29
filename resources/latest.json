@@ -3,9 +3,9 @@
     "released_at":  "2026-09-22T11:00:00+08:00",
     "release_url":  "https://github.com/byteswalk/stacker/releases/tag/v0.3.4",
     "installer_url":  "https://github.com/byteswalk/stacker/releases/download/v0.3.4/Stacker-0.3.4-setup-windows-x64.exe",
-    "installer_sha256":  "bb9fca488c731e132625b7a96550fdd1100d2fea79a15cac7e2130276af60f73",
+    "installer_sha256":  "4dc8e5eef1cd37013610013ac7a3d131ff12331c8e93354ccf7a354b62c037ce",
     "portable_url":  "https://github.com/byteswalk/stacker/releases/download/v0.3.4/Stacker-0.3.4-portable-windows-x64.zip",
-    "portable_sha256":  "572fb6fe1d6dfae9f37fa3e716eae379ce1b74a3bc29c6a47f447e3644355752",
+    "portable_sha256":  "a3b0c69bcbb3c191fce436681238d61f9704f3d0660f1bd7e1f17206c39ef3dc",
     "notes":  [
                   "Added the browser extension for ChatGPT, Claude, Gemini, Grok and DeepSeek: browse, search, export and clean up web chats, and sync them into Stacker.",
                   "Added distillation of web chats, local sessions and excerpts into reusable results and skill drafts.",
@@ -14,5 +14,5 @@
                   "Parallel agent tasks with waiting reasons, real download progress and clearable history.",
                   "Updates are now signed and verified with a built-in public key before they are installed."
               ],
-    "installer_signature":  "untrusted comment: Stacker release\nRURFeBheM9RE7nhxyp/oewgldKZk6ApkuEE10gI6XrEC3BLy7Q09SHZ+qLSfW7GTJ25k8K/GVCldBNrspf5GWE2tISs8sEjBMQg=\ntrusted comment: Stacker-0.3.4-setup-windows-x64.exe\nt8TD8ArSQaX98S2EDTaNwd/G0hygtcjQ36SY9LfQYRZgMiTVS95OTCBTCwcJgp+pN09qyVQuCddwDHHf4rBUDQ=="
+    "installer_signature":  "untrusted comment: Stacker release\nRURFeBheM9RE7pyKmk+ujJavElOQPJBSYICtxPmt+lxewz45/K3KjI3SgoDfVIfV1rv8Xy6bkSpRQC3XRDWk/rN+oY5Hq/Hmtw8=\ntrusted comment: Stacker-0.3.4-setup-windows-x64.exe\nJQv1gT2YctA342lruIcqI/oDNUtq9r7UfPmLwTfTultHcZAddfhoNbaU+hivawSJ2uXZmWNT47EWR2q9peGXCg=="
 }
