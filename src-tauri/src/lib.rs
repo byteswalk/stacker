@@ -293,6 +293,7 @@ pub fn run() {
             space_analysis::space_scan_summary,
             space_analysis::space_scan_children,
             space_analysis::space_scan_large_files,
+            space_analysis::space_duplicates,
             space_analysis::space_cleanup_candidates,
             space_analysis::space_cleanup_plan,
             space_analysis::space_cleanup_start,

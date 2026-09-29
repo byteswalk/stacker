@@ -1,6 +1,7 @@
 pub mod classifier;
 pub mod cleanup_plan;
 pub mod cleanup_tasks;
+pub mod duplicates;
 pub mod elevated;
 pub mod known;
 pub mod model;
@@ -146,6 +147,22 @@ pub fn space_scan_large_files(
     manager: tauri::State<'_, SpaceTaskManager>,
 ) -> Result<Paged<LargeFileRow>, String> {
     manager.large_files(&task_id, min_bytes, offset, limit)
+}
+
+/// Identical files among what the scan found. Reading them takes a while, so it runs off the
+/// UI thread and reports what it confirmed.
+#[tauri::command]
+pub async fn space_duplicates(
+    task_id: String,
+    min_bytes: u64,
+    manager: tauri::State<'_, SpaceTaskManager>,
+) -> Result<duplicates::DuplicateReport, String> {
+    let files = manager.all_files(&task_id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        duplicates::find(&files, &walker::CancellationToken::default(), min_bytes)
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

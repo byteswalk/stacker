@@ -217,6 +217,13 @@ impl SpaceTaskManager {
         Ok(result.large_files(min_bytes, offset, limit))
     }
 
+    /// Every file the scan indexed, for work that has to read them again.
+    pub fn all_files(&self, task_id: &str) -> Result<Vec<LargeFileRow>, String> {
+        let tasks = lock_records(&self.tasks);
+        let result = completed_deep_result(&tasks, task_id)?;
+        Ok(result.large_files(0, 0, u64::MAX).items)
+    }
+
     pub fn cleanup_candidates(&self, task_id: &str) -> Result<Vec<DirectoryNode>, String> {
         let tasks = lock_records(&self.tasks);
         let result = completed_deep_result(&tasks, task_id)?;
