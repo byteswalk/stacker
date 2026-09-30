@@ -118,12 +118,10 @@ fn live_runner() -> Runner {
     Arc::new(crate::runner::run)
 }
 
-/// Codex and Claude fall back to the summary settings' model and effort; other backends
-/// to the CLI's own defaults.
+/// What the user picked for the agent on the service page; otherwise the CLI's own default.
 pub(crate) fn live_defaults() -> Defaults {
     Arc::new(|chat: &protocol::ChatRequest| {
-        // What the user picked on the page wins; Codex and Claude otherwise follow the
-        // summary settings, and anything else leaves the choice to the CLI.
+        // What the user picked on the page wins; anything else is left to the CLI.
         let picked = load()
             .agent_defaults
             .into_iter()
@@ -136,21 +134,7 @@ pub(crate) fn live_defaults() -> Defaults {
                 );
             }
         }
-        let agent = match chat.model.backend.as_str() {
-            "codex" => Some(crate::sessions::model::Agent::Codex),
-            "claude" => Some(crate::sessions::model::Agent::Claude),
-            _ => None,
-        };
-        let (model, effort) = match agent {
-            Some(agent) => {
-                let settings = crate::sessions::annotations::connect()
-                    .map(|c| crate::sessions::summary::load_settings(&c))
-                    .unwrap_or_default();
-                let base = crate::sessions::summary::choice_for(&settings, agent);
-                (base.model, base.effort)
-            }
-            None => (None, None),
-        };
+        let (model, effort): (Option<String>, Option<String>) = (None, None);
         (
             chat.model.model.clone().or(model),
             chat.effort.clone().or(effort),

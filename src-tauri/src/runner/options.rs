@@ -1,8 +1,6 @@
 //! Model and reasoning-effort choices for each runner.
-use crate::sessions::model::Agent;
 use serde::Serialize;
 use serde_json::Value;
-use std::path::Path;
 
 pub const CLAUDE_MODELS: &[&str] = &["haiku", "sonnet", "opus", "fable"];
 pub const CLAUDE_EFFORTS: &[&str] = &["low", "medium", "high", "xhigh", "max"];
@@ -16,16 +14,6 @@ pub struct ModelOption {
     pub label: String,
     pub efforts: Vec<String>,
     pub default_effort: Option<String>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentOptions {
-    pub agent: Agent,
-    pub installed: bool,
-    pub models: Vec<ModelOption>,
-    /// Efforts offered when no model (the CLI default) is chosen.
-    pub efforts: Vec<String>,
 }
 
 /// Visible models from Codex's `models_cache.json`.
@@ -82,41 +70,6 @@ pub(crate) fn union_efforts(models: &[ModelOption]) -> Vec<String> {
         .filter(|e| models.iter().any(|m| m.efforts.iter().any(|x| x == *e)))
         .map(|e| e.to_string())
         .collect()
-}
-
-pub fn options(codex_home: &Path) -> Vec<AgentOptions> {
-    let codex_models = std::fs::read_to_string(codex_home.join("models_cache.json"))
-        .map(|text| codex_models(&text))
-        .unwrap_or_default();
-    let codex_efforts = if codex_models.is_empty() {
-        vec!["low".into(), "medium".into(), "high".into()]
-    } else {
-        union_efforts(&codex_models)
-    };
-    let claude_efforts: Vec<String> = CLAUDE_EFFORTS.iter().map(|e| e.to_string()).collect();
-    vec![
-        AgentOptions {
-            agent: Agent::Codex,
-            installed: crate::sessions::codex_rpc::command().is_ok(),
-            models: codex_models,
-            efforts: codex_efforts,
-        },
-        AgentOptions {
-            agent: Agent::Claude,
-            installed: crate::agents::process::resolve_command(&["claude.exe", "claude.cmd"])
-                .is_some(),
-            models: CLAUDE_MODELS
-                .iter()
-                .map(|m| ModelOption {
-                    id: m.to_string(),
-                    label: m.to_string(),
-                    efforts: claude_efforts.clone(),
-                    default_effort: None,
-                })
-                .collect(),
-            efforts: claude_efforts,
-        },
-    ]
 }
 
 #[cfg(test)]

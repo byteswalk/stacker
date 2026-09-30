@@ -280,16 +280,6 @@ pub fn footprint_job() -> Option<super::footprint::cleanup::CleanupJob> {
     super::footprint::cleanup::job()
 }
 
-#[tauri::command]
-pub async fn runner_options() -> Result<Vec<crate::runner::options::AgentOptions>, String> {
-    blocking(|| {
-        let conn = super::annotations::connect()?;
-        let roots = super::roots::resolve(&super::annotations::roots(&conn));
-        Ok(crate::runner::options::options(Path::new(&roots.codex)))
-    })
-    .await
-}
-
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SummaryPreviewItem {
@@ -312,21 +302,10 @@ pub struct SummaryPreview {
     pub handoff_runner: Option<super::summary::RunnerChoice>,
 }
 
-fn effective_settings(
-    override_settings: Option<super::summary::SummarySettings>,
-) -> Result<super::summary::SummarySettings, String> {
-    match override_settings {
-        Some(s) => Ok(s),
-        None => Ok(super::summary::load_settings(
-            &super::annotations::connect()?
-        )),
-    }
-}
-
 fn preview_items(
     sessions: &[Session],
     regenerate: bool,
-    settings: &super::summary::SummarySettings,
+    choice: &super::summary::RunnerChoice,
 ) -> Vec<SummaryPreviewItem> {
     sessions
         .iter()
@@ -344,7 +323,7 @@ fn preview_items(
                     0
                 },
                 needed,
-                runner: super::summary::choose(settings, s.agent),
+                runner: choice.clone(),
             }
         })
         .collect()
@@ -363,26 +342,10 @@ fn pick(ids: &[String]) -> Result<Vec<Session>, String> {
 }
 
 #[tauri::command]
-pub fn summary_settings() -> Result<super::summary::SummarySettings, String> {
-    Ok(super::summary::load_settings(
-        &super::annotations::connect()?
-    ))
-}
-
-#[tauri::command]
-pub fn summary_save_settings(settings: super::summary::SummarySettings) -> Result<(), String> {
-    super::summary::save_settings(&super::annotations::connect()?, &settings)
-}
-
-#[tauri::command]
-pub async fn summary_preview(
-    ids: Vec<String>,
-    regenerate: bool,
-    settings: Option<super::summary::SummarySettings>,
-) -> Result<SummaryPreview, String> {
+pub async fn summary_preview(ids: Vec<String>, regenerate: bool) -> Result<SummaryPreview, String> {
     blocking(move || {
-        let settings = effective_settings(settings)?;
-        let items = preview_items(&pick(&ids)?, regenerate, &settings);
+        let choice = crate::ai_config::runner_choice()?;
+        let items = preview_items(&pick(&ids)?, regenerate, &choice);
         Ok(SummaryPreview {
             total_chars: items.iter().map(|i| i.chars).sum(),
             items,
@@ -397,16 +360,15 @@ pub async fn summary_preview(
 pub async fn summary_start(
     ids: Vec<String>,
     regenerate: bool,
-    settings: Option<super::summary::SummarySettings>,
     locale: String,
 ) -> Result<super::summary_job::SummaryJob, String> {
     blocking(move || {
-        let settings = effective_settings(settings)?;
+        let choice = crate::ai_config::runner_choice()?;
         super::summary_job::start(
             "summary",
             pick(&ids)?,
             regenerate,
-            settings,
+            choice,
             locale,
             super::summary_job::live_runner(),
             None,
@@ -426,23 +388,19 @@ pub fn summary_cancel() {
 }
 
 #[tauri::command]
-pub async fn handoff_preview(
-    project: String,
-    limit: usize,
-    settings: Option<super::summary::SummarySettings>,
-) -> Result<SummaryPreview, String> {
+pub async fn handoff_preview(project: String, limit: usize) -> Result<SummaryPreview, String> {
     blocking(move || {
-        let settings = effective_settings(settings)?;
+        let choice = crate::ai_config::runner_choice()?;
         let (all, _, _) = annotated_catalog()?;
         let chosen = super::handoff::select(&all, &project, limit);
         if chosen.is_empty() {
             return Err("E_REQUEST".into());
         }
-        let items = preview_items(&chosen, false, &settings);
+        let items = preview_items(&chosen, false, &choice);
         Ok(SummaryPreview {
             total_chars: items.iter().map(|i| i.chars).sum(),
             project_name: chosen[0].project.name.clone(),
-            handoff_runner: Some(super::handoff::choose(&settings, &chosen)),
+            handoff_runner: Some(choice),
             items,
         })
     })
@@ -453,19 +411,18 @@ pub async fn handoff_preview(
 pub async fn handoff_start(
     project: String,
     limit: usize,
-    settings: Option<super::summary::SummarySettings>,
     locale: String,
 ) -> Result<super::summary_job::SummaryJob, String> {
     blocking(move || {
-        let settings = effective_settings(settings)?;
+        let choice = crate::ai_config::runner_choice()?;
         let (all, _, _) = annotated_catalog()?;
         let chosen = super::handoff::select(&all, &project, limit);
         if chosen.is_empty() {
             return Err("E_REQUEST".into());
         }
         let ids: Vec<String> = chosen.iter().map(|s| s.id.clone()).collect();
-        let choice = super::handoff::choose(&settings, &chosen);
         let run = super::summary_job::live_runner();
+        let job_choice = choice.clone();
         let finish_run = run.clone();
         let finish_locale = locale.clone();
         let finish: super::summary_job::Finish = Box::new(move |cancel| {
@@ -475,7 +432,7 @@ pub async fn handoff_start(
             "handoff",
             chosen,
             false,
-            settings,
+            job_choice,
             locale,
             run,
             Some(finish),

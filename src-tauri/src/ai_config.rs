@@ -137,10 +137,54 @@ pub fn complete(prompt: &str) -> Result<String, String> {
     complete_with(&load(), prompt)
 }
 
+/// The configured source as the runner describes one, for features that go through a job:
+/// a local agent names its backend, an external API leaves the backend empty.
+pub fn runner_choice() -> Result<crate::sessions::summary::RunnerChoice, String> {
+    let config = load();
+    match config.kind.as_str() {
+        "local" => {
+            let spec = crate::gateway::protocol::ModelSpec::parse(&config.local_model)
+                .ok_or("E_AI_MODEL")?;
+            Ok(crate::sessions::summary::RunnerChoice {
+                backend: spec.backend,
+                model: spec.model,
+                effort: None,
+            })
+        }
+        "external" => {
+            if config.base_url.is_empty() || config.model.is_empty() {
+                return Err("E_AI_FIELDS".into());
+            }
+            Ok(crate::sessions::summary::RunnerChoice {
+                backend: String::new(),
+                model: Some(config.model.clone()),
+                effort: None,
+            })
+        }
+        _ => Err("E_AI_NONE".into()),
+    }
+}
+
+/// The production run function behind every job: a request naming a backend goes to that
+/// local agent's CLI, one naming none goes to the external API.
+pub fn run_request(
+    req: &crate::runner::RunRequest,
+    cancel: &crate::runner::CancelFlag,
+) -> Result<crate::runner::RunOutput, String> {
+    if !req.backend.is_empty() {
+        return crate::runner::run(req, cancel);
+    }
+    if cancel.is_cancelled() {
+        return Err("E_CANCELLED".into());
+    }
+    complete_external(&load(), &req.prompt, req.timeout)
+        .map(|text| crate::runner::RunOutput { text })
+}
+
 fn complete_with(config: &AiConfig, prompt: &str) -> Result<String, String> {
     match config.kind.as_str() {
         "local" => complete_local(&config.local_model, prompt),
-        "external" => complete_external(config, prompt),
+        "external" => complete_external(config, prompt, ANSWER_TIMEOUT),
         _ => Err("E_AI_NONE".into()),
     }
 }
@@ -159,8 +203,8 @@ fn complete_local(name: &str, prompt: &str) -> Result<String, String> {
     crate::runner::run(&request, &crate::runner::CancelFlag::default()).map(|output| output.text)
 }
 
-fn agent() -> ureq::Agent {
-    let mut builder = ureq::AgentBuilder::new().timeout(ANSWER_TIMEOUT);
+fn agent(timeout: Duration) -> ureq::Agent {
+    let mut builder = ureq::AgentBuilder::new().timeout(timeout);
     if let Some(proxy) =
         crate::agents::net::stacker_proxy().and_then(|url| ureq::Proxy::new(url).ok())
     {
@@ -180,7 +224,7 @@ pub fn endpoint(protocol: &str, base_url: &str) -> String {
     }
 }
 
-fn complete_external(config: &AiConfig, prompt: &str) -> Result<String, String> {
+fn complete_external(config: &AiConfig, prompt: &str, timeout: Duration) -> Result<String, String> {
     if config.base_url.is_empty() || config.model.is_empty() {
         return Err("E_AI_FIELDS".into());
     }
@@ -193,7 +237,7 @@ fn complete_external(config: &AiConfig, prompt: &str) -> Result<String, String> 
     // ureq is built without its JSON feature here, so the body goes as text.
     let (request, body) = if config.protocol == "anthropic" {
         (
-            agent()
+            agent(timeout)
                 .post(&url)
                 .set("x-api-key", &key)
                 .set("anthropic-version", "2023-06-01"),
@@ -205,7 +249,7 @@ fn complete_external(config: &AiConfig, prompt: &str) -> Result<String, String> 
         )
     } else {
         (
-            agent()
+            agent(timeout)
                 .post(&url)
                 .set("Authorization", &format!("Bearer {key}")),
             serde_json::json!({

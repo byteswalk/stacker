@@ -1,5 +1,5 @@
 import { invoke } from "../../invoke";
-import type { LocationStatus, MigrationCheck, MigrationJob, AgentOptions, SummaryJob, SummaryPreview, SummarySettings, CleanupJob, CleanupPreview, DeleteJob, DeleteMode, DeletePreview, ProjectRow, Roots, RootsView, SessionDetail, SessionPage, SessionQuery, FootprintReport, WebBrowser, WebchatStatus, WebChat, WebChatDetail, WebPage, WebQuery, DistillCandidate, DistillJob, DistillPage, DistillPreview, DistillQuery, DistillResult, DistillSourceRef } from "./types";
+import type { LocationStatus, MigrationCheck, MigrationJob, SummaryJob, SummaryPreview, CleanupJob, CleanupPreview, DeleteJob, DeleteMode, DeletePreview, ProjectRow, Roots, RootsView, SessionDetail, SessionPage, SessionQuery, FootprintReport, WebBrowser, WebchatStatus, WebChat, WebChatDetail, WebPage, WebQuery, DistillCandidate, DistillJob, DistillPage, DistillPreview, DistillQuery, DistillResult, DistillSourceRef } from "./types";
 
 export const listSessions = (query: SessionQuery) => invoke<SessionPage>("sessions_list", { query });
 export const listProjects = () => invoke<ProjectRow[]>("sessions_projects");
@@ -17,15 +17,12 @@ export const scanFootprint = (refresh: boolean) => invoke<FootprintReport>("foot
 export const previewCleanup = (ids: string[]) => invoke<CleanupPreview>("footprint_preview", { ids });
 export const executeCleanup = (token: string) => invoke<CleanupJob>("footprint_execute", { token });
 export const cleanupJob = () => invoke<CleanupJob | null>("footprint_job");
-export const runnerOptions = () => invoke<AgentOptions[]>("runner_options");
-export const getSummarySettings = () => invoke<SummarySettings>("summary_settings");
-export const saveSummarySettings = (settings: SummarySettings) => invoke<void>("summary_save_settings", { settings });
-export const previewSummary = (ids: string[], regenerate: boolean, settings: SummarySettings | null) => invoke<SummaryPreview>("summary_preview", { ids, regenerate, settings });
-export const startSummary = (ids: string[], regenerate: boolean, settings: SummarySettings | null, locale: string) => invoke<SummaryJob>("summary_start", { ids, regenerate, settings, locale });
+export const previewSummary = (ids: string[], regenerate: boolean) => invoke<SummaryPreview>("summary_preview", { ids, regenerate });
+export const startSummary = (ids: string[], regenerate: boolean, locale: string) => invoke<SummaryJob>("summary_start", { ids, regenerate, locale });
 export const summaryJob = () => invoke<SummaryJob | null>("summary_job");
 export const cancelSummary = () => invoke<void>("summary_cancel");
-export const previewHandoff = (project: string, limit: number, settings: SummarySettings | null) => invoke<SummaryPreview>("handoff_preview", { project, limit, settings });
-export const startHandoff = (project: string, limit: number, settings: SummarySettings | null, locale: string) => invoke<SummaryJob>("handoff_start", { project, limit, settings, locale });
+export const previewHandoff = (project: string, limit: number) => invoke<SummaryPreview>("handoff_preview", { project, limit });
+export const startHandoff = (project: string, limit: number, locale: string) => invoke<SummaryJob>("handoff_start", { project, limit, locale });
 export const migrationStatus = () => invoke<LocationStatus[]>("migration_status");
 export const migrationCheck = (agent: string, target: string) => invoke<MigrationCheck>("migration_check", { agent, target });
 export const migrationStart = (agent: string, target: string) => invoke<MigrationJob>("migration_start", { agent, target });
@@ -40,12 +37,12 @@ export const webchatDisconnect = (browser: WebBrowser) => invoke<WebchatStatus>(
 export const webchatOpen = (target: "extension" | "exports") => invoke<void>("webchat_open", { target });
 export const listWebChats = (query: WebQuery) => invoke<WebPage>("webchat_list", { query });
 export const readWebChat = (key: string) => invoke<WebChatDetail>("webchat_read", { key });
-export const summarizeWebChat = (key: string, settings: SummarySettings | null, locale: string) => invoke<WebChat>("webchat_summarize", { key, settings, locale });
+export const summarizeWebChat = (key: string, locale: string) => invoke<WebChat>("webchat_summarize", { key, locale });
 export const cancelWebSummary = () => invoke<void>("webchat_summary_cancel");
 
 export const distillCandidates = (search: string) => invoke<DistillCandidate[]>("distill_candidates", { search });
-export const previewDistill = (sources: DistillSourceRef[], settings: SummarySettings | null) => invoke<DistillPreview>("distill_preview", { sources, settings });
-export const startDistill = (sources: DistillSourceRef[], kinds: string[], settings: SummarySettings | null, locale: string) => invoke<DistillJob>("distill_start", { sources, kinds, settings, locale });
+export const previewDistill = (sources: DistillSourceRef[]) => invoke<DistillPreview>("distill_preview", { sources });
+export const startDistill = (sources: DistillSourceRef[], kinds: string[], locale: string) => invoke<DistillJob>("distill_start", { sources, kinds, locale });
 export const distillJob = () => invoke<DistillJob | null>("distill_job");
 export const cancelDistill = () => invoke<void>("distill_cancel");
 export const listDistill = (query: DistillQuery) => invoke<DistillPage>("distill_list", { query });

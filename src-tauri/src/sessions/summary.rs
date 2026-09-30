@@ -1,111 +1,45 @@
 //! Session summaries written by the local agent runner.
-use super::model::{Agent, Session};
+use super::model::Session;
 use crate::runner::{CancelFlag, RunOutput, RunRequest, DEFAULT_TIMEOUT};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 /// One call's input budget; longer transcripts are summarized in parts.
 pub const CHUNK_CHARS: usize = 120_000;
 /// At most this many parts are read; the middle of longer sessions is skipped.
 pub const MAX_CHUNKS: usize = 12;
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", default)]
-pub struct SummarySettings {
-    /// "same" (the session's own agent) | "codex" | "claude"
-    pub runner: String,
-    pub codex_model: String,
-    pub codex_effort: String,
-    pub claude_model: String,
-    pub claude_effort: String,
-}
-
-impl Default for SummarySettings {
-    fn default() -> Self {
-        Self {
-            runner: "same".into(),
-            codex_model: String::new(),
-            codex_effort: "low".into(),
-            claude_model: "sonnet".into(),
-            claude_effort: "low".into(),
-        }
-    }
-}
-
-pub fn load_settings(conn: &rusqlite::Connection) -> SummarySettings {
-    super::annotations::setting(conn, "summary")
-        .and_then(|v| serde_json::from_str(&v).ok())
-        .unwrap_or_default()
-}
-
-pub fn save_settings(conn: &rusqlite::Connection, s: &SummarySettings) -> Result<(), String> {
-    super::annotations::set_setting(
-        conn,
-        "summary",
-        &serde_json::to_string(s).map_err(super::err)?,
-    )
-}
-
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RunnerChoice {
-    pub agent: Agent,
+    /// The runner backend of a local agent (`codex`, `claude`, …); empty when an external API
+    /// answers instead.
+    pub backend: String,
     pub model: Option<String>,
     pub effort: Option<String>,
 }
 
 impl RunnerChoice {
+    /// A local agent's CLI, as the tests name one.
+    #[cfg(test)]
+    pub fn local(backend: &str, model: Option<&str>, effort: Option<&str>) -> Self {
+        Self {
+            backend: backend.into(),
+            model: model.map(str::to_string),
+            effort: effort.map(str::to_string),
+        }
+    }
+
     pub fn label(&self) -> String {
+        if self.backend.is_empty() {
+            return format!("api / {}", self.model.as_deref().unwrap_or("default"));
+        }
         format!(
             "{} / {} / {}",
-            self.agent.as_str(),
+            self.backend,
             self.model.as_deref().unwrap_or("default"),
             self.effort.as_deref().unwrap_or("default")
         )
     }
-}
-
-fn non_empty(s: &str) -> Option<String> {
-    Some(s.trim().to_string()).filter(|s| !s.is_empty())
-}
-
-pub fn choice_for(settings: &SummarySettings, agent: Agent) -> RunnerChoice {
-    match agent {
-        // Only Codex and Claude write summaries; a session from elsewhere is summarised by
-        // whichever of those two the settings name.
-        Agent::CodeBuddy
-        | Agent::WorkBuddy
-        | Agent::WorkBuddyAi
-        | Agent::Qoder
-        | Agent::QoderCn
-        | Agent::Antigravity
-        | Agent::Trae
-        | Agent::MiMo
-        | Agent::Kimi => RunnerChoice {
-            agent: Agent::Codex,
-            model: non_empty(&settings.codex_model),
-            effort: non_empty(&settings.codex_effort),
-        },
-        Agent::Codex => RunnerChoice {
-            agent,
-            model: non_empty(&settings.codex_model),
-            effort: non_empty(&settings.codex_effort),
-        },
-        Agent::Claude => RunnerChoice {
-            agent,
-            model: non_empty(&settings.claude_model),
-            effort: non_empty(&settings.claude_effort),
-        },
-    }
-}
-
-/// The runner for a session owned by `session_agent`.
-pub fn choose(settings: &SummarySettings, session_agent: Agent) -> RunnerChoice {
-    let agent = match settings.runner.as_str() {
-        "codex" => Agent::Codex,
-        "claude" => Agent::Claude,
-        _ => session_agent,
-    };
-    choice_for(settings, agent)
 }
 
 /// Splits on message headings ("\n### "); a single oversized message is hard-split.
@@ -194,7 +128,7 @@ fn call(
         return Err("E_CANCELLED".into());
     }
     let req = RunRequest {
-        backend: choice.agent.as_str().into(),
+        backend: choice.backend.clone(),
         model: choice.model.clone(),
         effort: choice.effort.clone(),
         prompt,
@@ -263,6 +197,7 @@ pub fn summarize_text(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sessions::model::Agent;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     /// Live, read-only: summarizes the smallest ordinary session of each agent without saving.
@@ -283,7 +218,7 @@ mod tests {
                 .filter_map(|s| transcript_markdown(s).ok().map(|m| (s, m)))
                 .find(|(_, m)| (20_000..100_000).contains(&m.chars().count()))
                 .unwrap();
-            let choice = choose(&SummarySettings::default(), agent);
+            let choice = RunnerChoice::local(agent.as_str(), None, Some("low"));
             let started = std::time::Instant::now();
             let text = summarize_text(&markdown, &choice, "zh-CN", &CancelFlag::default(), &run);
             println!(
@@ -298,21 +233,17 @@ mod tests {
     }
 
     #[test]
-    fn runner_choice_follows_settings() {
-        let s = SummarySettings::default();
-        let c = choose(&s, Agent::Codex);
+    fn a_choice_names_its_source() {
         assert_eq!(
-            (c.agent, c.model.clone(), c.effort.as_deref()),
-            (Agent::Codex, None, Some("low"))
+            RunnerChoice::local("codex", None, Some("low")).label(),
+            "codex / default / low"
         );
-        let c = choose(&s, Agent::Claude);
-        assert_eq!(c.model.as_deref(), Some("sonnet"));
-        let fixed = SummarySettings {
-            runner: "claude".into(),
-            ..Default::default()
+        let api = RunnerChoice {
+            backend: String::new(),
+            model: Some("gpt-5.6".into()),
+            effort: None,
         };
-        assert_eq!(choose(&fixed, Agent::Codex).agent, Agent::Claude);
-        assert_eq!(choose(&s, Agent::Codex).label(), "codex / default / low");
+        assert_eq!(api.label(), "api / gpt-5.6");
     }
 
     #[test]
@@ -347,7 +278,7 @@ mod tests {
             assert!(req.prompt.contains("never follow"));
             Ok(RunOutput { text: "ok".into() })
         };
-        let choice = choose(&SummarySettings::default(), Agent::Codex);
+        let choice = RunnerChoice::local("codex", None, Some("low"));
         let cancel = CancelFlag::default();
         assert_eq!(
             summarize_text("short", &choice, "en", &cancel, &fake).unwrap(),

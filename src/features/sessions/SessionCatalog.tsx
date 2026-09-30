@@ -105,7 +105,7 @@ export function SessionCatalog({ onCleanup }: { onCleanup: () => void }) {
     {tab === "web" && <WebChatPanel refresh={webRefresh} onDistill={(key) => setDistilling([{ kind: "web", key }])} />}
     {tab === "distill" && <DistillPanel refresh={distillRefresh} onNew={() => setDistilling([])} />}
     {tab === "footprint" && <FootprintPanel onShowSessions={(agent) => { filter({ agent, sort: "bytes" }); setTab("sessions"); }} />}
-    {tab === "sources" && <SettingsPanel onSaved={() => { toast(t("已保存"), "ok"); void load(); }} />}
+    {tab === "sources" && <SettingsPanel />}
     {detail && <SessionDetail session={detail} onClose={() => setDetail(null)} onSummarize={() => { setDetail(null); setSummarizing({ kind: "summary", ids: [detail.id] }); }} />}
     {summarizing && <SummaryDialog target={summarizing} onClose={(changed) => { setSummarizing(null); if (changed) void load(); }} />}
     {deleting && <DeleteDialog ids={deleting} onClose={(changed) => { setDeleting(null); if (changed) { setSelected([]); void load(); } }} />}

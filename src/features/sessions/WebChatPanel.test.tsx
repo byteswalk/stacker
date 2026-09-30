@@ -24,7 +24,7 @@ beforeEach(() => {
   host = document.createElement("div"); document.body.append(host); root = createRoot(host);
   vi.mocked(invoke).mockImplementation(async (command: string) => {
     if (command === "webchat_list") return { items: [chat], total: 1, accounts: [{ key: "chatgpt:u1", site: "chatgpt", name: "Work" }] };
-    if (command === "webchat_read") return { chat, messages: [{ role: "user", text: "Where should we go?", at: null, attachments: [] }], chars: 30, runner: { agent: "claude", model: "sonnet", effort: "low" } };
+    if (command === "webchat_read") return { chat, messages: [{ role: "user", text: "Where should we go?", at: null, attachments: [] }], chars: 30, runner: { backend: "claude", model: "sonnet", effort: null } };
     if (command === "webchat_summarize") return { ...chat, summary: "Go to Kyoto", summaryBy: "claude / sonnet / low", summaryAt: 1_700_000_000_000 };
     return null;
   });
@@ -67,11 +67,11 @@ describe("web chats tab", () => {
     expect(host.textContent).toContain("Where should we go?");
     await click([...host.querySelectorAll("button")].find((b) => b.textContent?.includes("生成摘要")));
     expect(vi.mocked(invoke).mock.calls.map(([c]) => c)).not.toContain("webchat_summarize");
-    expect(host.textContent).toContain("Claude · sonnet · low");
+    expect(host.textContent).toContain("本机 claude / sonnet");
     const confirm = [...host.querySelectorAll(".modal button")].filter((b) => b.textContent === "生成摘要").pop();
     await click(confirm);
     await act(async () => { await vi.advanceTimersByTimeAsync(10); });
-    expect(invoke).toHaveBeenCalledWith("webchat_summarize", { key: "chatgpt:c1", settings: null, locale: expect.any(String) });
+    expect(invoke).toHaveBeenCalledWith("webchat_summarize", { key: "chatgpt:c1", locale: expect.any(String) });
     expect(host.textContent).toContain("Go to Kyoto");
   });
 });

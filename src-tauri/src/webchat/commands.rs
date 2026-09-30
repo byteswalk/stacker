@@ -4,8 +4,7 @@ use super::protocol::WebMessage;
 use super::store::{self, WebChatRow, WebPage, WebQuery};
 use crate::runner::CancelFlag;
 use crate::sessions::commands::{blocking, explorer};
-use crate::sessions::model::Agent;
-use crate::sessions::summary::{self, RunnerChoice, SummarySettings};
+use crate::sessions::summary::{self, RunnerChoice};
 use crate::sessions::summary_job::{live_runner, Runner};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -32,7 +31,8 @@ pub struct WebChatDetail {
     pub messages: Vec<WebMessage>,
     /// Characters a summary would send.
     pub chars: usize,
-    pub runner: RunnerChoice,
+    /// Who would write a summary; absent while no AI source is set.
+    pub runner: Option<RunnerChoice>,
 }
 
 fn exe() -> Result<PathBuf, String> {
@@ -120,11 +120,6 @@ pub async fn webchat_list(query: WebQuery) -> Result<WebPage, String> {
     .await
 }
 
-/// A web chat has no agent of its own: 「同源」 means Claude; a fixed runner is honoured.
-pub fn runner_for(settings: &SummarySettings) -> RunnerChoice {
-    summary::choose(settings, Agent::Claude)
-}
-
 /// Same heading shape as local sessions ("\n### "), so long chats split into parts the same way.
 pub fn body_markdown(title: &str, messages: &[WebMessage]) -> String {
     let mut out = format!("# {title}\n\n");
@@ -137,12 +132,6 @@ pub fn body_markdown(title: &str, messages: &[WebMessage]) -> String {
         out.push_str(&format!("### {heading}\n\n{}\n\n", m.text));
     }
     out
-}
-
-fn saved_settings() -> Result<SummarySettings, String> {
-    Ok(summary::load_settings(
-        &crate::sessions::annotations::connect()?,
-    ))
 }
 
 #[tauri::command]
@@ -162,7 +151,9 @@ pub async fn webchat_read(key: String) -> Result<WebChatDetail, String> {
             body_markdown(&chat.title, &messages).chars().count()
         };
         Ok(WebChatDetail {
-            runner: runner_for(&saved_settings()?),
+            // Nothing configured is not an error here: the chat still reads; only
+            // summarising asks for a source.
+            runner: crate::ai_config::runner_choice().ok(),
             chat,
             messages,
             chars,
@@ -174,7 +165,7 @@ pub async fn webchat_read(key: String) -> Result<WebChatDetail, String> {
 pub fn summarize_in(
     root: &Path,
     key: &str,
-    settings: &SummarySettings,
+    choice: &RunnerChoice,
     locale: &str,
     cancel: &CancelFlag,
     run: &Runner,
@@ -185,9 +176,8 @@ pub fn summarize_in(
         return Err("E_NO_BODY".into());
     }
     let body = store::body(root, &chat)?;
-    let choice = runner_for(settings);
     let markdown = body_markdown(&chat.title, &body.messages);
-    let text = summary::summarize_text(&markdown, &choice, locale, cancel, run.as_ref())?;
+    let text = summary::summarize_text(&markdown, choice, locale, cancel, run.as_ref())?;
     store::save_summary(&conn, key, &text, &choice.label(), super::now_ms())?;
     store::chat(&conn, key)
 }
@@ -206,11 +196,7 @@ impl Drop for Running {
 }
 
 #[tauri::command]
-pub async fn webchat_summarize(
-    key: String,
-    settings: Option<SummarySettings>,
-    locale: String,
-) -> Result<WebChatRow, String> {
+pub async fn webchat_summarize(key: String, locale: String) -> Result<WebChatRow, String> {
     blocking(move || {
         let flag = CancelFlag::default();
         {
@@ -221,14 +207,11 @@ pub async fn webchat_summarize(
             *slot = Some(flag.clone());
         }
         let _running = Running;
-        let settings = match settings {
-            Some(s) => s,
-            None => saved_settings()?,
-        };
+        let choice = crate::ai_config::runner_choice()?;
         summarize_in(
             &super::root(),
             &key,
-            &settings,
+            &choice,
             &locale,
             &flag,
             &live_runner(),
@@ -252,16 +235,6 @@ mod tests {
     use crate::runner::{RunOutput, RunRequest};
     use crate::webchat::protocol::{BodyChunk, WebConversation};
     use std::sync::Arc;
-
-    #[test]
-    fn web_chats_use_claude_unless_codex_is_fixed() {
-        assert_eq!(runner_for(&SummarySettings::default()).agent, Agent::Claude);
-        let codex = SummarySettings {
-            runner: "codex".into(),
-            ..Default::default()
-        };
-        assert_eq!(runner_for(&codex).agent, Agent::Codex);
-    }
 
     #[test]
     fn markdown_has_one_heading_per_message() {
@@ -325,10 +298,11 @@ mod tests {
                 text: "Visit Kyoto".into(),
             })
         });
+        let choice = RunnerChoice::local("claude", Some("sonnet"), Some("low"));
         let row = summarize_in(
             dir.path(),
             "chatgpt:a",
-            &SummarySettings::default(),
+            &choice,
             "en",
             &CancelFlag::default(),
             &run,
@@ -339,7 +313,7 @@ mod tests {
         let missing = summarize_in(
             dir.path(),
             "chatgpt:nobody",
-            &SummarySettings::default(),
+            &choice,
             "en",
             &CancelFlag::default(),
             &run,

@@ -1,3 +1,4 @@
+import { AI_ERRORS } from "../ai/AiSettings";
 export type AgentName = "codex" | "claude" | "codebuddy" | "workbuddy" | "workbuddy-ai" | "qoder" | "qoder-cn" | "antigravity" | "trae" | "mimo" | "kimi";
 export type ClientTag = "desktop" | "terminal" | "ide" | "automation" | "sdk" | "unknown";
 export type SessionStatus = "active" | "archived" | "orphaned" | "discarded";
@@ -127,7 +128,8 @@ export const ERRORS: Record<string, string> = {
 
 export function errorMessage(error: unknown): string {
   const text = String(error);
-  return ERRORS[text] ?? text;
+  // A summary, handoff or distillation with no AI source says where to set one.
+  return ERRORS[text] ?? AI_ERRORS[text] ?? text;
 }
 
 export type FootprintKind = "sessions" | "reclaimable" | "review" | "keep";
@@ -153,10 +155,8 @@ export type CleanupPreview = { token: string; items: FootprintItem[]; blocked: F
 export type CleanupItemResult = { id: string; label: string; status: string; detail: string; freed: number };
 export type CleanupJob = { state: string; done: number; total: number; freed: number; items: CleanupItemResult[]; error: string };
 
-export type SummarySettings = { runner: "same" | "codex" | "claude"; codexModel: string; codexEffort: string; claudeModel: string; claudeEffort: string };
-export type RunnerChoice = { agent: AgentName; model: string | null; effort: string | null };
-export type ModelOption = { id: string; label: string; efforts: string[]; defaultEffort: string | null };
-export type AgentOptions = { agent: AgentName; installed: boolean; models: ModelOption[]; efforts: string[] };
+/** Who runs an AI job: a local agent's backend, or an external API when `backend` is empty. */
+export type RunnerChoice = { backend: string; model: string | null; effort: string | null };
 export type SummaryPreviewItem = { id: string; title: string; agent: AgentName; chars: number; needed: boolean; runner: RunnerChoice };
 export type SummaryPreview = { items: SummaryPreviewItem[]; totalChars: number; projectName: string; handoffRunner: RunnerChoice | null };
 export type SummaryJobItem = { id: string; title: string; status: string; detail: string; elapsedMs: number; by: string };
@@ -217,7 +217,7 @@ export type WebChat = {
 export type WebAccountOption = { key: string; site: string; name: string };
 export type WebPage = { items: WebChat[]; total: number; accounts: WebAccountOption[] };
 export type WebMessage = { role: string; text: string; at: number | null; attachments: string[] };
-export type WebChatDetail = { chat: WebChat; messages: WebMessage[]; chars: number; runner: RunnerChoice };
+export type WebChatDetail = { chat: WebChat; messages: WebMessage[]; chars: number; runner: RunnerChoice | null };
 
 const WEB_SITE_LABEL: Record<string, string> = { chatgpt: "ChatGPT", claude: "Claude", gemini: "Gemini", grok: "Grok", deepseek: "DeepSeek" };
 /** Site ids come from the extension; unknown ones are shown as they are. */

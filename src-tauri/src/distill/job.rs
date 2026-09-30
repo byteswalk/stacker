@@ -213,8 +213,7 @@ fn save(
 mod tests {
     use super::*;
     use crate::runner::{RunOutput, RunRequest};
-    use crate::sessions::model::Agent;
-    use crate::sessions::summary::{choose, SummarySettings};
+    use crate::sessions::summary::RunnerChoice;
     use crate::webchat::protocol::{BodyChunk, WebConversation, WebMessage};
     use crate::webchat::store as web;
     use std::path::Path;
@@ -270,7 +269,7 @@ mod tests {
                 key: "chatgpt:a".into(),
             }],
             kinds: vec!["qa".into(), "skill".into()],
-            choice: choose(&SummarySettings::default(), Agent::Claude),
+            choice: RunnerChoice::local("claude", Some("sonnet"), Some("low")),
             locale: "en".into(),
         }
     }
@@ -513,9 +512,7 @@ mod tests {
             sessions,
             refs,
             kinds: vec!["qa".into(), "requirement".into(), "skill".into()],
-            choice: crate::webchat::commands::runner_for(&crate::sessions::summary::load_settings(
-                &crate::sessions::annotations::connect().unwrap(),
-            )),
+            choice: crate::ai_config::runner_choice().unwrap(),
             locale: "zh-CN".into(),
         };
         let started = std::time::Instant::now();

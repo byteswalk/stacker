@@ -1,7 +1,7 @@
 //! Project handoff notes composed from session summaries.
 use super::catalog::is_automation;
-use super::model::{Agent, Session};
-use super::summary::{self, RunnerChoice, SummarySettings};
+use super::model::Session;
+use super::summary::{self, RunnerChoice};
 use crate::runner::{CancelFlag, RunRequest, DEFAULT_TIMEOUT};
 use std::path::PathBuf;
 
@@ -17,17 +17,6 @@ pub fn select(sessions: &[Session], project: &str, limit: usize) -> Vec<Session>
         list.truncate(limit);
     }
     list
-}
-
-/// With "same", the agent that owns most of the chosen sessions writes the handoff.
-pub fn choose(settings: &SummarySettings, sessions: &[Session]) -> RunnerChoice {
-    let codex = sessions.iter().filter(|s| s.agent == Agent::Codex).count();
-    let majority = if codex * 2 >= sessions.len() && codex > 0 {
-        Agent::Codex
-    } else {
-        Agent::Claude
-    };
-    summary::choose(settings, majority)
 }
 
 fn date(secs: u64) -> String {
@@ -118,7 +107,7 @@ pub fn compose(
         .map(|s| s.project.name.clone())
         .unwrap_or_else(|| project.to_string());
     let req = RunRequest {
-        backend: choice.agent.as_str().into(),
+        backend: choice.backend.clone(),
         model: choice.model.clone(),
         effort: choice.effort.clone(),
         prompt: prompt(&name, &sessions, locale),
@@ -138,7 +127,7 @@ pub fn compose(
 #[cfg(test)]
 mod tests {
     use super::super::catalog::tests_support::session;
-    use super::super::model::ClientTag;
+    use super::super::model::{Agent, ClientTag};
     use super::*;
 
     fn s(id: &str, agent: Agent, project: &str, updated: u64, client: ClientTag) -> Session {
@@ -162,12 +151,6 @@ mod tests {
         let picked: Vec<_> = select(&list, "p", 0).into_iter().map(|x| x.id).collect();
         assert_eq!(picked, vec!["b", "a"]);
         assert_eq!(select(&list, "p", 1).len(), 1);
-        let settings = SummarySettings::default();
-        assert_eq!(
-            choose(&settings, &select(&list, "p", 0)).agent,
-            Agent::Codex,
-            "ties go to codex"
-        );
     }
 
     #[test]

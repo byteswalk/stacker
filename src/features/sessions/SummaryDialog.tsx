@@ -1,16 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../../i18n";
 import { Modal } from "../../ui";
-import { cancelSummary, getSummarySettings, previewHandoff, previewSummary, runnerOptions, startHandoff, startSummary, summaryJob } from "./api";
-import { cleanSettings, RunnerFields, summaryAgent } from "./RunnerFields";
-import { AGENT_LABEL } from "./sessionsView";
-import { errorMessage, type AgentOptions, type RunnerChoice, type SummaryJob, type SummaryPreview, type SummarySettings } from "./types";
+import { cancelSummary, previewHandoff, previewSummary, startHandoff, startSummary, summaryJob } from "./api";
+import { errorMessage, type RunnerChoice, type SummaryJob, type SummaryPreview } from "./types";
 
 const STATUS: Record<string, string> = { queued: "排队中", running: "生成中", completed: "已完成", failed: "失败", skipped: "已跳过" };
 const JOB_STATE: Record<string, string> = { running: "进行中", completed: "已完成", failed: "部分失败", cancelled: "已取消" };
 
-export function runnerText(c: RunnerChoice, t: (s: string) => string) {
-  return `${AGENT_LABEL[c.agent]} · ${c.model ?? t("默认模型")} · ${c.effort ?? t("默认推理")}`;
+/** Which AI source will answer, as the confirmation names it. */
+export function runnerText(c: RunnerChoice | null | undefined, t: (s: string) => string) {
+  if (!c) return t("尚未配置的 AI");
+  if (!c.backend) return `${t("外部 API")} · ${c.model ?? t("默认模型")}`;
+  return `${t("本机")} ${c.backend}${c.model ? ` / ${c.model}` : ""}`;
 }
 
 function formatChars(n: number, t: (s: string) => string) {
@@ -22,8 +23,6 @@ type Target = { kind: "summary"; ids: string[] } | { kind: "handoff"; project: s
 /** Confirm → run → results, for session summaries and project handoffs. */
 export function SummaryDialog({ target, onClose }: { target: Target; onClose: (changed: boolean) => void }) {
   const { tr: t, locale } = useI18n();
-  const [settings, setSettings] = useState<SummarySettings | null>(null);
-  const [options, setOptions] = useState<AgentOptions[]>([]);
   const [regenerate, setRegenerate] = useState(false);
   const [limit, setLimit] = useState(10);
   const [preview, setPreview] = useState<SummaryPreview | null>(null);
@@ -33,19 +32,11 @@ export function SummaryDialog({ target, onClose }: { target: Target; onClose: (c
   const request = useRef(0);
 
   useEffect(() => {
-    Promise.all([getSummarySettings(), runnerOptions()])
-      .then(([s, o]) => { setSettings(s); setOptions(o); })
-      .catch((e) => setError(errorMessage(e)));
-  }, []);
-
-  useEffect(() => {
-    if (!settings) return;
     const current = ++request.current;
-    const clean = cleanSettings(settings);
-    const load = target.kind === "summary" ? previewSummary(target.ids, regenerate, clean) : previewHandoff(target.project, limit, clean);
-    load.then((p) => { if (current === request.current) setPreview(p); })
+    const load = target.kind === "summary" ? previewSummary(target.ids, regenerate) : previewHandoff(target.project, limit);
+    load.then((p) => { if (current === request.current) { setPreview(p); setError(""); } })
       .catch((e) => { if (current === request.current) setError(errorMessage(e)); });
-  }, [target, regenerate, limit, settings]);
+  }, [target, regenerate, limit]);
 
   const running = job?.state === "running";
   useEffect(() => {
@@ -57,18 +48,15 @@ export function SummaryDialog({ target, onClose }: { target: Target; onClose: (c
   }, [running]);
 
   async function start() {
-    if (!settings) return;
     setError("");
     try {
-      const clean = cleanSettings(settings);
       setJob(target.kind === "summary"
-        ? await startSummary(target.ids, regenerate, clean, locale)
-        : await startHandoff(target.project, limit, clean, locale));
+        ? await startSummary(target.ids, regenerate, locale)
+        : await startHandoff(target.project, limit, locale));
     } catch (e) { setError(errorMessage(e)); }
   }
 
   const needed = preview?.items.filter((i) => i.needed) ?? [];
-  const agents = [...new Set([...needed.map((i) => summaryAgent(i.runner.agent)), ...(preview?.handoffRunner ? [summaryAgent(preview.handoffRunner.agent)] : [])])];
   const title = target.kind === "summary" ? t("生成会话摘要") : `${t("生成交接资料")} · ${preview?.projectName ?? ""}`;
   const canStart = !!preview && (needed.length > 0 || target.kind === "handoff");
 
@@ -100,9 +88,8 @@ export function SummaryDialog({ target, onClose }: { target: Target; onClose: (c
           {preview.items.length > needed.length && target.kind === "summary" && <> · {preview.items.length - needed.length} {t("个已有摘要，跳过")}</>}
         </p>}
         {target.kind === "summary" && <label className="session-check"><input type="checkbox" checked={regenerate} onChange={(e) => setRegenerate(e.target.checked)} />{t("重新生成已有摘要")}</label>}
-        {settings && <RunnerFields value={settings} options={options} onChange={setSettings} agents={agents.length ? agents : undefined} />}
-        {preview?.handoffRunner && <p className="session-note">{t("交接资料执行者")}：{runnerText(preview.handoffRunner, t)}</p>}
-        <p className="session-note"><i className="ti ti-shield-lock" /> {t("会话正文会发送给所选智能体的模型服务，使用你在该智能体中登录的账号额度。运行时不开放任何工具，也不会在智能体里留下新会话。这里的修改只对本次生效，默认值在「设置 → 摘要」中设置。")}</p>
+        {preview && <p className="session-note"><i className="ti ti-sparkles" /> {t("执行者")}：<b>{runnerText(preview.handoffRunner ?? preview.items[0]?.runner, t)}</b>　<span className="dim">{t("在「偏好设置 → AI 能力」更换")}</span></p>}
+        <p className="session-note"><i className="ti ti-shield-lock" /> {t("会话正文会发送给上面这个 AI，用的是它的账号额度。运行时不开放任何工具，也不会在智能体里留下新会话。")}</p>
       </> : <>
         <p className="session-impact"><b>{t(JOB_STATE[job.state] ?? job.state)}</b> · {job.done} / {job.total}</p>
         {running && <progress max={Math.max(1, job.total)} value={job.done} />}

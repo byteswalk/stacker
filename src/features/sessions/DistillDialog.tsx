@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../../i18n";
 import { ConfirmModal, Modal } from "../../ui";
-import { cancelDistill, distillCandidates, distillJob, getSummarySettings, openDistill, previewDistill, runnerOptions, startDistill } from "./api";
-import { cleanSettings, RunnerFields, summaryAgent } from "./RunnerFields";
+import { cancelDistill, distillCandidates, distillJob, openDistill, previewDistill, startDistill } from "./api";
 import { runnerText } from "./SummaryDialog";
-import { DISTILL_KINDS, DISTILL_KIND_LABEL, errorMessage, type AgentOptions, type DistillCandidate, type DistillJob, type DistillPreview, type DistillSourceRef, type SummarySettings } from "./types";
+import { DISTILL_KINDS, DISTILL_KIND_LABEL, errorMessage, type DistillCandidate, type DistillJob, type DistillPreview, type DistillSourceRef } from "./types";
 
 const STAGE: Record<string, string> = { reading: "正在读取材料", distilling: "正在提炼", merging: "正在合并去重", saving: "正在保存" };
 // `empty`：任务跑完了、没出错，但一条可用条目都没提炼出来，不能和 completed 看起来一样。
@@ -20,8 +19,6 @@ export function DistillDialog({ initial, onClose }: { initial: DistillSourceRef[
   const { tr: t, locale } = useI18n();
   const [sources, setSources] = useState<DistillSourceRef[]>(initial);
   const [kinds, setKinds] = useState<string[]>(["qa", "requirement"]);
-  const [settings, setSettings] = useState<SummarySettings | null>(null);
-  const [options, setOptions] = useState<AgentOptions[]>([]);
   const [preview, setPreview] = useState<DistillPreview | null>(null);
   const [picking, setPicking] = useState(false);
   const [search, setSearch] = useState("");
@@ -30,12 +27,6 @@ export function DistillDialog({ initial, onClose }: { initial: DistillSourceRef[
   const [job, setJob] = useState<DistillJob | null>(null);
   const [error, setError] = useState("");
   const request = useRef(0);
-
-  useEffect(() => {
-    Promise.all([getSummarySettings(), runnerOptions()])
-      .then(([s, o]) => { setSettings(s); setOptions(o); })
-      .catch((e) => setError(errorMessage(e)));
-  }, []);
 
   // 一个任务可能是上次打开这个对话框时启动的、对话框关掉了但任务还在跑：重新打开时
   // 先问一下有没有正在跑的任务，有就直接显示它的进度，而不是让用户点「开始提炼」时
@@ -47,12 +38,12 @@ export function DistillDialog({ initial, onClose }: { initial: DistillSourceRef[
   }, []);
 
   useEffect(() => {
-    if (!settings || !sources.length) { setPreview(null); return; }
+    if (!sources.length) { setPreview(null); return; }
     const current = ++request.current;
-    previewDistill(sources, cleanSettings(settings))
+    previewDistill(sources)
       .then((p) => { if (current === request.current) { setPreview(p); setError(""); } })
       .catch((e) => { if (current === request.current) { setPreview(null); setError(errorMessage(e)); } });
-  }, [sources, settings]);
+  }, [sources]);
 
   useEffect(() => {
     if (!picking) return;
@@ -76,9 +67,8 @@ export function DistillDialog({ initial, onClose }: { initial: DistillSourceRef[
   const add = (c: DistillCandidate) => setSources((old) => old.some((s) => s.kind === c.kind && s.key === c.key) ? old : [...old, { kind: c.kind, key: c.key }]);
 
   async function start() {
-    if (!settings) return;
     setAsking(false); setError("");
-    try { setJob(await startDistill(sources, kinds, cleanSettings(settings), locale)); }
+    try { setJob(await startDistill(sources, kinds, locale)); }
     catch (e) { setError(errorMessage(e)); }
   }
 
@@ -126,8 +116,8 @@ export function DistillDialog({ initial, onClose }: { initial: DistillSourceRef[
         {preview && <p className="session-impact">
           {t("将提炼")} <b>{preview.items.length}</b> {t("份材料")} · {t("将发送约")} <b>{formatChars(preview.totalChars, t)}</b>
         </p>}
-        {settings && <RunnerFields value={settings} options={options} onChange={setSettings} agents={preview ? [summaryAgent(preview.runner.agent)] : undefined} />}
-        <p className="session-note"><i className="ti ti-shield-lock" /> {t("材料正文会发送给所选智能体的模型服务，使用你在该智能体中登录的账号额度。运行时不开放任何工具，也不会在智能体里留下新会话。skill 草稿只写成本机文件夹，不会安装到任何智能体。这里的修改只对本次生效，默认值在「设置 → 摘要」中设置。")}</p>
+        {preview && <p className="session-note"><i className="ti ti-sparkles" /> {t("执行者")}：<b>{runnerText(preview.runner, t)}</b>　<span className="dim">{t("在「偏好设置 → AI 能力」更换")}</span></p>}
+        <p className="session-note"><i className="ti ti-shield-lock" /> {t("材料正文会发送给上面这个 AI，用的是它的账号额度。运行时不开放任何工具，也不会在智能体里留下新会话。skill 草稿只写成本机文件夹，不会安装到任何智能体。")}</p>
       </> : <>
         <p className="session-impact"><b>{t(JOB_STATE[job.state] ?? job.state)}</b>{job.state === "running" ? ` · ${t(STAGE[job.stage] ?? job.stage)}` : ""} · {job.done} / {Math.max(1, job.total)}</p>
         {running && <progress max={Math.max(1, job.total)} value={job.done} />}

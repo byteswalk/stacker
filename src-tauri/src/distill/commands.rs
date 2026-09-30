@@ -7,7 +7,7 @@ use super::sources::{self, Candidate, SourceRef};
 use super::store::{self, DistillQuery, DistillResult, KindCounts};
 use crate::sessions::commands::{annotated_catalog, blocking, explorer};
 use crate::sessions::model::Session;
-use crate::sessions::summary::{self, RunnerChoice, SummarySettings};
+use crate::sessions::summary::RunnerChoice;
 use crate::sessions::summary_job::live_runner;
 use serde::Serialize;
 use std::path::Path;
@@ -37,20 +37,6 @@ pub struct DistillPage {
     pub counts: KindCounts,
 }
 
-fn settings_or_saved(settings: Option<SummarySettings>) -> Result<SummarySettings, String> {
-    match settings {
-        Some(s) => Ok(s),
-        None => Ok(summary::load_settings(
-            &crate::sessions::annotations::connect()?,
-        )),
-    }
-}
-
-/// 提炼没有「同源」可言：沿用网页对话摘要的选法（同源 = Claude）。
-fn runner_for(settings: &SummarySettings) -> RunnerChoice {
-    crate::webchat::commands::runner_for(settings)
-}
-
 /// 只有在真的需要 `session:` 来源时才去读本机会话目录。
 fn sessions_if_needed(refs: &[SourceRef]) -> Vec<Session> {
     if refs.iter().any(|r| r.kind == "session") {
@@ -70,12 +56,9 @@ pub async fn distill_candidates(search: String) -> Result<Vec<Candidate>, String
 }
 
 #[tauri::command]
-pub async fn distill_preview(
-    sources: Vec<SourceRef>,
-    settings: Option<SummarySettings>,
-) -> Result<DistillPreview, String> {
+pub async fn distill_preview(sources: Vec<SourceRef>) -> Result<DistillPreview, String> {
     blocking(move || {
-        let settings = settings_or_saved(settings)?;
+        let runner = crate::ai_config::runner_choice()?;
         let sessions = sessions_if_needed(&sources);
         let (units, skipped) =
             super::sources::gather(&crate::webchat::root(), &sessions, &sources)?;
@@ -89,7 +72,7 @@ pub async fn distill_preview(
         Ok(DistillPreview {
             total_chars: items.iter().map(|i| i.chars).sum(),
             items,
-            runner: runner_for(&settings),
+            runner,
             skipped: skipped.len(),
         })
     })
@@ -100,11 +83,10 @@ pub async fn distill_preview(
 pub async fn distill_start(
     sources: Vec<SourceRef>,
     kinds: Vec<String>,
-    settings: Option<SummarySettings>,
     locale: String,
 ) -> Result<DistillJob, String> {
     blocking(move || {
-        let settings = settings_or_saved(settings)?;
+        let choice = crate::ai_config::runner_choice()?;
         let sessions = sessions_if_needed(&sources);
         job::start(
             StartRequest {
@@ -112,7 +94,7 @@ pub async fn distill_start(
                 sessions,
                 refs: sources,
                 kinds,
-                choice: runner_for(&settings),
+                choice,
                 locale,
             },
             live_runner(),

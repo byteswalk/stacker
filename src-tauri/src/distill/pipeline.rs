@@ -40,7 +40,7 @@ fn call(
         return Err("E_CANCELLED".into());
     }
     let req = RunRequest {
-        backend: choice.agent.as_str().into(),
+        backend: choice.backend.clone(),
         model: choice.model.clone(),
         effort: choice.effort.clone(),
         prompt,
@@ -297,8 +297,7 @@ pub fn distil(
 mod tests {
     use super::*;
     use crate::runner::RunOutput;
-    use crate::sessions::model::Agent;
-    use crate::sessions::summary::{choose, SummarySettings};
+    use crate::sessions::summary::RunnerChoice;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
 
@@ -458,7 +457,7 @@ mod tests {
             };
             Ok(RunOutput { text })
         };
-        let choice = choose(&SummarySettings::default(), Agent::Claude);
+        let choice = RunnerChoice::local("claude", Some("sonnet"), Some("low"));
         let block = format!(
             "\n### User\n\n{}",
             "x".repeat(crate::sessions::summary::CHUNK_CHARS / 2)
@@ -516,7 +515,7 @@ mod tests {
 
     #[test]
     fn items_beyond_max_items_are_counted_as_dropped_not_lost_silently() {
-        let choice = choose(&SummarySettings::default(), Agent::Claude);
+        let choice = RunnerChoice::local("claude", Some("sonnet"), Some("low"));
         let nothing = |_: usize, _: usize, _: &str| {};
         let over_cap = (1..=MAX_ITEMS + 5)
             .map(|i| format!("### [QA] Q{i}\nA{i}\n"))
@@ -546,7 +545,7 @@ mod tests {
 
     #[test]
     fn a_failed_merge_keeps_the_items_but_a_cancel_stops_everything() {
-        let choice = choose(&SummarySettings::default(), Agent::Claude);
+        let choice = RunnerChoice::local("claude", Some("sonnet"), Some("low"));
         let nothing = |_: usize, _: usize, _: &str| {};
         let failing_merge = |req: &RunRequest, _: &CancelFlag| {
             if req.prompt.contains("@merge") {

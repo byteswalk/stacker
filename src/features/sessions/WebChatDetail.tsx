@@ -30,7 +30,7 @@ export function WebChatDetail({ chat, onClose, onDistill }: { chat: WebChat; onC
         title: "正在生成摘要",
         message: "摘要由本机智能体生成，长对话需要几分钟。",
         cancel: { label: "取消", onCancel: () => void cancelWebSummary() },
-      }, () => summarizeWebChat(chat.key, null, locale));
+      }, () => summarizeWebChat(chat.key, locale));
       setDetail((d) => (d ? { ...d, chat: updated } : d));
       setChanged(true);
     } catch (e) { setError(errorMessage(e)); }
@@ -63,7 +63,7 @@ export function WebChatDetail({ chat, onClose, onDistill }: { chat: WebChat; onC
       {detail?.messages.map((m, i) => <article key={i} className={m.role}><header><b>{t(ROLE[m.role] ?? m.role)}</b></header><pre>{m.text}</pre></article>)}
     </div>
     {asking && detail && <ConfirmModal title={t("生成摘要")} icon="ti-sparkles"
-      message={`${t("将把这条对话的正文")}（${detail.chars} ${t("字")}）${t("发送给")} ${runnerText(detail.runner, t)} ${t("生成摘要，消耗该账号的额度。执行者、模型与推理强度沿用「设置 → 摘要」。")}`}
+      message={`${t("将把这条对话的正文")}（${detail.chars} ${t("字")}）${t("发送给")} ${runnerText(detail.runner, t)} ${t("生成摘要，消耗它的账号额度。更换 AI 在「偏好设置 → AI 能力」。")}`}
       confirmLabel={t("生成摘要")} onConfirm={() => void summarize()} onClose={() => setAsking(false)} />}
   </Modal>;
 }

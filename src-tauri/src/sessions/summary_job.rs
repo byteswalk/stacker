@@ -1,6 +1,6 @@
 //! Background summary jobs: two sessions at a time, cancellable, optionally ending in a handoff.
 use super::model::Session;
-use super::summary::{self, RunnerChoice, SummarySettings};
+use super::summary::{self, RunnerChoice};
 use crate::runner::{CancelFlag, RunOutput, RunRequest};
 use serde::Serialize;
 use std::collections::VecDeque;
@@ -69,8 +69,10 @@ fn update(f: impl FnOnce(&mut SummaryJob)) {
     }
 }
 
+/// The global AI source: a local agent's CLI, or the external API when the request names no
+/// backend.
 pub fn live_runner() -> Runner {
-    Arc::new(|req: &RunRequest, cancel: &CancelFlag| crate::runner::run(req, cancel))
+    Arc::new(|req: &RunRequest, cancel: &CancelFlag| crate::ai_config::run_request(req, cancel))
 }
 
 fn summarize_one(
@@ -105,7 +107,7 @@ pub fn start(
     kind: &str,
     sessions: Vec<Session>,
     regenerate: bool,
-    settings: SummarySettings,
+    choice: RunnerChoice,
     locale: String,
     run: Runner,
     finish: Option<Finish>,
@@ -152,7 +154,7 @@ pub fn start(
                 let queue = queue.clone();
                 let run = run.clone();
                 let flag = flag.clone();
-                let settings = settings.clone();
+                let choice = choice.clone();
                 let locale = locale.clone();
                 std::thread::spawn(move || loop {
                     if flag.is_cancelled() {
@@ -161,7 +163,6 @@ pub fn start(
                     let Some(session) = queue.lock().ok().and_then(|mut q| q.pop_front()) else {
                         break;
                     };
-                    let choice = summary::choose(&settings, session.agent);
                     update(|j| {
                         if let Some(i) = j.items.iter_mut().find(|i| i.id == session.id) {
                             i.status = "running".into();

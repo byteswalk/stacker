@@ -23,9 +23,7 @@ beforeEach(() => {
   jobState = "running"; jobDropped = 0; jobError = ""; jobStarted = false; previewSkipped = 0;
   host = document.createElement("div"); document.body.append(host); root = createRoot(host);
   vi.mocked(invoke).mockImplementation(async (command: string) => {
-    if (command === "summary_settings") return { runner: "same", codexModel: "", codexEffort: "low", claudeModel: "sonnet", claudeEffort: "low" };
-    if (command === "runner_options") return [{ agent: "claude", installed: true, models: [{ id: "sonnet", label: "sonnet", efforts: ["low"], defaultEffort: "low" }], efforts: ["low"] }];
-    if (command === "distill_preview") return { items: [{ title: "Trip plan", chars: 30 }], totalChars: 30, runner: { agent: "claude", model: "sonnet", effort: "low" }, skipped: previewSkipped };
+    if (command === "distill_preview") return { items: [{ title: "Trip plan", chars: 30 }], totalChars: 30, runner: { backend: "claude", model: "sonnet", effort: null }, skipped: previewSkipped };
     if (command === "distill_candidates") return [{ kind: "excerpt", key: "e1", title: "Budget", subtitle: "Book early", available: true }];
     if (command === "distill_start") { jobStarted = true; return { id: "distill-1", state: "running", stage: "distilling", done: 0, total: 2, saved: 0, folders: [], dropped: 0, error: "", by: "claude / sonnet / low" }; }
     if (command === "distill_job") {
@@ -64,7 +62,8 @@ describe("distill dialog", () => {
     expect(host.textContent).toContain("Trip plan");
     await click(button("开始提炼"));
     expect(vi.mocked(invoke).mock.calls.map(([c]) => c)).not.toContain("distill_start");
-    expect(host.textContent).toContain("Claude · sonnet · low");
+    // The dialog names the AI source from Preferences; it no longer offers its own.
+    expect(host.textContent).toContain("本机 claude / sonnet");
     expect(host.textContent).toContain("30");
   });
 
