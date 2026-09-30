@@ -88,7 +88,7 @@ export function SummaryDialog({ target, onClose }: { target: Target; onClose: (c
           {preview.items.length > needed.length && target.kind === "summary" && <> · {preview.items.length - needed.length} {t("个已有摘要，跳过")}</>}
         </p>}
         {target.kind === "summary" && <label className="session-check"><input type="checkbox" checked={regenerate} onChange={(e) => setRegenerate(e.target.checked)} />{t("重新生成已有摘要")}</label>}
-        {preview && <p className="session-note"><i className="ti ti-sparkles" /> {t("执行者")}：<b>{runnerText(preview.handoffRunner ?? preview.items[0]?.runner, t)}</b>　<span className="dim">{t("在「偏好设置 → AI 能力」更换")}</span></p>}
+        {preview && <p className="session-note"><i className="ti ti-sparkles" /> {t("执行者")}：<b>{runnerText(preview.handoffRunner ?? preview.items[0]?.runner, t)}</b>{" · "}<span className="dim">{t("在「偏好设置 → AI 能力」更换")}</span></p>}
         <p className="session-note"><i className="ti ti-shield-lock" /> {t("会话正文会发送给上面这个 AI，用的是它的账号额度。运行时不开放任何工具，也不会在智能体里留下新会话。")}</p>
       </> : <>
         <p className="session-impact"><b>{t(JOB_STATE[job.state] ?? job.state)}</b> · {job.done} / {job.total}</p>

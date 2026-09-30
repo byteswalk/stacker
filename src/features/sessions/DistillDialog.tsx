@@ -116,7 +116,7 @@ export function DistillDialog({ initial, onClose }: { initial: DistillSourceRef[
         {preview && <p className="session-impact">
           {t("将提炼")} <b>{preview.items.length}</b> {t("份材料")} · {t("将发送约")} <b>{formatChars(preview.totalChars, t)}</b>
         </p>}
-        {preview && <p className="session-note"><i className="ti ti-sparkles" /> {t("执行者")}：<b>{runnerText(preview.runner, t)}</b>　<span className="dim">{t("在「偏好设置 → AI 能力」更换")}</span></p>}
+        {preview && <p className="session-note"><i className="ti ti-sparkles" /> {t("执行者")}：<b>{runnerText(preview.runner, t)}</b>{" · "}<span className="dim">{t("在「偏好设置 → AI 能力」更换")}</span></p>}
         <p className="session-note"><i className="ti ti-shield-lock" /> {t("材料正文会发送给上面这个 AI，用的是它的账号额度。运行时不开放任何工具，也不会在智能体里留下新会话。skill 草稿只写成本机文件夹，不会安装到任何智能体。")}</p>
       </> : <>
         <p className="session-impact"><b>{t(JOB_STATE[job.state] ?? job.state)}</b>{job.state === "running" ? ` · ${t(STAGE[job.stage] ?? job.stage)}` : ""} · {job.done} / {Math.max(1, job.total)}</p>
