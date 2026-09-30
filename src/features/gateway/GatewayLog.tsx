@@ -3,6 +3,7 @@ import { invoke } from "../../invoke";
 import { useI18n } from "../../i18n";
 import { ConfirmModal, useToast } from "../../ui";
 import { Select } from "../../Select";
+import { AiAskModal, askAi } from "../ai/AiAsk";
 
 type LogRow = { id: number; at: number; endpoint: string; model: string; status: number; elapsedMs: number };
 type LogPage = { items: LogRow[]; total: number; kept: number; agents: string[] };
@@ -35,6 +36,7 @@ export function GatewayLog({ enabled, retentionDays, onSettings }: {
   const toast = useToast();
   const [query, setQuery] = useState<Query>(EMPTY);
   const [range, setRange] = useState(0);
+  const [explain, setExplain] = useState<LogRow | null>(null);
   const [page, setPage] = useState<LogPage | null>(null);
   const [picked, setPicked] = useState<number[]>([]);
   const [clearing, setClearing] = useState(false);
@@ -117,7 +119,10 @@ export function GatewayLog({ enabled, retentionDays, onSettings }: {
           <span>{r.model || "—"}</span>
           <b className={r.status < 400 ? "ok" : "bad"}>{r.status}</b>
           <span>{(r.elapsedMs / 1000).toFixed(1)}s</span>
-          <button className="gh xs" title={t("删除这条记录")} onClick={() => void removeRows([r.id])}><i className="ti ti-trash" /></button>
+          <span className="gw-log-acts">
+            {r.status >= 400 && <button className="gh xs ai-btn" title={t("问问 AI 这条为什么失败")} onClick={() => setExplain(r)}><i className="ti ti-sparkles" /></button>}
+            <button className="gh xs" title={t("删除这条记录")} onClick={() => void removeRows([r.id])}><i className="ti ti-trash" /></button>
+          </span>
         </div>)}
       </div>
       <div className="gw-log-foot">
@@ -151,5 +156,9 @@ export function GatewayLog({ enabled, retentionDays, onSettings }: {
       confirmLabel={t("删除")}
       onConfirm={() => void clearMatching()}
       onClose={() => setClearing(false)} />}
+    {explain && <AiAskModal title={t("这条请求为什么失败")} sub={`${explain.endpoint} · ${explain.model || "—"} · ${explain.status}`}
+      note={t("只把这条记录（接口、模型、状态码、耗时）发给 AI，不含请求内容。")}
+      run={() => askAi("gateway_error", { entry: { endpoint: explain.endpoint, model: explain.model, status: explain.status, elapsedMs: explain.elapsedMs } })}
+      onClose={() => setExplain(null)} />}
   </div>;
 }

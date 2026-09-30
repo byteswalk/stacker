@@ -17,6 +17,7 @@ import {
 } from "../features/agents/catalogStore";
 
 import { UpdatePlanModal } from "../features/agents/UpdatePlanModal";
+import { AiAskModal, AiButton } from "../features/ai/AiAsk";
 import { tileLine } from "../features/agents/tileState";
 import { surfaceTaskText } from "../features/agents/surfaceTask";
 import {
@@ -160,7 +161,10 @@ export function SurfaceState({ surface }: { surface: VibeSurface }) {
   );
 }
 
+type NotesRequest = { toolId: string; product: string; current: string; latest: string };
+
 export default function Agents() {
+  const [notesFor, setNotesFor] = useState<NotesRequest | null>(null);
   const { locale } = useI18n();
   const toast = useToast();
   const read = useBusyRead();
@@ -351,6 +355,12 @@ export default function Agents() {
         <span className={"surface-kind " + (target === "cli" ? "cli" : "desktop")}>{target === "cli" ? "CLI" : "桌面端"}</span>
         <div className="surface-main">
           <SurfaceState surface={surface} />
+          {target === "cli" && tool.cli_id && surface.update_available && surface.version && surface.latest && (
+            <div className="surface-ai">
+              <AiButton label="这次更新了什么" title="只根据官方更新日志总结，拿不到日志就不说"
+                onClick={() => setNotesFor({ toolId: tool.cli_id!, product: surface.label, current: surface.version!, latest: surface.latest! })} />
+            </div>
+          )}
           {taskText && <div className="surface-task"><i className="ti ti-loader spin" /> <span title={taskText}>{taskText}</span></div>}
           {target === "cli" && tool.cli_note && <div className="surface-note"><i className="ti ti-info-circle" /> {tool.cli_note}</div>}
         </div>
@@ -567,6 +577,10 @@ export default function Agents() {
           onConfirm={() => runToolAction(uninstall.tool, uninstall.target, "uninstall")}
         />
       )}
+      {notesFor && <AiAskModal title={`${notesFor.product} 这次更新了什么`} sub={`${notesFor.current} → ${notesFor.latest}`}
+        note="只把官方更新日志（GitHub 发布说明或 CHANGELOG）交给 AI 总结；拿不到官方日志时不作答。"
+        run={() => invoke<string>("ai_update_notes", notesFor)}
+        onClose={() => setNotesFor(null)} />}
     </>
   );
 }

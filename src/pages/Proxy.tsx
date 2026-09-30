@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { invoke } from "../invoke";
 import { useToast, useBusy, useBusyRead, Loading, ErrorState, ConfirmModal, Modal } from "../ui";
 import { Select } from "../Select";
+import { AiAskModal, AiButton, askAi } from "../features/ai/AiAsk";
 
 type ProxyStatus = {
   enabled: boolean; host: string; port: number; endpoint_available: boolean;
@@ -96,6 +97,8 @@ export default function Proxy() {
   const [confirmClear, setConfirmClear] = useState<LocationRow | null>(null);
   const [confirmRelease, setConfirmRelease] = useState(false);
   const [draft, setDraft] = useState<Target | null>(null);
+  const [probeUrl, setProbeUrl] = useState("https://api.openai.com");
+  const [diagnosing, setDiagnosing] = useState(false);
   const [copied, setCopied] = useState("");
   const [shell, setShell] = useState<"powershell" | "cmd" | "bash">("powershell");
   const [loadErr, setLoadErr] = useState(false);
@@ -233,7 +236,26 @@ export default function Proxy() {
           </button>
           <span className="s dim">还有别的工具要走代理？描述它的配置文件，写入和撤销就和上面一样。</span>
         </div>
+        <div className="proxy-diag">
+          <i className="ti ti-plug-connected-x" />
+          <span>连不上？</span>
+          <input className="ip" value={probeUrl} placeholder="https://api.openai.com" onChange={(e) => setProbeUrl(e.target.value)} />
+          <AiButton label="测一下再让 AI 诊断" title="先直连和经系统代理各访问一次这个地址，再把结果和上面各处状态交给 AI"
+            disabled={!probeUrl.trim()} onClick={() => setDiagnosing(true)} />
+        </div>
       </div>
+      {diagnosing && <AiAskModal title="连不上在哪卡住" sub={probeUrl}
+        note="先直连、再经系统代理各访问一次这个地址；把两次结果和本页的代理状态发给 AI，不含任何密钥。"
+        run={async () => {
+          const probe = await invoke("proxy_probe", { url: probeUrl });
+          return askAi("proxy", {
+            system: { state: system.state, server: system.server },
+            service: report.service.known ? (report.service.server || "直连") : "未知",
+            places: rows.map((row) => ({ name: (LOCATION_INFO[row.id] ?? row.target ?? { name: row.id }).name, value: row.value, installed: row.installed !== false })),
+            probe,
+          });
+        }}
+        onClose={() => setDiagnosing(false)} />}
 
       <div className="pxcard">
         <div className="pxsec"><i className="ti ti-terminal-2" /> 让已打开的终端立即生效 <span className="pxhint">环境变量只对新开的终端生效</span></div>

@@ -4,6 +4,7 @@ import { invoke } from "../../../invoke";
 import { useBusyRead, useToast } from "../../../ui";
 import type { DirectoryNode, Paged } from "../types";
 import { formatSpaceBytes } from "./SpaceOverview";
+import { AiAskModal, AiButton, askAi } from "../../ai/AiAsk";
 
 const PAGE_SIZE = 100;
 
@@ -52,6 +53,13 @@ export function DirectoryRanking({ taskId, roots }: { taskId: string; roots: Dir
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [pages, setPages] = useState<Record<string, DirectoryPageState>>({});
   const orderedRoots = useMemo(() => sortedRoots(roots), [roots]);
+  const [explaining, setExplaining] = useState(false);
+  // What the ranking has loaded so far — the roots and every opened level — biggest first.
+  const biggest = useMemo(() => {
+    const seen = new Map<string, DirectoryNode>();
+    for (const node of [...orderedRoots, ...Object.values(pages).flatMap((page) => page.items)]) seen.set(node.path, node);
+    return [...seen.values()].sort((a, b) => b.allocatedBytes - a.allocatedBytes).slice(0, 12);
+  }, [orderedRoots, pages]);
 
   useEffect(() => {
     activeTask.current = taskId;
@@ -204,8 +212,16 @@ export function DirectoryRanking({ taskId, roots }: { taskId: string; roots: Dir
           <strong>{tr("目录排行")}</strong>
           <span>{tr("按实际磁盘占用排序；展开时才读取下一层目录。")}</span>
         </div>
-        <span>{tr("每页最多 100 项")}</span>
+        <span className="space-ranking-tools">
+          <AiButton label={tr("AI 解读最大的目录")} title={tr("把已展开的目录里最大的 12 个交给 AI，逐个说是什么、能不能删")}
+            disabled={!biggest.length} onClick={() => setExplaining(true)} />
+          {tr("每页最多 100 项")}
+        </span>
       </div>
+      {explaining && <AiAskModal title={tr("最大的目录各是什么")} sub={`${biggest.length} ${tr("个目录")}`}
+        note={tr("只把路径和大小发给 AI，不读取目录里的文件。建议仅供参考，真要删请走清理确认。")}
+        run={() => askAi("disk_batch", { items: biggest.map((node) => ({ path: node.path, size: formatSpaceBytes(node.allocatedBytes) })) })}
+        onClose={() => setExplaining(false)} />}
       {orderedRoots.length === 0
         ? <div className="space-analysis-empty">{tr("当前扫描结果没有目录数据。")}</div>
         : <div className="space-directory-list">{orderedRoots.map((root) => renderNode(root, 0))}</div>}

@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Modal } from "../../ui";
 import { agentTaskLog, isOpenTask, type AgentTask } from "./taskStore";
+import { AiAskModal, AiButton, askAi } from "../ai/AiAsk";
+import { ACTION_TEXT } from "./useTaskToasts";
 
 const POLL_MS = 1000;
 
@@ -12,6 +14,7 @@ const POLL_MS = 1000;
 export function TaskLogModal({ task, onClose }: { task: AgentTask; onClose: () => void }) {
   const [lines, setLines] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [asking, setAsking] = useState(false);
   const pre = useRef<HTMLPreElement>(null);
   const follow = useRef(true);
   const running = isOpenTask(task);
@@ -42,9 +45,19 @@ export function TaskLogModal({ task, onClose }: { task: AgentTask; onClose: () =
   const text = error
     ? `读取任务日志失败：${error}`
     : lines === null ? "正在读取…" : lines.length ? lines.join("\n") : "暂无日志";
+  // A failure is the moment a second opinion helps: the log goes to the AI, nothing else.
+  const failed = task.state === "failed";
   return (
-    <Modal title={`${task.surfaceLabel} · 任务日志${running ? "（实时）" : ""}`} icon="ti-file-text" wide onClose={onClose}>
+    <Modal title={`${task.surfaceLabel} · 任务日志${running ? "（实时）" : ""}`} icon="ti-file-text" wide onClose={onClose}
+      footer={failed ? <AiButton label="问问 AI 为什么失败" disabled={!lines?.length} onClick={() => setAsking(true)} /> : undefined}>
       <pre ref={pre} className="task-log mono" onScroll={onScroll}>{text}</pre>
+      {asking && <AiAskModal title="为什么失败" sub={`${task.surfaceLabel} · ${ACTION_TEXT[task.action]}`}
+        note="只把这次任务的日志（最多最后 8000 字）和产品名发给 AI；AI 只给建议，不会替你执行任何操作。"
+        run={() => askAi("install_failure", {
+          product: task.productName, surface: task.surfaceLabel, action: ACTION_TEXT[task.action],
+          message: task.message ?? task.lastLine ?? "", log: (lines ?? []).join("\n"),
+        })}
+        onClose={() => setAsking(false)} />}
     </Modal>
   );
 }

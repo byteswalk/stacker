@@ -4,6 +4,7 @@ import type { Page } from "../pageState";
 import { useBusy, useBusyRead, useToast } from "../ui";
 import { useNotifications } from "../notifications";
 import { WorkstationGroups } from "../features/overview/WorkstationGroups";
+import { AiAskModal, AiButton, askAi } from "../features/ai/AiAsk";
 
 type Mirror = { id: string; name: string; url: string; host: string };
 type ToolState = {
@@ -177,6 +178,7 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
   const [busy, setBusy] = useState(false);
   const [sourceBusy, setSourceBusy] = useState(false);
   const [rowBusy, setRowBusy] = useState<Record<string, boolean>>({});
+  const [diagnosing, setDiagnosing] = useState(false);
 
   useEffect(() => subscribeOverview((s) => {
     setTools(s.tools);
@@ -382,9 +384,21 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
               <button className="gh sm" disabled={checkingAll} onClick={reloadAll}>
                 <i className={"ti " + (checkingAll ? "ti-loader spin" : hasChecked ? "ti-refresh" : "ti-player-play")} /> {checkingAll ? "体检中…" : hasChecked ? "再次体检" : "开始体检"}
               </button>
+              {hasChecked && !allOk && !emptySetup && <AiButton small={false} label="AI 诊断" title="把没通过的项目交给 AI，排出先修哪个、怎么修"
+                disabled={checkingAll} onClick={() => setDiagnosing(true)} />}
               {optimizeCount > 0 && <button className="pr" disabled={busy || checkingAll} onClick={optimizeAll}><i className="ti ti-tool" /> {busy ? "修复中…" : `一键修复（${optimizeCount}）`}</button>}
             </div>
           </div>
+          {diagnosing && <AiAskModal title="体检诊断" sub={`编程生态体检 · ${overallTitle}`}
+            note="只把没通过的检测项（名称、状态、说明）发给 AI；AI 只给建议，修复仍由你来点。"
+            run={() => askAi("checkup", {
+              items: [
+                ...(ecosystem?.ecosystems ?? []).filter((item) => item.status !== "ok")
+                  .map((item) => ({ name: item.label, status: item.status, summary: item.summary, detail: item.detail })),
+                ...extra.map((item) => ({ name: item.title, status: item.sev, detail: item.desc })),
+              ],
+            })}
+            onClose={() => setDiagnosing(false)} />}
           {!hasChecked && (
             <>
               <div className="seclabel"><i className="ti ti-list-check" /> 待体检项目</div>

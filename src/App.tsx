@@ -11,6 +11,7 @@ import { useI18n } from "./i18n";
 import { NotificationProvider, useNotifications, formatBytes } from "./notifications";
 import { readLastPage, saveLastPage, type Page } from "./pageState";
 import { resetMainWindowSize } from "./windowSize";
+import { TOOLCHAIN_PAGES, ToolchainAsk } from "./features/ai/ToolchainAsk";
 import { ALL_NAV_ITEMS, NAV_FOOT, NAV_SECTIONS, initialCollapsedSections, sectionKeyOf, toggleSection, type NavItem, type NavSection } from "./navigation";
 import { TaskCenter } from "./features/agent-tasks/TaskCenter";
 import { useTaskToasts } from "./features/agent-tasks/useTaskToasts";
@@ -395,6 +396,7 @@ function Shell() {
             </span>
           </div>
           <TaskCenter />
+          {TOOLCHAIN_PAGES.has(page) && <ToolchainAsk key={page} page={page} label={t(cur.labelKey)} />}
           {page === "overview" && (
             <div className="hdright">
               <div className="profile">

@@ -1308,12 +1308,18 @@ button{ font-family:inherit; }
 .a .proxy-address>div>span{width:110px;color:var(--mut)}
 .a .proxy-address>button{align-self:flex-start}
 .a .proxy-add{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:11px;padding-top:10px;border-top:1px solid var(--bd)}
+.a .proxy-diag{display:flex;align-items:center;gap:9px;margin-top:10px;padding-top:10px;border-top:1px solid var(--bd);font-size:12px;color:var(--mut)}
+.a .proxy-diag .ip{flex:1;min-width:0;max-width:340px}
 .a .proxy-form{display:flex;flex-direction:column;gap:9px;font-size:12px}
 .a .proxy-form label{display:flex;align-items:center;gap:8px;min-width:0}
 .a .proxy-form label>span:first-child{flex:0 0 auto;width:86px;color:var(--mut)}
 .a .proxy-form .ip.full{flex:1;min-width:0}
 .a .proxy-form-foot{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding-left:94px}
 /* Stacker's own AI source, under Preferences. */
+/* Every page's "ask AI" button shares one look. */
+.a .ai-btn i{color:var(--acc)}
+.a .space-ranking-tools{display:flex;align-items:center;gap:10px}
+.a .surface-ai{margin-top:5px}
 .a .ai-explain{font-size:13px;line-height:1.75;white-space:pre-wrap;padding:12px 14px;border:.5px solid var(--bd);border-radius:10px;background:var(--card)}
 .a .ai-explain.wait{color:var(--mut)}
 .a .ai-explain.bad{color:var(--red)}
@@ -1361,10 +1367,11 @@ button{ font-family:inherit; }
 .a .gw-log-bar{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:9px}
 .a .gw-log-bar>.s.dim{margin-left:auto}
 .a .gw-log{display:flex;flex-direction:column;font-size:12px}
-.a .gw-log>div{display:grid;grid-template-columns:24px 140px minmax(150px,1fr) minmax(130px,1fr) 50px 60px 30px;gap:10px;align-items:center;padding:6px 0;border-top:1px solid var(--bd)}
+.a .gw-log>div{display:grid;grid-template-columns:24px 140px minmax(150px,1fr) minmax(130px,1fr) 50px 60px 60px;gap:10px;align-items:center;padding:6px 0;border-top:1px solid var(--bd)}
 .a .gw-log>div.head{color:var(--mut);font-size:11px;border-top:0}
 .a .gw-log>div.on{background:var(--cardh)}
 .a .gw-log .ck{margin:0}
+.a .gw-log-acts{display:flex;gap:4px;justify-content:flex-end}
 .a .gw-log input[type=checkbox]{width:14px;height:14px;accent-color:var(--acc)}
 .a .gw-log-foot{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-top:10px}
 .a .gw-log-pager{display:flex;align-items:center;gap:8px;margin-left:auto}

@@ -22,6 +22,8 @@ export const AI_ERRORS: Record<string, string> = {
   E_AI_REPLY: "对方返回的内容读不懂，请确认接口类型选对了。",
   E_AI_KIND: "无效的 AI 来源。",
   E_AI_PROTOCOL: "无效的接口类型。",
+  E_AI_NO_NOTES: "拿不到这次更新的官方日志，就不让 AI 猜了。可以去产品主页看更新说明。",
+  E_PROBE_URL: "请输入以 http:// 或 https:// 开头的地址。",
 };
 export const aiError = (e: unknown) => AI_ERRORS[String(e)] ?? String(e);
 

@@ -29,6 +29,17 @@ fn field<'a>(payload: &'a Value, key: &str) -> &'a str {
     payload.get(key).and_then(Value::as_str).unwrap_or("")
 }
 
+/// What each status means in Stacker's own API service, taken from its server code, so the
+/// answer reasons from facts rather than from what the codes mean elsewhere.
+const GATEWAY_STATUSES: &str = "400 请求格式不对：不是 JSON、缺字段，或附件该模型读不了（codex 读不了 PDF，只有 claude/* 和 codex/* 能读图）；\n\
+401 密钥错误或没带，或者这个智能体的命令行没登录；\n\
+403 请求来自浏览器网页（一律拒绝），或者这个智能体在接口服务里被关掉了；\n\
+404 接口路径不对，只有 /v1/chat/completions、/v1/messages、/v1/models；\n\
+429 同时排队的请求太多；\n\
+502 智能体运行失败；\n\
+503 这台电脑上没装这个智能体的命令行；\n\
+504 5 分钟内智能体没有回复。";
+
 /// The prompt for one kind of question, from what the page sent.
 pub fn prompt(kind: &str, payload: &Value) -> Result<String, String> {
     let json = |v: &Value| {
@@ -68,8 +79,9 @@ pub fn prompt(kind: &str, payload: &Value) -> Result<String, String> {
         ),
         "gateway_error" => format!(
             "你是一个本机 AI 接口服务的排错助手。这个服务把本机已登录的 Codex / Claude 等命令行包装成 \
-             OpenAI / Anthropic 风格的接口。下面是一条失败的请求记录（JSON）：\n{entry}\n\n\
-             请说明失败原因（密钥、模型名、未登录、超时、请求格式等）和调用方应该怎么改。{STYLE}",
+             OpenAI / Anthropic 风格的接口。记录里只有状态码，没有报错原文；这个服务的状态码含义如下：\n\
+             {GATEWAY_STATUSES}\n\n下面是一条失败的请求记录（JSON）：\n{entry}\n\n\
+             请根据状态码、接口和模型说明最可能的原因，以及调用方或用户应该怎么改。{STYLE}",
             entry = json(payload.get("entry").unwrap_or(&Value::Null)),
         ),
         "proxy" => format!(
@@ -424,6 +436,19 @@ mod tests {
             Some("anthropics/claude-code")
         );
         assert!(github_repo("https://gitlab.com/a/b").is_none());
+    }
+
+    /// Live, read-only: `cargo test --lib live_probe -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn live_probe() {
+        let proxy = crate::settings::detected_proxy_addr().map(|(h, p)| format!("{h}:{p}"));
+        println!("proxy {proxy:?}");
+        println!("direct    {}", probe_once("https://api.openai.com", None));
+        println!(
+            "via proxy {}",
+            probe_once("https://api.openai.com", proxy.as_deref())
+        );
     }
 
     /// Live, read-only: `cargo test --lib live_release_notes -- --ignored --nocapture`.
