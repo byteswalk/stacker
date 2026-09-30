@@ -484,6 +484,7 @@ pub(crate) fn cli_vendor_label(cli_id: &str) -> &'static str {
         Some(Vendor::Qoder) => "阿里",
         Some(Vendor::Trae) => "字节跳动",
         Some(Vendor::MiMo) => "小米",
+        Some(Vendor::Xai) => "xAI",
         Some(Vendor::DeepSeekHarness) => "DeepSeek",
         Some(Vendor::ZCode) => "智谱",
         Some(Vendor::Copilot) => "GitHub",

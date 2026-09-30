@@ -26,6 +26,7 @@ pub(crate) fn cli_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurface {
     };
     let mut installs = super::health::enumerate_candidates(&command_dirs(), spec.cli.candidates)
         .into_iter()
+        .filter(|path| !(spec.vendor == Vendor::Xai && is_community_grok(path)))
         .map(|path| super::health::check_install(&path, &probe));
     let effective = installs.next();
     let other_installs: Vec<_> = installs.collect();
@@ -236,6 +237,21 @@ fn split_latest(lookup: LatestLookup) -> (Option<String>, Option<String>, Option
     }
 }
 
+/// xAI's Grok Build and the community `grok-dev` both install a `grok` command; the second is
+/// neither this product nor xAI's, so it is never counted as the install.
+pub(crate) fn is_community_grok(path: &Path) -> bool {
+    let p = path.to_string_lossy().replace('/', "\\").to_lowercase();
+    // Bun is how that project installs itself; xAI's installer does not use it.
+    if p.contains("grok-dev") || p.contains("\\.bun\\") {
+        return true;
+    }
+    // An npm shim names the package it runs. Only one that names `grok-dev` is refused: an
+    // npm install of xAI's own package is still xAI's.
+    std::fs::read_to_string(path)
+        .map(|text| text.to_lowercase().contains("grok-dev"))
+        .unwrap_or(false)
+}
+
 pub(crate) fn detect_install_method(spec: &ToolSpec, program: Option<&Path>) -> Option<String> {
     let program = program?;
     let p = program.to_string_lossy().replace('/', "\\").to_lowercase();
@@ -247,6 +263,9 @@ pub(crate) fn detect_install_method(spec: &ToolSpec, program: Option<&Path>) -> 
     if spec.vendor == Vendor::Codex
         && (p.contains("\\.codex\\") || p.contains("\\.local\\bin\\codex"))
     {
+        return Some("native".into());
+    }
+    if spec.vendor == Vendor::Xai && p.contains("\\.grok\\") {
         return Some("native".into());
     }
     if spec.vendor == Vendor::MiMo && p.contains("\\.mimocode\\bin\\") {
@@ -1236,6 +1255,34 @@ pub(crate) fn npm_latest(package: &str) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_community_grok_is_not_taken_for_xai_s() {
+        let dir = tempfile::tempdir().unwrap();
+        // An npm shim that runs the community package.
+        let community = dir.path().join("grok.cmd");
+        std::fs::write(
+            &community,
+            "@\"%~dp0\\node_modules\\grok-dev\\dist\\cli.js\" %*",
+        )
+        .unwrap();
+        assert!(is_community_grok(&community));
+        // An npm shim of xAI's own package, and the official installer's binary, are kept.
+        let official_npm = dir.path().join("official.cmd");
+        std::fs::write(
+            &official_npm,
+            "@\"%~dp0\\node_modules\\@xai-official\\grok\\bin\\grok\" %*",
+        )
+        .unwrap();
+        assert!(!is_community_grok(&official_npm));
+        assert!(!is_community_grok(Path::new(
+            "C:\\Users\\me\\.grok\\bin\\grok.exe"
+        )));
+        // Bun is how the community project installs itself.
+        assert!(is_community_grok(Path::new(
+            "C:\\Users\\me\\.bun\\bin\\grok.exe"
+        )));
+    }
 
     #[test]
     fn hermes_version_line_is_trimmed_to_its_release() {

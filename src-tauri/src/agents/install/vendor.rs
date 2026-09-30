@@ -213,6 +213,30 @@ pub(crate) fn install_or_update_antigravity_cli(
     Ok(format!("Antigravity CLI 已{action}"))
 }
 
+/// xAI's own installer; it also updates an existing install in place.
+pub(crate) fn install_or_update_grok_cli(
+    window: &Option<tauri::Window>,
+    action: &str,
+) -> Result<String, String> {
+    emit_progress(
+        window,
+        format!("正在通过 xAI 官方脚本{action} Grok Build CLI…"),
+    );
+    run_powershell_streamed(
+        &[
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            "irm https://x.ai/cli/install.ps1 | iex",
+        ],
+        "Grok Build CLI Install",
+        Duration::from_secs(900),
+        window,
+    )?;
+    Ok(format!("Grok Build CLI 已{action}"))
+}
+
 pub(crate) fn has_legacy_pi(program: Option<&Path>) -> bool {
     program
         .and_then(Path::parent)

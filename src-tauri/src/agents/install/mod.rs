@@ -58,6 +58,7 @@ pub(crate) fn install_cli_tool(
         Vendor::OpenClaw => install_openclaw(window),
         Vendor::Hermes => install_hermes(window),
         Vendor::Pi => install_or_update_pi(None, window),
+        Vendor::Xai => install_or_update_grok_cli(window, "安装"),
         _ => {
             if let Some(pkg) = spec.cli.npm_package {
                 npm_install_latest(pkg, None, window)?;
@@ -177,6 +178,7 @@ pub(crate) fn update_cli_tool(
             Ok("Hermes CLI 已更新".into())
         }
         Vendor::Pi => install_or_update_pi(program.as_deref(), window),
+        Vendor::Xai => install_or_update_grok_cli(window, "更新"),
         Vendor::MiMo if method.as_deref() == Some("native") => {
             install_or_update_mimo_native(window)
         }

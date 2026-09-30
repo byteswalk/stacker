@@ -21,6 +21,7 @@ pub(crate) enum Vendor {
     Copilot,
     MiMo,
     Agnes,
+    Xai,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
@@ -353,6 +354,19 @@ pub(crate) static CLIS: &[CliSpec] = &[
         install_url: "https://antigravity.google/docs/cli-install",
         docs_url: "https://antigravity.google/docs/cli/overview",
     },
+    // xAI's official agent CLI. A community project, `grok-dev`, installs the same `grok`
+    // command; detection refuses it, since it is neither this product nor xAI's.
+    CliSpec {
+        id: "grok",
+        name: "Grok Build CLI",
+        description: "xAI 官方的终端编程智能体，命令名 grok；需要 SuperGrok 或 X Premium+ 订阅。",
+        command: "grok",
+        candidates: &["grok.exe", "grok.cmd", "grok.bat", "grok.ps1"],
+        npm_package: None,
+        winget_id: None,
+        install_url: "https://x.ai/cli",
+        docs_url: "https://x.ai/cli",
+    },
     CliSpec {
         id: "opencode",
         name: "OpenCode CLI",
@@ -630,6 +644,27 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
             local("antigravity"),
             local("antigravity-updater"),
         ],
+    },
+    ProductSpec {
+        id: "grok",
+        vendor: Vendor::Xai,
+        family: "grok",
+        edition: Edition::Global,
+        edition_label: "",
+        sort: 85,
+        name: "Grok Build",
+        description: "xAI 的终端编程智能体，先写计划再动手，可并行子智能体；需要 SuperGrok 或 X Premium+ 订阅。",
+        icon: "grok.svg",
+        docs_url: "https://x.ai/cli",
+        cli: CliSlot::Shared("grok"),
+        cli_note: None,
+        desktop: DesktopSlot::Unavailable {
+            name: "Grok Build 桌面端",
+            description: "官方只提供命令行版本。",
+            url: "https://x.ai/cli",
+        },
+        workbench_command: None,
+        data_dirs: &[home(".grok")],
     },
     ProductSpec {
         id: "opencode",
