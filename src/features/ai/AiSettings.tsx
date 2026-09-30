@@ -12,6 +12,8 @@ export type AiView = {
   baseUrl: string;
   model: string;
   hasKey: boolean;
+  /** "" leaves it to the model; otherwise low, medium or high. */
+  effort: "" | "low" | "medium" | "high";
 };
 
 export const AI_ERRORS: Record<string, string> = {
@@ -22,6 +24,7 @@ export const AI_ERRORS: Record<string, string> = {
   E_AI_REPLY: "对方返回的内容读不懂，请确认接口类型选对了。",
   E_AI_KIND: "无效的 AI 来源。",
   E_AI_PROTOCOL: "无效的接口类型。",
+  E_AI_EFFORT: "无效的推理强度。",
   E_AI_NO_NOTES: "拿不到这次更新的官方日志，就不让 AI 猜了。可以去产品主页看更新说明。",
   E_PROBE_URL: "请输入以 http:// 或 https:// 开头的地址。",
 };
@@ -100,6 +103,24 @@ export function AiSettings() {
       <Select value={view.localModel} width={260} disabled={!localOptions.length}
         onChange={(v) => update({ localModel: v })}
         options={[{ value: "", label: tr("请选择") }, ...localOptions]} />
+    </div>}
+
+    {view.kind !== "none" && <div className="srcrow">
+      <span className="av st"><i className="ti ti-brain" /></span>
+      <div className="mt">
+        <div className="t">{tr("推理强度")}</div>
+        <div className="s dim">{view.kind === "local"
+          ? tr("传给智能体的 --effort；它不认识的级别会自动不传。")
+          : view.protocol === "anthropic"
+            ? tr("Anthropic 没有档位，换算成扩展思考的 token 预算（低 2K / 中 8K / 高 16K）；不支持思考的模型会报错。")
+            : tr("作为 reasoning_effort 发送，只有推理模型认；普通模型会报错，那就选“默认”。")}</div>
+      </div>
+      <Select value={view.effort} width={170} onChange={(v) => update({ effort: v as AiView["effort"] })} options={[
+        { value: "", label: tr("默认（不指定）") },
+        { value: "low", label: tr("低") },
+        { value: "medium", label: tr("中") },
+        { value: "high", label: tr("高") },
+      ]} />
     </div>}
 
     {view.kind === "external" && <div className="ai-external">

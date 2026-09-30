@@ -1547,3 +1547,24 @@ button{ font-family:inherit; }
 .a .clean-history-items b{text-align:right;font-weight:500}
 .a .dupe-path{display:flex;align-items:center;gap:8px;padding:3px 0}
 .a .dupe-path code{font-size:11.5px;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+
+/* Tool relocation: what moves from an old portable folder, and which variables follow. */
+.a .reloc{ display:flex; flex-direction:column; gap:12px; font-size:13px; }
+.a .reloc-lead{ margin:0; line-height:1.7; color:var(--mut); }
+.a .reloc section{ display:flex; flex-direction:column; gap:6px; }
+.a .reloc h4{ margin:0; font-size:12px; font-weight:600; color:var(--mut); }
+.a .reloc-row{ display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); align-items:center; gap:8px; }
+.a .reloc-row code{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; padding:4px 8px; border-radius:6px; background:var(--cardh); }
+.a .reloc-row code:only-child{ grid-column:1 / -1; }
+.a .reloc-env{ display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:6px; background:var(--cardh); }
+.a .reloc-scope{ font-size:11px; padding:1px 6px; border-radius:4px; border:1px solid var(--bd); color:var(--mut); }
+.a .reloc-what{ color:var(--mut); }
+.a .git-inuse{ margin:8px 0; padding:0; list-style:none; display:flex; flex-direction:column; gap:4px; max-height:180px; overflow:auto; }
+.a .git-inuse li{ display:flex; gap:10px; padding:4px 8px; border-radius:6px; background:var(--cardh); font-size:12px; }
+.a .git-inuse li span{ color:var(--mut); }
+/* The request log is a page of its own: the card reaches the bottom, the rows scroll inside it. */
+.a .content > .gw-log-card{ flex:1 1 auto; min-height:0; display:flex; flex-direction:column; margin-bottom:0; }
+.a .gw-log-card > .gw-log{ flex:1 1 auto; min-height:0; overflow:auto; }
+.a .gw-log-card > .gw-log > div.head{ position:sticky; top:0; z-index:1; background:var(--card); }
+.a .gw-log-card > .proxy-note{ flex:1 1 auto; display:flex; align-items:center; justify-content:center; color:var(--mut); }
+.a .gw-log-internal{ display:inline-flex; align-items:center; gap:4px; width:fit-content; padding:1px 7px; border-radius:5px; background:rgba(245,130,31,.13); color:var(--acc); font-size:11.5px; }

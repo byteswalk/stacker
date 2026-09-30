@@ -29,6 +29,10 @@ pub struct AiConfig {
     pub model: String,
     /// Hex of the DPAPI-sealed key; never sent to the page.
     pub api_key_sealed: String,
+    /// `low`, `medium` or `high`; empty leaves it to the model. A local agent gets it as its
+    /// `--effort`, OpenAI as `reasoning_effort`, Anthropic as an extended-thinking budget.
+    #[serde(default)]
+    pub effort: String,
 }
 
 /// What the page is shown: everything but the key, which it only learns exists.
@@ -41,6 +45,7 @@ pub struct AiView {
     pub base_url: String,
     pub model: String,
     pub has_key: bool,
+    pub effort: String,
 }
 
 /// What the page sends. An empty key keeps the one already saved.
@@ -54,6 +59,7 @@ pub struct AiUpdate {
     pub model: String,
     pub api_key: String,
     pub clear_key: bool,
+    pub effort: String,
 }
 
 fn file() -> PathBuf {
@@ -95,6 +101,7 @@ pub fn view(config: &AiConfig) -> AiView {
         base_url: config.base_url.clone(),
         model: config.model.clone(),
         has_key: !config.api_key_sealed.is_empty(),
+        effort: config.effort.clone(),
     }
 }
 
@@ -108,7 +115,12 @@ pub fn apply(update: AiUpdate) -> Result<AiView, String> {
         "anthropic" => "anthropic".to_string(),
         _ => return Err("E_AI_PROTOCOL".into()),
     };
+    let effort = match update.effort.as_str() {
+        "" | "low" | "medium" | "high" => update.effort.clone(),
+        _ => return Err("E_AI_EFFORT".into()),
+    };
     let mut config = load();
+    config.effort = effort;
     config.kind = kind;
     config.local_model = update.local_model.trim().to_string();
     config.protocol = protocol;
@@ -146,9 +158,9 @@ pub fn runner_choice() -> Result<crate::sessions::summary::RunnerChoice, String>
             let spec = crate::gateway::protocol::ModelSpec::parse(&config.local_model)
                 .ok_or("E_AI_MODEL")?;
             Ok(crate::sessions::summary::RunnerChoice {
+                effort: local_effort(&spec.backend, &config.effort),
                 backend: spec.backend,
                 model: spec.model,
-                effort: None,
             })
         }
         "external" => {
@@ -171,30 +183,111 @@ pub fn run_request(
     req: &crate::runner::RunRequest,
     cancel: &crate::runner::CancelFlag,
 ) -> Result<crate::runner::RunOutput, String> {
+    let started = std::time::Instant::now();
     if !req.backend.is_empty() {
-        return crate::runner::run(req, cancel);
+        let result = crate::runner::run(req, cancel);
+        let label = match &req.model {
+            Some(model) => format!("{}/{model}", req.backend),
+            None => req.backend.clone(),
+        };
+        let logged = result.as_ref().map(|output| output.text.clone()).map_err(Clone::clone);
+        crate::gateway::requests::record_internal(&label, &logged, started);
+        return result;
     }
     if cancel.is_cancelled() {
         return Err("E_CANCELLED".into());
     }
-    complete_external(&load(), &req.prompt, req.timeout)
-        .map(|text| crate::runner::RunOutput { text })
+    let config = load();
+    let result = complete_external(&config, &req.prompt, req.timeout);
+    crate::gateway::requests::record_internal(&external_label(&config), &result, started);
+    result.map(|text| crate::runner::RunOutput { text })
+}
+
+/// How an external model shows in the request log: `api/<model>`, so the filter groups them.
+fn external_label(config: &AiConfig) -> String {
+    format!("api/{}", config.model)
 }
 
 fn complete_with(config: &AiConfig, prompt: &str) -> Result<String, String> {
-    match config.kind.as_str() {
-        "local" => complete_local(&config.local_model, prompt),
-        "external" => complete_external(config, prompt, ANSWER_TIMEOUT),
-        _ => Err("E_AI_NONE".into()),
+    let started = std::time::Instant::now();
+    let (label, result) = match config.kind.as_str() {
+        "local" => (
+            config.local_model.clone(),
+            complete_local(&config.local_model, &config.effort, prompt),
+        ),
+        "external" => (
+            external_label(config),
+            complete_external(config, prompt, ANSWER_TIMEOUT),
+        ),
+        _ => return Err("E_AI_NONE".into()),
+    };
+    // Stacker's own questions show in the request log beside the service's, marked as its own.
+    crate::gateway::requests::record_internal(&label, &result, started);
+    result
+}
+
+/// A level the agent's CLI lists, or none: a CLI given one it does not know refuses to run.
+fn local_effort(backend: &str, effort: &str) -> Option<String> {
+    if effort.is_empty() {
+        return None;
+    }
+    let backend = crate::runner::backends::get(backend)?;
+    (backend.efforts)()
+        .iter()
+        .any(|level| level == effort)
+        .then(|| effort.to_string())
+}
+
+/// Anthropic has no named levels; extended thinking takes a token budget instead.
+fn thinking_budget(effort: &str) -> Option<u32> {
+    match effort {
+        "low" => Some(2048),
+        "medium" => Some(8192),
+        "high" => Some(16384),
+        _ => None,
     }
 }
 
-fn complete_local(name: &str, prompt: &str) -> Result<String, String> {
+/// The request body for an external API, with the reasoning level where one is set.
+fn external_body(protocol: &str, model: &str, effort: &str, prompt: &str) -> serde_json::Value {
+    let messages = serde_json::json!([{ "role": "user", "content": prompt }]);
+    if protocol == "anthropic" {
+        match thinking_budget(effort) {
+            Some(budget) => serde_json::json!({
+                "model": model,
+                "max_tokens": budget + 2048,
+                "thinking": { "type": "enabled", "budget_tokens": budget },
+                "messages": messages,
+            }),
+            None => serde_json::json!({ "model": model, "max_tokens": 1024, "messages": messages }),
+        }
+    } else if effort.is_empty() {
+        serde_json::json!({ "model": model, "messages": messages })
+    } else {
+        serde_json::json!({ "model": model, "reasoning_effort": effort, "messages": messages })
+    }
+}
+
+/// The answer text; Anthropic puts thinking blocks ahead of it when thinking is on.
+fn external_text(protocol: &str, body: &serde_json::Value) -> Option<String> {
+    if protocol == "anthropic" {
+        body["content"]
+            .as_array()?
+            .iter()
+            .find(|block| block["type"] == "text")
+            .and_then(|block| block["text"].as_str())
+            .map(str::to_string)
+    } else {
+        body["choices"][0]["message"]["content"].as_str().map(str::to_string)
+    }
+}
+
+fn complete_local(name: &str, effort: &str, prompt: &str) -> Result<String, String> {
     let spec = crate::gateway::protocol::ModelSpec::parse(name).ok_or("E_AI_MODEL")?;
     let request = crate::runner::RunRequest {
+        effort: local_effort(&spec.backend, effort),
         backend: spec.backend,
         model: spec.model,
-        effort: None,
         prompt: prompt.to_string(),
         timeout: ANSWER_TIMEOUT,
         attachments: Vec::new(),
@@ -235,29 +328,17 @@ fn complete_external(config: &AiConfig, prompt: &str, timeout: Duration) -> Resu
     };
     let url = endpoint(&config.protocol, &config.base_url);
     // ureq is built without its JSON feature here, so the body goes as text.
-    let (request, body) = if config.protocol == "anthropic" {
-        (
-            agent(timeout)
-                .post(&url)
-                .set("x-api-key", &key)
-                .set("anthropic-version", "2023-06-01"),
-            serde_json::json!({
-                "model": config.model,
-                "max_tokens": 1024,
-                "messages": [{ "role": "user", "content": prompt }],
-            }),
-        )
+    let request = if config.protocol == "anthropic" {
+        agent(timeout)
+            .post(&url)
+            .set("x-api-key", &key)
+            .set("anthropic-version", "2023-06-01")
     } else {
-        (
-            agent(timeout)
-                .post(&url)
-                .set("Authorization", &format!("Bearer {key}")),
-            serde_json::json!({
-                "model": config.model,
-                "messages": [{ "role": "user", "content": prompt }],
-            }),
-        )
+        agent(timeout)
+            .post(&url)
+            .set("Authorization", &format!("Bearer {key}"))
     };
+    let body = external_body(&config.protocol, &config.model, &config.effort, prompt);
     let response = request
         .set("Content-Type", "application/json")
         .send_string(&body.to_string());
@@ -268,19 +349,20 @@ fn complete_external(config: &AiConfig, prompt: &str, timeout: Duration) -> Resu
         }
         Err(ureq::Error::Status(status, response)) => {
             let text = response.into_string().unwrap_or_default();
+            // A model without reasoning levels rejects the field; say which setting to change.
+            let hint = if status == 400 && !config.effort.is_empty() {
+                "（该模型可能不支持推理强度，可在偏好设置里改回“默认”）"
+            } else {
+                ""
+            };
             return Err(format!(
-                "HTTP {status}: {}",
+                "HTTP {status}{hint}: {}",
                 text.chars().take(300).collect::<String>()
             ));
         }
         Err(error) => return Err(error.to_string()),
     };
-    let text = if config.protocol == "anthropic" {
-        body["content"][0]["text"].as_str()
-    } else {
-        body["choices"][0]["message"]["content"].as_str()
-    };
-    text.map(str::to_string).ok_or_else(|| "E_AI_REPLY".into())
+    external_text(&config.protocol, &body).ok_or_else(|| "E_AI_REPLY".into())
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -415,6 +497,32 @@ fn explain_prompt(path: &str, bytes: u64, kind: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_reasoning_level_reaches_each_protocol_in_its_own_form() {
+        let openai = external_body("openai", "o4", "high", "hi");
+        assert_eq!(openai["reasoning_effort"], "high");
+        assert!(external_body("openai", "gpt", "", "hi").get("reasoning_effort").is_none());
+        let anthropic = external_body("anthropic", "claude", "medium", "hi");
+        assert_eq!(anthropic["thinking"]["budget_tokens"], 8192);
+        assert!(anthropic["max_tokens"].as_u64().unwrap() > 8192);
+        assert!(external_body("anthropic", "claude", "", "hi").get("thinking").is_none());
+    }
+
+    #[test]
+    fn the_answer_is_the_text_block_after_any_thinking() {
+        let body = serde_json::json!({ "content": [
+            { "type": "thinking", "thinking": "..." },
+            { "type": "text", "text": "OK" },
+        ]});
+        assert_eq!(external_text("anthropic", &body).as_deref(), Some("OK"));
+    }
+
+    #[test]
+    fn an_unknown_reasoning_level_is_refused() {
+        let update = AiUpdate { kind: "none".into(), effort: "turbo".into(), ..Default::default() };
+        assert_eq!(apply(update).unwrap_err(), "E_AI_EFFORT");
+    }
 
     #[test]
     fn an_endpoint_is_found_from_a_base_url_as_people_paste_it() {

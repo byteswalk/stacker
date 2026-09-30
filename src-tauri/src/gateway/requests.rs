@@ -71,6 +71,33 @@ pub fn now() -> u64 {
         .unwrap_or(0)
 }
 
+/// The endpoint of a row Stacker's own AI features wrote rather than a caller of the service.
+pub const INTERNAL: &str = "stacker://internal";
+
+/// The status a failed internal call is logged with: the API's own when it answered, 499 when
+/// the user cancelled, 500 for anything else.
+pub fn internal_status(result: &Result<String, String>) -> u16 {
+    match result {
+        Ok(_) => 200,
+        Err(error) if error == "E_CANCELLED" => 499,
+        Err(error) => error
+            .strip_prefix("HTTP ")
+            .and_then(|rest| rest.get(..3))
+            .and_then(|code| code.parse().ok())
+            .unwrap_or(500),
+    }
+}
+
+/// Logs one call made by Stacker's own AI features, whichever model answered it.
+pub fn record_internal(model: &str, result: &Result<String, String>, started: std::time::Instant) {
+    record(
+        INTERNAL,
+        model,
+        internal_status(result),
+        started.elapsed().as_millis() as u64,
+    );
+}
+
 /// Writes one request, then drops anything older than the retention the user set.
 pub fn record(endpoint: &str, model: &str, status: u16, elapsed_ms: u64) {
     let config = super::load();
@@ -222,6 +249,15 @@ pub fn clear(query: &LogQuery) -> Result<usize, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_internal_call_is_logged_with_the_status_it_ended_in() {
+        assert_eq!(internal_status(&Ok("OK".into())), 200);
+        assert_eq!(internal_status(&Err("HTTP 429: slow down".into())), 429);
+        assert_eq!(internal_status(&Err("HTTP 400（提示）: bad".into())), 400);
+        assert_eq!(internal_status(&Err("E_CANCELLED".into())), 499);
+        assert_eq!(internal_status(&Err("E_AI_REPLY".into())), 500);
+    }
 
     fn seeded() -> Connection {
         let conn = Connection::open_in_memory().unwrap();

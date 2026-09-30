@@ -27,6 +27,9 @@ const RANGES: { value: number; label: string }[] = [
 ];
 
 /** What the API service was asked to do, with the filters and clean-up it needs to stay useful. */
+/** The endpoint of a row Stacker's own AI features wrote. */
+const INTERNAL = "stacker://internal";
+
 export function GatewayLog({ enabled, retentionDays, onSettings }: {
   enabled: boolean;
   retentionDays: number;
@@ -80,10 +83,10 @@ export function GatewayLog({ enabled, retentionDays, onSettings }: {
   const pages = Math.max(1, Math.ceil((page?.total ?? 0) / PAGE));
   const current = Math.floor(query.offset / PAGE) + 1;
 
-  return <div className="pxcard">
+  return <div className="pxcard gw-log-card">
     <div className="pxsec">
       <i className="ti ti-list" /> {t("请求记录")}
-      <span className="pxhint">{t("只记录接口、模型、耗时和结果，不记录内容")}</span>
+      <span className="pxhint">{t("接口服务的请求和 Stacker 自己的 AI 调用都记在这里；只记录接口、模型、耗时和结果，不记录内容")}</span>
     </div>
 
     <div className="gw-log-bar">
@@ -115,7 +118,9 @@ export function GatewayLog({ enabled, retentionDays, onSettings }: {
           <label className="ck"><input type="checkbox" checked={picked.includes(r.id)} aria-label={String(r.at)}
             onChange={(e) => setPicked((old) => e.target.checked ? [...old, r.id] : old.filter((id) => id !== r.id))} /></label>
           <span>{new Date(r.at * 1000).toLocaleString()}</span>
-          <code>{r.endpoint}</code>
+          {r.endpoint === INTERNAL
+            ? <span className="gw-log-internal" title={t("Stacker 自己的 AI 功能发起的调用，不经过接口服务")}><i className="ti ti-sparkles" /> {t("Stacker 内部")}</span>
+            : <code>{r.endpoint}</code>}
           <span>{r.model || "—"}</span>
           <b className={r.status < 400 ? "ok" : "bad"}>{r.status}</b>
           <span>{(r.elapsedMs / 1000).toFixed(1)}s</span>
