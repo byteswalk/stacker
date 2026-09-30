@@ -39,7 +39,8 @@ const RUN_ERRORS: Record<string, string> = {
 const CACHE_KEY = "stacker.gateway.agents.v1";
 const TESTS_KEY = "stacker.gateway.tests.v1";
 /** Models shown before the list is expanded; more than this is a wall of names. */
-const SHOWN_MODELS = 5;
+/** A search box once the list is long enough to need one; every model is always listed. */
+const SEARCH_FROM = 6;
 
 type PastTest = { at: number; ok: boolean; elapsedMs: number };
 
@@ -228,7 +229,6 @@ function AgentBlock({ card, base, token, past, testLine, running, onTest, onTogg
   // The examples are reference material, not the first thing to read about an agent.
   const [showUse, setShowUse] = useState(false);
   const [query, setQuery] = useState("");
-  const [all, setAll] = useState(false);
   const state = agentState(card, past[card.id]);
   const method = card.login?.state === "logged_in" && card.login.method ? card.login.method : "";
   const subtitle = [card.vendor, method, `${card.models.length} ${t("个模型")}`].filter(Boolean).join(" · ");
@@ -238,7 +238,7 @@ function AgentBlock({ card, base, token, past, testLine, running, onTest, onTogg
   const matches = card.models.filter((m) => !needle
     || m.label.toLowerCase().includes(needle)
     || m.call.toLowerCase().includes(needle));
-  const shown = all || needle ? matches : matches.slice(0, SHOWN_MODELS);
+  const shown = matches;
   const modelOptions = [{ value: "", label: t("跟随 CLI 默认") }, ...card.models.map((m) => ({ value: m.call.slice(card.id.length + 1), label: m.label }))];
   const effortOptions = [{ value: "", label: t("跟随 CLI 默认") }, ...shared.map((e) => ({ value: e, label: e }))];
 
@@ -287,9 +287,10 @@ function AgentBlock({ card, base, token, past, testLine, running, onTest, onTogg
         </div>
       </div>}
 
+      <div className="gw-modelbox">
       <div className="gw-modelhd">
         <b>{t("可指定的模型")}</b>
-        {card.models.length > SHOWN_MODELS && <label className="gw-search">
+        {card.models.length >= SEARCH_FROM && <label className="gw-search">
           <i className="ti ti-search" />
           <input value={query} placeholder={t("搜索模型…")} onChange={(e) => setQuery(e.target.value)} />
         </label>}
@@ -314,10 +315,8 @@ function AgentBlock({ card, base, token, past, testLine, running, onTest, onTogg
           </div>;
         })}
         {!card.models.length && <p className="proxy-note">{t("没有读到模型列表，可在请求里直接写完整模型名。")}</p>}
-        {!needle && matches.length > SHOWN_MODELS && <button className="gh sm gw-more" onClick={() => setAll(!all)}>
-          {all ? t("收起") : `${t("展开其余")} ${matches.length - SHOWN_MODELS} ${t("个模型")}`}
-        </button>}
         {!!needle && !matches.length && <p className="proxy-note">{t("没有匹配的模型。")}</p>}
+      </div>
       </div>
     </>}
   </div>;

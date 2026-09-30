@@ -14,6 +14,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { id: "agents", icon: "ti-sparkles", labelKey: "nav.agents" },
       { id: "agent-data", icon: "ti-database", labelKey: "nav.agentData" },
       { id: "gateway", icon: "ti-plug-connected", labelKey: "nav.gateway" },
+      { id: "gateway-log", icon: "ti-list-search", labelKey: "nav.gatewayLog" },
     ],
   },
   {

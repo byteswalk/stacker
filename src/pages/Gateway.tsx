@@ -4,7 +4,6 @@ import { useI18n } from "../i18n";
 import { useToast, ErrorState, Loading } from "../ui";
 import { GatewayAgents } from "../features/gateway/GatewayAgents";
 import { FoldCard } from "../features/gateway/Fold";
-import { GatewayLog } from "../features/gateway/GatewayLog";
 
 type LogEntry = { at: number; endpoint: string; model: string; status: number; elapsedMs: number };
 type Status = { enabled: boolean; running: boolean; port: number; token: string; error: string; recent: LogEntry[]; logEnabled: boolean; logRetentionDays: number; lanAccess: boolean; addresses: string[] };
@@ -60,13 +59,6 @@ export default function Gateway() {
       setStatus(await invoke<Status>("gateway_set_lan", { enabled }));
     } catch (e) { toast(String(e), "err"); }
     finally { setBusy(false); }
-  }
-
-  async function setLogPolicy(logEnabled: boolean, retentionDays: number) {
-    try {
-      await invoke("gateway_set_log", { enabled: logEnabled, retentionDays });
-      setStatus(await invoke<Status>("gateway_status"));
-    } catch (e) { toast(String(e), "err"); }
   }
 
   async function regenerate() {
@@ -132,16 +124,33 @@ export default function Gateway() {
             <button className="gh sm" onClick={() => void copy(`http://${address}:${status.port}`)}><i className="ti ti-copy" /></button>
           </div>)}
           {!status.addresses.length && <div><span>{t("局域网地址")}</span><code>{t("未读到本机的网络地址")}</code></div>}
-          <p className="proxy-note">{t("列出的是本机所有网卡地址，挑与对方同一网段的那个；虚拟机走的是宿主机虚拟网卡的地址。对方如果设了系统代理，要让它绕开这个地址（curl 加 --noproxy，或把地址加进 NO_PROXY）。")}</p>
-          <p className="proxy-note">{t("Windows 防火墙第一次遇到新版本的程序监听网络时会弹窗询问。点下面的按钮加一条放行规则，之后就不再问了（需要管理员）。")}</p>
-          <div className="gw-firewall">
-            <button className="gh sm" disabled={busy} onClick={() => void allowFirewall()}>
-              <i className={"ti " + (busy ? "ti-loader spin" : "ti-shield-check")} /> {t("添加防火墙规则")}
-            </button>
-            <button className="gh sm" onClick={() => void copy(firewall)}><i className="ti ti-copy" /> {t("复制命令")}</button>
+          <div className="gw-tips">
+            <div className="gw-tip">
+              <i className="ti ti-route" />
+              <span>{t("挑与对方同一网段的地址；虚拟机用宿主机虚拟网卡的那个。对方开了系统代理的，要让它绕开这个地址（curl 加 --noproxy，或加进 NO_PROXY）。")}</span>
+            </div>
+            <div className="gw-tip">
+              <i className="ti ti-shield-half" />
+              <span>{t("Windows 防火墙遇到新版本会弹窗询问；加一条放行规则后就不再问（需要管理员）。")}</span>
+              <div className="gw-tip-actions">
+                <button className="gh sm" title={t("复制 netsh 命令，自己以管理员身份运行")} onClick={() => void copy(firewall)}><i className="ti ti-copy" /> {t("复制命令")}</button>
+                <button className="pr sm" disabled={busy} onClick={() => void allowFirewall()}>
+                  <i className={"ti " + (busy ? "ti-loader spin" : "ti-shield-check")} /> {t("添加防火墙规则")}
+                </button>
+              </div>
+            </div>
           </div>
         </div>}
-        <p className="proxy-note">{t("可以发图片（claude/*、codex/*）和 PDF 文档（claude/*），文本类文档会直接并入对话；不支持工具调用。stream 请求：claude/* 逐字返回，codex/* 在生成完成后一次性返回。")}</p>
+        <div className="gw-tips gw-caps">
+          <div className="gw-tip">
+            <i className="ti ti-photo" />
+            <span>{t("支持图片（claude/*、codex/*）和 PDF（claude/*），文本文档直接并入对话；不支持工具调用。")}</span>
+          </div>
+          <div className="gw-tip">
+            <i className="ti ti-player-track-next" />
+            <span>{t("流式请求：claude/* 逐字返回，codex/* 生成完一次性返回。")}</span>
+          </div>
+        </div>
       </div>
 
       <FoldCard id="examples" title={<><i className="ti ti-code" /> {t("调用示例")}</>}>
@@ -153,9 +162,6 @@ export default function Gateway() {
       </FoldCard>
 
       <GatewayAgents base={base} token={status.token} />
-
-      <GatewayLog enabled={status.logEnabled} retentionDays={status.logRetentionDays}
-        onSettings={(logEnabled, retentionDays) => void setLogPolicy(logEnabled, retentionDays)} />
 
       <div className="callout">
         <i className="ti ti-shield-lock" />

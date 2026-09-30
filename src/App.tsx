@@ -20,6 +20,7 @@ const Overview = lazy(() => import("./pages/Overview"));
 const Agents = lazy(() => import("./pages/Agents"));
 const AgentData = lazy(() => import("./pages/AgentData"));
 const Gateway = lazy(() => import("./pages/Gateway"));
+const GatewayLogPage = lazy(() => import("./pages/GatewayLogPage"));
 const Git = lazy(() => import("./pages/Git"));
 const Proxy = lazy(() => import("./pages/Proxy"));
 const History = lazy(() => import("./pages/History"));
@@ -423,6 +424,7 @@ function Shell() {
               : page === "agents" ? <Agents key={configEpoch} />
               : page === "agent-data" ? <AgentData key={configEpoch} goto={setPage} />
               : page === "gateway" ? <Gateway key={configEpoch} />
+              : page === "gateway-log" ? <GatewayLogPage key={configEpoch} />
               : page === "git" ? <Git key={configEpoch} />
               : page === "node" ? <Node key={configEpoch} />
               : page === "proxy" ? <Proxy key={configEpoch} />

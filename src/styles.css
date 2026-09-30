@@ -1334,7 +1334,14 @@ button{ font-family:inherit; }
 .a .gw-rows>div>span{flex:0 0 auto;width:124px;color:var(--mut)}
 /* A value is there to be copied: it gets a frame and takes the width that is going spare. */
 .a .gw-rows code{flex:1 1 auto;min-width:0;padding:5px 9px;border:.5px solid var(--bd);border-radius:7px;background:rgba(255,255,255,.035);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.a .gw-firewall{display:flex;gap:8px;flex-wrap:wrap;grid-column:1/-1}
+/* Notes read as one block: an icon, a line, and whatever can be done about it on the right. */
+.a .gw-tips{grid-column:1/-1;display:flex;flex-direction:column;border:.5px solid var(--bd);border-radius:10px;background:rgba(255,255,255,.02);margin-top:4px}
+.a .gw-tip{display:flex;align-items:center;gap:10px;padding:8px 12px;font-size:12px;color:var(--mut);line-height:1.55}
+.a .gw-tip+.gw-tip{border-top:1px solid var(--bd)}
+.a .gw-tip>i{flex:0 0 auto;font-size:15px;color:var(--blue)}
+.a .gw-tip>span{flex:1;min-width:0}
+.a .gw-tip-actions{display:flex;gap:6px;flex:0 0 auto}
+.a .gw-caps{margin-top:12px}
 .a .gw-example{white-space:pre;overflow:auto;margin:0 0 10px;user-select:text}
 /* The request log: searchable, removable, and kept only as long as the user wants. */
 .a .gw-log-bar{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:9px}
@@ -1386,18 +1393,19 @@ button{ font-family:inherit; }
 .a .gw-use-code{margin:0;padding:12px 14px;background:var(--card);font-family:var(--font-mono);font-size:11.5px;line-height:1.7;color:var(--sub);white-space:pre;overflow:auto}
 .a .gw-use-bar{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--card);border-top:1px solid var(--bd);font-size:11px;color:var(--mut)}
 .a .gw-use-bar>button{margin-left:auto}
-.a .gw-modelhd{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:14px 0 8px 34px;font-size:12px}
+/* The models an agent offers, framed so they read as their own part of the card. */
+.a .gw-modelbox{margin:12px 0 0 34px;padding:10px 11px;border:.5px solid var(--bdh);border-radius:10px;background:rgba(106,176,245,.035)}
+.a .gw-modelhd{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 8px;font-size:12px}
 .a .gw-modelhd>b{font-size:12.5px}
 .a .gw-search{display:flex;align-items:center;gap:6px;height:28px;padding:0 9px;border:1px solid var(--line);border-radius:7px;background:var(--card);color:var(--mut)}
 .a .gw-search input{width:180px;border:0;outline:0;background:transparent;color:var(--tx);font:inherit;font-size:11.5px}
-.a .gw-models{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:5px;margin-left:34px}
+.a .gw-models{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:5px}
 .a .gw-model{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;padding:6px 9px;border:1px solid var(--line);border-radius:8px;background:var(--card)}
 .a .gw-model.on{border-color:color-mix(in srgb,var(--acc) 50%,var(--line))}
 .a .gw-model .nm{display:flex;flex-direction:column;gap:3px;min-width:0}
 .a .gw-model .nm b{font-size:12.5px}
 .a .gw-model .nm code{font-size:11px;color:var(--mut)}
 .a .gw-model .acts{display:flex;align-items:center;gap:6px}
-.a .gw-more{align-self:flex-start}
 .a .gw-others{display:flex;flex-direction:column;font-size:12px}
 .a .gw-others>div{display:flex;gap:10px;align-items:baseline;padding:6px 0;border-top:1px solid var(--bd)}
 .a .gw-others>div:first-child{border-top:0}
