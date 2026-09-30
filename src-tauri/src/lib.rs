@@ -1,5 +1,6 @@
 mod agents;
 mod ai_config;
+mod ai_features;
 mod backup;
 mod binary;
 mod bundle;
@@ -471,6 +472,10 @@ pub fn run() {
             ai_config::ai_config_use_local,
             ai_config::ai_config_test,
             ai_config::ai_explain_path,
+            ai_features::ai_ask,
+            ai_features::ai_session_filter,
+            ai_features::ai_update_notes,
+            ai_features::proxy_probe,
             project_junk::project_junk_scan,
             project_junk::project_junk_clean,
             gateway::gateway_new_token,
