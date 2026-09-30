@@ -316,12 +316,20 @@ pub(crate) fn uninstall_cli_tool(
             let uninstall = desktop_registry(&entry)
                 .and_then(|found| found.uninstall)
                 .ok_or("没找到 Kiro CLI 的卸载程序，请在系统“应用”设置里卸载。")?;
-            emit_progress(
+            // "MsiExec.exe /X{GUID}": the product code, removed quietly with one UAC prompt.
+            let code = msi_product_code(&uninstall)
+                .ok_or("读不出 Kiro CLI 的安装产品码，请在系统“应用”设置里卸载。")?;
+            emit_progress(window, "正在卸载 Kiro CLI：请在弹出的 UAC 窗口中点「是」…");
+            match run_elevated_wait(
+                "msiexec.exe",
+                &format!("/x {code} /quiet /norestart"),
+                "Kiro CLI",
                 window,
-                "正在启动 Kiro CLI 卸载程序，Windows 会请求管理员授权…",
-            );
-            run_uninstall_string(&uninstall)?;
-            Ok("已启动 Kiro CLI 卸载程序，按提示完成即可".into())
+            )? {
+                0 | 3010 => Ok("Kiro CLI 已卸载，登录配置和历史数据已保留。".into()),
+                1602 => Err("已取消 Kiro CLI 卸载".into()),
+                other => Err(format!("Kiro CLI 卸载程序退出代码 {other}")),
+            }
         }
         Some("native") => {
             let program = program.ok_or_else(|| "未找到可卸载的命令入口。".to_string())?;
@@ -721,6 +729,14 @@ pub(crate) fn remove_cli_binary(program: &Path, command_name: &str) -> Result<()
     }
 }
 
+/// The `{…}` product code in an MSI uninstall command.
+pub(crate) fn msi_product_code(uninstall: &str) -> Option<String> {
+    let start = uninstall.find('{')?;
+    let end = start + uninstall[start..].find('}')?;
+    let code = &uninstall[start..=end];
+    (code.len() == 38).then(|| code.to_string())
+}
+
 pub(crate) fn run_uninstall_string(uninstall: &str) -> Result<(), String> {
     let mut cmd = Command::new("cmd.exe");
     cmd.args(["/d", "/c", uninstall]);
@@ -788,6 +804,31 @@ pub(crate) fn image_is_running(image: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_msi_uninstall_command_names_its_product_code() {
+        assert_eq!(
+            msi_product_code("MsiExec.exe /X{0F8A7E2B-1C3D-4E5F-8A9B-0C1D2E3F4A5B}").as_deref(),
+            Some("{0F8A7E2B-1C3D-4E5F-8A9B-0C1D2E3F4A5B}")
+        );
+        assert_eq!(msi_product_code("uninstall.exe --quiet"), None);
+    }
+
+    #[test]
+    fn kiro_is_installed_from_the_msi_its_manifest_lists() {
+        let manifest = serde_json::json!({ "version": "2.26.0", "packages": [
+            { "os": "linux", "architecture": "x86_64", "kind": "deb", "download": "2.26.0/x.deb", "sha256": "aa" },
+            { "os": "windows", "architecture": "x86_64", "kind": "msi",
+              "download": "2.26.0/kiro-cli-x86_64-pc-windows-msvc.msi", "sha256": "3CAF" },
+        ]});
+        assert_eq!(
+            kiro_msi(&manifest),
+            Some((
+                "https://prod.download.cli.kiro.dev/stable/2.26.0/kiro-cli-x86_64-pc-windows-msvc.msi".into(),
+                "3caf".into()
+            ))
+        );
+    }
 
     #[test]
     fn a_native_command_and_the_folder_made_for_it_are_removed() {

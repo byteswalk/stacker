@@ -291,8 +291,142 @@ fn windows_build() -> u32 {
     0
 }
 
-/// Kiro's installer runs a per-machine MSI, which a quiet install can only do with
-/// administrator rights, so the official script runs elevated: one UAC prompt.
+/// Runs a program with administrator rights through the shell (one UAC prompt, raised by
+/// Stacker's own process) and waits for its exit code.
+#[cfg(windows)]
+pub(crate) fn run_elevated_wait(
+    program: &str,
+    parameters: &str,
+    name: &str,
+    window: &Option<tauri::Window>,
+) -> Result<u32, String> {
+    use std::time::Instant;
+    use winapi::um::handleapi::CloseHandle;
+    use winapi::um::processthreadsapi::{GetExitCodeProcess, TerminateProcess};
+    use winapi::um::shellapi::{ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW};
+    use winapi::um::synchapi::WaitForSingleObject;
+    use winapi::um::winuser::SW_HIDE;
+
+    let wide = |text: &str| {
+        text.encode_utf16()
+            .chain(std::iter::once(0))
+            .collect::<Vec<u16>>()
+    };
+    let (verb, file, params) = (wide("runas"), wide(program), wide(parameters));
+    unsafe {
+        let mut info: SHELLEXECUTEINFOW = std::mem::zeroed();
+        info.cbSize = std::mem::size_of::<SHELLEXECUTEINFOW>() as u32;
+        info.fMask = SEE_MASK_NOCLOSEPROCESS;
+        info.lpVerb = verb.as_ptr();
+        info.lpFile = file.as_ptr();
+        info.lpParameters = params.as_ptr();
+        info.nShow = SW_HIDE;
+        if ShellExecuteExW(&mut info) == 0 || info.hProcess.is_null() {
+            let error = std::io::Error::last_os_error();
+            return Err(if error.raw_os_error() == Some(1223) {
+                format!("已取消：{name} 需要管理员授权")
+            } else {
+                format!("无法启动 {name} 安装程序：{error}")
+            });
+        }
+        let started = Instant::now();
+        let mut last_reported = u64::MAX;
+        loop {
+            if crate::installer::op_cancelled() {
+                let _ = TerminateProcess(info.hProcess, 1);
+                let _ = WaitForSingleObject(info.hProcess, 5_000);
+                CloseHandle(info.hProcess);
+                return Err(format!("已取消安装 {name}"));
+            }
+            match WaitForSingleObject(info.hProcess, 250) {
+                0 => {
+                    let mut code: u32 = 1;
+                    let read = GetExitCodeProcess(info.hProcess, &mut code);
+                    CloseHandle(info.hProcess);
+                    return if read == 0 {
+                        Err(format!("无法读取 {name} 安装程序的退出状态"))
+                    } else {
+                        Ok(code)
+                    };
+                }
+                258 => {
+                    let elapsed = started.elapsed().as_secs();
+                    if elapsed >= 1200 {
+                        let _ = TerminateProcess(info.hProcess, 1);
+                        let _ = WaitForSingleObject(info.hProcess, 5_000);
+                        CloseHandle(info.hProcess);
+                        return Err(format!("{name} 安装超过 20 分钟，已停止等待"));
+                    }
+                    if elapsed != last_reported {
+                        last_reported = elapsed;
+                        emit_progress(window, format!("正在安装 {name} · 已 {elapsed} 秒"));
+                    }
+                }
+                _ => {
+                    CloseHandle(info.hProcess);
+                    return Err(format!("等待 {name} 安装程序时发生系统错误"));
+                }
+            }
+        }
+    }
+}
+
+#[cfg(not(windows))]
+pub(crate) fn run_elevated_wait(
+    _: &str,
+    _: &str,
+    _: &str,
+    _: &Option<tauri::Window>,
+) -> Result<u32, String> {
+    Err("仅支持 Windows".into())
+}
+
+/// The lines of a verbose MSI log that say what failed: Windows Installer's own error
+/// messages (`Error 1920. …`, `MSI (s) … Note: 1: 1708`), the last few of them.
+pub(crate) fn msi_log_errors(log: &std::path::Path) -> Option<String> {
+    let bytes = std::fs::read(log).ok()?;
+    // msiexec writes its log in UTF-16 LE.
+    let text = if bytes.starts_with(&[0xFF, 0xFE]) {
+        let units: Vec<u16> = bytes[2..]
+            .chunks_exact(2)
+            .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+            .collect();
+        String::from_utf16_lossy(&units)
+    } else {
+        String::from_utf8_lossy(&bytes).into_owned()
+    };
+    let lines: Vec<&str> = text
+        .lines()
+        .map(str::trim)
+        .filter(|line| {
+            line.starts_with("Error ")
+                || line.contains("Return value 3")
+                || line.starts_with("CustomAction")
+        })
+        .collect();
+    (!lines.is_empty()).then(|| lines[lines.len().saturating_sub(3)..].join(" | "))
+}
+
+/// The Windows MSI Kiro's release manifest lists: its URL and SHA-256.
+pub(crate) fn kiro_msi(manifest: &serde_json::Value) -> Option<(String, String)> {
+    let package = manifest["packages"].as_array()?.iter().find(|package| {
+        package["os"] == "windows"
+            && package["architecture"] == "x86_64"
+            && package["kind"] == "msi"
+    })?;
+    let download = package["download"].as_str()?;
+    let sha256 = package["sha256"].as_str()?.to_ascii_lowercase();
+    Some((
+        format!("https://prod.download.cli.kiro.dev/stable/{download}"),
+        sha256,
+    ))
+}
+
+/// Kiro CLI is a per-machine MSI, which only installs with administrator rights. What the
+/// official script does is done here instead: the MSI from Kiro's release manifest, checked
+/// against the SHA-256 listed there, then msiexec started by Stacker itself through the
+/// shell's `runas`. PowerShell's `Start-Process -Verb RunAs` from a child process is refused
+/// ("Access is denied") when Stacker runs it; the shell call from Stacker raises UAC.
 pub(crate) fn install_or_update_kiro_cli(
     window: &Option<tauri::Window>,
     action: &str,
@@ -300,25 +434,79 @@ pub(crate) fn install_or_update_kiro_cli(
     if !is_windows_11() {
         return Err("Kiro CLI 只支持 Windows 11，这台电脑的系统版本装不了。".into());
     }
-    emit_progress(
-        window,
-        format!("正在通过 Kiro 官方脚本{action} Kiro CLI；Windows 会请求一次管理员授权…"),
-    );
-    run_official_script(
-        window,
-        "try { $p = Start-Process powershell.exe -Verb RunAs -Wait -PassThru -WindowStyle Hidden -ErrorAction Stop -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-Command','irm https://cli.kiro.dev/install.ps1 | iex' } catch { Write-Output $_.Exception.Message; exit 1223 }; if (-not $p) { exit 1 }; exit $p.ExitCode",
-        "Kiro CLI Install",
-    )
-    .map_err(|error| format!("Kiro CLI {action}未完成（管理员授权被取消或安装失败）：{error}"))?;
-    // The MSI installs to Program Files; a run that ends without it there did not install.
-    let installed = std::env::var_os("ProgramFiles")
-        .map(|dir| std::path::PathBuf::from(dir).join("Kiro-Cli"))
-        .is_some_and(|dir| dir.is_dir());
-    if !installed {
-        return Err(format!(
-            "Kiro CLI {action}未完成：安装程序结束了，但没有找到安装目录。"
-        ));
+    emit_progress(window, "正在读取 Kiro CLI 的官方发布清单…");
+    let manifest: serde_json::Value = serde_json::from_str(&crate::agents::detect::fetch_text(
+        crate::agents::detect::KIRO_CLI_MANIFEST,
+    )?)
+    .map_err(|e| format!("Kiro 的发布清单读不懂：{e}"))?;
+    let (url, sha256) = kiro_msi(&manifest).ok_or("Kiro 的发布清单里没有 Windows 安装包")?;
+    // Kiro's MSI refuses to reinstall its own version (RegisterProduct, 1603); an install
+    // already at the listed version has nothing to update.
+    let latest = manifest["version"].as_str().unwrap_or_default();
+    let installed = resolve_command(&["kiro-cli.exe"])
+        .and_then(|program| {
+            run_command_text(
+                &program,
+                &["--version"],
+                "kiro-cli --version",
+                Duration::from_secs(15),
+            )
+            .ok()
+        })
+        .and_then(|text| crate::agents::detect::first_semver(&text));
+    if !latest.is_empty() && installed.as_deref() == Some(latest) {
+        return Ok(format!("Kiro CLI 已是最新版本 {latest}"));
     }
+    let msi = std::env::temp_dir().join(format!(
+        "stacker-kiro-cli-{}.msi",
+        chrono::Local::now().timestamp_millis()
+    ));
+    let log = msi.with_extension("log");
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(30))
+        .timeout_read(Duration::from_secs(60))
+        .build();
+    let result = (|| {
+        crate::installer::download_file_candidates_with_agent(
+            &agent,
+            std::slice::from_ref(&url),
+            &msi,
+            1_048_576,
+            |message| emit_progress(window, message),
+        )?;
+        emit_progress(window, "正在校验 Kiro CLI 安装包…");
+        if crate::update::sha256_of_file(&msi)? != sha256 {
+            return Err("Kiro CLI 安装包的 SHA-256 与官方清单不符，已停止安装。".to_string());
+        }
+        emit_progress(
+            window,
+            format!("正在{action} Kiro CLI：请在弹出的 UAC 窗口中点「是」…"),
+        );
+        let code = run_elevated_wait(
+            "msiexec.exe",
+            &format!(
+                "/i \"{}\" /quiet /norestart /l*v \"{}\"",
+                msi.display(),
+                log.display()
+            ),
+            "Kiro CLI",
+            window,
+        )?;
+        match code {
+            // 3010: done, a restart finishes it.
+            0 | 3010 => Ok(()),
+            1602 => Err("已取消 Kiro CLI 安装".to_string()),
+            code => Err(format!(
+                "Kiro CLI 安装程序退出代码 {code}{}",
+                msi_log_errors(&log)
+                    .map(|detail| format!("：{detail}"))
+                    .unwrap_or_default()
+            )),
+        }
+    })();
+    let _ = std::fs::remove_file(&msi);
+    let _ = std::fs::remove_file(&log);
+    result.map_err(|error| format!("Kiro CLI {action}未完成：{error}"))?;
     Ok(format!("Kiro CLI 已{action}"))
 }
 

@@ -486,7 +486,7 @@ pub(crate) fn cursor_build(text: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-fn fetch_text(url: &str) -> Result<String, String> {
+pub(crate) fn fetch_text(url: &str) -> Result<String, String> {
     ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(4))
         .timeout_read(Duration::from_secs(8))
