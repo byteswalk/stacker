@@ -11,7 +11,6 @@ import { CleanupResultModal } from "./CleanupResultModal";
 import { DevelopmentArtifacts, formatSpaceBytes } from "./DevelopmentArtifacts";
 import { DevelopmentProjects } from "./DevelopmentProjects";
 import { DuplicateFiles } from "./DuplicateFiles";
-import { SpaceMap } from "./SpaceMap";
 import { DirectoryRanking } from "./DirectoryRanking";
 import { LargeFiles } from "./LargeFiles";
 import { SkippedPaths } from "./SkippedPaths";
@@ -129,10 +128,7 @@ export function AnalysisTabs({ taskId, request }: { taskId: string; request: Sca
       </div>
     </div>
     <div className="space-analysis-tab-panel" role="tabpanel">
-      {activeTab === "overview" && <>
-        <SpaceOverview taskId={taskId} summary={summary} freeBytes={freeBytes} />
-        <SpaceMap taskId={taskId} roots={summary.rootNodes} />
-      </>}
+      {activeTab === "overview" && <SpaceOverview taskId={taskId} summary={summary} freeBytes={freeBytes} />}
       {activeTab === "projects" && <DevelopmentProjects projects={summary.projects} candidates={cleanup.candidates} />}
       {activeTab === "directories" && <DirectoryRanking taskId={taskId} roots={summary.rootNodes} />}
       {activeTab === "large-files" && <LargeFiles taskId={taskId} thresholdBytes={largeFileThreshold} />}

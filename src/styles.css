@@ -1499,12 +1499,3 @@ button{ font-family:inherit; }
 .a .dupe-head .green{color:#6bcf86;font-size:12px}
 .a .dupe-path{display:flex;align-items:center;gap:8px;padding:3px 0}
 .a .dupe-path code{font-size:11.5px;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
-
-.a .spacemap{display:flex;flex-direction:column;gap:9px}
-.a .spacemap-trail{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
-.a .spacemap-trail .s.dim{margin-left:auto}
-.a .spacemap-svg{width:100%;height:420px;border:.5px solid var(--bd);border-radius:10px;background:var(--card)}
-.a .spacemap-svg g.on{cursor:pointer}
-.a .spacemap-svg g.on:hover rect{fill-opacity:.4}
-.a .spacemap-name{font-size:12px;fill:var(--tx)}
-.a .spacemap-size{font-size:11px;fill:var(--mut)}
