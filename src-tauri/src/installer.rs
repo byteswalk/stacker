@@ -181,21 +181,17 @@ fn executable_dir() -> Option<PathBuf> {
         .and_then(|path| path.parent().map(Path::to_path_buf))
 }
 
-fn managed_storage_root_for(
-    executable_dir: Option<&Path>,
-    local_data_dir: Option<PathBuf>,
-) -> PathBuf {
-    if let Some(dir) = executable_dir.filter(|dir| dir.join("portable.flag").is_file()) {
-        return dir.join("data");
-    }
+/// Where installed tools and runtimes live, for every build. A portable build used to keep them
+/// beside its own executable, which every upgrade (a new folder) left behind and removing an
+/// old version's folder deleted; `tool_relocation` moves what is still there.
+fn managed_storage_root_for(local_data_dir: Option<PathBuf>) -> PathBuf {
     local_data_dir
         .unwrap_or_else(std::env::temp_dir)
         .join("Stacker")
 }
 
 pub fn managed_storage_root() -> PathBuf {
-    let executable_dir = executable_dir();
-    managed_storage_root_for(executable_dir.as_deref(), dirs::data_local_dir())
+    managed_storage_root_for(dirs::data_local_dir())
 }
 
 pub fn managed_tools_root() -> PathBuf {
@@ -214,8 +210,7 @@ pub fn app_dir() -> String {
         .unwrap_or_default()
 }
 
-/// Stacker 管理的运行时默认目录。安装版使用本地应用数据目录；
-/// 带 portable.flag 的免安装版使用程序目录下的 data\runtimes。
+/// Stacker 管理的运行时默认目录：安装版和免安装版都使用本地应用数据目录。
 #[tauri::command]
 pub fn managed_runtime_dir() -> Result<String, String> {
     let root = managed_runtimes_root();
@@ -1656,30 +1651,12 @@ mod tests {
     }
 
     #[test]
-    fn installed_build_uses_local_application_data() {
-        let executable = tempfile::tempdir().unwrap();
+    fn every_build_installs_into_local_application_data() {
         let local_data = tempfile::tempdir().unwrap();
 
-        let root = managed_storage_root_for(
-            Some(executable.path()),
-            Some(local_data.path().to_path_buf()),
-        );
+        let root = managed_storage_root_for(Some(local_data.path().to_path_buf()));
 
         assert_eq!(root, local_data.path().join("Stacker"));
-    }
-
-    #[test]
-    fn portable_marker_keeps_data_beside_executable() {
-        let executable = tempfile::tempdir().unwrap();
-        let local_data = tempfile::tempdir().unwrap();
-        std::fs::write(executable.path().join("portable.flag"), b"portable").unwrap();
-
-        let root = managed_storage_root_for(
-            Some(executable.path()),
-            Some(local_data.path().to_path_buf()),
-        );
-
-        assert_eq!(root, executable.path().join("data"));
     }
 
     #[test]

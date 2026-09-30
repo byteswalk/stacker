@@ -40,6 +40,7 @@ pub mod update;
 mod versions;
 mod webchat;
 mod winadmin;
+mod tool_relocation;
 mod winenv;
 /// The smallest the main window may be, in logical pixels: every page is drawn for it.
 const MIN_WINDOW: (f64, f64) = (1280.0, 720.0);
@@ -167,6 +168,11 @@ pub fn run() {
             )?;
             log::set_max_level(settings::log_level_filter(&app_settings.log_level));
             logging::install_panic_hook();
+            std::thread::spawn(|| {
+                if let Ok(exe) = std::env::current_exe() {
+                    webchat::host::repoint_if_gone(&webchat::root(), &exe, webchat::extension_id());
+                }
+            });
             log::debug!(
                 target: "stacker::startup",
                 "Stacker {} started; os={} arch={} log_level={} log_file={} max_log_file_bytes={}",
@@ -421,6 +427,8 @@ pub fn run() {
             installer::installer_download,
             installer::app_dir,
             installer::managed_runtime_dir,
+            tool_relocation::tool_relocation_plan,
+            tool_relocation::tool_relocation_apply,
             installer::open_shell,
             installer::open_ecosystem_verify_shell,
             installer::ecosystem_activation_commands,

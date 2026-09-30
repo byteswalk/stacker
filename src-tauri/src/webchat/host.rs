@@ -168,6 +168,17 @@ pub fn connect(
     reg.write_default(&browser.subkey(), &path.to_string_lossy())
 }
 
+/// A manifest naming a Stacker that no longer exists (an old version's folder was removed)
+/// is pointed at this one. One naming another Stacker that still exists is left alone.
+pub fn repoint_if_gone(root: &Path, exe: &Path, extension_id: &str) -> bool {
+    match manifest_exe(root) {
+        Some(listed) if !listed.exists() && !same_path(&listed, exe) => {
+            std::fs::write(manifest_path(root), manifest_json(exe, extension_id)).is_ok()
+        }
+        _ => false,
+    }
+}
+
 /// Removes the browser's key; the manifest goes too once no browser points at it.
 pub fn disconnect(reg: &dyn Registry, browser: Browser, root: &Path) -> Result<(), String> {
     reg.delete_key(&browser.subkey())?;
@@ -329,6 +340,23 @@ mod tests {
         .unwrap();
         let exe = dir.path().join("stacker.exe");
         assert_eq!(states(&reg, dir.path(), &exe)[0], HostState::Stale);
+    }
+
+    #[test]
+    fn a_manifest_naming_a_removed_stacker_follows_this_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let gone = dir.path().join("gone").join("stacker.exe");
+        let other = dir.path().join("other.exe");
+        let exe = dir.path().join("stacker.exe");
+        std::fs::create_dir_all(manifest_path(dir.path()).parent().unwrap()).unwrap();
+        std::fs::write(manifest_path(dir.path()), manifest_json(&gone, "abc")).unwrap();
+        assert!(repoint_if_gone(dir.path(), &exe, "abc"));
+        assert_eq!(manifest_exe(dir.path()), Some(exe.clone()));
+        // Another Stacker that still exists keeps its manifest.
+        std::fs::write(&other, b"").unwrap();
+        std::fs::write(manifest_path(dir.path()), manifest_json(&other, "abc")).unwrap();
+        assert!(!repoint_if_gone(dir.path(), &exe, "abc"));
+        assert_eq!(manifest_exe(dir.path()), Some(other));
     }
 
     #[test]

@@ -235,9 +235,14 @@ pub fn apply_from_file(file: &str, token: &str) -> i32 {
     } else if req.kind.starts_with("__setenv:") {
         let names: Vec<&str> = req.vars.keys().map(String::as_str).collect();
         crate::backup::backup_env(crate::winenv::Hive::System, &req.kind, &names);
-        req.vars
-            .iter()
-            .try_for_each(|(k, v)| crate::winenv::set_in(crate::winenv::Hive::System, k, v))
+        // An empty value removes the variable rather than leaving it set to nothing.
+        req.vars.iter().try_for_each(|(k, v)| {
+            if v.is_empty() {
+                crate::winenv::remove_in(crate::winenv::Hive::System, k)
+            } else {
+                crate::winenv::set_in(crate::winenv::Hive::System, k, v)
+            }
+        })
     } else {
         crate::env::set_default(
             crate::winenv::Hive::System,

@@ -12,6 +12,7 @@ import { NotificationProvider, useNotifications, formatBytes } from "./notificat
 import { readLastPage, saveLastPage, type Page } from "./pageState";
 import { resetMainWindowSize } from "./windowSize";
 import { TOOLCHAIN_PAGES, ToolchainAsk } from "./features/ai/ToolchainAsk";
+import { ToolRelocation } from "./features/relocation/ToolRelocation";
 import { ALL_NAV_ITEMS, NAV_FOOT, NAV_SECTIONS, initialCollapsedSections, sectionKeyOf, toggleSection, type NavItem, type NavSection } from "./navigation";
 import { TaskCenter } from "./features/agent-tasks/TaskCenter";
 import { useTaskToasts } from "./features/agent-tasks/useTaskToasts";
@@ -414,6 +415,7 @@ function Shell() {
         <div className="route-progress" aria-hidden="true" />
 
         <div className="content" ref={contentRef}>
+          <ToolRelocation />
           {osWarn && !osDismiss && (
             <div className="banner amber" style={{ marginBottom: 12, alignItems: "center" }}>
               <i className="ti ti-alert-triangle lead" />
