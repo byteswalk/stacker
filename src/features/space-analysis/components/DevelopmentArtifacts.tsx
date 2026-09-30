@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { AiExplain } from "../../ai/AiExplain";
 import type { DirectoryNode } from "../types";
 import { canSelectSafety, setCleanupNodesSelected, toggleCleanupNode, useCleanupStore } from "../cleanupStore";
 import { useI18n } from "../../../i18n";
@@ -30,6 +31,7 @@ export function CandidateRows({ nodes, emptyText }: { nodes: DirectoryNode[]; em
   const { tr } = useI18n();
   const toast = useToast();
   const cleanup = useCleanupStore();
+  const [explain, setExplain] = useState<DirectoryNode | null>(null);
   async function openDirectory(path: string) {
     try {
       await invoke("space_open_directory", { path });
@@ -57,11 +59,16 @@ export function CandidateRows({ nodes, emptyText }: { nodes: DirectoryNode[]; em
           <b>{formatSpaceBytes(node.allocatedBytes)}</b>
           <span>{tr(node.safety === "safe" ? "安全清理" : node.safety === "rebuildable" ? "可重新生成" : node.safety === "needsConfirmation" ? "需要确认" : "仅供查看")}</span>
         </div>
+        <button type="button" className="space-icon-button" title={tr("问问 AI：这是什么，删了会怎样")} aria-label={`${tr("问问 AI")}: ${node.name}`} onClick={() => setExplain(node)}>
+          <i className="ti ti-sparkles" />
+        </button>
         <button type="button" className="space-icon-button" title={tr("打开目录")} aria-label={`${tr("打开目录")}: ${node.name}`} onClick={() => void openDirectory(node.path)}>
           <i className="ti ti-folder-open" />
         </button>
       </div>;
     })}
+    {explain && <AiExplain path={explain.path} bytes={explain.allocatedBytes} kind={tr(candidateImpact(explain))}
+      onClose={() => setExplain(null)} />}
   </div>;
 }
 

@@ -38,7 +38,6 @@ const RUN_ERRORS: Record<string, string> = {
 
 const CACHE_KEY = "stacker.gateway.agents.v1";
 const TESTS_KEY = "stacker.gateway.tests.v1";
-/** Models shown before the list is expanded; more than this is a wall of names. */
 /** A search box once the list is long enough to need one; every model is always listed. */
 const SEARCH_FROM = 6;
 
@@ -223,6 +222,14 @@ function AgentBlock({ card, base, token, past, testLine, running, onTest, onTogg
   onDefault: (model: string | null, effort: string | null) => void;
   onCopy: (text: string) => void;
 }) {
+  const toast = useToast();
+  // One click makes this model the one Stacker's own AI features use; Preferences shows it.
+  async function adoptForStacker(call: string) {
+    try {
+      await invoke("ai_config_use_local", { model: call });
+      toast(`${t("Stacker 的 AI 已改用")} ${call}`, "ok");
+    } catch (e) { toast(String(e), "err"); }
+  }
   const { tr: t } = useI18n();
   const [open, toggleOpen] = useFold(`agent:${card.id}`, false);
   const [kind, setKind] = useState<Snippet>("openai");
@@ -311,6 +318,7 @@ function AgentBlock({ card, base, token, past, testLine, running, onTest, onTogg
               {!isDefault && <button className="gh xs" title={t("设为默认模型")} onClick={() => onDefault(m.call.slice(card.id.length + 1), card.defaultEffort ?? null)}><i className="ti ti-star" /></button>}
               <button className="gh xs" title={t("复制调用名")} onClick={() => onCopy(m.call)}><i className="ti ti-copy" /></button>
               <button className="gh xs" disabled={running(m.call)} title={t("测试这个模型")} onClick={() => onTest(m.call)}><i className="ti ti-player-play" /></button>
+              <button className="gh xs" title={t("设为 Stacker 自己的 AI（同步到偏好设置）")} onClick={() => void adoptForStacker(m.call)}><i className="ti ti-sparkles" /></button>
             </span>
           </div>;
         })}

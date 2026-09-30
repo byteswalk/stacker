@@ -1,4 +1,5 @@
 mod agents;
+mod ai_config;
 mod backup;
 mod binary;
 mod bundle;
@@ -468,6 +469,11 @@ pub fn run() {
             gateway::gateway_set,
             gateway::gateway_set_lan,
             gateway::gateway_allow_firewall,
+            ai_config::ai_config_get,
+            ai_config::ai_config_set,
+            ai_config::ai_config_use_local,
+            ai_config::ai_config_test,
+            ai_config::ai_explain_path,
             project_junk::project_junk_scan,
             project_junk::project_junk_clean,
             gateway::gateway_new_token,

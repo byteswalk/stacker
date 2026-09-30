@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { AiSettings } from "../features/ai/AiSettings";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "../invoke";
 import { enable as autostartEnable, disable as autostartDisable, isEnabled as autostartIsEnabled } from "@tauri-apps/plugin-autostart";
@@ -403,6 +404,9 @@ export default function Settings() {
         </div>
       )}
       <div className="callout"><i className="ti ti-info-circle" /><div>服务器清单用于更新内置源，拉取后会以服务器清单为准全量替换；本地自定义源由当前电脑维护，不会被服务器清单覆盖。</div></div>
+
+      <div className="grouphd" style={{ marginTop: 18 }}><span className="gt"><i className="ti ti-sparkles" /> {tr("AI 能力")}</span></div>
+      <AiSettings />
 
       <div className="grouphd" style={{ marginTop: 18 }}><span className="gt"><i className="ti ti-adjustments" /> 通用与外观</span></div>
       <div className="srcrow">

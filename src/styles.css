@@ -1313,6 +1313,20 @@ button{ font-family:inherit; }
 .a .proxy-form label>span:first-child{flex:0 0 auto;width:86px;color:var(--mut)}
 .a .proxy-form .ip.full{flex:1;min-width:0}
 .a .proxy-form-foot{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding-left:94px}
+/* Stacker's own AI source, under Preferences. */
+.a .ai-explain{font-size:13px;line-height:1.75;white-space:pre-wrap;padding:12px 14px;border:.5px solid var(--bd);border-radius:10px;background:var(--card)}
+.a .ai-explain.wait{color:var(--mut)}
+.a .ai-explain.bad{color:var(--red)}
+.a .ai-explain-note{margin:10px 0 0}
+.a .ai-external{display:flex;flex-direction:column;gap:8px;padding:10px 14px;margin:0 0 6px;border:.5px solid var(--bd);border-radius:10px;background:var(--card);font-size:12px}
+.a .ai-external label{display:flex;align-items:center;gap:8px}
+.a .ai-external label>span:first-child{flex:0 0 auto;width:78px;color:var(--mut)}
+.a .ai-external .ip.full{flex:1;min-width:0}
+.a .ai-external p{margin:0}
+.a .ai-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin:4px 0 6px}
+.a .ai-test{margin-right:auto;font-size:12px;display:flex;align-items:center;gap:5px}
+.a .ai-test.ok{color:var(--green)}
+.a .ai-test.bad{color:var(--red)}
 .a .proxy-note{font-size:12px;color:var(--mut);line-height:1.7;margin:10px 0 0}
 /* Two to a row on a wide window, so a long list fills the width instead of stretching. */
 .a .proxy-locations{display:grid;grid-template-columns:repeat(auto-fit,minmax(470px,1fr));gap:0 20px}

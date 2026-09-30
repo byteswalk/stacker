@@ -1,0 +1,433 @@
+//! Where Stacker's own AI features get a model from.
+//!
+//! One setting for the whole app: an agent already signed in on this machine (the same ones the
+//! API service offers, run directly, so the service does not have to be switched on), or an
+//! external API in the OpenAI or Anthropic shape. Features ask `complete` for text and never
+//! care which it is.
+//!
+//! The file lives beside the settings rather than inside them: settings travel in the backup
+//! and export, and an API key must not. The key itself is sealed with the user's Windows
+//! credentials (DPAPI), so the file is useless copied to another account or machine.
+
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+use std::time::Duration;
+
+/// How long one answer may take before it is given up on.
+const ANSWER_TIMEOUT: Duration = Duration::from_secs(120);
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AiConfig {
+    /// `none`, `local` or `external`.
+    pub kind: String,
+    /// `local`: a name the API service offers, e.g. `claude/sonnet` or `codex`.
+    pub local_model: String,
+    /// `external`: `openai` or `anthropic`.
+    pub protocol: String,
+    pub base_url: String,
+    pub model: String,
+    /// Hex of the DPAPI-sealed key; never sent to the page.
+    pub api_key_sealed: String,
+}
+
+/// What the page is shown: everything but the key, which it only learns exists.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiView {
+    pub kind: String,
+    pub local_model: String,
+    pub protocol: String,
+    pub base_url: String,
+    pub model: String,
+    pub has_key: bool,
+}
+
+/// What the page sends. An empty key keeps the one already saved.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AiUpdate {
+    pub kind: String,
+    pub local_model: String,
+    pub protocol: String,
+    pub base_url: String,
+    pub model: String,
+    pub api_key: String,
+    pub clear_key: bool,
+}
+
+fn file() -> PathBuf {
+    dirs::data_local_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("Stacker")
+        .join("ai.json")
+}
+
+pub fn load() -> AiConfig {
+    std::fs::read(file())
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
+fn save(config: &AiConfig) -> Result<(), String> {
+    let path = file();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let bytes = serde_json::to_vec_pretty(config).map_err(|e| e.to_string())?;
+    std::fs::write(path, bytes).map_err(|e| e.to_string())
+}
+
+pub fn view(config: &AiConfig) -> AiView {
+    AiView {
+        kind: if config.kind.is_empty() {
+            "none".into()
+        } else {
+            config.kind.clone()
+        },
+        local_model: config.local_model.clone(),
+        protocol: if config.protocol.is_empty() {
+            "openai".into()
+        } else {
+            config.protocol.clone()
+        },
+        base_url: config.base_url.clone(),
+        model: config.model.clone(),
+        has_key: !config.api_key_sealed.is_empty(),
+    }
+}
+
+pub fn apply(update: AiUpdate) -> Result<AiView, String> {
+    let kind = match update.kind.as_str() {
+        "none" | "local" | "external" => update.kind.clone(),
+        _ => return Err("E_AI_KIND".into()),
+    };
+    let protocol = match update.protocol.as_str() {
+        "" | "openai" => "openai".to_string(),
+        "anthropic" => "anthropic".to_string(),
+        _ => return Err("E_AI_PROTOCOL".into()),
+    };
+    let mut config = load();
+    config.kind = kind;
+    config.local_model = update.local_model.trim().to_string();
+    config.protocol = protocol;
+    config.base_url = update.base_url.trim().trim_end_matches('/').to_string();
+    config.model = update.model.trim().to_string();
+    if update.clear_key {
+        config.api_key_sealed.clear();
+    } else if !update.api_key.trim().is_empty() {
+        config.api_key_sealed = hex(&seal(update.api_key.trim().as_bytes())?);
+    }
+    save(&config)?;
+    Ok(view(&config))
+}
+
+/// Makes a name from the API service Stacker's AI in one step.
+pub fn use_local(model: &str) -> Result<AiView, String> {
+    let mut config = load();
+    config.kind = "local".into();
+    config.local_model = model.trim().to_string();
+    save(&config)?;
+    Ok(view(&config))
+}
+
+/// Text for a prompt, from whichever model is configured.
+pub fn complete(prompt: &str) -> Result<String, String> {
+    complete_with(&load(), prompt)
+}
+
+fn complete_with(config: &AiConfig, prompt: &str) -> Result<String, String> {
+    match config.kind.as_str() {
+        "local" => complete_local(&config.local_model, prompt),
+        "external" => complete_external(config, prompt),
+        _ => Err("E_AI_NONE".into()),
+    }
+}
+
+fn complete_local(name: &str, prompt: &str) -> Result<String, String> {
+    let spec = crate::gateway::protocol::ModelSpec::parse(name).ok_or("E_AI_MODEL")?;
+    let request = crate::runner::RunRequest {
+        backend: spec.backend,
+        model: spec.model,
+        effort: None,
+        prompt: prompt.to_string(),
+        timeout: ANSWER_TIMEOUT,
+        attachments: Vec::new(),
+        on_delta: None,
+    };
+    crate::runner::run(&request, &crate::runner::CancelFlag::default()).map(|output| output.text)
+}
+
+fn agent() -> ureq::Agent {
+    let mut builder = ureq::AgentBuilder::new().timeout(ANSWER_TIMEOUT);
+    if let Some(proxy) =
+        crate::agents::net::stacker_proxy().and_then(|url| ureq::Proxy::new(url).ok())
+    {
+        builder = builder.proxy(proxy);
+    }
+    builder.build()
+}
+
+/// The endpoint for a base URL as people usually paste it, with or without the version.
+pub fn endpoint(protocol: &str, base_url: &str) -> String {
+    let base = base_url.trim().trim_end_matches('/');
+    match protocol {
+        "anthropic" if base.ends_with("/v1") => format!("{base}/messages"),
+        "anthropic" => format!("{base}/v1/messages"),
+        _ if base.ends_with("/chat/completions") => base.to_string(),
+        _ => format!("{base}/chat/completions"),
+    }
+}
+
+fn complete_external(config: &AiConfig, prompt: &str) -> Result<String, String> {
+    if config.base_url.is_empty() || config.model.is_empty() {
+        return Err("E_AI_FIELDS".into());
+    }
+    let key = if config.api_key_sealed.is_empty() {
+        String::new()
+    } else {
+        String::from_utf8(unseal(&unhex(&config.api_key_sealed)?)?).map_err(|_| "E_AI_KEY")?
+    };
+    let url = endpoint(&config.protocol, &config.base_url);
+    // ureq is built without its JSON feature here, so the body goes as text.
+    let (request, body) = if config.protocol == "anthropic" {
+        (
+            agent()
+                .post(&url)
+                .set("x-api-key", &key)
+                .set("anthropic-version", "2023-06-01"),
+            serde_json::json!({
+                "model": config.model,
+                "max_tokens": 1024,
+                "messages": [{ "role": "user", "content": prompt }],
+            }),
+        )
+    } else {
+        (
+            agent()
+                .post(&url)
+                .set("Authorization", &format!("Bearer {key}")),
+            serde_json::json!({
+                "model": config.model,
+                "messages": [{ "role": "user", "content": prompt }],
+            }),
+        )
+    };
+    let response = request
+        .set("Content-Type", "application/json")
+        .send_string(&body.to_string());
+    let body: serde_json::Value = match response {
+        Ok(response) => {
+            let text = response.into_string().map_err(|e| e.to_string())?;
+            serde_json::from_str(&text).map_err(|_| "E_AI_REPLY".to_string())?
+        }
+        Err(ureq::Error::Status(status, response)) => {
+            let text = response.into_string().unwrap_or_default();
+            return Err(format!(
+                "HTTP {status}: {}",
+                text.chars().take(300).collect::<String>()
+            ));
+        }
+        Err(error) => return Err(error.to_string()),
+    };
+    let text = if config.protocol == "anthropic" {
+        body["content"][0]["text"].as_str()
+    } else {
+        body["choices"][0]["message"]["content"].as_str()
+    };
+    text.map(str::to_string).ok_or_else(|| "E_AI_REPLY".into())
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn unhex(text: &str) -> Result<Vec<u8>, String> {
+    (0..text.len())
+        .step_by(2)
+        .map(|at| {
+            u8::from_str_radix(text.get(at..at + 2).unwrap_or(""), 16)
+                .map_err(|_| "E_AI_KEY".to_string())
+        })
+        .collect()
+}
+
+#[cfg(windows)]
+fn seal(plain: &[u8]) -> Result<Vec<u8>, String> {
+    dpapi(plain, true)
+}
+
+#[cfg(windows)]
+fn unseal(sealed: &[u8]) -> Result<Vec<u8>, String> {
+    dpapi(sealed, false)
+}
+
+/// The user's own Windows credentials protect the key: another account, or the same file on
+/// another machine, cannot open it.
+#[cfg(windows)]
+fn dpapi(input: &[u8], protect: bool) -> Result<Vec<u8>, String> {
+    use windows_sys::Win32::Foundation::LocalFree;
+    use windows_sys::Win32::Security::Cryptography::{
+        CryptProtectData, CryptUnprotectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
+    };
+    let data = CRYPT_INTEGER_BLOB {
+        cbData: input.len() as u32,
+        pbData: input.as_ptr() as *mut u8,
+    };
+    let mut out = CRYPT_INTEGER_BLOB {
+        cbData: 0,
+        pbData: std::ptr::null_mut(),
+    };
+    let ok = unsafe {
+        if protect {
+            CryptProtectData(
+                &data,
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null(),
+                CRYPTPROTECT_UI_FORBIDDEN,
+                &mut out,
+            )
+        } else {
+            CryptUnprotectData(
+                &data,
+                std::ptr::null_mut(),
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null(),
+                CRYPTPROTECT_UI_FORBIDDEN,
+                &mut out,
+            )
+        }
+    };
+    if ok == 0 || out.pbData.is_null() {
+        return Err("E_AI_KEY".into());
+    }
+    let bytes = unsafe { std::slice::from_raw_parts(out.pbData, out.cbData as usize) }.to_vec();
+    unsafe {
+        LocalFree(out.pbData as _);
+    }
+    Ok(bytes)
+}
+
+#[cfg(not(windows))]
+fn seal(plain: &[u8]) -> Result<Vec<u8>, String> {
+    Ok(plain.to_vec())
+}
+
+#[cfg(not(windows))]
+fn unseal(sealed: &[u8]) -> Result<Vec<u8>, String> {
+    Ok(sealed.to_vec())
+}
+
+#[tauri::command]
+pub fn ai_config_get() -> AiView {
+    view(&load())
+}
+
+#[tauri::command]
+pub fn ai_config_set(update: AiUpdate) -> Result<AiView, String> {
+    apply(update)
+}
+
+#[tauri::command]
+pub fn ai_config_use_local(model: String) -> Result<AiView, String> {
+    use_local(&model)
+}
+
+/// One short question, to prove the configuration answers.
+#[tauri::command]
+pub async fn ai_config_test() -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(|| complete("Reply with exactly: OK"))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// What a folder on disk is, and whether deleting it does harm — asked of the configured AI.
+#[tauri::command]
+pub async fn ai_explain_path(path: String, bytes: u64, kind: String) -> Result<String, String> {
+    let prompt = explain_prompt(&path, bytes, &kind);
+    tauri::async_runtime::spawn_blocking(move || complete(&prompt))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn explain_prompt(path: &str, bytes: u64, kind: &str) -> String {
+    let size = if bytes >= 1 << 30 {
+        format!("{:.1} GB", bytes as f64 / (1u64 << 30) as f64)
+    } else {
+        format!("{:.0} MB", bytes as f64 / (1u64 << 20) as f64)
+    };
+    format!(
+        "你是 Windows 开发机的磁盘清理顾问。用简体中文回答，不超过 150 字，不要用 Markdown 标题。\n\
+         路径：{path}\n大小：{size}\n类型：{kind}\n\
+         请说明：1) 这个目录属于哪个工具、存的是什么；2) 删除后会发生什么（是否会自动重新生成、是否丢数据）；\
+         3) 一句话建议：可以放心删 / 删前确认 / 不要删。只凭路径判断，不要编造没把握的细节。"
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_endpoint_is_found_from_a_base_url_as_people_paste_it() {
+        assert_eq!(
+            endpoint("openai", "https://api.openai.com/v1"),
+            "https://api.openai.com/v1/chat/completions"
+        );
+        assert_eq!(
+            endpoint("openai", "https://api.openai.com/v1/"),
+            "https://api.openai.com/v1/chat/completions"
+        );
+        assert_eq!(
+            endpoint("openai", "https://x/v1/chat/completions"),
+            "https://x/v1/chat/completions"
+        );
+        assert_eq!(
+            endpoint("anthropic", "https://api.anthropic.com"),
+            "https://api.anthropic.com/v1/messages"
+        );
+        assert_eq!(
+            endpoint("anthropic", "https://api.anthropic.com/v1"),
+            "https://api.anthropic.com/v1/messages"
+        );
+    }
+
+    #[test]
+    fn nothing_configured_is_said_plainly() {
+        let config = AiConfig::default();
+        assert_eq!(complete_with(&config, "hi").unwrap_err(), "E_AI_NONE");
+        let external = AiConfig {
+            kind: "external".into(),
+            ..AiConfig::default()
+        };
+        assert_eq!(complete_with(&external, "hi").unwrap_err(), "E_AI_FIELDS");
+    }
+
+    #[test]
+    fn a_key_survives_sealing_and_is_never_shown() {
+        let sealed = seal(b"sk-test-123").unwrap();
+        assert_ne!(sealed, b"sk-test-123");
+        assert_eq!(
+            unseal(&unhex(&hex(&sealed)).unwrap()).unwrap(),
+            b"sk-test-123"
+        );
+        let config = AiConfig {
+            api_key_sealed: hex(&sealed),
+            ..AiConfig::default()
+        };
+        let shown = serde_json::to_string(&view(&config)).unwrap();
+        assert!(!shown.contains("sk-test"));
+        assert!(view(&config).has_key);
+    }
+
+    #[test]
+    fn the_explanation_prompt_carries_the_path_and_size() {
+        let prompt = explain_prompt("C:\\Users\\me\\.cargo\\registry", 3 << 30, "cache");
+        assert!(prompt.contains("C:\\Users\\me\\.cargo\\registry"));
+        assert!(prompt.contains("3.0 GB"));
+    }
+}
