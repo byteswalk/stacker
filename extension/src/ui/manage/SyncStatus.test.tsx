@@ -1,16 +1,22 @@
 // @vitest-environment jsdom
 Object.defineProperty(navigator, "language", { value: "zh-CN", configurable: true });
 import { act, type ReactNode } from "react";
-import { createRoot } from "react-dom/client";
-import { describe, expect, it, vi } from "vitest";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { SyncStatus } from "./SyncStatus";
+
+// Every root a test mounts is unmounted inside act afterwards, so nothing React has queued runs
+// after the test environment is gone.
+const mounted: Root[] = [];
+const track = (root: Root) => { mounted.push(root); return root; };
+afterEach(() => { while (mounted.length) { const root = mounted.pop()!; act(() => root.unmount()); } });
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 function render(node: ReactNode) {
   const host = document.createElement("div");
   document.body.append(host);
-  act(() => createRoot(host).render(node));
+  act(() => track(createRoot(host)).render(node));
   return host;
 }
 

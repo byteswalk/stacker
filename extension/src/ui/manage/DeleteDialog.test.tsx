@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 Object.defineProperty(navigator, "language", { value: "zh-CN", configurable: true });
 import { act } from "react";
-import { createRoot } from "react-dom/client";
+import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Conversation } from "../../lib/db";
 import type { ItemResult } from "../../lib/deleteJob";
@@ -15,15 +15,24 @@ const conv = (id: string, account = "chatgpt:u", site: SiteId = "chatgpt"): Conv
   listedAt: 0, localUpdatedAt: 0,
 });
 let host: HTMLDivElement;
+let root: Root | null = null;
 // Ant Design renders the dialog in a portal on document.body, not inside the mount point.
 const ui = () => document.body;
-afterEach(() => { host?.remove(); document.body.querySelectorAll(".ant-modal-root").forEach((n) => n.remove()); });
+// Unmount inside act, so no render React has queued is left to run after the test
+// environment is torn down — that is what made this file fail at random under load.
+afterEach(() => {
+  if (root) act(() => root!.unmount());
+  root = null;
+  host?.remove();
+  document.body.querySelectorAll(".ant-modal-root").forEach((n) => n.remove());
+});
 
 const ALIAS: Record<string, string> = { "chatgpt:u": "工作号", "chatgpt:other": "私人号", "claude:o": "Claude 号" };
 function mount(onRun = vi.fn(async () => []), items = [conv("a"), conv("b", "chatgpt:other"), conv("c")], siteErrors: Partial<Record<SiteId, string>> = {}) {
   host = document.createElement("div");
   document.body.append(host);
-  act(() => createRoot(host).render(<DeleteDialog items={items} currentAccounts={new Set(["chatgpt:u"])} aliasOf={(k) => ALIAS[k] ?? k}
+  root = createRoot(host);
+  act(() => root!.render(<DeleteDialog items={items} currentAccounts={new Set(["chatgpt:u"])} aliasOf={(k) => ALIAS[k] ?? k}
     siteErrors={siteErrors} onRun={onRun} onClose={() => {}} />));
   return onRun;
 }
