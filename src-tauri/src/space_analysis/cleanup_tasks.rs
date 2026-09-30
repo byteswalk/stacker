@@ -125,6 +125,7 @@ impl CleanupTaskManager {
                 record.progress.completed_items = result.items.len() as u64;
                 record.progress.actual_released_bytes = result.actual_released_bytes;
                 record.progress.current_node_id = None;
+                super::history::append(&result);
                 record.result = Some(result);
                 record.terminal_order = Some(worker_terminal_order.fetch_add(1, Ordering::Relaxed));
                 let progress = record.progress.clone();
@@ -252,6 +253,7 @@ impl CleanupTaskManager {
                 record.progress.completed_items = result.items.len() as u64;
                 record.progress.actual_released_bytes = result.actual_released_bytes;
                 record.progress.current_node_id = None;
+                super::history::append(&result);
                 record.result = Some(result);
                 record.terminal_order = Some(worker_terminal_order.fetch_add(1, Ordering::Relaxed));
                 let progress = record.progress.clone();

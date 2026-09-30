@@ -23,6 +23,7 @@ mod project_junk;
 mod proxy;
 mod proxy_ledger;
 mod proxy_system;
+mod proxy_targets;
 mod pyenv;
 pub(crate) mod python_env;
 pub(crate) mod python_venv;
@@ -357,6 +358,8 @@ pub fn run() {
             space_analysis::space_cleanup_status,
             space_analysis::space_cleanup_cancel,
             space_analysis::space_cleanup_result,
+            space_analysis::space_cleanup_history,
+            space_analysis::space_cleanup_history_clear,
             space_analysis::space_snapshot_save,
             space_analysis::space_snapshot_list,
             space_analysis::space_snapshot_compare,
@@ -478,6 +481,9 @@ pub fn run() {
             gateway::agents::gateway_test,
             proxy_ledger::proxy_sync_report,
             proxy_ledger::proxy_follow_system,
+            proxy_ledger::proxy_targets_list,
+            proxy_ledger::proxy_target_save,
+            proxy_ledger::proxy_target_remove,
             proxy_ledger::proxy_service_set,
             proxy_ledger::proxy_location_write,
             proxy_ledger::proxy_location_clear,

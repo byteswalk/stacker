@@ -43,6 +43,9 @@ pub struct AppSettings {
     /// Stacker 写入过代理的位置及写入值（host:port，空串表示已按跟随系统清除但仍归 Stacker 管理）。
     #[serde(default)]
     pub proxy_managed: std::collections::BTreeMap<String, String>,
+    /// 用户自己描述的代理写入目标（内置预设不存在这里）。
+    #[serde(default)]
+    pub proxy_targets: Vec<crate::proxy_targets::Target>,
     #[serde(default = "default_proxy_host")]
     pub proxy_host: String,
     #[serde(default = "default_proxy_port")]
@@ -116,6 +119,7 @@ impl Default for AppSettings {
             common_scan_directories: Vec::new(),
             proxy_mode_version: 1,
             proxy_managed: Default::default(),
+            proxy_targets: Vec::new(),
         }
     }
 }
@@ -268,6 +272,7 @@ pub fn load() -> AppSettings {
             proxy_mode: default_proxy_mode(),
             proxy_host: default_proxy_host(),
             proxy_port: default_proxy_port(),
+            proxy_targets: Vec::new(),
             no_proxy_manual: Vec::new(),
             log_level: default_log_level(),
             log_retention_days: default_log_retention_days(),
@@ -659,6 +664,11 @@ pub fn proxy_mode() -> String {
 
 pub fn proxy_manual() -> Vec<String> {
     load().no_proxy_manual
+}
+
+/// Saving the whole settings file, for the parts of the app that own a field of their own.
+pub(crate) fn save_settings(settings: &AppSettings) -> Result<(), String> {
+    save(settings)
 }
 
 pub(crate) fn save_proxy_manual(manual: &[String]) -> Result<Vec<String>, String> {

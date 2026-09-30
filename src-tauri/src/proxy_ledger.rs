@@ -108,6 +108,18 @@ fn write_address() -> Option<(String, u16)> {
     crate::settings::detected_proxy_addr()
 }
 
+/// A described target, written and cleared through its own file writer.
+pub fn write_target(target: &crate::proxy_targets::Target) -> Result<(), String> {
+    let (host, port) = write_address().ok_or("E_PROXY_ADDR")?;
+    target.write(&host, port)?;
+    record_id(&target.id, Some(&format!("{host}:{port}")))
+}
+
+pub fn clear_target(target: &crate::proxy_targets::Target) -> Result<(), String> {
+    target.clear()?;
+    record_id(&target.id, None)
+}
+
 /// User action: write the current address here and manage it from now on.
 pub fn write_location(location: Location) -> Result<(), String> {
     let (host, port) = write_address().ok_or("E_PROXY_ADDR")?;
@@ -124,13 +136,17 @@ pub fn clear_location(location: Location) -> Result<(), String> {
 /// Records a write (Some) or forgets a location (None) after Stacker changed it elsewhere,
 /// e.g. the Git page or a mirror switch with a proxy.
 pub fn record(location: Location, written: Option<&str>) -> Result<(), String> {
+    record_id(location.id(), written)
+}
+
+fn record_id(id: &str, written: Option<&str>) -> Result<(), String> {
     let mut managed = crate::settings::proxy_managed();
     match written {
         Some(value) => {
-            managed.insert(location.id().to_string(), normalize(Some(value)));
+            managed.insert(id.to_string(), normalize(Some(value)));
         }
         None => {
-            managed.remove(location.id());
+            managed.remove(id);
         }
     }
     crate::settings::save_proxy_managed(managed)
@@ -142,6 +158,18 @@ pub struct LocationRow {
     pub value: Option<String>,
     /// managed | external | none
     pub owner: String,
+    /// The described targets carry their own label; the eight built-in ones are named by
+    /// the page, which has always known them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target: Option<crate::proxy_targets::Target>,
+    /// Whether the program is on this machine at all.
+    #[serde(default = "yes")]
+    pub installed: bool,
+}
+
+#[allow(dead_code)]
+fn yes() -> bool {
+    true
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -171,9 +199,23 @@ pub fn overview() -> Overview {
                 id: l.id().into(),
                 owner: owner(&managed, l.id(), value.as_deref()).into(),
                 value,
+                target: None,
+                installed: true,
             }
         })
-        .collect();
+        .collect::<Vec<_>>();
+    // Everything described as data, presets first, the user's own after.
+    let mut locations = locations;
+    for target in crate::proxy_targets::all() {
+        let value = target.read();
+        locations.push(LocationRow {
+            id: target.id.clone(),
+            owner: owner(&managed, &target.id, value.as_deref()).into(),
+            value,
+            installed: target.installed(),
+            target: Some(target),
+        });
+    }
     Overview {
         windows: crate::settings::detected_proxy_addr().map(|(h, p)| format!("{h}:{p}")),
         write_address: write_address().map(|(h, p)| format!("{h}:{p}")),
@@ -391,10 +433,27 @@ pub async fn proxy_clear_stale() -> Result<usize, String> {
         .map_err(|e| e.to_string())?
 }
 
+/// The described targets: the presets Stacker ships and the ones the user added.
+#[tauri::command]
+pub async fn proxy_targets_list() -> Vec<crate::proxy_targets::Target> {
+    crate::proxy_targets::all()
+}
+
+#[tauri::command]
+pub async fn proxy_target_save(target: crate::proxy_targets::Target) -> Result<(), String> {
+    crate::proxy_targets::save_custom(target)
+}
+
+#[tauri::command]
+pub async fn proxy_target_remove(id: String) -> Result<(), String> {
+    crate::proxy_targets::remove_custom(&id)
+}
+
 #[tauri::command]
 pub async fn proxy_location_write(id: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        write_location(Location::from_id(&id).ok_or("E_REQUEST")?)
+    tauri::async_runtime::spawn_blocking(move || match Location::from_id(&id) {
+        Some(location) => write_location(location),
+        None => write_target(&crate::proxy_targets::find(&id).ok_or("E_REQUEST")?),
     })
     .await
     .map_err(|e| e.to_string())?
@@ -402,8 +461,9 @@ pub async fn proxy_location_write(id: String) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn proxy_location_clear(id: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        clear_location(Location::from_id(&id).ok_or("E_REQUEST")?)
+    tauri::async_runtime::spawn_blocking(move || match Location::from_id(&id) {
+        Some(location) => clear_location(location),
+        None => clear_target(&crate::proxy_targets::find(&id).ok_or("E_REQUEST")?),
     })
     .await
     .map_err(|e| e.to_string())?
@@ -419,6 +479,8 @@ mod tests {
             id: id.into(),
             value: Some(value.into()),
             owner: owner.into(),
+            target: None,
+            installed: true,
         };
         let rows = vec![
             row("env", "http://127.0.0.1:7890", "managed"),

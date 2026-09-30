@@ -3,6 +3,7 @@ pub mod cleanup_plan;
 pub mod cleanup_tasks;
 pub mod duplicates;
 pub mod elevated;
+pub mod history;
 pub mod known;
 pub mod model;
 pub mod monitor;
@@ -249,6 +250,17 @@ pub fn space_cleanup_cancel(
     manager: tauri::State<'_, CleanupTaskManager>,
 ) -> Result<(), String> {
     manager.cancel(&task_id)
+}
+
+/// Every cleanup that ran, newest first.
+#[tauri::command]
+pub async fn space_cleanup_history() -> Vec<history::HistoryRecord> {
+    blocking(|| Ok(history::load())).await.unwrap_or_default()
+}
+
+#[tauri::command]
+pub async fn space_cleanup_history_clear() -> Result<(), String> {
+    blocking(history::clear).await
 }
 
 #[tauri::command]

@@ -1,12 +1,33 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "../invoke";
-import { useToast, useBusy, useBusyRead, Loading, ErrorState, ConfirmModal } from "../ui";
+import { useToast, useBusy, useBusyRead, Loading, ErrorState, ConfirmModal, Modal } from "../ui";
+import { Select } from "../Select";
 
 type ProxyStatus = {
   enabled: boolean; host: string; port: number; endpoint_available: boolean;
   no_proxy_auto: string[]; no_proxy_manual: string[];
 };
-type LocationRow = { id: string; value: string | null; owner: "managed" | "external" | "none" };
+type Entry = { section: string; key: string; value: string };
+type Detect = { type: "path_exists"; path: string } | { type: "command_on_path"; command: string };
+type Writer = { format: "key_value" | "ini" | "json"; path: string; entries: Entry[] };
+/** A program whose proxy lives in a file of its own, described rather than coded. */
+type Target = { id: string; name: string; detail: string; icon: string; builtin: boolean; detect: Detect; writer: Writer };
+type LocationRow = {
+  id: string; value: string | null; owner: "managed" | "external" | "none";
+  target?: Target; installed?: boolean;
+};
+
+const FORMATS: { value: Writer["format"]; label: string }[] = [
+  { value: "key_value", label: "键=值（.env / .npmrc / .curlrc）" },
+  { value: "ini", label: "分节 ini（pip.ini / Cargo config.toml）" },
+  { value: "json", label: "JSON（settings.json，键写成 /a/b）" },
+];
+
+const BLANK_TARGET: Target = {
+  id: "", name: "", detail: "", icon: "ti-point", builtin: false,
+  detect: { type: "path_exists", path: "" },
+  writer: { format: "key_value", path: "", entries: [{ section: "", key: "", value: "http://{proxy}" }] },
+};
 type Overview = { host: string; port: number; windows: string | null; write_address: string | null; locations: LocationRow[] };
 
 type SystemState = "on" | "off" | "stale" | "unknown";
@@ -30,15 +51,27 @@ const LOCATION_INFO: Record<string, { name: string; detail: string; icon: string
   yarn: { name: "Yarn", detail: "~/.yarnrc 的 proxy / https-proxy", icon: "ti-brand-yarn" },
   maven: { name: "Maven", detail: "~/.m2/settings.xml 中 Stacker 的代理", icon: "ti-package" },
   maven_opts: { name: "MAVEN_OPTS", detail: "用户环境变量中的 -Dhttp(s).proxy 参数", icon: "ti-variable" },
-  gradle: { name: "Gradle", detail: "Stacker 的 Gradle 初始化脚本中的代理", icon: "ti-brand-gradle" },
+  gradle: { name: "Gradle", detail: "Stacker 的 Gradle 初始化脚本中的代理", icon: "ti-hammer" },
   gradle_props: { name: "gradle.properties", detail: "~/.gradle/gradle.properties 的 systemProp.http(s).proxy", icon: "ti-file-settings" },
 };
 
 const ERRORS: Record<string, string> = {
   E_PROXY_ADDR: "Windows 没有开启系统代理，没有可写入的地址。",
   E_EXTERNAL_FILE: "settings.xml 是你自己维护的文件，Stacker 不会改写它，请手动编辑。",
+  E_NOT_INSTALLED: "这台机器上没有这个程序，Stacker 不会替它创建配置。",
+  E_BROKEN_JSON: "这个 JSON 文件读不通，Stacker 不会覆盖它，请先修好。",
+  E_TARGET_ID: "标识只能用字母、数字、- 和 _，且不能为空。",
+  E_TARGET_BUILTIN: "这个标识是内置项占用的，请换一个。",
+  E_TARGET_FIELDS: "名称和文件路径都要填。",
+  E_TARGET_PATH: "只能写你自己用户目录里的文件。",
 };
 const errorText = (e: unknown) => ERRORS[String(e)] ?? String(e);
+
+/** A name the user typed becomes an id Stacker can store it under. */
+function slug(name: string) {
+  const ascii = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return ascii || `target-${Date.now().toString(36)}`;
+}
 
 /** 一行的状态只有三种：没设置、跟系统一致、该撤销或该改。 */
 function rowState(value: string | null, system: SystemProxy) {
@@ -62,6 +95,7 @@ export default function Proxy() {
   const [busy, setBusy] = useState("");
   const [confirmClear, setConfirmClear] = useState<LocationRow | null>(null);
   const [confirmRelease, setConfirmRelease] = useState(false);
+  const [draft, setDraft] = useState<Target | null>(null);
   const [copied, setCopied] = useState("");
   const [shell, setShell] = useState<"powershell" | "cmd" | "bash">("powershell");
   const [loadErr, setLoadErr] = useState(false);
@@ -93,6 +127,8 @@ export default function Proxy() {
   const write = (row: LocationRow) => run(row.id, () => invoke("proxy_location_write", { id: row.id }), `已写入 ${LOCATION_INFO[row.id]?.name ?? row.id} 代理`);
   const clear = (row: LocationRow) => run(row.id, () => invoke("proxy_location_clear", { id: row.id }), `已清除 ${LOCATION_INFO[row.id]?.name ?? row.id} 代理`);
   const followAll = () => run("all", () => invoke("proxy_follow_system", { release: false }), "各处代理已跟随系统");
+  const saveTarget = (target: Target) => run("draft", () => invoke("proxy_target_save", { target }), `已保存 ${target.name}`);
+  const removeTarget = (id: string) => run(id, () => invoke("proxy_target_remove", { id }), "已删除这个自定义项");
   const releaseAll = () => run("all", () => invoke("proxy_follow_system", { release: true }), "各处代理已撤销");
 
   async function copy(text: string, which: string) {
@@ -157,10 +193,15 @@ export default function Proxy() {
         <div className="pxsec"><i className="ti ti-list-details" /> 应用代理 <span className="pxhint">写入用的就是上面的系统代理地址</span></div>
         <div className="proxy-locations">
           {rows.map((row) => {
-            const meta = LOCATION_INFO[row.id] ?? { name: row.id, detail: "", icon: "ti-point" };
-            const state = rowState(row.value, system);
+            const meta = LOCATION_INFO[row.id]
+              ?? (row.target ? { name: row.target.name, detail: row.target.detail, icon: row.target.icon } : null)
+              ?? { name: row.id, detail: "", icon: "ti-point" };
+            const missing = row.installed === false;
+            const state = missing
+              ? { label: "未安装", cls: "n" as const, stale: false }
+              : rowState(row.value, system);
             const service = row.id === "winhttp";
-            const writable = info.on && (service ? report.service.known : true);
+            const writable = info.on && !missing && (service ? report.service.known : true);
             return <div className="proxy-location" key={row.id}>
               <i className={"ti " + meta.icon} />
               <div className="mt">
@@ -179,8 +220,18 @@ export default function Proxy() {
                 onClick={() => service ? void setService(null) : (row.owner === "external" ? setConfirmClear(row) : void clear(row))}>
                 <i className="ti ti-eraser" /> 清除
               </button>
+              {row.target && !row.target.builtin && <button className="gh sm" title="删除这个自定义项"
+                disabled={!!busy} onClick={() => void removeTarget(row.target!.id)}>
+                <i className="ti ti-trash" />
+              </button>}
             </div>;
           })}
+        </div>
+        <div className="proxy-add">
+          <button className="gh sm" disabled={!!busy} onClick={() => setDraft({ ...BLANK_TARGET })}>
+            <i className="ti ti-plus" /> 添加其他程序
+          </button>
+          <span className="s dim">还有别的工具要走代理？描述它的配置文件，写入和撤销就和上面一样。</span>
         </div>
       </div>
 
@@ -206,6 +257,58 @@ export default function Proxy() {
         confirmLabel="清除"
         onConfirm={() => { const row = confirmClear; setConfirmClear(null); void clear(row); }}
         onClose={() => setConfirmClear(null)} />}
+
+      {draft && <Modal title={draft.id && !draft.builtin ? "编辑自定义程序" : "添加其他程序"} icon="ti-plus"
+        sub="Stacker 只会改你在这里点名的键，文件里别的内容原样保留。"
+        onClose={() => setDraft(null)}
+        footer={<>
+          <button className="gh sm" onClick={() => setDraft(null)}>取消</button>
+          <button className="pr sm" disabled={!!busy || !draft.name.trim() || !draft.writer.path.trim() || !draft.writer.entries[0]?.key.trim()}
+            onClick={() => { const target = { ...draft, id: draft.id.trim() || slug(draft.name) }; setDraft(null); void saveTarget(target); }}>
+            <i className="ti ti-device-floppy" /> 保存
+          </button>
+        </>}>
+        <div className="proxy-form">
+          <label><span>名称</span>
+            <input className="ip full" value={draft.name} placeholder="例如：Bun"
+              onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></label>
+          <label><span>说明</span>
+            <input className="ip full" value={draft.detail} placeholder="写给自己看的一句话，可留空"
+              onChange={(e) => setDraft({ ...draft, detail: e.target.value })} /></label>
+          <label><span>怎么算装了</span>
+            <Select width={150} value={draft.detect.type} options={[
+              { value: "path_exists", label: "某个路径存在" },
+              { value: "command_on_path", label: "某个命令在 PATH 上" },
+            ]} onChange={(v) => setDraft({ ...draft, detect: v === "path_exists" ? { type: "path_exists", path: "" } : { type: "command_on_path", command: "" } })} />
+            <input className="ip full" placeholder={draft.detect.type === "path_exists" ? "~/.bun" : "bun"}
+              value={draft.detect.type === "path_exists" ? draft.detect.path : draft.detect.command}
+              onChange={(e) => setDraft({ ...draft, detect: draft.detect.type === "path_exists"
+                ? { type: "path_exists", path: e.target.value }
+                : { type: "command_on_path", command: e.target.value } })} />
+          </label>
+          <label><span>配置文件</span>
+            <Select width={230} value={draft.writer.format} options={FORMATS.map((f) => ({ value: f.value, label: f.label }))}
+              onChange={(v) => setDraft({ ...draft, writer: { ...draft.writer, format: v as Writer["format"] } })} />
+            <input className="ip full" value={draft.writer.path} placeholder="~/.bunfig.toml 或 %APPDATA%/Tool/config.json"
+              onChange={(e) => setDraft({ ...draft, writer: { ...draft.writer, path: e.target.value } })} /></label>
+          {draft.writer.entries.map((item, index) => <label key={index}><span>{index === 0 ? "写入的键" : ""}</span>
+            {draft.writer.format === "ini" && <input className="ip" style={{ width: 110 }} value={item.section} placeholder="节，如 global"
+              onChange={(e) => setDraft({ ...draft, writer: { ...draft.writer, entries: draft.writer.entries.map((e2, i) => i === index ? { ...e2, section: e.target.value } : e2) } })} />}
+            <input className="ip" style={{ width: 170 }} value={item.key} placeholder={draft.writer.format === "json" ? "/http.proxy" : "proxy"}
+              onChange={(e) => setDraft({ ...draft, writer: { ...draft.writer, entries: draft.writer.entries.map((e2, i) => i === index ? { ...e2, key: e.target.value } : e2) } })} />
+            <input className="ip full" value={item.value} placeholder="http://{proxy}"
+              onChange={(e) => setDraft({ ...draft, writer: { ...draft.writer, entries: draft.writer.entries.map((e2, i) => i === index ? { ...e2, value: e.target.value } : e2) } })} />
+            {draft.writer.entries.length > 1 && <button className="ic danger" title="删除这一行"
+              onClick={() => setDraft({ ...draft, writer: { ...draft.writer, entries: draft.writer.entries.filter((_, i) => i !== index) } })}><i className="ti ti-trash" /></button>}
+          </label>)}
+          <div className="proxy-form-foot">
+            <button className="gh sm" onClick={() => setDraft({ ...draft, writer: { ...draft.writer, entries: [...draft.writer.entries, { section: draft.writer.entries[0]?.section ?? "", key: "", value: "http://{proxy}" }] } })}>
+              <i className="ti ti-plus" /> 再加一个键
+            </button>
+            <span className="s dim">值里的 {"{proxy}"} 会换成系统代理的 host:port。</span>
+          </div>
+        </div>
+      </Modal>}
 
       {confirmRelease && <ConfirmModal title="撤销所有位置的代理" icon="ti-eraser" danger
         message="系统代理已经关闭，下面仍写着代理的位置都会被清除，包括不是 Stacker 写入的。确定吗？"

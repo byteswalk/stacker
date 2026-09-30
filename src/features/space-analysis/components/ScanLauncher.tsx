@@ -11,6 +11,7 @@ import {
   takePendingDirectoryTargets,
 } from "../targetStore";
 import type { ScanRequest } from "../types";
+import { CleanupHistory } from "./CleanupHistory";
 import {
   closeDiskSelectorRequest,
   launcherControlsDisabled,
@@ -33,6 +34,7 @@ export function ScanLauncher({ disabled = false }: { disabled?: boolean }) {
   const [rememberTargets, setRememberTargets] = useState<boolean | null>(null);
   const [commonDirectories, setCommonDirectories] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [directorySelectorOpen, setDirectorySelectorOpen] = useState(false);
   const [directoryTargets, setDirectoryTargets] = useState<string[]>([]);
   const [elevated, setElevated] = useState(false);
@@ -153,6 +155,10 @@ export function ScanLauncher({ disabled = false }: { disabled?: boolean }) {
             <i className={`ti ${busy ? "ti-loader spin" : "ti-folder-open"}`} aria-hidden="true" />
             {tr("选择目录")}
           </button>
+          <button className="gh" title={tr("查看以往每次清理删了什么、释放了多少")} onClick={() => setHistoryOpen(true)}>
+            <i className="ti ti-history" aria-hidden="true" />
+            {tr("清理记录")}
+          </button>
         </div>
         <DiskOverview disabled={controlsDisabled} onScan={(root) => launch({ mode: "directories", targets: [root] })} />
         {commonDirectories.length > 0 && (
@@ -167,6 +173,8 @@ export function ScanLauncher({ disabled = false }: { disabled?: boolean }) {
           </div>
         )}
       </section>
+
+      {historyOpen && <CleanupHistory onClose={() => setHistoryOpen(false)} />}
 
       {directorySelectorOpen && (
         <Modal

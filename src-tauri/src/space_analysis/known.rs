@@ -371,6 +371,44 @@ fn known_cache_rules() -> Vec<KnownRule> {
             candidates: vec![local.join("CrashDumps")],
         },
         KnownRule {
+            id: "firefox-cache",
+            name_key: "spaceAnalysis.known.firefoxCache",
+            ecosystem: "browser",
+            safety: SafetyClass::Safe,
+            candidates: vec![local.join("Mozilla").join("Firefox").join("Profiles")],
+        },
+        KnownRule {
+            id: "brave-cache",
+            name_key: "spaceAnalysis.known.braveCache",
+            ecosystem: "browser",
+            safety: SafetyClass::Safe,
+            candidates: vec![local
+                .join("BraveSoftware")
+                .join("Brave-Browser")
+                .join("User Data")
+                .join("Default")
+                .join("Cache")],
+        },
+        // Local models are downloads, not caches: removing one means fetching gigabytes
+        // again, so they are never in the safe set.
+        KnownRule {
+            id: "ollama-models",
+            name_key: "spaceAnalysis.known.ollamaModels",
+            ecosystem: "ai-model",
+            safety: SafetyClass::NeedsConfirmation,
+            candidates: vec![home.join(".ollama").join("models")],
+        },
+        KnownRule {
+            id: "lmstudio-models",
+            name_key: "spaceAnalysis.known.lmStudioModels",
+            ecosystem: "ai-model",
+            safety: SafetyClass::NeedsConfirmation,
+            candidates: vec![
+                home.join(".lmstudio").join("models"),
+                home.join(".cache").join("lm-studio"),
+            ],
+        },
+        KnownRule {
             id: "chrome-cache",
             name_key: "spaceAnalysis.known.chromeCache",
             ecosystem: "browser",
