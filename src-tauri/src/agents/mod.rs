@@ -330,6 +330,12 @@ pub(crate) fn run_tool_action(
         ("desktop", "uninstall") => uninstall_desktop_tool(&spec, &window),
         _ => Err("不支持的操作".into()),
     };
+    // An installer can report success and still leave nothing behind (an elevation that
+    // never happened, a download it gave up on); the command has to be there afterwards.
+    let res = res.and_then(|message| match (target, action) {
+        ("cli", "install" | "update") => verify_cli_present(&spec, &window).map(|()| message),
+        _ => Ok(message),
+    });
     match &res {
         Ok(message) => log::info!(
             "work agent action completed: id={id} target={target} action={action} result={message}"
@@ -361,7 +367,7 @@ pub(crate) fn open_desktop_tool(id: &str) -> Result<(), String> {
     if let Some(target) = scanned {
         return open_external_target(&target);
     }
-    if let Some(found) = detect_desktop_app(&spec.desktop) {
+    if let Some(found) = detect_desktop_for(&spec) {
         if let Some(launch) = found.launch {
             return open_external_target(&launch);
         }

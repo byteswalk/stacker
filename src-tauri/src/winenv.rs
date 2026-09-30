@@ -106,11 +106,12 @@ pub fn prepend_path_in(hive: Hive, dir: &str) -> Result<(), String> {
 
 #[cfg(windows)]
 pub fn remove_path_in(hive: Hive, dir: &str) -> Result<(), String> {
-    let dir = dir.trim();
+    // `C:\x` and `C:\x\` are the same entry.
+    let dir = dir.trim().trim_end_matches('\\');
     let before = get_path_in(hive);
     let after: Vec<String> = before
         .iter()
-        .filter(|e| !e.eq_ignore_ascii_case(dir))
+        .filter(|e| !e.trim().trim_end_matches('\\').eq_ignore_ascii_case(dir))
         .cloned()
         .collect();
     if after.len() == before.len() {

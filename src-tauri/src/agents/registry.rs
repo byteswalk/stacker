@@ -1277,7 +1277,7 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
         icon: "minimax.svg",
         docs_url: "https://agent.minimax.cn/download",
         cli: CliSlot::Shared("mcode"),
-        cli_note: Some("与国际版共用同一个 mcode 命令，登录时选中国区账号。两版桌面端安装后同名，Stacker 暂时分不出装的是哪一版。"),
+        cli_note: Some("与国际版共用同一个 mcode 命令，登录时选中国区账号。两版桌面端装在同一个位置，同一时间只能装一版。"),
         desktop: DesktopSlot::App(DesktopSpec {
             name: "MiniMax Code 桌面端（中国版）",
             description: "MiniMax Code 中国版桌面智能体。",

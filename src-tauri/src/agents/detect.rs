@@ -119,7 +119,7 @@ pub(crate) fn desktop_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurfac
             spec.desktop.docs_url,
         );
     }
-    let found = detect_desktop_app(&spec.desktop);
+    let found = detect_desktop_for(spec);
     let broken_reason = found
         .as_ref()
         .and_then(|found| found.path.as_deref())
@@ -730,6 +730,42 @@ pub(crate) fn parse_claude_ready_update_version(line: &str) -> Option<String> {
     let end = rest.find('\'')?;
     let version = rest[..end].trim();
     (!version.is_empty()).then(|| version.to_string())
+}
+
+/// A product's desktop app. MiniMax installs its China and global editions under one name
+/// and into one folder; the update feed each was built with (`resources/app-update.yml`)
+/// tells them apart, and an install of the other edition is not this one.
+pub(crate) fn detect_desktop_for(spec: &ToolSpec) -> Option<DesktopFound> {
+    let found = detect_desktop_app(&spec.desktop)?;
+    if spec.vendor == Vendor::MiniMax {
+        let feed = found
+            .path
+            .as_deref()
+            .and_then(Path::parent)
+            .and_then(|dir| {
+                std::fs::read_to_string(dir.join("resources").join("app-update.yml")).ok()
+            })
+            .unwrap_or_default();
+        if let Some(global) = minimax_feed_is_global(&feed) {
+            if global != (spec.edition == Edition::Global) {
+                return None;
+            }
+        }
+    }
+    Some(found)
+}
+
+/// Which MiniMax edition an `app-update.yml` belongs to: `minimax.io` is the global feed,
+/// `minimax.chat` the China one; anything else says nothing.
+pub(crate) fn minimax_feed_is_global(feed: &str) -> Option<bool> {
+    let feed = feed.to_ascii_lowercase();
+    if feed.contains("minimax.io") {
+        Some(true)
+    } else if feed.contains("minimax.chat") {
+        Some(false)
+    } else {
+        None
+    }
 }
 
 pub(crate) fn detect_desktop_app(spec: &DesktopSpec) -> Option<DesktopFound> {
@@ -1411,6 +1447,19 @@ mod tests {
         assert!(is_community_grok(Path::new(
             "C:\\Users\\me\\.bun\\bin\\grok.exe"
         )));
+    }
+
+    #[test]
+    fn minimax_editions_are_told_apart_by_their_update_feed() {
+        let global = "provider: generic
+url: https://file.cdn.minimax.io/public/minimax-agent/release
+";
+        let china = "provider: generic
+url: https://filecdn.minimax.chat/public/minimax-agent/release
+";
+        assert_eq!(minimax_feed_is_global(global), Some(true));
+        assert_eq!(minimax_feed_is_global(china), Some(false));
+        assert_eq!(minimax_feed_is_global(""), None);
     }
 
     #[test]

@@ -306,10 +306,19 @@ pub(crate) fn install_or_update_kiro_cli(
     );
     run_official_script(
         window,
-        "$p = Start-Process powershell.exe -Verb RunAs -Wait -PassThru -WindowStyle Hidden -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-Command','irm https://cli.kiro.dev/install.ps1 | iex'; exit $p.ExitCode",
+        "try { $p = Start-Process powershell.exe -Verb RunAs -Wait -PassThru -WindowStyle Hidden -ErrorAction Stop -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-Command','irm https://cli.kiro.dev/install.ps1 | iex' } catch { Write-Output $_.Exception.Message; exit 1223 }; if (-not $p) { exit 1 }; exit $p.ExitCode",
         "Kiro CLI Install",
     )
     .map_err(|error| format!("Kiro CLI {action}未完成（管理员授权被取消或安装失败）：{error}"))?;
+    // The MSI installs to Program Files; a run that ends without it there did not install.
+    let installed = std::env::var_os("ProgramFiles")
+        .map(|dir| std::path::PathBuf::from(dir).join("Kiro-Cli"))
+        .is_some_and(|dir| dir.is_dir());
+    if !installed {
+        return Err(format!(
+            "Kiro CLI {action}未完成：安装程序结束了，但没有找到安装目录。"
+        ));
+    }
     Ok(format!("Kiro CLI 已{action}"))
 }
 

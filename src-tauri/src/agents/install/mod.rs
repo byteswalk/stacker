@@ -468,7 +468,7 @@ pub(crate) fn update_desktop_tool(
     spec: &ToolSpec,
     window: &Option<tauri::Window>,
 ) -> Result<String, String> {
-    let found = detect_desktop_app(&spec.desktop);
+    let found = detect_desktop_for(spec);
     let current = found.as_ref().and_then(|f| f.version.as_deref());
     if let Some(next) = desktop_staged_update(spec, current) {
         emit_progress(
@@ -564,7 +564,7 @@ pub(crate) fn uninstall_desktop_tool(
     spec: &ToolSpec,
     window: &Option<tauri::Window>,
 ) -> Result<String, String> {
-    let found = detect_desktop_app(&spec.desktop);
+    let found = detect_desktop_for(spec);
     if let Some(uninstall) = found
         .as_ref()
         .and_then(|f| f.uninstall.as_deref())
@@ -585,6 +585,12 @@ pub(crate) fn uninstall_desktop_tool(
             Duration::from_secs(1200),
             window,
         )?;
+        if !wait_for_desktop_removal(spec, window, Duration::from_secs(90)) {
+            return Ok(format!(
+                "{} 的卸载程序仍在运行，稍后刷新即可看到结果",
+                spec.desktop.name
+            ));
+        }
         return Ok(format!("{} 已通过 WinGet 卸载", spec.desktop.name));
     }
     if let Some(uninstall) = found.and_then(|f| f.uninstall) {
@@ -598,13 +604,57 @@ pub(crate) fn uninstall_desktop_tool(
     ))
 }
 
+/// After an install or update the command must resolve; PATH changes can take a moment.
+pub(crate) fn verify_cli_present(
+    spec: &ToolSpec,
+    window: &Option<tauri::Window>,
+) -> Result<(), String> {
+    let started = Instant::now();
+    while started.elapsed() < Duration::from_secs(15) {
+        if cli_installed_after_action(spec) {
+            return Ok(());
+        }
+        emit_progress(window, format!("正在确认 {} 已就位…", spec.cli.name));
+        std::thread::sleep(Duration::from_millis(500));
+    }
+    Err(format!(
+        "{} 的安装程序报告完成，但没有检测到 {} 命令。请在任务日志里查看安装输出。",
+        spec.cli.name, spec.cli.command
+    ))
+}
+
+/// Waits for an uninstaller that returns before it has finished (NSIS and Squirrel copy
+/// themselves elsewhere and carry on); true once the app is gone.
+pub(crate) fn wait_for_desktop_removal(
+    spec: &ToolSpec,
+    window: &Option<tauri::Window>,
+    timeout: Duration,
+) -> bool {
+    let started = Instant::now();
+    while started.elapsed() < timeout {
+        if !desktop_installed_after_action(spec) {
+            return true;
+        }
+        emit_progress(
+            window,
+            format!(
+                "正在等待 {} 卸载完成 · 已 {} 秒",
+                spec.desktop.name,
+                started.elapsed().as_secs()
+            ),
+        );
+        std::thread::sleep(Duration::from_secs(1));
+    }
+    false
+}
+
 pub(crate) fn cli_installed_after_action(spec: &ToolSpec) -> bool {
     resolve_command(spec.cli.candidates).is_some()
         || spec.cli.winget_id.is_some_and(winget_package_installed)
 }
 
 pub(crate) fn desktop_installed_after_action(spec: &ToolSpec) -> bool {
-    detect_desktop_app(&spec.desktop).is_some()
+    detect_desktop_for(spec).is_some()
 }
 
 pub(crate) fn uninstall_appx_package(package_full_name: &str) -> Result<(), String> {
@@ -625,8 +675,16 @@ pub(crate) fn uninstall_appx_package(package_full_name: &str) -> Result<(), Stri
 }
 
 pub(crate) fn remove_cli_binary(program: &Path, command_name: &str) -> Result<(), String> {
+    // canonicalize() spells a Windows path `\\?\C:\…`, which no profile folder starts with;
+    // the plain spelling is compared.
     let path = program
         .canonicalize()
+        .map(|path| {
+            let text = path.to_string_lossy();
+            text.strip_prefix(r"\\?\")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| path.clone())
+        })
         .unwrap_or_else(|_| program.to_path_buf());
     let file_name = path
         .file_stem()
@@ -645,6 +703,18 @@ pub(crate) fn remove_cli_binary(program: &Path, command_name: &str) -> Result<()
         .unwrap_or_default();
     if (!user.is_empty() && p.starts_with(&user)) || (!local.is_empty() && p.starts_with(&local)) {
         std::fs::remove_file(&path).map_err(|e| format!("删除命令文件失败：{e}"))?;
+        // A folder the installer made for this one command (`~in` for droid) goes too,
+        // with its PATH entry, once nothing else is in it.
+        if let Some(dir) = path.parent() {
+            let empty = std::fs::read_dir(dir).is_ok_and(|mut entries| entries.next().is_none());
+            if empty && std::fs::remove_dir(dir).is_ok() {
+                let _ = crate::winenv::remove_path_in(
+                    crate::winenv::Hive::User,
+                    &dir.to_string_lossy(),
+                );
+                crate::winenv::broadcast_change();
+            }
+        }
         Ok(())
     } else {
         Err("命令不在当前用户目录内，为避免误删已取消卸载。".into())
@@ -718,6 +788,19 @@ pub(crate) fn image_is_running(image: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_native_command_and_the_folder_made_for_it_are_removed() {
+        // Under %LOCALAPPDATA%\Temp, inside the profile as remove_cli_binary requires.
+        let root = tempfile::tempdir().unwrap();
+        let bin = root.path().join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let command = bin.join("droid.exe");
+        std::fs::write(&command, b"x").unwrap();
+        remove_cli_binary(&command, "droid").unwrap();
+        assert!(!command.exists());
+        assert!(!bin.exists(), "the emptied folder goes too");
+    }
 
     #[test]
     fn a_store_refusal_is_recognised_by_its_code() {
