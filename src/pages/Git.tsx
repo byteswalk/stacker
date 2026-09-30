@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { invoke } from "../invoke";
+import { invoke, reportFrontendWarning } from "../invoke";
 import { open } from "@tauri-apps/plugin-dialog";
 import { TerminalBar } from "../TerminalBar";
 import { Select } from "../Select";
@@ -39,6 +39,14 @@ type GitAccountProfile = {
   base_url?: string | null;
   provider?: string | null;
 };
+/** A program running from the Git folder, which the installer cannot replace while it runs. */
+type GitInUse = { pid: number; name: string; owner: string };
+const IN_USE_PREFIX = "E_GIT_IN_USE:";
+function parseInUse(detail: string): GitInUse[] | null {
+  const at = detail.indexOf(IN_USE_PREFIX);
+  if (at < 0) return null;
+  try { return JSON.parse(detail.slice(at + IN_USE_PREFIX.length)) as GitInUse[]; } catch { return null; }
+}
 type GitUpdateInfo = { current: string; latest: string; has_update: boolean; source_name: string; release_url: string; installer_url: string };
 type GitInitResult = { directory: string; remote_url?: string | null; initial_commit: boolean };
 type GitMigrationResult = { mode: "native_transfer" | "git_mirror"; message: string };
@@ -108,6 +116,7 @@ export default function Git() {
   const [customServiceName, setCustomServiceName] = useState("");
   const [customUsername, setCustomUsername] = useState("");
   const [updateInfo, setUpdateInfo] = useState<GitUpdateInfo | null>(null);
+  const [inUse, setInUse] = useState<GitInUse[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [downloadSources, setDownloadSources] = useState<Mirror[]>(FALLBACK_GIT_SOURCES);
   const [downloadSource, setDownloadSource] = useState(initialGitSource);
@@ -162,6 +171,18 @@ export default function Git() {
   useEffect(() => {
     read("正在检测 Git 环境", load).catch(() => setLoadError(true));
   }, [load, read]);
+
+  // The update check the notification bell already ran is repeated quietly on entry, so the
+  // 立即更新 button is there without a trip through 检查更新.
+  const installed = !!status?.installed;
+  useEffect(() => {
+    if (!installed) return;
+    let alive = true;
+    invoke<GitUpdateInfo>("git_check_update", { sourceId: downloadSource })
+      .then((info) => { if (alive) setUpdateInfo(info.has_update ? info : null); })
+      .catch((error) => reportFrontendWarning("Unable to check for a Git update.", error));
+    return () => { alive = false; };
+  }, [installed, downloadSource]);
 
   useEffect(() => {
     invoke<ToolState[]>("list_sources").then((tools) => {
@@ -287,7 +308,7 @@ export default function Git() {
     }
   }
 
-  async function installGit() {
+  async function installGit(closeInUse = false) {
     const updating = !!status?.installed;
     const systemUpdate = updating && /\\program files(?: \(x86\))?\\/i.test(status?.path || "");
     setBusy(true);
@@ -307,7 +328,7 @@ export default function Git() {
           },
         },
         async () => {
-          const message = await invoke<string>("git_install", { sourceId: downloadSource });
+          const message = await invoke<string>("git_install", { sourceId: downloadSource, closeInUse });
           await load();
           return message;
         },
@@ -316,7 +337,10 @@ export default function Git() {
       toast(result || (updating ? "Git for Windows 已更新" : "Git for Windows 已安装"), "ok");
     } catch (error) {
       const detail = String(error);
-      if (cancelled || detail.includes("已取消")) {
+      const inUse = parseInUse(detail);
+      if (inUse) {
+        setInUse(inUse);
+      } else if (cancelled || detail.includes("已取消")) {
         toast(updating ? "已取消 Git 更新" : "已取消 Git 安装", "info");
       } else {
         toast((updating ? "Git 更新失败：" : "Git 安装失败：") + detail, "err");
@@ -653,8 +677,8 @@ export default function Git() {
         <div className="cacts">
           <button className="gh sm" disabled={busy || statusLoading} onClick={refresh}><i className="ti ti-refresh" /> 刷新状态</button>
           <button className="gh sm" disabled={busy || statusLoading || !gitStatus.installed} onClick={checkUpdate}><i className="ti ti-cloud-search" /> 检查更新</button>
-          {!statusLoading && !gitStatus.installed && <button className="pr sm" disabled={busy} onClick={installGit}><i className="ti ti-download" /> 安装 Git</button>}
-          {gitStatus.installed && updateInfo?.has_update && <button className="pr sm" disabled={busy} onClick={installGit}><i className="ti ti-download" /> 立即更新</button>}
+          {!statusLoading && !gitStatus.installed && <button className="pr sm" disabled={busy} onClick={() => void installGit()}><i className="ti ti-download" /> 安装 Git</button>}
+          {gitStatus.installed && updateInfo?.has_update && <button className="pr sm" disabled={busy} onClick={() => void installGit()}><i className="ti ti-download" /> 立即更新</button>}
         </div>
       </div>
 
@@ -803,6 +827,23 @@ export default function Git() {
         </Modal>
       )}
 
+      {inUse && (
+        <ConfirmModal
+          title="Git 正在被使用"
+          icon="ti-lock"
+          danger
+          confirmLabel="结束这些进程并更新"
+          message={<>
+            <div>下面这些程序正从 Git 目录运行，安装程序无法替换它们的文件，所以上次更新被取消了。多数是打开着的 Git Bash、终端或智能体会话。</div>
+            <ul className="git-inuse">
+              {inUse.map((item) => <li key={item.pid}><b>{item.name}</b><span>PID {item.pid}</span>{item.owner && <span>来自 {item.owner}</span>}</li>)}
+            </ul>
+            <div>可以自己关掉它们后再点“立即更新”；或者让 Stacker 结束这些进程后继续更新，正在里面运行的命令会被中断。</div>
+          </>}
+          onClose={() => setInUse(null)}
+          onConfirm={() => { setInUse(null); void installGit(true); }}
+        />
+      )}
       {removeAccount && (
         <ConfirmModal title="移除账号执行环境" icon="ti-trash" danger busy={busy} message={<>将从本机移除 <b>{accountPlatformName(removeAccount)} · {removeAccount.username}</b> 的安全凭据。该操作不会删除远程仓库。</>} confirmLabel={busy ? "移除中…" : "确认移除"} onConfirm={confirmRemoveAccount} onClose={() => setRemoveAccount(null)} />
       )}

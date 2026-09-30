@@ -197,8 +197,14 @@ pub async fn git_check_update(source_id: String) -> Result<GitUpdateInfo, String
 }
 
 #[tauri::command]
-pub async fn git_install(window: tauri::Window, source_id: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || install_git_impl(window, &source_id))
+pub async fn git_install(
+    window: tauri::Window,
+    source_id: String,
+    close_in_use: Option<bool>,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        install_git_impl(window, &source_id, close_in_use.unwrap_or(false))
+    })
         .await
         .map_err(|e| e.to_string())?
 }
@@ -2399,9 +2405,26 @@ fn select_git_installer(assets: &[GitReleaseAsset]) -> Option<&GitReleaseAsset> 
     })
 }
 
-fn install_git_impl(window: tauri::Window, source_id: &str) -> Result<String, String> {
+fn install_git_impl(
+    window: tauri::Window,
+    source_id: &str,
+    close_in_use: bool,
+) -> Result<String, String> {
     crate::installer::op_reset();
     let before = status_snapshot();
+    // The installer cannot replace files that running programs hold, and with message boxes
+    // suppressed it answers its own "close them and retry" with Cancel. Ask before starting.
+    let git_root = before.path.as_deref().and_then(git_install_root);
+    if let Some(root) = &git_root {
+        let running = git_in_use(root);
+        if !running.is_empty() {
+            if !close_in_use {
+                return Err(in_use_error(&running));
+            }
+            let _ = window.emit("install-progress", format!("正在结束 {} 个占用 Git 的进程…", running.len()));
+            end_processes(&running);
+        }
+    }
     let current = before
         .version
         .as_deref()
@@ -2431,6 +2454,15 @@ fn install_git_impl(window: tauri::Window, source_id: &str) -> Result<String, St
         let installer_log = git_installer_temp_log_path(&release.latest)?;
         let install_result = run_git_installer(&window, &installer, system_install, &installer_log);
         absorb_git_installer_log(&installer_log, install_result.is_err());
+        if install_result.is_err() {
+            // Something may have started using Git while the installer ran.
+            if let Some(root) = &git_root {
+                let running = git_in_use(root);
+                if !running.is_empty() {
+                    return Err(in_use_error(&running));
+                }
+            }
+        }
         install_result?;
         let _ = window.emit("install-progress", "正在验证 Git、Git Bash 与 GCM…");
 
@@ -2467,6 +2499,73 @@ fn install_git_impl(window: tauri::Window, source_id: &str) -> Result<String, St
     })();
     let _ = std::fs::remove_file(&installer);
     result
+}
+
+/// A program running from the Git folder: the program, and the one outside Git that started it.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct GitInUse {
+    pub pid: u32,
+    pub name: String,
+    pub owner: String,
+}
+
+/// The folder Git for Windows is installed in, found from its git.exe.
+fn git_install_root(git_exe: &str) -> Option<PathBuf> {
+    Path::new(git_exe)
+        .ancestors()
+        .skip(1)
+        .find(|dir| dir.join("git-bash.exe").is_file() || dir.join("unins000.exe").is_file())
+        .map(Path::to_path_buf)
+}
+
+/// Parses `pid|name|owner` lines.
+fn parse_in_use(text: &str) -> Vec<GitInUse> {
+    text.lines()
+        .filter_map(|line| {
+            let mut parts = line.trim().splitn(3, '|');
+            let pid = parts.next()?.trim().parse().ok()?;
+            let name = parts.next()?.trim().to_string();
+            let owner = parts.next().unwrap_or("").trim().to_string();
+            (!name.is_empty()).then_some(GitInUse { pid, name, owner })
+        })
+        .collect()
+}
+
+fn git_in_use(root: &Path) -> Vec<GitInUse> {
+    let root = format!("{}\\", root.to_string_lossy().trim_end_matches('\\')).replace('\'', "''");
+    let script = format!(
+        "$root='{root}'; $all=@{{}}; Get-CimInstance Win32_Process | ForEach-Object {{ $all[[int]$_.ProcessId]=$_ }}; \
+         function Inside($p){{ $p -and $p.ExecutablePath -and $p.ExecutablePath.StartsWith($root,[StringComparison]::OrdinalIgnoreCase) }}; \
+         foreach($p in $all.Values){{ if(Inside $p){{ $owner=''; $cur=$p; for($i=0;$i -lt 20;$i++){{ $par=$all[[int]$cur.ParentProcessId]; if(-not $par){{break}}; if(-not (Inside $par)){{ $owner=$par.Name; break }}; $cur=$par }}; Write-Output ('{{0}}|{{1}}|{{2}}' -f $p.ProcessId,$p.Name,$owner) }} }}"
+    );
+    let encoded = crate::installer::powershell_encoded_command(&script);
+    run_output(
+        Path::new("powershell.exe"),
+        &["-NoProfile", "-EncodedCommand", &encoded],
+        Duration::from_secs(20),
+    )
+    .map(|output| parse_in_use(&String::from_utf8_lossy(&output.stdout)))
+    .unwrap_or_default()
+}
+
+fn in_use_error(running: &[GitInUse]) -> String {
+    format!(
+        "E_GIT_IN_USE:{}",
+        serde_json::to_string(running).unwrap_or_else(|_| "[]".into())
+    )
+}
+
+/// Ends the programs holding Git's files; only after the user chose to.
+fn end_processes(running: &[GitInUse]) {
+    let ids = running.iter().map(|item| item.pid.to_string()).collect::<Vec<_>>().join(",");
+    let script = format!("Stop-Process -Id {ids} -Force -ErrorAction SilentlyContinue");
+    let encoded = crate::installer::powershell_encoded_command(&script);
+    let _ = run_output(
+        Path::new("powershell.exe"),
+        &["-NoProfile", "-EncodedCommand", &encoded],
+        Duration::from_secs(20),
+    );
+    std::thread::sleep(Duration::from_millis(800));
 }
 
 fn git_installer_temp_log_path(version: &str) -> Result<PathBuf, String> {
@@ -2883,6 +2982,37 @@ fn output_text(out: &Output) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn programs_holding_git_are_read_with_who_started_them() {
+        let text = "57828|bash.exe|claude.exe\r\n53456|sh.exe|\r\nnot a line\r\n";
+        assert_eq!(
+            parse_in_use(text),
+            vec![
+                GitInUse { pid: 57828, name: "bash.exe".into(), owner: "claude.exe".into() },
+                GitInUse { pid: 53456, name: "sh.exe".into(), owner: String::new() },
+            ]
+        );
+        assert!(in_use_error(&parse_in_use(text)).starts_with("E_GIT_IN_USE:[{"));
+    }
+
+    #[test]
+    #[ignore = "reads this machine's processes"]
+    fn programs_holding_git_on_this_machine() {
+        let status = status_snapshot();
+        let root = status.path.as_deref().and_then(git_install_root).expect("git installed");
+        println!("{root:?} {:?}", git_in_use(&root));
+    }
+
+    #[test]
+    fn the_install_folder_is_the_one_holding_git_bash() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("cmd")).unwrap();
+        std::fs::write(dir.path().join("git-bash.exe"), b"").unwrap();
+        let git = dir.path().join("cmd").join("git.exe");
+        assert_eq!(git_install_root(&git.to_string_lossy()), Some(dir.path().to_path_buf()));
+        assert_eq!(git_install_root("Z:/nowhere/cmd/git.exe"), None);
+    }
 
     #[test]
     fn account_environment_is_process_scoped_and_contains_no_secret() {
