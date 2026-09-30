@@ -46,7 +46,10 @@ pub struct Plan {
 }
 
 fn norm(path: &str) -> String {
-    path.trim().replace('/', "\\").trim_end_matches('\\').to_ascii_lowercase()
+    path.trim()
+        .replace('/', "\\")
+        .trim_end_matches('\\')
+        .to_ascii_lowercase()
 }
 
 /// A path that lives in some portable build's own data folder: the only place this cleans up.
@@ -76,7 +79,8 @@ pub fn rewrite(value: &str, old: &str, new: &str) -> String {
         .map(|piece| {
             let piece_norm = piece.replace('/', "\\").to_ascii_lowercase();
             if piece_norm.starts_with(&old_norm)
-                && (piece_norm.len() == old_norm.len() || piece_norm.as_bytes()[old_norm.len()] == b'\\')
+                && (piece_norm.len() == old_norm.len()
+                    || piece_norm.as_bytes()[old_norm.len()] == b'\\')
             {
                 format!("{new}{}", &piece[old.trim_end_matches(['\\', '/']).len()..])
             } else {
@@ -91,7 +95,9 @@ pub fn rewrite(value: &str, old: &str, new: &str) -> String {
 pub fn drop_dead(value: &str, exists: &dyn Fn(&str) -> bool) -> String {
     value
         .split(';')
-        .filter(|piece| piece.trim().is_empty() || !(is_portable_data_path(piece) && !exists(piece)))
+        .filter(|piece| {
+            piece.trim().is_empty() || !(is_portable_data_path(piece) && !exists(piece))
+        })
         .collect::<Vec<_>>()
         .join(";")
 }
@@ -144,7 +150,10 @@ fn env_vars() -> Vec<(bool, String, String)> {
         use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
         use winreg::RegKey;
         let keys = [
-            (false, RegKey::predef(HKEY_CURRENT_USER).open_subkey("Environment")),
+            (
+                false,
+                RegKey::predef(HKEY_CURRENT_USER).open_subkey("Environment"),
+            ),
             (
                 true,
                 RegKey::predef(HKEY_LOCAL_MACHINE)
@@ -166,7 +175,10 @@ fn env_vars() -> Vec<(bool, String, String)> {
 /// Where this build, if it is a portable one, used to keep what it installed.
 fn own_portable_data() -> Option<PathBuf> {
     let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
-    exe_dir.join("portable.flag").is_file().then(|| exe_dir.join("data"))
+    exe_dir
+        .join("portable.flag")
+        .is_file()
+        .then(|| exe_dir.join("data"))
 }
 
 /// Something is at the path: a file, or a folder with anything in it.
@@ -199,11 +211,15 @@ pub fn plan() -> Plan {
     for old in old_roots.iter().map(PathBuf::from) {
         // A tool is one folder; a runtime is a folder per product holding one per version, and
         // each version moves on its own so one already at the destination keeps the others.
-        let units = children(&old.join("tools"))
-            .into_iter()
-            .chain(children(&old.join("runtimes")).into_iter().flat_map(|product| children(&product)));
+        let units = children(&old.join("tools")).into_iter().chain(
+            children(&old.join("runtimes"))
+                .into_iter()
+                .flat_map(|product| children(&product)),
+        );
         for from in units.filter(|path| path.is_dir()) {
-            let Ok(relative) = from.strip_prefix(&old) else { continue };
+            let Ok(relative) = from.strip_prefix(&old) else {
+                continue;
+            };
             let to = new_root.join(relative);
             moves.push(Move {
                 from: from.to_string_lossy().into_owned(),
@@ -300,7 +316,9 @@ pub fn apply() -> Outcome {
 
 #[tauri::command]
 pub async fn tool_relocation_plan() -> Plan {
-    tauri::async_runtime::spawn_blocking(plan).await.unwrap_or_default()
+    tauri::async_runtime::spawn_blocking(plan)
+        .await
+        .unwrap_or_default()
 }
 
 #[tauri::command]
@@ -320,10 +338,16 @@ mod tests {
     #[test]
     fn a_variable_pointing_into_the_old_folder_follows_it() {
         let before = format!(r"{OLD}\runtimes\gradle\gradle-9.8.0");
-        assert_eq!(rewrite(&before, OLD, NEW), format!(r"{NEW}\runtimes\gradle\gradle-9.8.0"));
+        assert_eq!(
+            rewrite(&before, OLD, NEW),
+            format!(r"{NEW}\runtimes\gradle\gradle-9.8.0")
+        );
         // Other pieces of a PATH are untouched, and a lookalike prefix is not a match.
         let path = format!(r"C:\Windows;{OLD}\tools\fnm;{OLD}x\tools\y");
-        assert_eq!(rewrite(&path, OLD, NEW), format!(r"C:\Windows;{NEW}\tools\fnm;{OLD}x\tools\y"));
+        assert_eq!(
+            rewrite(&path, OLD, NEW),
+            format!(r"C:\Windows;{NEW}\tools\fnm;{OLD}x\tools\y")
+        );
     }
 
     #[test]
@@ -338,19 +362,32 @@ mod tests {
     #[test]
     fn the_plan_covers_rewrites_and_removals_at_both_levels() {
         let vars = vec![
-            (true, "GRADLE_HOME".to_string(), format!(r"{OLD}\runtimes\gradle\gradle-9.8.0")),
+            (
+                true,
+                "GRADLE_HOME".to_string(),
+                format!(r"{OLD}\runtimes\gradle\gradle-9.8.0"),
+            ),
             (
                 false,
                 "Path".to_string(),
-                r"C:\Windows;D:\rel\v0.3.4-r10\Stacker-0.3.4-portable-windows-x64\data\tools\fnm".to_string(),
+                r"C:\Windows;D:\rel\v0.3.4-r10\Stacker-0.3.4-portable-windows-x64\data\tools\fnm"
+                    .to_string(),
             ),
-            (false, "JAVA_HOME".to_string(), r"D:\JavaSDKs\jdk-25".to_string()),
+            (
+                false,
+                "JAVA_HOME".to_string(),
+                r"D:\JavaSDKs\jdk-25".to_string(),
+            ),
         ];
         let exists = |p: &str| p.eq_ignore_ascii_case(r"C:\Windows");
         let changes = plan_env(&vars, &[OLD.to_string()], NEW, &exists);
         assert_eq!(changes.len(), 2, "{changes:?}");
-        assert!(changes.iter().any(|c| c.system && c.name == "GRADLE_HOME" && c.after.starts_with(NEW)));
-        assert!(changes.iter().any(|c| !c.system && c.name == "Path" && c.after == r"C:\Windows"));
+        assert!(changes
+            .iter()
+            .any(|c| c.system && c.name == "GRADLE_HOME" && c.after.starts_with(NEW)));
+        assert!(changes
+            .iter()
+            .any(|c| !c.system && c.name == "Path" && c.after == r"C:\Windows"));
     }
 
     #[test]
@@ -368,9 +405,21 @@ mod tests {
     #[test]
     fn other_versions_folders_are_found_through_the_variables() {
         let vars = vec![
-            (true, "GRADLE_HOME".to_string(), format!(r"{OLD}\runtimes\gradle\gradle-9.8.0")),
-            (false, "Path".to_string(), format!(r"{OLD}\runtimes\gradle\gradle-9.8.0\bin;C:\Windows")),
-            (false, "Path".to_string(), r"D:\gone\Stacker-0.3.4-portable-windows-x64\data\tools\fnm".to_string()),
+            (
+                true,
+                "GRADLE_HOME".to_string(),
+                format!(r"{OLD}\runtimes\gradle\gradle-9.8.0"),
+            ),
+            (
+                false,
+                "Path".to_string(),
+                format!(r"{OLD}\runtimes\gradle\gradle-9.8.0\bin;C:\Windows"),
+            ),
+            (
+                false,
+                "Path".to_string(),
+                r"D:\gone\Stacker-0.3.4-portable-windows-x64\data\tools\fnm".to_string(),
+            ),
         ];
         let exists = |p: &str| p.eq_ignore_ascii_case(OLD);
         assert_eq!(live_roots(&vars, &exists), vec![OLD.to_string()]);
@@ -399,7 +448,9 @@ mod tests {
 
     #[test]
     fn only_a_portable_data_folder_counts() {
-        assert!(is_portable_data_path(r"D:\x\Stacker-0.3.4-portable-windows-x64\data\tools\fnm"));
+        assert!(is_portable_data_path(
+            r"D:\x\Stacker-0.3.4-portable-windows-x64\data\tools\fnm"
+        ));
         assert!(!is_portable_data_path(r"D:\data\tools\something"));
         assert!(!is_portable_data_path(r"C:\Program Files\Git\cmd"));
     }

@@ -190,7 +190,10 @@ pub fn run_request(
             Some(model) => format!("{}/{model}", req.backend),
             None => req.backend.clone(),
         };
-        let logged = result.as_ref().map(|output| output.text.clone()).map_err(Clone::clone);
+        let logged = result
+            .as_ref()
+            .map(|output| output.text.clone())
+            .map_err(Clone::clone);
         crate::gateway::requests::record_internal(&label, &logged, started);
         return result;
     }
@@ -278,7 +281,9 @@ fn external_text(protocol: &str, body: &serde_json::Value) -> Option<String> {
             .and_then(|block| block["text"].as_str())
             .map(str::to_string)
     } else {
-        body["choices"][0]["message"]["content"].as_str().map(str::to_string)
+        body["choices"][0]["message"]["content"]
+            .as_str()
+            .map(str::to_string)
     }
 }
 
@@ -502,11 +507,15 @@ mod tests {
     fn the_reasoning_level_reaches_each_protocol_in_its_own_form() {
         let openai = external_body("openai", "o4", "high", "hi");
         assert_eq!(openai["reasoning_effort"], "high");
-        assert!(external_body("openai", "gpt", "", "hi").get("reasoning_effort").is_none());
+        assert!(external_body("openai", "gpt", "", "hi")
+            .get("reasoning_effort")
+            .is_none());
         let anthropic = external_body("anthropic", "claude", "medium", "hi");
         assert_eq!(anthropic["thinking"]["budget_tokens"], 8192);
         assert!(anthropic["max_tokens"].as_u64().unwrap() > 8192);
-        assert!(external_body("anthropic", "claude", "", "hi").get("thinking").is_none());
+        assert!(external_body("anthropic", "claude", "", "hi")
+            .get("thinking")
+            .is_none());
     }
 
     #[test]
@@ -520,7 +529,11 @@ mod tests {
 
     #[test]
     fn an_unknown_reasoning_level_is_refused() {
-        let update = AiUpdate { kind: "none".into(), effort: "turbo".into(), ..Default::default() };
+        let update = AiUpdate {
+            kind: "none".into(),
+            effort: "turbo".into(),
+            ..Default::default()
+        };
         assert_eq!(apply(update).unwrap_err(), "E_AI_EFFORT");
     }
 

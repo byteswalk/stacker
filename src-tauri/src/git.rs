@@ -205,8 +205,8 @@ pub async fn git_install(
     tauri::async_runtime::spawn_blocking(move || {
         install_git_impl(window, &source_id, close_in_use.unwrap_or(false))
     })
-        .await
-        .map_err(|e| e.to_string())?
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -2421,7 +2421,10 @@ fn install_git_impl(
             if !close_in_use {
                 return Err(in_use_error(&running));
             }
-            let _ = window.emit("install-progress", format!("正在结束 {} 个占用 Git 的进程…", running.len()));
+            let _ = window.emit(
+                "install-progress",
+                format!("正在结束 {} 个占用 Git 的进程…", running.len()),
+            );
             end_processes(&running);
         }
     }
@@ -2557,7 +2560,11 @@ fn in_use_error(running: &[GitInUse]) -> String {
 
 /// Ends the programs holding Git's files; only after the user chose to.
 fn end_processes(running: &[GitInUse]) {
-    let ids = running.iter().map(|item| item.pid.to_string()).collect::<Vec<_>>().join(",");
+    let ids = running
+        .iter()
+        .map(|item| item.pid.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
     let script = format!("Stop-Process -Id {ids} -Force -ErrorAction SilentlyContinue");
     let encoded = crate::installer::powershell_encoded_command(&script);
     let _ = run_output(
@@ -2989,8 +2996,16 @@ mod tests {
         assert_eq!(
             parse_in_use(text),
             vec![
-                GitInUse { pid: 57828, name: "bash.exe".into(), owner: "claude.exe".into() },
-                GitInUse { pid: 53456, name: "sh.exe".into(), owner: String::new() },
+                GitInUse {
+                    pid: 57828,
+                    name: "bash.exe".into(),
+                    owner: "claude.exe".into()
+                },
+                GitInUse {
+                    pid: 53456,
+                    name: "sh.exe".into(),
+                    owner: String::new()
+                },
             ]
         );
         assert!(in_use_error(&parse_in_use(text)).starts_with("E_GIT_IN_USE:[{"));
@@ -3000,7 +3015,11 @@ mod tests {
     #[ignore = "reads this machine's processes"]
     fn programs_holding_git_on_this_machine() {
         let status = status_snapshot();
-        let root = status.path.as_deref().and_then(git_install_root).expect("git installed");
+        let root = status
+            .path
+            .as_deref()
+            .and_then(git_install_root)
+            .expect("git installed");
         println!("{root:?} {:?}", git_in_use(&root));
     }
 
@@ -3010,7 +3029,10 @@ mod tests {
         std::fs::create_dir_all(dir.path().join("cmd")).unwrap();
         std::fs::write(dir.path().join("git-bash.exe"), b"").unwrap();
         let git = dir.path().join("cmd").join("git.exe");
-        assert_eq!(git_install_root(&git.to_string_lossy()), Some(dir.path().to_path_buf()));
+        assert_eq!(
+            git_install_root(&git.to_string_lossy()),
+            Some(dir.path().to_path_buf())
+        );
         assert_eq!(git_install_root("Z:/nowhere/cmd/git.exe"), None);
     }
 

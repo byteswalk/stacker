@@ -36,11 +36,11 @@ mod settings;
 mod sources;
 mod space_analysis;
 mod storage;
+mod tool_relocation;
 pub mod update;
 mod versions;
 mod webchat;
 mod winadmin;
-mod tool_relocation;
 mod winenv;
 /// The smallest the main window may be, in logical pixels: every page is drawn for it.
 const MIN_WINDOW: (f64, f64) = (1280.0, 720.0);
