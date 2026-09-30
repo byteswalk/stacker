@@ -37,10 +37,12 @@ pub(crate) fn cli_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurface {
         .and_then(|info| info.version.clone())
         .map(|text| {
             // "Hermes Agent v0.18.2 (2026.7.7.2) · upstream 524041b9 · local …" → "0.18.2"
-            if spec.vendor == Vendor::Hermes {
-                first_semver(&text).unwrap_or(text)
-            } else {
-                text
+            match spec.vendor {
+                Vendor::Hermes | Vendor::Kiro | Vendor::Factory | Vendor::MiniMax => {
+                    first_semver(&text).unwrap_or(text)
+                }
+                Vendor::Cursor => cursor_build(&text).unwrap_or(text),
+                _ => text,
             }
         });
     let broken_reason = effective
@@ -268,6 +270,18 @@ pub(crate) fn detect_install_method(spec: &ToolSpec, program: Option<&Path>) -> 
     if spec.vendor == Vendor::Xai && p.contains("\\.grok\\") {
         return Some("native".into());
     }
+    if spec.vendor == Vendor::Cursor && p.contains("\\appdata\\local\\cursor-agent\\") {
+        return Some("native".into());
+    }
+    if spec.vendor == Vendor::Factory && p.ends_with("\\bin\\droid.exe") {
+        return Some("native".into());
+    }
+    if spec.vendor == Vendor::Kiro && p.contains("\\kiro-cli\\") {
+        return Some("msi".into());
+    }
+    if spec.vendor == Vendor::MiniMax && p.contains("\\.minimax-code\\") {
+        return Some("native".into());
+    }
     if spec.vendor == Vendor::MiMo && p.contains("\\.mimocode\\bin\\") {
         return Some("native".into());
     }
@@ -381,6 +395,9 @@ pub(crate) fn first_semver(text: &str) -> Option<String> {
 pub(crate) enum CliSource {
     Winget(&'static str),
     MimoRelease,
+    /// The version an official installer script pins (Cursor, Factory).
+    Script(&'static str),
+    KiroManifest,
     /// `pyproject.toml` on the branch `hermes update` pulls.
     HermesRepo,
     Npm(&'static str),
@@ -401,6 +418,12 @@ pub(crate) fn cli_source(spec: &ToolSpec, method: Option<&str>) -> CliSource {
     if method == Some("native") && spec.vendor == Vendor::MiMo {
         return CliSource::MimoRelease;
     }
+    match spec.vendor {
+        Vendor::Cursor => return CliSource::Script(CURSOR_CLI_SCRIPT),
+        Vendor::Factory => return CliSource::Script(FACTORY_CLI_SCRIPT),
+        Vendor::Kiro => return CliSource::KiroManifest,
+        _ => {}
+    }
     if method == Some("native") && spec.vendor == Vendor::Claude {
         return CliSource::None;
     }
@@ -416,12 +439,76 @@ pub(crate) fn latest_for_cli(spec: &ToolSpec, method: Option<&str>) -> LatestLoo
     match cli_source(spec, method) {
         CliSource::Winget(id) => winget_latest(id, None).map(|version| Some((version, "WinGet"))),
         CliSource::MimoRelease => mimo_latest().map(|version| Some((version, "MiMo 官方发布"))),
+        CliSource::Script(url) => script_latest(url)
+            .map(|version| Some((cursor_build(&version).unwrap_or(version), "官方安装脚本"))),
+        CliSource::KiroManifest => kiro_latest().map(|version| Some((version, "Kiro 官方发布"))),
         CliSource::HermesRepo => {
             super::feeds::hermes_cli_latest().map(|version| Some((version, "Hermes 官方仓库")))
         }
         CliSource::Npm(pkg) => npm_latest(pkg).map(|version| Some((version, "npm"))),
         CliSource::None => Ok(None),
     }
+}
+
+/// The build Cursor's installer script pins, e.g. `$version = '2026.09.28-64d2043'`.
+pub(crate) const CURSOR_CLI_SCRIPT: &str = "https://cursor.com/install?win32=true";
+/// The version Factory's installer script pins, e.g. `$version = "0.230.0"`.
+pub(crate) const FACTORY_CLI_SCRIPT: &str = "https://app.factory.ai/cli/windows";
+/// The manifest Kiro's installer reads its version from.
+pub(crate) const KIRO_CLI_MANIFEST: &str =
+    "https://prod.download.cli.kiro.dev/stable/latest/manifest.json";
+
+/// The value of the first `$version = '…'` (or `"…"`) assignment in an installer script.
+pub(crate) fn script_version(script: &str) -> Option<String> {
+    let at = script.find("$version")?;
+    let rest = script[at + "$version".len()..]
+        .trim_start()
+        .strip_prefix('=')?
+        .trim_start();
+    let quote = rest.chars().next().filter(|ch| *ch == '\'' || *ch == '"')?;
+    let value = rest[1..].split(quote).next()?.trim();
+    (!value.is_empty()).then(|| value.to_string())
+}
+
+/// Cursor numbers its CLI by build date plus a commit, `2026.09.28-64d2043`; only the date
+/// orders builds, so the commit is left off before comparing.
+pub(crate) fn cursor_build(text: &str) -> Option<String> {
+    text.split(|ch: char| ch.is_whitespace() || ch == '-')
+        .map(|word| word.trim_start_matches(['v', 'V']))
+        .find(|word| {
+            let parts: Vec<&str> = word.split('.').collect();
+            parts.len() == 3
+                && parts[0].len() == 4
+                && parts
+                    .iter()
+                    .all(|part| !part.is_empty() && part.chars().all(|ch| ch.is_ascii_digit()))
+        })
+        .map(str::to_string)
+}
+
+fn fetch_text(url: &str) -> Result<String, String> {
+    ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(4))
+        .timeout_read(Duration::from_secs(8))
+        .build()
+        .get(url)
+        .call()
+        .map_err(|e| format!("查询最新版本失败：{e}"))?
+        .into_string()
+        .map_err(|e| format!("查询最新版本失败：{e}"))
+}
+
+pub(crate) fn script_latest(url: &str) -> Result<String, String> {
+    script_version(&fetch_text(url)?).ok_or_else(|| "官方安装脚本里没有版本号".to_string())
+}
+
+pub(crate) fn kiro_latest() -> Result<String, String> {
+    let manifest: Value =
+        serde_json::from_str(&fetch_text(KIRO_CLI_MANIFEST)?).map_err(|e| e.to_string())?;
+    manifest["version"]
+        .as_str()
+        .map(str::to_string)
+        .ok_or_else(|| "Kiro 的发布清单里没有版本号".to_string())
 }
 
 /// Latest MiMo Code release published on Xiaomi's CDN (plain text, e.g. `v0.1.14`).
@@ -822,16 +909,58 @@ pub(crate) fn desktop_registry(_: &DesktopSpec) -> Option<DesktopFound> {
 
 pub(crate) fn desktop_start_menu_shortcut(spec: &DesktopSpec) -> Option<DesktopFound> {
     for root in start_menu_roots() {
-        if let Some(path) = find_shortcut_recursive(&root, spec.keywords, spec.excludes, 4) {
+        if let Some(shortcut) = find_shortcut_recursive(&root, spec.keywords, spec.excludes, 4) {
+            // An app with no uninstall entry (unpacked to a folder of the user's choosing) is
+            // found only through its shortcut; the program it points to carries the version.
+            // A shortcut left behind by an uninstall points at nothing and counts for nothing.
+            let target = shortcut_target(&shortcut);
+            if target.as_deref().is_some_and(|target| !target.exists()) {
+                continue;
+            }
+            let target = target.filter(|target| {
+                target
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("exe"))
+                    && target.is_file()
+            });
+            let version = target.as_deref().and_then(desktop_executable_version);
             return Some(DesktopFound {
-                path: Some(path),
-                version: None,
+                path: Some(target.unwrap_or(shortcut)),
+                version,
                 method: Some("shortcut".into()),
                 uninstall: None,
                 launch: None,
             });
         }
     }
+    None
+}
+
+/// The program a `.lnk` shortcut starts.
+#[cfg(windows)]
+fn shortcut_target(shortcut: &Path) -> Option<PathBuf> {
+    let path = ps_single_quoted(&shortcut.to_string_lossy());
+    let script = format!(
+        "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; (New-Object -ComObject WScript.Shell).CreateShortcut({path}).TargetPath"
+    );
+    let output = run_powershell(
+        &[
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            &script,
+        ],
+        "读取快捷方式",
+        Duration::from_secs(5),
+    )
+    .ok()?;
+    let target = output.trim();
+    (!target.is_empty()).then(|| PathBuf::from(target))
+}
+
+#[cfg(not(windows))]
+fn shortcut_target(_: &Path) -> Option<PathBuf> {
     None
 }
 
@@ -1282,6 +1411,86 @@ mod tests {
         assert!(is_community_grok(Path::new(
             "C:\\Users\\me\\.bun\\bin\\grok.exe"
         )));
+    }
+
+    #[test]
+    fn an_installer_script_names_the_version_it_installs() {
+        assert_eq!(
+            script_version("$downloadUrl = 'x'\n$version = '2026.09.28-64d2043'\nfunction"),
+            Some("2026.09.28-64d2043".into())
+        );
+        assert_eq!(
+            script_version("$binaryName = \"droid.exe\"\n$version = \"0.230.0\"\n"),
+            Some("0.230.0".into())
+        );
+        assert_eq!(script_version("$Version = $manifest.version"), None);
+    }
+
+    #[test]
+    fn a_cursor_build_is_compared_by_its_date() {
+        assert_eq!(
+            cursor_build("2026.09.28-64d2043"),
+            Some("2026.09.28".into())
+        );
+        assert_eq!(
+            cursor_build("cursor-agent 2026.10.02-a1b2c3d"),
+            Some("2026.10.02".into())
+        );
+        assert_eq!(cursor_build("1.2.3"), None);
+        assert!(crate::update::ver_lt("2026.09.28", "2026.10.02"));
+    }
+
+    #[test]
+    fn script_installed_clis_read_their_version_where_the_script_does() {
+        assert_eq!(
+            cli_source(&spec("cursor"), Some("native")),
+            CliSource::Script(CURSOR_CLI_SCRIPT)
+        );
+        assert_eq!(
+            cli_source(&spec("factory"), Some("native")),
+            CliSource::Script(FACTORY_CLI_SCRIPT)
+        );
+        assert_eq!(
+            cli_source(&spec("kiro"), Some("msi")),
+            CliSource::KiroManifest
+        );
+        assert_eq!(
+            cli_source(&spec("minimax-cn"), Some("native")),
+            CliSource::Npm("@minimax-ai/code")
+        );
+    }
+
+    #[test]
+    fn script_installs_are_told_apart_by_where_they_live() {
+        let method = |id: &str, path: &str| detect_install_method(&spec(id), Some(Path::new(path)));
+        assert_eq!(
+            method(
+                "cursor",
+                r"C:\Users\me\AppData\Local\cursor-agent\cursor-agent.cmd"
+            )
+            .as_deref(),
+            Some("native")
+        );
+        assert_eq!(
+            method("factory", r"C:\Users\me\bin\droid.exe").as_deref(),
+            Some("native")
+        );
+        assert_eq!(
+            method("kiro", r"C:\Program Files\Kiro-Cli\kiro-cli.exe").as_deref(),
+            Some("msi")
+        );
+        assert_eq!(
+            method("minimax-global", r"C:\Users\me\.minimax-code\mcode.cmd").as_deref(),
+            Some("native")
+        );
+    }
+
+    #[test]
+    #[ignore = "reads the vendors' live release sources"]
+    fn script_installed_clis_have_a_live_latest_version() {
+        println!("cursor {:?}", script_latest(CURSOR_CLI_SCRIPT));
+        println!("factory {:?}", script_latest(FACTORY_CLI_SCRIPT));
+        println!("kiro {:?}", kiro_latest());
     }
 
     #[test]

@@ -59,6 +59,10 @@ pub(crate) fn install_cli_tool(
         Vendor::Hermes => install_hermes(window),
         Vendor::Pi => install_or_update_pi(None, window),
         Vendor::Xai => install_or_update_grok_cli(window, "安装"),
+        Vendor::Cursor => install_or_update_cursor_cli(window, "安装"),
+        Vendor::Factory => install_or_update_droid_cli(window, "安装"),
+        Vendor::Kiro => install_or_update_kiro_cli(window, "安装"),
+        Vendor::MiniMax => install_or_update_mcode(window, "安装"),
         _ => {
             if let Some(pkg) = spec.cli.npm_package {
                 npm_install_latest(pkg, None, window)?;
@@ -179,6 +183,12 @@ pub(crate) fn update_cli_tool(
         }
         Vendor::Pi => install_or_update_pi(program.as_deref(), window),
         Vendor::Xai => install_or_update_grok_cli(window, "更新"),
+        Vendor::Cursor => install_or_update_cursor_cli(window, "更新"),
+        Vendor::Factory => install_or_update_droid_cli(window, "更新"),
+        Vendor::Kiro => install_or_update_kiro_cli(window, "更新"),
+        Vendor::MiniMax if method.as_deref() == Some("native") => {
+            install_or_update_mcode(window, "更新")
+        }
         Vendor::MiMo if method.as_deref() == Some("native") => {
             install_or_update_mimo_native(window)
         }
@@ -273,6 +283,45 @@ pub(crate) fn uninstall_cli_tool(
                 Duration::from_secs(900),
             )?;
             Ok(format!("{} 已通过 Chocolatey 卸载", spec.cli.name))
+        }
+        Some("native") if matches!(spec.vendor, Vendor::Cursor | Vendor::MiniMax) => {
+            let program = program.ok_or_else(|| "未找到可卸载的命令入口。".to_string())?;
+            let folder = if spec.vendor == Vendor::Cursor {
+                "cursor-agent"
+            } else {
+                ".minimax-code"
+            };
+            emit_progress(window, format!("正在移除 {} 的安装目录…", spec.cli.name));
+            remove_installer_dir(&program, folder)?;
+            Ok(format!(
+                "{} 已卸载，登录配置和历史数据已保留。",
+                spec.cli.name
+            ))
+        }
+        // Kiro CLI is a per-machine MSI: its own uninstaller, which asks for administrator rights.
+        Some("msi") => {
+            let entry = DesktopSpec {
+                name: "",
+                description: "",
+                winget_id: None,
+                winget_source: None,
+                appx_names: &[],
+                install_url: "",
+                docs_url: "",
+                keywords: &["kiro cli", "kiro-cli"],
+                excludes: &[],
+                install_unavailable_reason: None,
+                reject_sibling_files: &[],
+            };
+            let uninstall = desktop_registry(&entry)
+                .and_then(|found| found.uninstall)
+                .ok_or("没找到 Kiro CLI 的卸载程序，请在系统“应用”设置里卸载。")?;
+            emit_progress(
+                window,
+                "正在启动 Kiro CLI 卸载程序，Windows 会请求管理员授权…",
+            );
+            run_uninstall_string(&uninstall)?;
+            Ok("已启动 Kiro CLI 卸载程序，按提示完成即可".into())
         }
         Some("native") => {
             let program = program.ok_or_else(|| "未找到可卸载的命令入口。".to_string())?;
