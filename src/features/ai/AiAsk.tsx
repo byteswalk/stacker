@@ -5,7 +5,7 @@ import { Modal } from "../../ui";
 import { aiError } from "./AiSettings";
 
 /** One of the questions a page can put to the AI source; see `ai_features.rs`. */
-export type AiKind = "install_failure" | "checkup" | "toolchain" | "disk_batch" | "gateway_error" | "proxy";
+export type AiKind = "install_failure" | "checkup" | "toolchain" | "disk_batch" | "gateway_error" | "proxy" | "lan_address";
 
 export const askAi = (kind: AiKind, payload: unknown) => invoke<string>("ai_ask", { kind, payload });
 

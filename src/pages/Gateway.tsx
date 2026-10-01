@@ -4,9 +4,10 @@ import { useI18n } from "../i18n";
 import { useToast, ErrorState, Loading } from "../ui";
 import { GatewayAgents } from "../features/gateway/GatewayAgents";
 import { FoldCard } from "../features/gateway/Fold";
+import { LanAddresses, type LanAddress } from "../features/gateway/LanAddresses";
 
 type LogEntry = { at: number; endpoint: string; model: string; status: number; elapsedMs: number };
-type Status = { enabled: boolean; running: boolean; port: number; token: string; error: string; recent: LogEntry[]; logEnabled: boolean; logRetentionDays: number; lanAccess: boolean; addresses: string[] };
+type Status = { enabled: boolean; running: boolean; port: number; token: string; error: string; recent: LogEntry[]; logEnabled: boolean; logRetentionDays: number; lanAccess: boolean; addresses: LanAddress[] };
 
 const ERRORS: Record<string, string> = { E_PORT: "端口被占用或无效（需 1024–65535），请换一个端口。" };
 
@@ -80,8 +81,8 @@ export default function Gateway() {
   const key = showKey ? status.token : `${status.token.slice(0, 14)}••••••••••••`;
   const EXAMPLES = {
     curl: `curl ${base}/v1/chat/completions \\\n  -H "Authorization: Bearer ${status.token}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"model":"claude/sonnet","reasoning_effort":"high","messages":[{"role":"user","content":"Hello"}]}'`,
-    openai: `from openai import OpenAI\n\nclient = OpenAI(base_url="${base}/v1", api_key="${status.token}")\nreply = client.chat.completions.create(\n    model="codex",\n    reasoning_effort="high",  # 推理强度：省略则用页面上为该智能体设定的默认\n    messages=[{"role": "user", "content": "Hello"}],\n)\nprint(reply.choices[0].message.content)`,
-    anthropic: `from anthropic import Anthropic\n\nclient = Anthropic(base_url="${base}", api_key="${status.token}")\nreply = client.messages.create(\n    model="claude/sonnet", max_tokens=1024,\n    # Anthropic 风格的请求没有推理强度字段，用页面上为该智能体设定的默认\n    messages=[{"role": "user", "content": "Hello"}],\n)\nprint(reply.content[0].text)`,
+    openai: `from openai import OpenAI\n\nclient = OpenAI(base_url="${base}/v1", api_key="${status.token}")\nreply = client.chat.completions.create(\n    model="codex",\n    reasoning_effort="high",  # 推理强度：省略则由智能体自己决定\n    messages=[{"role": "user", "content": "Hello"}],\n)\nprint(reply.choices[0].message.content)`,
+    anthropic: `from anthropic import Anthropic\n\nclient = Anthropic(base_url="${base}", api_key="${status.token}")\nreply = client.messages.create(\n    model="claude/sonnet", max_tokens=1024,\n    output_config={"effort": "high"},  # 推理强度：省略则由智能体自己决定\n    messages=[{"role": "user", "content": "Hello"}],\n)\nprint(reply.content[0].text)`,
   };
 
   return (
@@ -118,12 +119,7 @@ export default function Gateway() {
           <label className="sw"><input type="checkbox" checked={status.lanAccess} disabled={busy} onChange={(e) => void setLan(e.target.checked)} /><span className="tk" /></label>
         </div>
         {status.lanAccess && <div className="gw-rows gw-lan-rows">
-          {status.addresses.map((address) => <div key={address}>
-            <span>{t("局域网地址")}</span>
-            <code>{`http://${address}:${status.port}`}</code>
-            <button className="gh sm" onClick={() => void copy(`http://${address}:${status.port}`)}><i className="ti ti-copy" /></button>
-          </div>)}
-          {!status.addresses.length && <div><span>{t("局域网地址")}</span><code>{t("未读到本机的网络地址")}</code></div>}
+          <LanAddresses addresses={status.addresses} port={status.port} onCopy={(text) => void copy(text)} />
           <div className="gw-tips">
             <div className="gw-tip">
               <i className="ti ti-route" />

@@ -90,6 +90,14 @@ pub fn prompt(kind: &str, payload: &Value) -> Result<String, String> {
              并给出排查顺序。{STYLE}",
             state = json(payload),
         ),
+        "lan_address" => format!(
+            "你是网络顾问。这台 Windows 电脑在局域网里开了一个 HTTP 接口服务，端口 {port}。\
+             下面是它的全部地址和对应网卡（JSON）：\n{addresses}\n\n\
+             请逐个说明每个地址来自什么网卡、哪种设备能用它访问（同一路由器下的手机电脑、本机虚拟机、\
+             同一 Tailscale 网络的设备等），以及哪些基本用不上；最后给出一般情况下首选哪个。{STYLE}",
+            port = field(payload, "port"),
+            addresses = json(payload.get("addresses").unwrap_or(&Value::Null)),
+        ),
         _ => return Err("E_AI_KIND".into()),
     };
     Ok(text)
