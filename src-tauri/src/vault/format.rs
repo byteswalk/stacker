@@ -149,6 +149,22 @@ pub(crate) fn write(path: &Path, bytes: &[u8], expected: Option<&Snapshot>) -> R
     Ok(snapshot_of(bytes))
 }
 
+/// A write that changes who can open the vault (new password or recovery key): the backup must
+/// hold the new bytes too, or the retired credential would still open the vault through it.
+pub(crate) fn write_rekeyed(path: &Path, bytes: &[u8], expected: Option<&Snapshot>) -> Result<Snapshot, String> {
+    let snapshot = write(path, bytes, expected)?;
+    let backup = backup_path(path);
+    let tmp = path.with_extension("skv.bak.tmp");
+    {
+        use std::io::Write;
+        let mut file = std::fs::File::create(&tmp).map_err(|_| IO.to_string())?;
+        file.write_all(bytes).map_err(|_| IO.to_string())?;
+        file.sync_all().map_err(|_| IO.to_string())?;
+    }
+    std::fs::rename(&tmp, &backup).map_err(|_| IO.to_string())?;
+    Ok(snapshot)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -227,6 +243,17 @@ mod tests {
         std::fs::write(&path, b"edited elsewhere").unwrap();
         assert_eq!(write(&path, b"three", Some(&second)).err().unwrap(), CHANGED);
         assert_eq!(std::fs::read(&path).unwrap(), b"edited elsewhere");
+    }
+
+    #[test]
+    fn a_rekeyed_write_leaves_the_new_bytes_in_the_backup() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("vault.skv");
+        let first = write(&path, b"one", None).unwrap();
+        write_rekeyed(&path, b"two", Some(&first)).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"two");
+        assert_eq!(std::fs::read(backup_path(&path)).unwrap(), b"two");
+        assert!(!path.with_extension("skv.bak.tmp").exists());
     }
 
     #[test]

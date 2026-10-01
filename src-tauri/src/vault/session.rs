@@ -66,11 +66,20 @@ pub(crate) struct Status {
     pub pending: bool,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase", tag = "kind", content = "value")]
 pub(crate) enum Credential {
     Password(String),
     Recovery(String),
+}
+
+impl std::fmt::Debug for Credential {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Credential::Password(_) => f.write_str("Password(<redacted>)"),
+            Credential::Recovery(_) => f.write_str("Recovery(<redacted>)"),
+        }
+    }
 }
 
 pub(crate) struct Vault {
@@ -125,6 +134,21 @@ fn register_failure(inner: &mut Inner) {
 
 pub(crate) fn replace_body(open: &mut Open, next: Body) {
     std::mem::replace(&mut open.body, next).zeroize();
+}
+
+/// Where a retired vault and its backup go: `vault-<stamp>[-n].skv.old` / `.skv.bak.old`,
+/// with the smallest `n` that overwrites nothing.
+fn old_names(vault_path: &Path, stamp: &str) -> (PathBuf, PathBuf) {
+    let mut n = 0;
+    loop {
+        let stem = if n == 0 { format!("vault-{stamp}") } else { format!("vault-{stamp}-{n}") };
+        let main = vault_path.with_file_name(format!("{stem}.skv.old"));
+        let backup = vault_path.with_file_name(format!("{stem}.skv.bak.old"));
+        if !main.exists() && !backup.exists() {
+            return (main, backup);
+        }
+        n += 1;
+    }
 }
 
 type Unwrapper<'a> = &'a dyn Fn(&Header) -> Result<Option<SecretKey>, String>;
@@ -190,9 +214,31 @@ impl Vault {
         body: &Body,
         expected: Option<&Snapshot>,
     ) -> Result<Snapshot, String> {
+        self.save(header, dek, body, expected, format::write)
+    }
+
+    /// For writes that change a credential: the backup gets the new bytes as well.
+    fn write_body_rekeyed(
+        &self,
+        header: &Header,
+        dek: &[u8; 32],
+        body: &Body,
+        expected: Option<&Snapshot>,
+    ) -> Result<Snapshot, String> {
+        self.save(header, dek, body, expected, format::write_rekeyed)
+    }
+
+    fn save(
+        &self,
+        header: &Header,
+        dek: &[u8; 32],
+        body: &Body,
+        expected: Option<&Snapshot>,
+        write: fn(&Path, &[u8], Option<&Snapshot>) -> Result<Snapshot, String>,
+    ) -> Result<Snapshot, String> {
         let plain = Zeroizing::new(serde_json::to_vec(body).map_err(|_| IO.to_string())?);
         let bytes = format::encode(header, dek, &plain)?;
-        format::write(&self.path, &bytes, expected)
+        write(&self.path, &bytes, expected)
     }
 
     /// Reads the vault; when the file itself is damaged, the backup is tried with the same
@@ -247,7 +293,7 @@ impl Vault {
                 }
                 let header = self.header_for(&dek, &password, &recovery)?;
                 let body = Body::default();
-                let snapshot = self.write_body(&header, &dek, &body, None)?;
+                let snapshot = self.write_body_rekeyed(&header, &dek, &body, None)?;
                 inner.phase = Phase::Unlocked(Open { dek, header, body, snapshot });
             }
             Pending::Rotate { password, recovery } => {
@@ -257,7 +303,7 @@ impl Vault {
                     Phase::Recovering(open) | Phase::Unlocked(open) => open,
                     Phase::Locked => return Err(LOCKED.into()),
                 };
-                let snapshot = self.write_body(&header, &dek, &open.body, Some(&open.snapshot))?;
+                let snapshot = self.write_body_rekeyed(&header, &dek, &open.body, Some(&open.snapshot))?;
                 let body = std::mem::take(&mut open.body);
                 inner.phase = Phase::Unlocked(Open { dek, header, body, snapshot });
             }
@@ -286,9 +332,16 @@ impl Vault {
         inner.failures = 0;
         inner.pending = None;
         let mut purged = open.body.clone();
+        // A failed purge write must not keep the user out: they unlock with the old body and
+        // the purge is retried at the next unlock.
         if super::model::purge_expired(&mut purged, now_ms()) {
-            open.snapshot = self.write_body(&open.header, &open.dek, &purged, Some(&open.snapshot))?;
-            replace_body(&mut open, purged);
+            match self.write_body(&open.header, &open.dek, &purged, Some(&open.snapshot)) {
+                Ok(snapshot) => {
+                    open.snapshot = snapshot;
+                    replace_body(&mut open, purged);
+                }
+                Err(_) => purged.zeroize(),
+            }
         } else {
             purged.zeroize();
         }
@@ -341,8 +394,11 @@ impl Vault {
         }
         let mut header = open.header.clone();
         header.password = Wrap::new(next.as_bytes(), &open.dek, header.kdf)?;
-        open.snapshot = self.write_body(&header, &open.dek, &open.body, Some(&open.snapshot))?;
+        open.snapshot = self.write_body_rekeyed(&header, &open.dek, &open.body, Some(&open.snapshot))?;
         open.header = header;
+        // A rotation waiting for confirmation carries the old password; confirming it later would
+        // write that password back.
+        inner.pending = None;
         inner.failures = 0;
         inner.last_activity = Instant::now();
         Ok(())
@@ -405,9 +461,13 @@ impl Vault {
         if !self.path.exists() {
             return Err(MISSING.into());
         }
-        let name = format!("vault-{}.skv.old", chrono::Local::now().format("%Y%m%d-%H%M%S"));
-        let target = self.path.with_file_name(name);
+        let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
+        let (target, backup_target) = old_names(&self.path, &stamp);
         std::fs::rename(&self.path, &target).map_err(|_| IO.to_string())?;
+        let backup = format::backup_path(&self.path);
+        if backup.exists() {
+            std::fs::rename(&backup, &backup_target).map_err(|_| IO.to_string())?;
+        }
         Ok(target.display().to_string())
     }
 }
@@ -575,5 +635,113 @@ mod tests {
         let garbage = elsewhere.path().join("garbage.skv");
         std::fs::write(&garbage, b"nothing").unwrap();
         assert_eq!(fresh(&tempfile::tempdir().unwrap()).restore_backup(&garbage).err().unwrap(), CORRUPT);
+    }
+
+    fn corrupt_main_file(vault: &Vault) {
+        std::fs::write(&vault.path, b"not a vault at all").unwrap();
+    }
+
+    #[test]
+    fn the_retired_recovery_key_does_not_open_the_backup() {
+        let dir = tempfile::tempdir().unwrap();
+        let (vault, old) = created(&dir);
+        let next = vault.reset_recovery(PW).unwrap();
+        vault.confirm_recovery(crypto::last_group(&next)).unwrap();
+        vault.lock();
+        corrupt_main_file(&vault);
+        assert_eq!(vault.unlock_recovery(&old).err().unwrap(), RECOVERY);
+        vault.unlock_recovery(&next).unwrap();
+    }
+
+    #[test]
+    fn the_retired_password_does_not_open_the_backup() {
+        let dir = tempfile::tempdir().unwrap();
+        let (vault, _) = created(&dir);
+        vault.change_password(PW, PW2).unwrap();
+        vault.lock();
+        corrupt_main_file(&vault);
+        assert_eq!(vault.unlock(PW).err().unwrap(), PASSWORD);
+        vault.unlock(PW2).unwrap();
+    }
+
+    #[test]
+    fn changing_the_password_drops_a_pending_rotation() {
+        let dir = tempfile::tempdir().unwrap();
+        let (vault, _) = created(&dir);
+        let next = vault.reset_recovery(PW).unwrap();
+        vault.change_password(PW, PW2).unwrap();
+        assert!(!vault.status().pending);
+        assert_eq!(vault.confirm_recovery(crypto::last_group(&next)).err().unwrap(), NO_PENDING);
+        vault.lock();
+        assert_eq!(vault.unlock(PW).err().unwrap(), PASSWORD);
+        vault.unlock(PW2).unwrap();
+    }
+
+    #[test]
+    fn an_abandoned_recovery_leaves_the_file_and_the_old_key_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let (vault, recovery) = created(&dir);
+        vault.lock();
+        let before = format::current_snapshot(&vault.path);
+        vault.unlock_recovery(&recovery).unwrap();
+        vault.recovery_set_password(PW2).unwrap();
+        vault.cancel_pending();
+        assert_eq!(format::current_snapshot(&vault.path), before);
+        vault.unlock_recovery(&recovery).unwrap();
+    }
+
+    #[test]
+    fn an_abandoned_rotation_leaves_the_file_and_the_old_key_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let (vault, recovery) = created(&dir);
+        let before = format::current_snapshot(&vault.path);
+        vault.reset_recovery(PW).unwrap();
+        vault.cancel_pending();
+        assert_eq!(format::current_snapshot(&vault.path), before);
+        vault.reset_recovery(PW).unwrap();
+        vault.lock();
+        assert_eq!(format::current_snapshot(&vault.path), before);
+        vault.unlock_recovery(&recovery).unwrap();
+    }
+
+    #[test]
+    fn reset_renames_the_backup_alongside_and_never_overwrites() {
+        let dir = tempfile::tempdir().unwrap();
+        let (vault, _) = created(&dir);
+        let next = vault.reset_recovery(PW).unwrap();
+        vault.confirm_recovery(crypto::last_group(&next)).unwrap();
+        assert!(format::backup_path(&vault.path).exists());
+        let first = vault.reset().unwrap();
+        assert!(!format::backup_path(&vault.path).exists());
+        assert!(std::path::Path::new(&first.replace(".skv.old", ".skv.bak.old")).exists());
+        // The same second again: the earlier files must survive.
+        vault.restore_backup(std::path::Path::new(&first)).unwrap();
+        let second = vault.reset().unwrap();
+        assert_ne!(first, second);
+        assert!(std::path::Path::new(&first).exists());
+        assert!(std::path::Path::new(&second).exists());
+    }
+
+    #[test]
+    fn old_names_skip_what_already_exists() {
+        let dir = tempfile::tempdir().unwrap();
+        let vault_path = dir.path().join("vault.skv");
+        let (main, backup) = old_names(&vault_path, "20260101-000000");
+        assert_eq!(main.file_name().unwrap(), "vault-20260101-000000.skv.old");
+        assert_eq!(backup.file_name().unwrap(), "vault-20260101-000000.skv.bak.old");
+        std::fs::write(&main, b"x").unwrap();
+        assert_eq!(old_names(&vault_path, "20260101-000000").0.file_name().unwrap(), "vault-20260101-000000-1.skv.old");
+        std::fs::write(dir.path().join("vault-20260101-000000-1.skv.bak.old"), b"x").unwrap();
+        std::fs::write(dir.path().join("vault-20260101-000000-1.skv.old"), b"x").unwrap();
+        let (main, backup) = old_names(&vault_path, "20260101-000000");
+        assert_eq!(main.file_name().unwrap(), "vault-20260101-000000-2.skv.old");
+        assert_eq!(backup.file_name().unwrap(), "vault-20260101-000000-2.skv.bak.old");
+    }
+
+    #[test]
+    fn credentials_never_print_their_values() {
+        let shown = format!("{:?} {:?}", Credential::Password("hunter2-hunter2".into()), Credential::Recovery("ABCD".into()));
+        assert!(!shown.contains("hunter2") && !shown.contains("ABCD"));
+        assert!(shown.contains("Password") && shown.contains("Recovery"));
     }
 }
