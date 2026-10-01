@@ -25,8 +25,8 @@ describe("vault English copy", () => {
 
   it("translates the texts built from template pieces around a number", () => {
     expect(en("已导入 3 项。原文件未做任何改动。")).toBe("Imported 3 item(s). The original files were not changed.");
-    expect(en("已导入：新增 2，更新 1。")).toBe("Imported: added 2, updated 1.");
-    expect(en("导入所选（4）")).toBe("Import selected (4)");
+    expect(en("已导入：新增 2，更新 1.")).toBe("Imported: added 2, updated 1.");
+    expect(en("导入所选")).toBe("Import selected");
     expect(en("删除「GitHub」？可在回收站保留 30 天。")).toBe("Delete \"GitHub\"? It stays in the trash for 30 days.");
     expect(en("RSA · 4096 位")).toBe("RSA · 4096-bit");
   });
@@ -35,5 +35,32 @@ describe("vault English copy", () => {
     for (const text of ["私钥", "公钥", "账号", "火山方舟", "额度/周期", "已在保管库（旧值）"]) {
       expect(CHINESE.test(en(text)), text).toBe(false);
     }
+  });
+
+  it("uses vault-specific wording for buttons that collide with shared keys", () => {
+    const expected: Record<string, string> = {
+      "删除条目": "Delete entry",
+      "确认修改": "Change password",
+      "显示内容": "Show value",
+      "隐藏内容": "Hide value",
+      "确认导入": "Import",
+      "立即清除": "Delete now",
+      "已到期": "Expired",
+      "已保存。": "Saved.",
+      "复制": "Copy",
+      "取消": "Cancel",
+      "编辑": "Edit",
+      "预览": "Preview",
+      "历史": "History",
+      "恢复": "Restore",
+    };
+    for (const [chinese, english] of Object.entries(expected)) expect(en(chinese), chinese).toBe(english);
+  });
+
+  it("does not touch full-width punctuation outside the vault texts", () => {
+    expect(en("WorkBuddy 桌面端（中国版）")).toBe("WorkBuddy desktop（China Edition）");
+    expect(en("默认 Python（Stacker 设置）")).toBe("Default Python（Stacker Settings）");
+    expect(en("（备注）")).toBe("（Notes）");
+    expect(en("这是一段没有翻译的话。")).toBe("这是一段没有翻译的话。");
   });
 });

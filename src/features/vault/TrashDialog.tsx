@@ -32,7 +32,7 @@ export function TrashDialog({ onClose, onChanged }: { onClose: () => void; onCha
         </div>
       ))}
       {purging && (
-        <ConfirmModal title="立即清除" danger message={`立即清除「${purging.title}」？此操作无法撤销。`} confirmLabel="清除" busy={busy}
+        <ConfirmModal title="立即清除" danger message={`立即清除「${purging.title}」？此操作无法撤销。`} confirmLabel="立即清除" busy={busy}
           onClose={() => setPurging(null)}
           onConfirm={() => { const target = purging; setPurging(null); void run(() => vaultApi.purge(target.id), "已清除。"); }} />
       )}

@@ -5,7 +5,7 @@ import { daysUntil, expiryState, formatTime } from "./vaultView";
 export function ExpiryBadge({ expiresAt, today }: { expiresAt: string | null; today: Date }) {
   const state = expiryState(expiresAt, today);
   if (!expiresAt || state === "none") return <span className="mut">—</span>;
-  if (state === "expired") return <span className="vault-badge expired">已过期</span>;
+  if (state === "expired") return <span className="vault-badge expired">已到期</span>;
   if (state === "soon") return <span className="vault-badge soon">{daysUntil(expiresAt, today)} 天后到期</span>;
   return <span className="mut">{expiresAt}</span>;
 }

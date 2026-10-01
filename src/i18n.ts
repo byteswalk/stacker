@@ -1284,7 +1284,7 @@ Object.assign(CURATED_EN, {
   "系统曾进入睡眠，保管库已锁定。": "The computer went to sleep, so the vault is locked.",
   "空闲": "Idle for",
   "分钟，保管库已锁定。": "minutes, so the vault is locked.",
-  "已过期": "Expired",
+  "已到期": "Expired",
   "天后到期": "days left",
   "没有符合条件的条目。": "No entries match.",
   "导出私钥": "Export private key",
@@ -1364,7 +1364,12 @@ Object.assign(CURATED_EN, {
   "未发现明文密钥。": "No plaintext secrets found.",
   "选择全部新发现": "Select all new",
   "忽略所选": "Ignore selected",
-  "导入所选（": "Import selected (",
+  "导入所选": "Import selected",
+  "确认导入": "Import",
+  "确认修改": "Change password",
+  "显示内容": "Show value",
+  "隐藏内容": "Hide value",
+  "已保存。": "Saved.",
   "从备份文件恢复": "Restore from backup file",
   "已从备份恢复，请使用该备份的主密码解锁。": "Restored from backup. Unlock it with that backup's master password.",
   "保管库已创建。": "Vault created.",
@@ -1446,8 +1451,6 @@ function polishEnglish(value: string) {
     .replace(/ecological environment/gi, "development environment")
     .replace(/submission identity/gi, "commit identity")
     .replace(/the new terminal takes effect/gi, "takes effect in new terminals")
-    .replace(/。/g, ".")
-    .replace(/）/g, ")")
     .replace(/new terminal takes effect/gi, "takes effect in new terminals");
 }
 

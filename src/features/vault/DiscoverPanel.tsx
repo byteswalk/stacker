@@ -159,7 +159,7 @@ export function DiscoverPanel({ onImported }: { onImported: () => void }) {
                 <button className="gh sm" disabled={busy} onClick={chooseAllNew}>选择全部新发现</button>
                 <span className="grow" />
                 <button className="gh sm" disabled={busy || selectedCount === 0} onClick={() => void ignoreChosen()}>忽略所选</button>
-                <button className="pr sm" disabled={busy || selectedCount === 0} onClick={() => void importChosen()}>{`导入所选（${selectedCount}）`}</button>
+                <button className="pr sm" disabled={busy || selectedCount === 0} onClick={() => void importChosen()}>{tr("导入所选")} ({selectedCount})</button>
               </div>
               {groupFindings(findings).map(([source, items]) => (
                 <div key={source}>

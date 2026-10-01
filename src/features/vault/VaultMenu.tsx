@@ -66,7 +66,7 @@ function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
       <div className="vault-form">
         <label>当前主密码<input className="ip full" type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} /></label>
       </div>
-      <PasswordForm submitLabel="修改" busy={busy} onSubmit={(next) => void submit(next)} />
+      <PasswordForm submitLabel="确认修改" busy={busy} onSubmit={(next) => void submit(next)} />
     </Modal>
   );
 }
@@ -130,7 +130,7 @@ function ExportDialog({ onClose }: { onClose: () => void }) {
 
 function ImportDialog({ onClose, onChanged }: { onClose: () => void; onChanged: () => void }) {
   const toast = useToast();
-  const { tr } = useI18n();
+  const { tr, locale } = useI18n();
   const [src, setSrc] = useState("");
   const [kind, setKind] = useState<Credential["kind"]>("password");
   const [value, setValue] = useState("");
@@ -150,7 +150,7 @@ function ImportDialog({ onClose, onChanged }: { onClose: () => void; onChanged: 
     setBusy(true);
     try {
       const stats = apply ? await vaultApi.importApply(src, credential) : await vaultApi.importPreview(src, credential);
-      if (apply) { toast(`已导入：新增 ${stats.added}，更新 ${stats.updated}。`, "ok"); onChanged(); onClose(); }
+      if (apply) { toast(`已导入：新增 ${stats.added}，更新 ${stats.updated}${locale === "zh-CN" ? "。" : "."}`, "ok"); onChanged(); onClose(); }
       else setPreview(stats);
     } catch (error) { toast(vaultError(error), "err"); }
     finally { setBusy(false); }
@@ -160,7 +160,7 @@ function ImportDialog({ onClose, onChanged }: { onClose: () => void; onChanged: 
       footer={<>
         <button className="gh sm" disabled={busy} onClick={onClose}>取消</button>
         {preview
-          ? <button className="pr sm" disabled={busy} onClick={() => void run(true)}>导入</button>
+          ? <button className="pr sm" disabled={busy} onClick={() => void run(true)}>确认导入</button>
           : <button className="pr sm" disabled={busy || !src || !value} onClick={() => void run(false)}>预览</button>}
       </>}>
       <div className="vault-form">
