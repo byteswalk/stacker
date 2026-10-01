@@ -4269,6 +4269,7 @@ dependencies = [
  "minisign",
  "minisign-verify",
  "notify",
+ "percent-encoding",
  "quick-xml",
  "regex",
  "rusqlite",

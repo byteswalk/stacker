@@ -23,11 +23,17 @@ pub(crate) enum Source {
     Dotenv,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub(crate) struct RawField {
     pub name: String,
     pub value: Zeroizing<String>,
     pub secret: bool,
+}
+
+impl std::fmt::Debug for RawField {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RawField").field("name", &self.name).field("value", &"<redacted>").field("secret", &self.secret).finish()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -103,24 +109,14 @@ impl Walk<'_> {
 }
 
 fn is_link(meta: &std::fs::Metadata) -> bool {
-    if meta.file_type().is_symlink() {
-        return true;
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::MetadataExt;
-        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
-        meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
-    }
-    #[cfg(not(windows))]
-    {
-        false
-    }
+    // On Windows std reports both symlinks and junctions as symlinks, while cloud
+    // placeholders (OneDrive Files-On-Demand) stay readable regular files.
+    meta.file_type().is_symlink()
 }
 
 fn read_small(path: &Path) -> Option<Zeroizing<String>> {
-    let meta = std::fs::metadata(path).ok()?;
-    if meta.len() > MAX_FILE_BYTES {
+    let meta = std::fs::symlink_metadata(path).ok()?;
+    if meta.file_type().is_symlink() || !meta.is_file() || meta.len() > MAX_FILE_BYTES {
         return None;
     }
     std::fs::read_to_string(path).ok().map(Zeroizing::new)
@@ -204,11 +200,23 @@ fn aws(path: &Path, text: &str) -> Vec<Raw> {
         .collect()
 }
 
+/// Drops one pair of matching surrounding double or single quotes.
+fn unquote(value: &str) -> &str {
+    ['"', '\'']
+        .iter()
+        .find_map(|quote| value.strip_prefix(*quote).and_then(|rest| rest.strip_suffix(*quote)))
+        .unwrap_or(value)
+}
+
+fn decoded(text: &str) -> String {
+    percent_encoding::percent_decode_str(text).decode_utf8_lossy().into_owned()
+}
+
 fn npmrc(path: &Path, text: &str) -> Vec<Raw> {
     text.lines()
         .filter_map(|line| {
             let (key, value) = line.trim().split_once('=')?;
-            let (key, value) = (key.trim(), value.trim());
+            let (key, value) = (key.trim(), unquote(value.trim()));
             let secret_key = key.ends_with("_authToken") || key.ends_with("_auth") || key.ends_with("_password");
             if !secret_key || !usable(value) {
                 return None;
@@ -222,8 +230,11 @@ fn git_credentials(path: &Path, text: &str) -> Vec<Raw> {
     text.lines()
         .filter_map(|line| {
             let url = url::Url::parse(line.trim()).ok()?;
-            let token = url.password().filter(|token| usable(token))?.to_string();
-            let user = url.username().to_string();
+            let token = decoded(url.password()?);
+            if !usable(&token) {
+                return None;
+            }
+            let user = decoded(url.username());
             let host = url.host_str()?.to_string();
             Some(config_raw(path, format!("{user}@{host}"), &host, Kind::Token, vec![
                 field("账号", user, false),
@@ -469,6 +480,54 @@ mod tests {
         assert!(made.status.success());
         let counters = Counters::new();
         assert!(dotenv_files(&[root.path().to_path_buf()], &counters.walk()).is_empty());
+    }
+
+    #[test]
+    fn git_credentials_are_percent_decoded() {
+        let home = tempfile::tempdir().unwrap();
+        let encoded = format!("{}%40{}", &sample()[..6], &sample()[6..]);
+        let decoded = format!("{}@{}", &sample()[..6], &sample()[6..]);
+        put(&home.path().join(".git-credentials"), &format!("https://al%40ice:{encoded}@github.com\n"));
+        let found = config_files(home.path());
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].primary(), decoded);
+        assert_eq!(found[0].fields[0].value.as_str(), "al@ice");
+        assert_eq!(found[0].name, "al@ice@github.com");
+    }
+
+    #[test]
+    fn debug_output_redacts_values() {
+        let value = sample();
+        let secret = field("Token", value.clone(), true);
+        assert!(!format!("{secret:?}").contains(&value));
+        let raw = Raw {
+            source: Source::Env,
+            location: "user".into(),
+            name: "X".into(),
+            platform: String::new(),
+            kind: Kind::Token,
+            fields: vec![secret],
+            risks: Vec::new(),
+        };
+        assert!(!format!("{raw:?}").contains(&value));
+    }
+
+    #[test]
+    fn read_small_reads_regular_files_only() {
+        let dir = tempfile::tempdir().unwrap();
+        put(&dir.path().join("f.txt"), "hello");
+        assert_eq!(read_small(&dir.path().join("f.txt")).as_deref().map(String::as_str), Some("hello"));
+        assert!(read_small(dir.path()).is_none());
+    }
+
+    #[test]
+    fn npmrc_values_lose_one_pair_of_quotes() {
+        let home = tempfile::tempdir().unwrap();
+        let token = sample();
+        put(&home.path().join(".npmrc"), &format!("//r/:_authToken=\"{token}\"\n//s/:_authToken='{token}'\n"));
+        let found = config_files(home.path());
+        assert_eq!(found.len(), 2);
+        assert!(found.iter().all(|raw| raw.primary() == token));
     }
 
     #[test]
