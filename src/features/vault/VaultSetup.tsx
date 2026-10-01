@@ -17,9 +17,11 @@ export function VaultSetup({ onDone }: { onDone: () => void }) {
     finally { setBusy(false); }
   }
   async function restore() {
-    const src = await open({ title: "从备份文件恢复", multiple: false, directory: false, filters: [{ name: "Stacker 保管库", extensions: ["skv"] }] });
-    if (typeof src !== "string") return;
-    try { await vaultApi.restoreBackup(src); toast("已从备份恢复，请使用该备份的主密码解锁。", "ok"); onDone(); }
+    try {
+      const src = await open({ title: "从备份文件恢复", multiple: false, directory: false, filters: [{ name: "Stacker 保管库", extensions: ["skv"] }] });
+      if (typeof src !== "string") return;
+      await vaultApi.restoreBackup(src); toast("已从备份恢复，请使用该备份的主密码解锁。", "ok"); onDone();
+    }
     catch (error) { toast(vaultError(error), "err"); }
   }
 

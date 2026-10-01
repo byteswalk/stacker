@@ -18,6 +18,7 @@ import { TaskCenter } from "./features/agent-tasks/TaskCenter";
 import { useTaskToasts } from "./features/agent-tasks/useTaskToasts";
 import "./features/agent-tasks/agentTasks.css";
 import { useVaultActivity } from "./features/vault/useVaultActivity";
+import { useVaultLockNotice } from "./features/vault/useVaultLockNotice";
 
 const Overview = lazy(() => import("./pages/Overview"));
 const Agents = lazy(() => import("./pages/Agents"));
@@ -210,6 +211,7 @@ function WindowControls() {
 function Shell() {
   useTaskToasts();
   useVaultActivity();
+  useVaultLockNotice();
   const [collapsedSections, setCollapsedSections] = useState<string[]>(initialCollapsedSections);
   const [sideNarrow, setSideNarrowState] = useState(() => {
     try { return localStorage.getItem(SIDE_NARROW_KEY) === "1"; } catch { return false; }

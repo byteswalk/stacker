@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useToast } from "../../ui";
 import { vaultApi, vaultError, type EntryView } from "./api";
 import { DiscoverPanel } from "./DiscoverPanel";
@@ -17,13 +17,17 @@ export function VaultWorkspace({ onLocked }: { onLocked: () => void }) {
   const [editing, setEditing] = useState<EntryView | null | "new">(null);
   const today = useMemo(() => new Date(), []);
 
+  // Kept in a ref so `load` (and the effect below) never re-run just because the parent re-rendered.
+  const lockedRef = useRef(onLocked);
+  useEffect(() => { lockedRef.current = onLocked; }, [onLocked]);
+
   const load = useCallback(async () => {
     try { setEntries(await vaultApi.list(false)); }
     catch (error) {
-      if (String(error).includes("E_VAULT_LOCKED")) onLocked();
+      if (String(error).includes("E_VAULT_LOCKED")) lockedRef.current();
       else toast(vaultError(error), "err");
     }
-  }, [onLocked, toast]);
+  }, [toast]);
   useEffect(() => { void load(); }, [load]);
 
   const visible = filterEntries(entries, filter, today);
