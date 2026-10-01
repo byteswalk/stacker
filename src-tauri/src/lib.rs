@@ -152,6 +152,8 @@ pub fn run() {
                 ));
             }
             let app_settings = settings::load();
+            vault::guard::set_auto_lock_minutes(app_settings.vault_auto_lock_minutes);
+            vault::guard::start(app.handle().clone());
             let log_target = logging::target(settings::logs_dir())?;
             app.handle().plugin(
                 tauri_plugin_log::Builder::default()
@@ -521,12 +523,49 @@ pub fn run() {
             agents::commands::agent_task_dismiss,
             agents::commands::agent_update_plan,
             agents::commands::agent_update_all,
+            settings::settings_set_vault,
+            vault::commands::vault_status,
+            vault::commands::vault_create_begin,
+            vault::commands::vault_copy_recovery,
+            vault::commands::vault_confirm_recovery,
+            vault::commands::vault_cancel_pending,
+            vault::commands::vault_unlock,
+            vault::commands::vault_unlock_recovery,
+            vault::commands::vault_recovery_set_password,
+            vault::commands::vault_change_password,
+            vault::commands::vault_reset_recovery,
+            vault::commands::vault_lock,
+            vault::commands::vault_touch,
+            vault::commands::vault_list,
+            vault::commands::vault_save,
+            vault::commands::vault_reveal,
+            vault::commands::vault_copy,
+            vault::commands::vault_history,
+            vault::commands::vault_history_reveal,
+            vault::commands::vault_history_copy,
+            vault::commands::vault_delete,
+            vault::commands::vault_restore,
+            vault::commands::vault_purge,
+            vault::commands::vault_favorite,
+            vault::commands::vault_ssh_export,
+            vault::commands::vault_export,
+            vault::commands::vault_import_preview,
+            vault::commands::vault_import_apply,
+            vault::commands::vault_restore_backup,
+            vault::commands::vault_reset,
+            vault::commands::vault_discover_start,
+            vault::commands::vault_discover_status,
+            vault::commands::vault_discover_cancel,
+            vault::commands::vault_discover_import,
+            vault::commands::vault_discover_ignore,
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application");
     app.run(|app_handle, event| {
         if let tauri::RunEvent::Exit = event {
             use tauri::Manager;
+
+            vault::guard::lock_everything();
 
             app_handle
                 .state::<space_analysis::SpaceTaskManager>()

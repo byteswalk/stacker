@@ -70,6 +70,12 @@ pub struct AppSettings {
     pub snapshot_max_per_target: u16,
     #[serde(default)]
     pub common_scan_directories: Vec<String>,
+    /// 密钥保管空闲自动锁定的分钟数：5 / 10 / 30 / 60。
+    #[serde(default = "default_vault_auto_lock_minutes")]
+    pub vault_auto_lock_minutes: u16,
+    /// 「发现」里用户添加的项目文件夹。
+    #[serde(default)]
+    pub vault_scan_dirs: Vec<String>,
 }
 fn default_theme() -> String {
     "dark".into()
@@ -98,6 +104,9 @@ fn default_snapshot_retention_days() -> u16 {
 fn default_snapshot_max_per_target() -> u16 {
     20
 }
+fn default_vault_auto_lock_minutes() -> u16 {
+    10
+}
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
@@ -117,6 +126,8 @@ impl Default for AppSettings {
             snapshot_retention_days: default_snapshot_retention_days(),
             snapshot_max_per_target: default_snapshot_max_per_target(),
             common_scan_directories: Vec::new(),
+            vault_auto_lock_minutes: default_vault_auto_lock_minutes(),
+            vault_scan_dirs: Vec::new(),
             proxy_mode_version: 1,
             proxy_managed: Default::default(),
             proxy_targets: Vec::new(),
@@ -215,6 +226,12 @@ fn normalize(mut s: AppSettings) -> AppSettings {
         .retain(|path| !path.trim().is_empty());
     s.common_scan_directories.sort();
     s.common_scan_directories.dedup();
+    if ![5, 10, 30, 60].contains(&s.vault_auto_lock_minutes) {
+        s.vault_auto_lock_minutes = default_vault_auto_lock_minutes();
+    }
+    s.vault_scan_dirs.retain(|path| !path.trim().is_empty());
+    s.vault_scan_dirs.sort();
+    s.vault_scan_dirs.dedup();
     s
 }
 
@@ -283,6 +300,8 @@ pub fn load() -> AppSettings {
             snapshot_retention_days: default_snapshot_retention_days(),
             snapshot_max_per_target: default_snapshot_max_per_target(),
             common_scan_directories: Vec::new(),
+            vault_auto_lock_minutes: default_vault_auto_lock_minutes(),
+            vault_scan_dirs: Vec::new(),
             proxy_mode_version: 1,
             proxy_managed: Default::default(),
         });
@@ -469,6 +488,20 @@ pub fn settings_set_space_analysis(
     }
     let settings = normalize(settings);
     save(&settings)?;
+    Ok(settings)
+}
+
+#[tauri::command]
+pub fn settings_set_vault(
+    auto_lock_minutes: u16,
+    scan_dirs: Vec<String>,
+) -> Result<AppSettings, String> {
+    let mut settings = load();
+    settings.vault_auto_lock_minutes = auto_lock_minutes;
+    settings.vault_scan_dirs = scan_dirs;
+    let settings = normalize(settings);
+    save(&settings)?;
+    crate::vault::guard::set_auto_lock_minutes(settings.vault_auto_lock_minutes);
     Ok(settings)
 }
 
@@ -828,5 +861,16 @@ mod tests {
 
         assert_eq!(settings.close_behavior, "exit");
         assert!(!settings.minimize_to_tray);
+    }
+
+    #[test]
+    fn vault_settings_are_normalized() {
+        let mut settings = AppSettings::default();
+        assert_eq!(settings.vault_auto_lock_minutes, 10);
+        settings.vault_auto_lock_minutes = 7;
+        settings.vault_scan_dirs = vec!["D:\\b".into(), " ".into(), "D:\\a".into(), "D:\\b".into()];
+        let settings = normalize(settings);
+        assert_eq!(settings.vault_auto_lock_minutes, 10);
+        assert_eq!(settings.vault_scan_dirs, vec!["D:\\a", "D:\\b"]);
     }
 }
