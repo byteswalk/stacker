@@ -2,6 +2,7 @@
 //! 只记不用：不写凭据管理器、不改环境变量、不改 ~/.ssh、不调用任何平台 API。
 
 pub(crate) mod crypto;
+pub(crate) mod discover;
 pub(crate) mod errors;
 pub(crate) mod format;
 pub(crate) mod model;
