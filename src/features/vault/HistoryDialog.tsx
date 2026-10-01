@@ -29,7 +29,7 @@ export function HistoryDialog({ entryId, onClose }: { entryId: string; onClose: 
       {items === null ? <div className="vault-empty">正在读取…</div> : items.length === 0 ? <div className="vault-empty">暂无历史版本。</div> : items.map((item) => (
         <div className="vault-field" key={item.index}>
           <span className="name">{item.field}<br />{formatTime(item.at)}</span>
-          <code>{revealed[String(item.index)] ?? "••••••••"}</code>
+          <code translate="no">{revealed[String(item.index)] ?? "••••••••"}</code>
           <span style={{ display: "flex", gap: 4 }}>
             <button className="gh sm" title="显示内容" aria-label="显示内容" onClick={() => void reveal(item.index)}><i className="ti ti-eye" /></button>
             <button className="gh sm" title="复制" aria-label="复制" onClick={() => void copy(item.index)}><i className="ti ti-copy" /></button>

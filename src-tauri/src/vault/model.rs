@@ -160,6 +160,9 @@ pub(crate) fn trim_history(history: &mut Vec<HistoryItem>) {
     });
 }
 
+/// The most one field value may hold, in bytes; the page checks the same limit before sending.
+pub(crate) const MAX_FIELD_BYTES: usize = 16 * 1024;
+
 pub(crate) fn apply_input(body: &mut Body, input: EntryInput, now: i64) -> Result<String, String> {
     let title = input.title.trim().to_string();
     if title.is_empty() {
@@ -184,6 +187,7 @@ pub(crate) fn apply_input(body: &mut Body, input: EntryInput, now: i64) -> Resul
             continue;
         }
         let value = match field.value {
+            Some(value) if value.len() > MAX_FIELD_BYTES => return Err(INVALID.into()),
             Some(value) => value,
             None => {
                 let from = field.previous_name.as_deref().unwrap_or(&name);
@@ -583,6 +587,30 @@ mod tests {
         bad.expires_at = Some("31/10/2026".into());
         let id = apply_input(&mut body, bad, 1).unwrap();
         assert_eq!(view_of(&body, &id).unwrap().expires_at, None);
+    }
+
+    #[test]
+    fn a_field_value_over_16_kib_is_refused_and_nothing_changes() {
+        let mut body = Body::default();
+        let exactly = "a".repeat(MAX_FIELD_BYTES);
+        let id = apply_input(
+            &mut body,
+            input(None, "t", vec![field("Key", Some(&exactly), true)]),
+            1,
+        )
+        .unwrap();
+        // Bytes, not characters: 6000 CJK characters are 18000 bytes.
+        let too_big = "密".repeat(6000);
+        let over = input(Some(&id), "t2", vec![field("Key", Some(&too_big), true)]);
+        assert_eq!(apply_input(&mut body, over, 2).err().unwrap(), INVALID);
+        let fresh = input(
+            None,
+            "u",
+            vec![field("Key", Some(&"b".repeat(MAX_FIELD_BYTES + 1)), true)],
+        );
+        assert_eq!(apply_input(&mut body, fresh, 2).err().unwrap(), INVALID);
+        assert_eq!(body.entries.len(), 1);
+        assert_eq!(view_of(&body, &id).unwrap().title, "t");
     }
 
     #[test]

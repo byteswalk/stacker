@@ -7,7 +7,6 @@ import { ENV_SCOPE_LABELS, KIND_LABELS, KIND_ORDER, RISK_LABELS, SOURCE_LABELS, 
 
 const SOURCE_ORDER: Finding["source"][] = ["ssh", "config", "env", "dotenv"];
 const POLL_MS = 800;
-const NOTE_PREFIX = "来源：";
 
 export function groupFindings(findings: Finding[]): [string, Finding[]][] {
   return SOURCE_ORDER.map((source) => [source, findings.filter((finding) => finding.source === source)] as [string, Finding[]])
@@ -42,6 +41,9 @@ export function DiscoverPanel({ onImported }: { onImported: () => void }) {
     void refresh();
     return () => { alive = false; };
   }, [refresh, toast]);
+
+  // Findings hold plaintext values: leaving the tab drops them from backend memory.
+  useEffect(() => () => { void vaultApi.discoverClear().catch(() => undefined); }, []);
 
   useEffect(() => {
     if (!status?.running) return;
@@ -99,7 +101,7 @@ export function DiscoverPanel({ onImported }: { onImported: () => void }) {
     setBusy(true);
     try {
       const items = Object.entries(chosen).map(([id, choice]) => ({ id: Number(id), ...choice }));
-      const count = await vaultApi.discoverImport(items, NOTE_PREFIX);
+      const count = await vaultApi.discoverImport(items, tr("来源："));
       toast(`已导入 ${count} 项。原文件未做任何改动。`, "ok");
       setChosen({});
       await refresh();
@@ -133,7 +135,7 @@ export function DiscoverPanel({ onImported }: { onImported: () => void }) {
             <div className="vault-sub" style={{ marginBottom: 6 }}>项目 .env（最多 4 层，跳过 node_modules、.git、target 等目录）</div>
             {dirs.map((dir) => (
               <div className="vault-bar" key={dir} style={{ marginBottom: 4 }}>
-                <code className="grow">{dir}</code>
+                <code className="grow" translate="no">{dir}</code>
                 <button className="gh sm" title="移除" disabled={foldersLocked} onClick={() => void saveDirs((current) => current.filter((item) => item !== dir))}><i className="ti ti-x" /></button>
               </div>
             ))}
@@ -170,8 +172,8 @@ export function DiscoverPanel({ onImported }: { onImported: () => void }) {
                       <div className="vault-field" key={finding.id} style={{ gridTemplateColumns: "24px minmax(0,1fr) auto" }}>
                         <input type="checkbox" aria-label={finding.name} disabled={busy || finding.status !== "new"} checked={Boolean(choice)} onChange={() => toggle(finding)} />
                         <div>
-                          <div>{finding.name} <span className="mut">{finding.preview}</span></div>
-                          <div className="mut" style={{ fontSize: 11.5 }}>{locationText(finding)}</div>
+                          <div translate="no">{finding.name} <span className="mut">{finding.preview}</span></div>
+                          <div className="mut" style={{ fontSize: 11.5 }} translate="no">{locationText(finding)}</div>
                           {finding.risks.length > 0 && <div className="vault-tags">{finding.risks.map((risk) => <span key={risk} className="vault-badge expired">{RISK_LABELS[risk] ?? risk}</span>)}</div>}
                           {choice && (
                             <div className="vault-bar" style={{ marginTop: 6, marginBottom: 0 }}>

@@ -5,7 +5,7 @@ pub(crate) mod sources;
 
 use super::crypto;
 use super::errors::{BUSY, LOCKED};
-use super::model::{Digests, EntryInput, FieldInput, Kind};
+use super::model::{Digests, EntryInput, FieldInput, Kind, MAX_FIELD_BYTES};
 use super::session::Vault;
 use serde::{Deserialize, Serialize};
 use sources::{Raw, Source, Walk};
@@ -155,7 +155,12 @@ pub(crate) fn entries_for(
         .iter()
         .filter_map(|item| {
             let raw = findings.get(item.id)?;
-            if status_of(raw, digests) != "new"
+            // A value over the per-field limit would make the whole batch fail; leave it out.
+            if raw
+                .fields
+                .iter()
+                .any(|field| field.value.len() > MAX_FIELD_BYTES)
+                || status_of(raw, digests) != "new"
                 || !chosen.insert(crypto::secret_digest(raw.primary()))
             {
                 return None;
@@ -408,6 +413,32 @@ mod tests {
         assert_eq!(inputs[0].platform, "npm registry");
         assert!(inputs[0].note.starts_with("来源：") && inputs[0].note.ends_with(".npmrc"));
         assert_eq!(inputs[0].fields[0].value.as_deref(), Some(token.as_str()));
+    }
+
+    #[test]
+    fn a_finding_over_the_field_limit_is_left_out_of_the_import() {
+        let (home, _) = home_with_findings();
+        let scope = Scope {
+            ssh: false,
+            configs: true,
+            env: false,
+            project_dirs: vec![],
+        };
+        let mut findings = scan(
+            &scope,
+            home.path(),
+            &AtomicBool::new(false),
+            &AtomicUsize::new(0),
+        )
+        .findings;
+        let items = [ImportItem {
+            id: 0,
+            platform: "p".into(),
+            kind: Kind::Token,
+        }];
+        assert_eq!(entries_for(&findings, &items, &no_digests(), "").len(), 1);
+        findings[0].fields[0].value = zeroize::Zeroizing::new("x".repeat(MAX_FIELD_BYTES + 1));
+        assert!(entries_for(&findings, &items, &no_digests(), "").is_empty());
     }
 
     static TEST_LOCK: Mutex<()> = Mutex::new(());

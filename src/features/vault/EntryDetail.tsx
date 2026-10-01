@@ -49,7 +49,7 @@ export function EntryDetail({ entry, today, onEdit, onChanged }: {
 
   return (
     <div className="pxcard">
-      <div className="pxsec"><i className={"ti " + (entry.favorite ? "ti-star-filled" : "ti-key")} /> {entry.title}
+      <div className="pxsec"><i className={"ti " + (entry.favorite ? "ti-star-filled" : "ti-key")} /> <span translate="no">{entry.title}</span>
         <span className="pxhint">{entry.platform ? `${entry.platform} · ` : ""}{KIND_LABELS[entry.kind]}</span>
       </div>
       {entry.fields.map((field) => {
@@ -57,7 +57,7 @@ export function EntryDetail({ entry, today, onEdit, onChanged }: {
         return (
           <div className="vault-field" key={field.name}>
             <span className="name">{field.name}</span>
-            <code>{!field.filled ? "—" : shown !== undefined ? shown : "••••••••"}</code>
+            <code translate="no">{!field.filled ? "—" : shown !== undefined ? shown : "••••••••"}</code>
             <span style={{ display: "flex", gap: 4 }}>
               {field.secret && field.filled && (
                 <button className="gh sm" title={revealed[field.name] !== undefined ? "隐藏内容" : "显示内容"} aria-label={revealed[field.name] !== undefined ? "隐藏内容" : "显示内容"} onClick={() => void reveal(field.name)}>
@@ -78,7 +78,7 @@ export function EntryDetail({ entry, today, onEdit, onChanged }: {
       )}
       <div className="vault-field"><span className="name">到期</span><span><ExpiryBadge expiresAt={entry.expiresAt} today={today} /></span><span /></div>
       {entry.tags.length > 0 && <div className="vault-field"><span className="name">标签</span><span className="vault-tags">{entry.tags.map((tag) => <span key={tag} className="vault-badge">{tag}</span>)}</span><span /></div>}
-      {entry.note && <div className="vault-field"><span className="name">备注</span><code>{entry.note}</code><span /></div>}
+      {entry.note && <div className="vault-field"><span className="name">备注</span><code translate="no">{entry.note}</code><span /></div>}
       <div className="vault-actions">
         <button className="gh sm" disabled={busy} onClick={() => void run(() => vaultApi.favorite(entry.id, !entry.favorite))}>
           <i className={"ti " + (entry.favorite ? "ti-star-off" : "ti-star")} /> {entry.favorite ? "取消收藏" : "收藏"}

@@ -164,6 +164,22 @@ fn old_names(vault_path: &Path, stamp: &str) -> (PathBuf, PathBuf) {
     }
 }
 
+/// Case-insensitive on Windows; a file that does not exist yet is judged by its folder and name.
+fn comparable(path: &Path) -> String {
+    let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| {
+        match (path.parent().map(std::fs::canonicalize), path.file_name()) {
+            (Some(Ok(parent)), Some(name)) => parent.join(name),
+            _ => path.to_path_buf(),
+        }
+    });
+    let text = resolved.to_string_lossy().to_string();
+    if cfg!(windows) {
+        text.to_lowercase()
+    } else {
+        text
+    }
+}
+
 type Unwrapper<'a> = &'a dyn Fn(&Header) -> Result<Option<SecretKey>, String>;
 
 fn read_one(path: &Path, unwrap: Unwrapper) -> Result<Option<Open>, String> {
@@ -326,6 +342,7 @@ impl Vault {
                     return Err(EXISTS.into());
                 }
                 let header = self.header_for(&dek, &password, &recovery)?;
+                self.shelve_orphan_backup()?;
                 let body = Body::default();
                 let snapshot = self.write_body_rekeyed(&header, &dek, &body, None)?;
                 inner.phase = Phase::Unlocked(Open {
@@ -509,17 +526,33 @@ impl Vault {
         self.inner().last_activity.elapsed()
     }
 
+    /// With the vault file gone, a leftover `.bak` may be the only copy of the data: it is renamed
+    /// out of the way (never over an existing file) before a new vault writes its own backup.
+    fn shelve_orphan_backup(&self) -> Result<(), String> {
+        let backup = format::backup_path(&self.path);
+        if self.path.exists() || !backup.exists() {
+            return Ok(());
+        }
+        let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
+        let (_, target) = old_names(&self.path, &stamp);
+        std::fs::rename(&backup, target).map_err(|_| IO.to_string())
+    }
+
     pub(crate) fn restore_backup(&self, src: &Path) -> Result<(), String> {
         if self.path.exists() {
             return Err(EXISTS.into());
         }
-        format::read(src)?;
+        // Read before anything is moved: the source may itself be the leftover `.bak`.
+        let bytes = std::fs::read(src).map_err(|error| match error.kind() {
+            std::io::ErrorKind::NotFound => MISSING.to_string(),
+            _ => IO.to_string(),
+        })?;
+        format::parse(&bytes)?;
         if let Some(dir) = self.path.parent() {
             std::fs::create_dir_all(dir).map_err(|_| IO.to_string())?;
         }
-        std::fs::copy(src, &self.path)
-            .map(|_| ())
-            .map_err(|_| IO.to_string())
+        self.shelve_orphan_backup()?;
+        std::fs::write(&self.path, &bytes).map_err(|_| IO.to_string())
     }
 
     /// Both credentials lost: the file is renamed, never deleted, so it can be imported later.
@@ -623,9 +656,8 @@ impl Vault {
         self.with_unlocked(|open| model::ssh_private(&open.body, id))
     }
 
-    fn verify_password(&self, password: &str) -> Result<(), String> {
-        let mut inner = self.inner();
-        check_wait(&mut inner)?;
+    fn verify_password(inner: &mut Inner, password: &str) -> Result<(), String> {
+        check_wait(inner)?;
         let Phase::Unlocked(open) = &inner.phase else {
             return Err(LOCKED.into());
         };
@@ -635,22 +667,35 @@ impl Vault {
             .unwrap_key(password.as_bytes(), open.header.kdf)?
             .is_none()
         {
-            register_failure(&mut inner);
+            register_failure(inner);
             return Err(PASSWORD.into());
         }
         inner.failures = 0;
         Ok(())
     }
 
-    /// The backup is the vault file as it is, still sealed by its master password and recovery key.
+    /// The backup is the vault as it is in memory, sealed again with the same master password and
+    /// recovery key; the file on disk is never copied, since it may be damaged or changed elsewhere.
     pub(crate) fn export(&self, password: &str, dest: &Path) -> Result<(), String> {
-        self.verify_password(password)?;
-        if dest == self.path {
+        let mut inner = self.inner();
+        Self::verify_password(&mut inner, password)?;
+        let protected = [
+            self.path.clone(),
+            format::backup_path(&self.path),
+            self.path.with_extension("skv.tmp"),
+            self.path.with_extension("skv.bak.tmp"),
+        ];
+        let target = comparable(dest);
+        if protected.iter().any(|path| comparable(path) == target) {
             return Err(FILE_EXISTS.into());
         }
-        std::fs::copy(&self.path, dest)
-            .map(|_| ())
-            .map_err(|_| IO.to_string())
+        inner.last_activity = Instant::now();
+        let Phase::Unlocked(open) = &inner.phase else {
+            return Err(LOCKED.into());
+        };
+        let plain = Zeroizing::new(serde_json::to_vec(&open.body).map_err(|_| IO.to_string())?);
+        let bytes = format::encode(&open.header, &open.dek, &plain)?;
+        std::fs::write(dest, bytes).map_err(|_| IO.to_string())
     }
 
     fn read_backup(&self, src: &Path, credential: &Credential) -> Result<Body, String> {
@@ -927,6 +972,70 @@ mod tests {
                 .unwrap(),
             CORRUPT
         );
+    }
+
+    /// A vault whose main file is gone while its `.bak` is left: returns the vault and the `.bak` bytes.
+    fn with_lone_backup(dir: &tempfile::TempDir) -> (Vault, Vec<u8>) {
+        let (vault, _) = created(dir);
+        let next = vault.reset_recovery(PW).unwrap();
+        vault.confirm_recovery(crypto::last_group(&next)).unwrap();
+        vault.lock();
+        let bytes = std::fs::read(format::backup_path(&vault.path)).unwrap();
+        std::fs::remove_file(&vault.path).unwrap();
+        (vault, bytes)
+    }
+
+    fn shelved_backups(dir: &tempfile::TempDir) -> Vec<Vec<u8>> {
+        std::fs::read_dir(dir.path())
+            .unwrap()
+            .flatten()
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .ends_with(".skv.bak.old")
+            })
+            .map(|entry| std::fs::read(entry.path()).unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn creating_a_new_vault_keeps_a_lone_backup_under_a_new_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let (vault, old_bytes) = with_lone_backup(&dir);
+        let key = vault.create_begin(PW2).unwrap();
+        vault.confirm_recovery(crypto::last_group(&key)).unwrap();
+        assert_eq!(shelved_backups(&dir), vec![old_bytes.clone()]);
+        let new_backup = std::fs::read(format::backup_path(&vault.path)).unwrap();
+        assert_ne!(new_backup, old_bytes);
+        assert_eq!(new_backup, std::fs::read(&vault.path).unwrap());
+    }
+
+    #[test]
+    fn restoring_a_backup_keeps_a_lone_backup_under_a_new_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let (vault, old_bytes) = with_lone_backup(&dir);
+        let elsewhere = tempfile::tempdir().unwrap();
+        let (other, _) = created(&elsewhere);
+        other.lock();
+        vault.restore_backup(&other.path).unwrap();
+        assert_eq!(shelved_backups(&dir), vec![old_bytes]);
+        assert_eq!(
+            std::fs::read(&vault.path).unwrap(),
+            std::fs::read(&other.path).unwrap()
+        );
+    }
+
+    #[test]
+    fn restoring_from_the_lone_backup_itself_still_works() {
+        let dir = tempfile::tempdir().unwrap();
+        let (vault, old_bytes) = with_lone_backup(&dir);
+        vault
+            .restore_backup(&format::backup_path(&vault.path))
+            .unwrap();
+        assert_eq!(std::fs::read(&vault.path).unwrap(), old_bytes);
+        assert_eq!(shelved_backups(&dir), vec![old_bytes]);
+        vault.unlock(PW).unwrap();
     }
 
     fn corrupt_main_file(vault: &Vault) {
@@ -1315,6 +1424,58 @@ mod entry_tests {
             .import_apply(&backup, &Credential::Recovery(recovery))
             .unwrap();
         assert_eq!(other.list(false).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn exporting_after_a_backup_fallback_unlock_writes_the_current_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let (vault, _) = created(&dir);
+        let kept = vault.save(input("kept", "k")).unwrap();
+        // The backup holds the state before the last write: just "kept".
+        vault.save(input("newer", "n")).unwrap();
+        vault.lock();
+        std::fs::write(&vault.path, b"not a vault at all").unwrap();
+        vault.unlock(PW).unwrap();
+        assert_eq!(vault.list(false).unwrap().len(), 1);
+
+        let dest = dir.path().join("out").join("export.skv");
+        std::fs::create_dir_all(dest.parent().unwrap()).unwrap();
+        vault.export(PW, &dest).unwrap();
+        assert_ne!(std::fs::read(&dest).unwrap(), b"not a vault at all");
+
+        let opened = Vault::new(dest, KdfParams::FAST);
+        opened.unlock(PW).unwrap();
+        let entries = opened.list(false).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].id, kept.id);
+    }
+
+    #[test]
+    fn exporting_never_targets_the_vault_its_backup_or_their_temp_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let (vault, _) = created(&dir);
+        vault.save(input("one", "1")).unwrap();
+        let before = std::fs::read(&vault.path).unwrap();
+        let backup_before = std::fs::read(format::backup_path(&vault.path)).unwrap();
+        let mut targets = vec![
+            vault.path.clone(),
+            format::backup_path(&vault.path),
+            vault.path.with_extension("skv.tmp"),
+            vault.path.with_extension("skv.bak.tmp"),
+        ];
+        if cfg!(windows) {
+            // The same file under another spelling.
+            targets.push(dir.path().join(".").join("VAULT.SKV.BAK"));
+        }
+        for target in targets {
+            assert_eq!(vault.export(PW, &target).err().unwrap(), FILE_EXISTS);
+        }
+        assert_eq!(std::fs::read(&vault.path).unwrap(), before);
+        assert_eq!(
+            std::fs::read(format::backup_path(&vault.path)).unwrap(),
+            backup_before
+        );
+        assert!(!vault.path.with_extension("skv.tmp").exists());
     }
 
     #[test]

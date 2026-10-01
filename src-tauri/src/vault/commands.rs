@@ -228,6 +228,13 @@ pub async fn vault_discover_cancel() -> Result<(), String> {
     Ok(())
 }
 
+/// Leaving the discover tab drops the findings (their raw values are plaintext).
+#[tauri::command]
+pub async fn vault_discover_clear() -> Result<(), String> {
+    discover::clear();
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn vault_discover_import(
     items: Vec<ImportItem>,

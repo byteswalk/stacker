@@ -66,7 +66,7 @@ export function EntryEditor({ entry, onSaved, onClose }: { entry: EntryView | nu
 
   async function submit() {
     if (!draft.title.trim()) { toast("请填写标题。", "info"); return; }
-    if (oversizedField(draft) !== null) { toast("私钥超过 16 KB，请确认粘贴的内容。", "info"); return; }
+    if (oversizedField(draft) !== null) { toast("字段内容超过 16 KB，请确认粘贴的内容。", "info"); return; }
     setBusy(true);
     try { onSaved(await vaultApi.save(toEntryInput(draft))); toast("已保存。", "ok"); }
     catch (error) { toast(vaultError(error), "err"); }

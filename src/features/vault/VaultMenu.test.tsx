@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
-import { act } from "react";
+import { StrictMode, act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "../../invoke";
 import { ToastHost, ToastProvider } from "../../ui";
-import { AutoLockDialog } from "./VaultMenu";
+import { AutoLockDialog, ResetRecoveryDialog } from "./VaultMenu";
 
 vi.mock("../../invoke", () => ({ invoke: vi.fn(), reportFrontendWarning: vi.fn(), reportFrontendError: vi.fn() }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(), save: vi.fn() }));
@@ -52,5 +52,38 @@ describe("AutoLockDialog", () => {
     await render();
     expect(choices().every((b) => b.disabled)).toBe(true);
     expect(document.body.textContent).toContain("读写文件失败");
+  });
+});
+
+describe("ResetRecoveryDialog", () => {
+  const renderReset = () => act(async () => root.render(<StrictMode><ToastProvider><ResetRecoveryDialog onClose={vi.fn()} /><ToastHost /></ToastProvider></StrictMode>));
+  const calls = (command: string) => vi.mocked(invoke).mock.calls.filter(([name]) => name === command).length;
+
+  async function issueKey() {
+    vi.mocked(invoke).mockImplementation(async (command: string) => (command === "vault_reset_recovery" ? "AAAA-BBBB" : undefined));
+    await renderReset();
+    const input = document.body.querySelector<HTMLInputElement>("input[type=password]")!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "master-password");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "继续")!.click());
+    expect(calls("vault_reset_recovery")).toBe(1);
+  }
+
+  it("does not cancel anything when it unmounts before a key was issued (StrictMode safe)", async () => {
+    vi.mocked(invoke).mockResolvedValue(undefined);
+    await renderReset();
+    act(() => root.unmount());
+    root = createRoot(host);
+    expect(calls("vault_cancel_pending")).toBe(0);
+  });
+
+  it("cancels the pending rotation when it unmounts after a key was issued but not confirmed", async () => {
+    await issueKey();
+    expect(calls("vault_cancel_pending")).toBe(0);
+    act(() => root.unmount());
+    root = createRoot(host);
+    expect(calls("vault_cancel_pending")).toBe(1);
   });
 });

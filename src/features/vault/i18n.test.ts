@@ -14,7 +14,8 @@ describe("vault English copy", () => {
   it("translates the sidebar name and the error messages", () => {
     expect(en("密钥保管")).toBe("Key Vault");
     expect(en("主密码不正确。")).toBe("Incorrect master password.");
-    expect(en("私钥超过 16 KB，请确认粘贴的内容。")).toBe("The private key is over 16 KB. Check what you pasted.");
+    expect(en("字段内容超过 16 KB，请确认粘贴的内容。")).toBe("A field is over 16 KB. Check what you pasted.");
+    expect(en("来源：")).toBe("Source: ");
   });
 
   it("translates the lock reasons, including the idle minutes", () => {

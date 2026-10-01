@@ -95,7 +95,10 @@ impl Walk<'_> {
         keep: &dyn Fn(&str) -> bool,
     ) -> Vec<PathBuf> {
         let mut out = Vec::new();
-        self.visit(root, depth, keep, &mut out);
+        // A root that is itself a link (or junction) is skipped, like any link met on the way down.
+        if std::fs::symlink_metadata(root).is_ok_and(|meta| !is_link(&meta)) {
+            self.visit(root, depth, keep, &mut out);
+        }
         out
     }
 
@@ -150,7 +153,23 @@ fn read_small(path: &Path) -> Option<Zeroizing<String>> {
     if meta.file_type().is_symlink() || !meta.is_file() || meta.len() > MAX_FILE_BYTES {
         return None;
     }
-    std::fs::read_to_string(path).ok().map(Zeroizing::new)
+    let bytes = Zeroizing::new(std::fs::read(path).ok()?);
+    decode_text(&bytes).map(Zeroizing::new)
+}
+
+/// UTF-8, or UTF-16LE when the file starts with its byte-order mark (what PowerShell 5.1's `>` writes).
+fn decode_text(bytes: &[u8]) -> Option<String> {
+    match bytes.strip_prefix(&[0xFF, 0xFE]) {
+        Some(rest) => {
+            let units: Zeroizing<Vec<u16>> = Zeroizing::new(
+                rest.chunks_exact(2)
+                    .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+                    .collect(),
+            );
+            String::from_utf16(&units).ok()
+        }
+        None => String::from_utf8(bytes.to_vec()).ok(),
+    }
 }
 
 pub(crate) fn ssh_keys(home: &Path, walk: &Walk) -> Vec<Raw> {
@@ -631,6 +650,48 @@ mod tests {
         assert!(made.status.success());
         let counters = Counters::new();
         assert!(dotenv_files(&[root.path().to_path_buf()], &counters.walk()).is_empty());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_scan_root_that_is_a_junction_is_skipped() {
+        let base = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        put(
+            &outside.path().join(".env"),
+            &format!("A_KEY={}\n", sample()),
+        );
+        let link = base.path().join("link");
+        let made = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&link)
+            .arg(outside.path())
+            .output()
+            .unwrap();
+        assert!(made.status.success());
+        let counters = Counters::new();
+        assert!(dotenv_files(&[link], &counters.walk()).is_empty());
+        // The same folder reached directly is still scanned.
+        assert_eq!(
+            dotenv_files(&[outside.path().to_path_buf()], &counters.walk()).len(),
+            1
+        );
+    }
+
+    #[test]
+    fn utf16_files_with_a_byte_order_mark_are_decoded() {
+        let root = tempfile::tempdir().unwrap();
+        let text = format!("OPENAI_API_KEY={}\r\nNODE_ENV=development\r\n", sample());
+        let mut bytes = vec![0xFF, 0xFE];
+        bytes.extend(text.encode_utf16().flat_map(u16::to_le_bytes));
+        fs::write(root.path().join(".env"), &bytes).unwrap();
+        let counters = Counters::new();
+        let found = dotenv_files(&[root.path().to_path_buf()], &counters.walk());
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].primary(), sample());
+        // Without a BOM, bytes that are not valid UTF-8 are still left alone.
+        assert!(decode_text(&[0x41, 0xFF, 0x42]).is_none());
+        assert_eq!(decode_text(b"plain").as_deref(), Some("plain"));
     }
 
     #[test]

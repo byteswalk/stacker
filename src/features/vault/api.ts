@@ -58,6 +58,7 @@ export const vaultApi = {
   discoverStart: (scope: DiscoverScope) => invoke<void>("vault_discover_start", { scope }),
   discoverStatus: () => invoke<DiscoverStatus>("vault_discover_status"),
   discoverCancel: () => invoke<void>("vault_discover_cancel"),
+  discoverClear: () => invoke<void>("vault_discover_clear"),
   discoverImport: (items: ImportItem[], notePrefix: string) => invoke<number>("vault_discover_import", { items, notePrefix }),
   discoverIgnore: (ids: number[]) => invoke<void>("vault_discover_ignore", { ids }),
   settings: () => invoke<VaultSettings>("settings_get"),

@@ -146,3 +146,18 @@ describe("DiscoverPanel project folders", () => {
     expect(document.body.textContent).toContain("读写文件失败");
   });
 });
+
+describe("DiscoverPanel cleanup", () => {
+  it("asks the backend to drop the findings when the panel unmounts", async () => {
+    mockBackend({
+      settings_get: () => ({ vault_auto_lock_minutes: 10, vault_scan_dirs: [] }),
+      vault_discover_status: () => scanned,
+      vault_discover_clear: () => undefined,
+    });
+    await render();
+    expect(invoke).not.toHaveBeenCalledWith("vault_discover_clear");
+    act(() => root.unmount());
+    expect(invoke).toHaveBeenCalledWith("vault_discover_clear");
+    root = createRoot(host);
+  });
+});

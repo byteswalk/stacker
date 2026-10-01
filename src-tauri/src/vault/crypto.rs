@@ -271,6 +271,19 @@ mod tests {
     }
 
     #[test]
+    fn recovery_encoding_matches_fixed_vectors() {
+        assert_eq!(
+            encode_recovery(&[0u8; 20]).as_str(),
+            "0000-0000-0000-0000-0000-0000-0000-0000"
+        );
+        // Bytes 1..=20, worked out independently of this code from the Crockford alphabet.
+        let counting: [u8; 20] = std::array::from_fn(|i| i as u8 + 1);
+        let expected = "0410-6105-0R3G-G28A-1C60-T3GF-208H-44RM";
+        assert_eq!(encode_recovery(&counting).as_str(), expected);
+        assert_eq!(*decode_recovery(expected).unwrap(), counting);
+    }
+
+    #[test]
     fn recovery_decoding_is_forgiving_about_format_only() {
         let bytes = [0x5au8; 20];
         let encoded = encode_recovery(&bytes);

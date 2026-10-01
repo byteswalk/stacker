@@ -148,6 +148,8 @@ mod platform {
             return Err(IO.into());
         }
         if !all_exclusions_present() {
+            // Only clears while the clipboard still holds our write; never touches a newer copy.
+            clear(sequence);
             return Err(IO.into());
         }
         Ok(sequence)

@@ -556,6 +556,7 @@ pub fn run() {
             vault::commands::vault_discover_start,
             vault::commands::vault_discover_status,
             vault::commands::vault_discover_cancel,
+            vault::commands::vault_discover_clear,
             vault::commands::vault_discover_import,
             vault::commands::vault_discover_ignore,
         ])

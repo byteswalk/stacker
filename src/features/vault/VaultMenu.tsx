@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { useI18n } from "../../i18n";
 import { Modal, useToast } from "../../ui";
@@ -71,22 +71,27 @@ function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
-function ResetRecoveryDialog({ onClose }: { onClose: () => void }) {
+export function ResetRecoveryDialog({ onClose }: { onClose: () => void }) {
   const toast = useToast();
   const [password, setPassword] = useState("");
   const [key, setKey] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // True while a new key has been issued but not yet confirmed or cancelled; leaving the page then drops the pending rotation.
+  const pendingIssued = useRef(false);
+  useEffect(() => () => {
+    if (pendingIssued.current) void vaultApi.cancelPending().catch(() => undefined);
+  }, []);
   async function begin() {
     setBusy(true);
-    try { setKey(await vaultApi.resetRecovery(password)); setPassword(""); }
+    try { setKey(await vaultApi.resetRecovery(password)); pendingIssued.current = true; setPassword(""); }
     catch (error) { toast(vaultError(error), "err"); }
     finally { setBusy(false); }
   }
   return (
     <Modal title="重置恢复密钥" icon="ti-lifebuoy" onClose={busy || key ? undefined : onClose}>
       {key ? (
-        <RecoveryKeyStep recoveryKey={key} onCancel={onClose}
-          onConfirmed={() => { toast("已启用新的恢复密钥，原恢复密钥已失效。", "ok"); onClose(); }} />
+        <RecoveryKeyStep recoveryKey={key} onCancel={() => { pendingIssued.current = false; onClose(); }}
+          onConfirmed={() => { pendingIssued.current = false; toast("已启用新的恢复密钥，原恢复密钥已失效。", "ok"); onClose(); }} />
       ) : (
         <div className="vault-form">
           <div className="vault-sub">将生成新的恢复密钥，原恢复密钥立即失效。</div>
