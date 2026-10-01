@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EntryView } from "./api";
-import { draftFrom, toEntryInput } from "./EntryEditor";
+import { draftFrom, oversizedField, toEntryInput } from "./EntryEditor";
 
 const saved: EntryView = {
   id: "e1", title: "Coding Plan", platform: "火山方舟", kind: "token_plan",
@@ -42,5 +42,24 @@ describe("entry editor drafts", () => {
     expect(input.fields[1].value).toBe("https://new");
     expect(input.tags).toEqual(["a", "b"]);
     expect(input.expiresAt).toBeNull();
+  });
+
+  it("keeps a saved secret's value when its secret flag is turned off and nothing is typed", () => {
+    const draft = draftFrom(saved);
+    draft.fields[0].secret = false;
+    const input = toEntryInput(draft);
+    expect(input.fields[0]).toEqual({ name: "Key", previousName: "Key", value: null, secret: false });
+  });
+
+  it("names the first field whose value is over 16 KB in bytes", () => {
+    const draft = draftFrom(null);
+    expect(oversizedField(draft)).toBeNull();
+    draft.fields[0].value = "a".repeat(16 * 1024);
+    expect(oversizedField(draft)).toBeNull();
+    draft.fields[0].value = "a".repeat(16 * 1024 + 1);
+    expect(oversizedField(draft)).toBe("Key");
+    // 6000 CJK characters are 18000 bytes: under 16K characters but over 16 KB.
+    draft.fields[0].value = "密".repeat(6000);
+    expect(oversizedField(draft)).toBe("Key");
   });
 });

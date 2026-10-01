@@ -10,7 +10,9 @@ export function HistoryDialog({ entryId, onClose }: { entryId: string; onClose: 
   const { revealed, show, hide } = useRevealed();
 
   useEffect(() => {
-    vaultApi.history(entryId).then(setItems).catch((error) => { toast(vaultError(error), "err"); setItems([]); });
+    let ignore = false;
+    vaultApi.history(entryId).then((list) => { if (!ignore) setItems(list); }).catch((error) => { if (!ignore) { toast(vaultError(error), "err"); setItems([]); } });
+    return () => { ignore = true; };
   }, [entryId, toast]);
 
   async function reveal(index: number) {
@@ -29,8 +31,8 @@ export function HistoryDialog({ entryId, onClose }: { entryId: string; onClose: 
           <span className="name">{item.field}<br />{formatTime(item.at)}</span>
           <code>{revealed[String(item.index)] ?? "••••••••"}</code>
           <span style={{ display: "flex", gap: 4 }}>
-            <button className="gh sm" title="显示" onClick={() => void reveal(item.index)}><i className="ti ti-eye" /></button>
-            <button className="gh sm" title="复制" onClick={() => void copy(item.index)}><i className="ti ti-copy" /></button>
+            <button className="gh sm" title="显示" aria-label="显示" onClick={() => void reveal(item.index)}><i className="ti ti-eye" /></button>
+            <button className="gh sm" title="复制" aria-label="复制" onClick={() => void copy(item.index)}><i className="ti ti-copy" /></button>
           </span>
         </div>
       ))}

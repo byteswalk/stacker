@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
 import { ConfirmModal, useToast } from "../../ui";
 import { vaultApi, vaultError, type EntryView } from "./api";
@@ -11,10 +11,15 @@ export function EntryDetail({ entry, today, onEdit, onChanged }: {
   entry: EntryView; today: Date; onEdit: () => void; onChanged: () => void;
 }) {
   const toast = useToast();
-  const { revealed, show, hide } = useRevealed();
+  const { revealed, show, hide, clear } = useRevealed();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [exportPath, setExportPath] = useState<string | null>(null);
+  const currentId = useRef(entry.id);
+
+  // Revealed values belong to one saved version of one entry.
+  useEffect(() => { currentId.current = entry.id; clear(); }, [entry.id, entry.updatedAt, clear]);
 
   async function run(action: () => Promise<unknown>, done?: string) {
     setBusy(true);
@@ -24,15 +29,20 @@ export function EntryDetail({ entry, today, onEdit, onChanged }: {
   }
   async function reveal(field: string) {
     if (revealed[field] !== undefined) { hide(field); return; }
-    try { show(field, await vaultApi.reveal(entry.id, field)); } catch (error) { toast(vaultError(error), "err"); }
+    const id = entry.id;
+    try {
+      const value = await vaultApi.reveal(id, field);
+      if (currentId.current === id) show(field, value);
+    } catch (error) { toast(vaultError(error), "err"); }
   }
   async function copy(field: string) {
     try { await vaultApi.copy(entry.id, field); toast("已复制，30 秒后自动清除剪贴板。", "ok"); } catch (error) { toast(vaultError(error), "err"); }
   }
   async function exportKey() {
-    const dest = await save({ title: "导出私钥", defaultPath: entry.title.replace(/[\\/:*?"<>|]/g, "_") });
-    if (!dest) return;
-    await run(() => vaultApi.sshExport(entry.id, dest), "私钥已导出，文件权限已收紧为仅当前用户。");
+    try {
+      const dest = await save({ title: "导出私钥", defaultPath: entry.title.replace(/[\\/:*?"<>|]/g, "_") });
+      if (dest) setExportPath(dest);
+    } catch (error) { toast(vaultError(error), "err"); }
   }
 
   return (
@@ -48,11 +58,11 @@ export function EntryDetail({ entry, today, onEdit, onChanged }: {
             <code>{!field.filled ? "—" : shown !== undefined ? shown : "••••••••"}</code>
             <span style={{ display: "flex", gap: 4 }}>
               {field.secret && field.filled && (
-                <button className="gh sm" title={revealed[field.name] !== undefined ? "隐藏" : "显示"} onClick={() => void reveal(field.name)}>
+                <button className="gh sm" title={revealed[field.name] !== undefined ? "隐藏" : "显示"} aria-label={revealed[field.name] !== undefined ? "隐藏" : "显示"} onClick={() => void reveal(field.name)}>
                   <i className={"ti " + (revealed[field.name] !== undefined ? "ti-eye-off" : "ti-eye")} />
                 </button>
               )}
-              {field.filled && <button className="gh sm" title="复制" onClick={() => void copy(field.name)}><i className="ti ti-copy" /></button>}
+              {field.filled && <button className="gh sm" title="复制" aria-label="复制" onClick={() => void copy(field.name)}><i className="ti ti-copy" /></button>}
             </span>
           </div>
         );
@@ -80,6 +90,11 @@ export function EntryDetail({ entry, today, onEdit, onChanged }: {
         <ConfirmModal title="删除条目" danger message={`删除「${entry.title}」？可在回收站保留 30 天。`} confirmLabel="删除" busy={busy}
           onClose={() => setConfirmDelete(false)}
           onConfirm={() => { setConfirmDelete(false); void run(() => vaultApi.remove(entry.id), "已移入回收站。"); }} />
+      )}
+      {exportPath !== null && (
+        <ConfirmModal title="导出私钥" danger message="私钥将以明文写入所选位置，请确认路径安全。" confirmLabel="导出" busy={busy}
+          onClose={() => setExportPath(null)}
+          onConfirm={() => { const dest = exportPath; setExportPath(null); void run(() => vaultApi.sshExport(entry.id, dest), "私钥已导出，文件权限已收紧为仅当前用户。"); }} />
       )}
       {historyOpen && <HistoryDialog entryId={entry.id} onClose={() => setHistoryOpen(false)} />}
     </div>

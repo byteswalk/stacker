@@ -10,7 +10,7 @@ export type Draft = {
 };
 
 let nextKey = 1;
-const PRIVATE_KEY_CHARS = 16 * 1024;
+const MAX_VALUE_BYTES = 16 * 1024;
 
 function templateFields(kind: Kind): DraftField[] {
   return TEMPLATES[kind].map((field) => ({ key: nextKey++, name: field.name, previousName: null, value: "", secret: field.secret, saved: false }));
@@ -37,11 +37,17 @@ export function toEntryInput(draft: Draft): EntryInput {
     fields: draft.fields.filter((field) => field.name.trim()).map((field) => ({
       name: field.name.trim(),
       previousName: field.previousName,
-      value: field.secret && field.saved && field.value === "" ? null : field.value,
+      value: field.saved && field.value === "" ? null : field.value,
       secret: field.secret,
     })),
     expiresAt: draft.expiresAt || null, tags, note: draft.note, favorite: draft.favorite,
   };
+}
+
+/** Name of the first field whose value is larger than 16 KB (the backend limit), or null. */
+export function oversizedField(draft: Draft): string | null {
+  const encoder = new TextEncoder();
+  return draft.fields.find((field) => encoder.encode(field.value).length > MAX_VALUE_BYTES)?.name ?? null;
 }
 
 export function EntryEditor({ entry, onSaved, onClose }: { entry: EntryView | null; onSaved: (view: EntryView) => void; onClose: () => void }) {
@@ -60,6 +66,7 @@ export function EntryEditor({ entry, onSaved, onClose }: { entry: EntryView | nu
 
   async function submit() {
     if (!draft.title.trim()) { toast("请填写标题。", "info"); return; }
+    if (oversizedField(draft) !== null) { toast("私钥超过 16 KB，请确认粘贴的内容。", "info"); return; }
     setBusy(true);
     try { onSaved(await vaultApi.save(toEntryInput(draft))); toast("已保存。", "ok"); }
     catch (error) { toast(vaultError(error), "err"); }
@@ -75,9 +82,10 @@ export function EntryEditor({ entry, onSaved, onClose }: { entry: EntryView | nu
           <input className="ip full" list="vault-platforms" value={draft.platform} onChange={(e) => update({ platform: e.target.value })} />
           <datalist id="vault-platforms">{PLATFORM_PRESETS.map((name) => <option key={name} value={name} />)}</datalist>
         </label>
-        <label>类型
+        <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+          <span style={{ fontSize: 12, color: "var(--mut)" }}>类型</span>
           <div className="seg">{KIND_ORDER.map((kind) => <button key={kind} className={draft.kind === kind ? "on" : ""} onClick={() => changeKind(kind)}>{KIND_LABELS[kind]}</button>)}</div>
-        </label>
+        </div>
         <div>
           {draft.fields.map((field) => {
             const multiline = draft.kind === "ssh_key" && field.secret && field.name.includes("私钥");
@@ -86,10 +94,10 @@ export function EntryEditor({ entry, onSaved, onClose }: { entry: EntryView | nu
               <div className="vault-edit-field" key={field.key}>
                 <input className="ip" value={field.name} aria-label="字段名" onChange={(e) => updateField(field.key, { name: e.target.value })} />
                 {multiline
-                  ? <textarea className="ip" value={field.value} maxLength={PRIVATE_KEY_CHARS} placeholder={placeholder} onChange={(e) => updateField(field.key, { value: e.target.value })} />
+                  ? <textarea className="ip" value={field.value} placeholder={placeholder} onChange={(e) => updateField(field.key, { value: e.target.value })} />
                   : <input className="ip" type={field.secret ? "password" : "text"} autoComplete="off" value={field.value} placeholder={placeholder} onChange={(e) => updateField(field.key, { value: e.target.value })} />}
-                <label className="sw" title="保密"><input type="checkbox" checked={field.secret} onChange={(e) => updateField(field.key, { secret: e.target.checked })} /><span className="tk" /></label>
-                <button className="gh sm" title="删除字段" onClick={() => setDraft((current) => ({ ...current, touched: true, fields: current.fields.filter((item) => item.key !== field.key) }))}><i className="ti ti-x" /></button>
+                <label className="sw" title="保密"><input type="checkbox" aria-label="保密" checked={field.secret} onChange={(e) => updateField(field.key, { secret: e.target.checked })} /><span className="tk" /></label>
+                <button className="gh sm" title="删除字段" aria-label="删除字段" onClick={() => setDraft((current) => ({ ...current, touched: true, fields: current.fields.filter((item) => item.key !== field.key) }))}><i className="ti ti-x" /></button>
               </div>
             );
           })}

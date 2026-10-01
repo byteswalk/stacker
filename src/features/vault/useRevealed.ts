@@ -6,6 +6,7 @@ export const REVEAL_MS = 30_000;
 export function useRevealed() {
   const [revealed, setRevealed] = useState<Record<string, string>>({});
   const timers = useRef(new Map<string, number>());
+  const mounted = useRef(false);
 
   const hide = useCallback((key: string) => {
     window.clearTimeout(timers.current.get(key));
@@ -17,7 +18,14 @@ export function useRevealed() {
     });
   }, []);
 
+  const clear = useCallback(() => {
+    timers.current.forEach((timer) => window.clearTimeout(timer));
+    timers.current.clear();
+    setRevealed({});
+  }, []);
+
   const show = useCallback((key: string, value: string) => {
+    if (!mounted.current) return;
     window.clearTimeout(timers.current.get(key));
     timers.current.set(key, window.setTimeout(() => hide(key), REVEAL_MS));
     setRevealed((current) => ({ ...current, [key]: value }));
@@ -25,8 +33,9 @@ export function useRevealed() {
 
   useEffect(() => {
     const active = timers.current;
-    return () => { active.forEach((timer) => window.clearTimeout(timer)); active.clear(); };
+    mounted.current = true;
+    return () => { mounted.current = false; active.forEach((timer) => window.clearTimeout(timer)); active.clear(); };
   }, []);
 
-  return { revealed, show, hide };
+  return { revealed, show, hide, clear };
 }
