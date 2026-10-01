@@ -21,6 +21,13 @@ pub(crate) struct KdfParams {
 
 impl KdfParams {
     pub(crate) const STANDARD: KdfParams = KdfParams { mem_kib: 64 * 1024, iters: 3, lanes: 1 };
+
+    /// Bounds for parameters read from a file, so a tampered header cannot force a huge allocation.
+    pub(crate) fn is_reasonable(&self) -> bool {
+        (8..=1_048_576).contains(&self.mem_kib)
+            && (1..=10).contains(&self.iters)
+            && (1..=8).contains(&self.lanes)
+    }
     /// Cheap parameters so unit tests stay fast; never used outside tests.
     #[cfg(test)]
     pub(crate) const FAST: KdfParams = KdfParams { mem_kib: 256, iters: 1, lanes: 1 };
