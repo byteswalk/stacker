@@ -90,8 +90,10 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<Loaded, String> {
     if bytes.len() < PREFIX_LEN || &bytes[..4] != MAGIC {
         return Err(CORRUPT.into());
     }
-    if u16::from_le_bytes([bytes[4], bytes[5]]) > FORMAT_VERSION {
-        return Err(NEWER.into());
+    match u16::from_le_bytes([bytes[4], bytes[5]]) {
+        0 => return Err(CORRUPT.into()),
+        version if version > FORMAT_VERSION => return Err(NEWER.into()),
+        _ => {}
     }
     let header_len = u32::from_le_bytes([bytes[6], bytes[7], bytes[8], bytes[9]]) as usize;
     let header_end = PREFIX_LEN
@@ -181,13 +183,12 @@ mod tests {
     fn a_touched_header_breaks_the_body() {
         let dek = crypto::new_key();
         let mut bytes = encode(&header_for(&dek), &dek, b"x").unwrap();
-        // Flip a character inside the JSON header ("kdf" -> "kdg").
-        let at = bytes.windows(3).position(|w| w == b"kdf").unwrap();
-        bytes[at + 2] = b'g';
-        match parse(&bytes) {
-            Ok(loaded) => assert!(decrypt_body(&loaded, &dek).is_err()),
-            Err(code) => assert_eq!(code, CORRUPT),
-        }
+        // Change one hex digit of the password wrap's salt: the header still parses.
+        let key = b"\"salt\":\"";
+        let at = bytes.windows(key.len()).position(|w| w == key).unwrap() + key.len();
+        bytes[at] = if bytes[at] == b'0' { b'1' } else { b'0' };
+        let loaded = parse(&bytes).expect("a changed salt digit still parses");
+        assert!(decrypt_body(&loaded, &dek).is_err());
     }
 
     #[test]
@@ -196,6 +197,8 @@ mod tests {
         let mut bytes = encode(&header_for(&dek), &dek, b"x").unwrap();
         bytes[4] = 2;
         assert_eq!(parse(&bytes).err().unwrap(), NEWER);
+        bytes[4] = 0;
+        assert_eq!(parse(&bytes).err().unwrap(), CORRUPT);
         assert_eq!(parse(b"SKV1").err().unwrap(), CORRUPT);
         assert_eq!(parse(b"NOPE000000").err().unwrap(), CORRUPT);
         let mut long = encode(&header_for(&dek), &dek, b"x").unwrap();

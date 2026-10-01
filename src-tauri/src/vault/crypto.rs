@@ -27,6 +27,7 @@ impl KdfParams {
         (8..=1_048_576).contains(&self.mem_kib)
             && (1..=10).contains(&self.iters)
             && (1..=8).contains(&self.lanes)
+            && self.mem_kib >= 8 * self.lanes
     }
     /// Cheap parameters so unit tests stay fast; never used outside tests.
     #[cfg(test)]
@@ -161,6 +162,34 @@ pub(crate) fn last_group(key: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn kdf_bounds_are_enforced() {
+        let p = |mem_kib, iters, lanes| KdfParams { mem_kib, iters, lanes }.is_reasonable();
+        assert!(KdfParams::STANDARD.is_reasonable());
+        assert!(KdfParams::FAST.is_reasonable());
+        // (mem_kib, iters, lanes, accepted)
+        let table = [
+            (8, 1, 1, true),
+            (7, 1, 1, false),
+            (0, 1, 1, false),
+            (1_048_576, 1, 1, true),
+            (1_048_577, 1, 1, false),
+            (256, 1, 1, true),
+            (256, 0, 1, false),
+            (256, 10, 1, true),
+            (256, 11, 1, false),
+            (256, 1, 0, false),
+            (256, 1, 8, true),
+            (256, 1, 9, false),
+            (8, 1, 8, false),
+            (63, 1, 8, false),
+            (64, 1, 8, true),
+        ];
+        for (mem_kib, iters, lanes, accepted) in table {
+            assert_eq!(p(mem_kib, iters, lanes), accepted, "mem={mem_kib} iters={iters} lanes={lanes}");
+        }
+    }
 
     #[test]
     fn derive_is_deterministic_and_salt_sensitive() {
