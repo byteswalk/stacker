@@ -1,6 +1,6 @@
 //! 自动锁定：Stacker 窗口内无操作达设定时长、Windows 锁屏、系统睡眠（墙钟跳变）。
 
-use std::sync::atomic::{AtomicU16, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::time::{Duration, SystemTime};
 use tauri::Emitter;
 
@@ -8,6 +8,7 @@ const TICK: Duration = Duration::from_secs(5);
 const SLEEP_GAP: Duration = Duration::from_secs(60);
 const ALLOWED_MINUTES: [u16; 4] = [5, 10, 30, 60];
 static AUTO_LOCK_MINUTES: AtomicU16 = AtomicU16::new(10);
+static STARTED: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Reason {
@@ -54,7 +55,11 @@ pub(crate) fn lock_everything() {
     super::clipboard::clear_now();
 }
 
+/// Starts the watcher thread; later calls in the same process do nothing.
 pub(crate) fn start(app: tauri::AppHandle) {
+    if STARTED.swap(true, Ordering::SeqCst) {
+        return;
+    }
     std::thread::spawn(move || {
         let mut last_wall = SystemTime::now();
         loop {
