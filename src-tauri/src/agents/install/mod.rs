@@ -613,22 +613,58 @@ pub(crate) fn uninstall_desktop_tool(
 }
 
 /// After an install or update the command must resolve; PATH changes can take a moment.
+/// After an install or update the command must resolve, and run: a command file can be in
+/// place while what it starts is not (an npm update of Codex once dropped the Windows binary
+/// it carries as an optional dependency, and still printed "changed 2 packages").
 pub(crate) fn verify_cli_present(
     spec: &ToolSpec,
     window: &Option<tauri::Window>,
 ) -> Result<(), String> {
     let started = Instant::now();
+    let mut present = false;
     while started.elapsed() < Duration::from_secs(15) {
         if cli_installed_after_action(spec) {
-            return Ok(());
+            present = true;
+            break;
         }
         emit_progress(window, format!("正在确认 {} 已就位…", spec.cli.name));
         std::thread::sleep(Duration::from_millis(500));
     }
-    Err(format!(
-        "{} 的安装程序报告完成，但没有检测到 {} 命令。请在任务日志里查看安装输出。",
-        spec.cli.name, spec.cli.command
-    ))
+    if !present {
+        return Err(format!(
+            "{} 的安装程序报告完成，但没有检测到 {} 命令。请在任务日志里查看安装输出。",
+            spec.cli.name, spec.cli.command
+        ));
+    }
+    emit_progress(window, format!("正在确认 {} 能正常运行…", spec.cli.name));
+    let surface = cli_surface(spec, false);
+    if surface.health != "broken" {
+        return Ok(());
+    }
+    let reason = surface.broken_reason.unwrap_or_default();
+    // An npm package left half-installed comes back whole from a clean reinstall, once.
+    if let (Some(pkg), Some("npm")) = (spec.cli.npm_package, surface.install_method.as_deref()) {
+        emit_progress(
+            window,
+            format!(
+                "{} 装上了但无法运行（{reason}），正在卸载后重新安装…",
+                spec.cli.name
+            ),
+        );
+        let program = resolve_command(spec.cli.candidates);
+        npm_uninstall(pkg, program.as_deref(), window)?;
+        npm_install_latest(pkg, program.as_deref(), window)?;
+        let again = cli_surface(spec, false);
+        if again.health != "broken" {
+            return Ok(());
+        }
+        return Err(format!(
+            "{} 重新安装后仍无法运行：{}",
+            spec.cli.name,
+            again.broken_reason.unwrap_or_default()
+        ));
+    }
+    Err(format!("{} 已装上，但无法运行：{reason}", spec.cli.name))
 }
 
 /// Waits for an uninstaller that returns before it has finished (NSIS and Squirrel copy

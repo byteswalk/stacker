@@ -586,6 +586,53 @@ pub(crate) fn resolve_command(candidates: &[&str]) -> Option<PathBuf> {
     None
 }
 
+/// The script an npm `.cmd` shim runs: the quoted `"%dp0%\node_modules\…"` path, resolved
+/// against the shim's folder. The shim names `"%dp0%\node.exe"` first, so every quoted
+/// `%dp0%` path is looked at.
+pub(crate) fn npm_shim_script(shim: &Path, text: &str) -> Option<PathBuf> {
+    let relative = text.split("\"%dp0%\\").skip(1).find_map(|rest| {
+        let relative = &rest[..rest.find('"')?];
+        relative
+            .to_ascii_lowercase()
+            .starts_with("node_modules\\")
+            .then_some(relative)
+    })?;
+    Some(shim.parent()?.join(relative))
+}
+
+/// How to start a command. An npm `.cmd` shim is skipped for `node <script>`: Rust refuses a
+/// batch file any argument it cannot quote safely for cmd.exe (a line break, for one), and
+/// prompts are full of those. Anything else starts as it is.
+pub(crate) fn program_command(path: &Path) -> std::process::Command {
+    let is_batch = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("cmd") || ext.eq_ignore_ascii_case("bat"));
+    if is_batch {
+        let script = std::fs::read_to_string(path)
+            .ok()
+            .and_then(|text| npm_shim_script(path, &text))
+            .filter(|script| script.is_file());
+        if let Some(script) = script {
+            // The shim prefers a node.exe beside it, then the one on PATH.
+            let node = path
+                .parent()
+                .map(|dir| dir.join("node.exe"))
+                .filter(|node| node.is_file())
+                .or_else(|| resolve_command(&["node.exe"]));
+            if let Some(node) = node {
+                let mut cmd = std::process::Command::new(node);
+                hide_console(&mut cmd);
+                cmd.arg(script);
+                return cmd;
+            }
+        }
+    }
+    let mut cmd = std::process::Command::new(path);
+    hide_console(&mut cmd);
+    cmd
+}
+
 pub(crate) fn resolve_command_including_windowsapps(candidates: &[&str]) -> Option<PathBuf> {
     for dir in command_dirs() {
         for name in candidates {
@@ -792,5 +839,24 @@ mod tests {
             failure_summary(store).as_deref(),
             Some("无法安装或更新 Microsoft Store 程序包。错误代码: 0x803fb015")
         );
+    }
+}
+
+#[cfg(test)]
+mod shim_tests {
+    use super::*;
+
+    #[test]
+    fn an_npm_shim_names_the_script_it_runs() {
+        let shim = Path::new(r"D:\node_global\kimi.cmd");
+        let text = r#"IF EXIST "%dp0%\node.exe" ( SET "_prog=%dp0%\node.exe" ) ELSE ( SET "_prog=node" )
+endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\node_modules\@moonshot-ai\kimi-code\dist\main.mjs" %*"#;
+        assert_eq!(
+            npm_shim_script(shim, text),
+            Some(PathBuf::from(
+                r"D:\node_global\node_modules\@moonshot-ai\kimi-code\dist\main.mjs"
+            ))
+        );
+        assert_eq!(npm_shim_script(shim, "@echo off\r\nrun.exe %*"), None);
     }
 }

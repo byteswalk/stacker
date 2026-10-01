@@ -214,7 +214,7 @@ const KIMI_AGENT: &str = "---\nname: stacker-answer\ndescription: Answer without
 
 fn kimi_command() -> Result<Command, String> {
     crate::agents::process::resolve_command(&["kimi.exe", "kimi.cmd", "kimi.bat"])
-        .map(Command::new)
+        .map(|path| crate::agents::process::program_command(&path))
         .ok_or_else(|| "E_RUNNER_MISSING".into())
 }
 
@@ -345,7 +345,7 @@ const MIMO_EFFORTS: &[&str] = &["minimal", "high", "max"];
 
 fn mimo_command() -> Result<Command, String> {
     crate::agents::process::resolve_command(&["mimo.exe", "mimo.cmd", "mimo.bat"])
-        .map(Command::new)
+        .map(|path| crate::agents::process::program_command(&path))
         .ok_or_else(|| "E_RUNNER_MISSING".into())
 }
 

@@ -103,9 +103,14 @@ pub(crate) fn run_program_lines(
             program.env(key, value);
         }
     }
-    let mut child = program
-        .spawn()
-        .map_err(|_| "E_RUNNER_MISSING".to_string())?;
+    let mut child = program.spawn().map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            "E_RUNNER_MISSING".to_string()
+        } else {
+            log::warn!(target: "stacker::runner", "could not start the agent CLI: {error}");
+            "E_RUNNER_START".to_string()
+        }
+    })?;
     let mut input = child.stdin.take().ok_or("E_RUNNER_FAILED")?;
     let payload = stdin.as_bytes().to_vec();
     let writer = std::thread::spawn(move || {
@@ -193,6 +198,27 @@ pub(crate) fn looks_unauthenticated(text: &str) -> bool {
     .any(|needle| lower.contains(needle))
 }
 
+/// An account with no plan or credit left for the CLI: Kimi answers with its pricing page,
+/// MiMo with "Insufficient account balance", Qoder with its credit limit. A desktop app's free
+/// chat allowance does not carry over to these CLIs.
+fn looks_unpaid(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    [
+        "insufficient account balance",
+        "insufficient balance",
+        "insufficient credit",
+        "credit usage limit",
+        "out of credits",
+        "quota exceeded",
+        "exceeded your current quota",
+        "upgrade your subscription",
+        "/pricing",
+        "#pricing",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle))
+}
+
 /// An account the vendor will not serve: signed in, and refused all the same.
 fn looks_ineligible(text: &str) -> bool {
     let lower = text.to_lowercase();
@@ -268,6 +294,22 @@ mod failure_tests {
         let refused =
             "error: Eligibility check failed: Your current account is not eligible for Antigravity.";
         assert_eq!(failed(refused, ""), "E_RUNNER_INELIGIBLE");
+        // Signed in, with no plan or credit for the CLI.
+        assert_eq!(
+            failed("", "kimi version 2.1.1 https://www.kimi.com/code/#pricing"),
+            "E_RUNNER_NO_PLAN"
+        );
+        assert_eq!(
+            failed("Insufficient account balance", ""),
+            "E_RUNNER_NO_PLAN"
+        );
+        assert_eq!(
+            failed(
+                "You've reached your credit usage limit. Please upgrade your subscription plan.",
+                ""
+            ),
+            "E_RUNNER_NO_PLAN"
+        );
         assert_eq!(
             failed("", "Please sign in to view available models."),
             "E_RUNNER_AUTH"
@@ -300,6 +342,9 @@ pub(crate) fn finish(status: ExitStatus, stdout: &str, stderr: &str) -> Result<(
         return Ok(());
     }
     note_failure(stdout, stderr);
+    if looks_unpaid(stderr) || looks_unpaid(stdout) {
+        return Err("E_RUNNER_NO_PLAN".into());
+    }
     if looks_ineligible(stderr) || looks_ineligible(stdout) {
         return Err("E_RUNNER_INELIGIBLE".into());
     }

@@ -24,7 +24,7 @@ const MODEL_CACHE: Duration = Duration::from_secs(30 * 60);
 
 fn command(candidates: &[&str]) -> Result<Command, String> {
     crate::agents::process::resolve_command(candidates)
-        .map(Command::new)
+        .map(|path| crate::agents::process::program_command(&path))
         .ok_or_else(|| "E_RUNNER_MISSING".into())
 }
 

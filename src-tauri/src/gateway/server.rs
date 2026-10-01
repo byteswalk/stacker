@@ -196,6 +196,11 @@ fn runner_error(code: &str, backend: &str) -> ApiError {
             "authentication_error",
             "The agent CLI is not signed in. Run it in a terminal and sign in.",
         ),
+        "E_RUNNER_NO_PLAN" => ApiError::new(
+            429,
+            "insufficient_quota",
+            "The agent's account has no plan or credit left for its CLI. Subscribe or top up with the vendor, then try again.",
+        ),
         "E_RUNNER_TIMEOUT" => ApiError::new(
             504,
             "timeout_error",
