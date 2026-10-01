@@ -130,25 +130,37 @@ fn pkcs1_modulus_bits(text: &str) -> Option<u32> {
     (tag == 0x02).then(|| bit_length(modulus))
 }
 
-/// Never overwrites; Windows OpenSSH refuses a private key others can read, so access is
-/// narrowed to the current user right after writing.
+/// Never overwrites. OpenSSH refuses a private key others can read, so the empty file is
+/// locked down to the current user before any secret goes into it; if anything fails after
+/// the file was created, it is removed again so a retry starts clean.
 pub(crate) fn export_private(text: &str, dest: &Path) -> Result<(), String> {
+    export_with(text, dest, restrict_to_current_user)
+}
+
+fn export_with(text: &str, dest: &Path, restrict: impl FnOnce(&Path) -> Result<(), String>) -> Result<(), String> {
     use std::io::Write;
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(dest)
-        .map_err(|error| match error.kind() {
-            std::io::ErrorKind::AlreadyExists => FILE_EXISTS.to_string(),
-            _ => IO.to_string(),
-        })?;
-    let mut content = zeroize::Zeroizing::new(text.replace("\r\n", "\n"));
-    if !content.ends_with('\n') {
-        content.push('\n');
-    }
-    file.write_all(content.as_bytes()).map_err(|_| IO.to_string())?;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let mut file = options.open(dest).map_err(|error| match error.kind() {
+        std::io::ErrorKind::AlreadyExists => FILE_EXISTS.to_string(),
+        _ => IO.to_string(),
+    })?;
+    let written = restrict(dest).and_then(|()| {
+        let mut content = zeroize::Zeroizing::new(text.replace("\r\n", "\n"));
+        if !content.ends_with('\n') {
+            content.push('\n');
+        }
+        file.write_all(content.as_bytes()).map_err(|_| IO.to_string())
+    });
     drop(file);
-    restrict_to_current_user(dest)
+    if written.is_err() {
+        // We created it just now, so removing it cannot touch anyone else's file.
+        let _ = std::fs::remove_file(dest);
+        return Err(IO.to_string());
+    }
+    Ok(())
 }
 
 #[cfg(windows)]
@@ -219,6 +231,26 @@ mod tests {
     }
 
     #[test]
+    fn openssh_ecdsa_keys_are_recognised() {
+        let dir = tempfile::tempdir().unwrap();
+        let Some(plain) = keygen(dir.path(), "ec", &["-t", "ecdsa", "-b", "256", "-N", ""]) else {
+            eprintln!("ssh-keygen not found; skipped");
+            return;
+        };
+        let info = inspect(&plain).unwrap();
+        assert_eq!(info.algorithm, "ecdsa-sha2-nistp256");
+        assert!(info.fingerprint.unwrap().starts_with("SHA256:"));
+        assert_eq!(info.risks, vec![RISK_UNENCRYPTED]);
+
+        let locked = keygen(dir.path(), "ec_locked", &["-t", "ecdsa", "-b", "256", "-N", "fixture-pass"]).unwrap();
+        let info = inspect(&locked).unwrap();
+        assert_eq!(info.algorithm, "ecdsa-sha2-nistp256");
+        assert!(info.encrypted);
+        assert!(info.fingerprint.unwrap().starts_with("SHA256:"));
+        assert!(info.risks.is_empty());
+    }
+
+    #[test]
     fn short_rsa_is_flagged_in_both_formats() {
         let dir = tempfile::tempdir().unwrap();
         let Some(openssh) = keygen(dir.path(), "rsa", &["-t", "rsa", "-b", "1024", "-N", ""]) else {
@@ -254,5 +286,53 @@ mod tests {
         export_private("line one\r\nline two", &dest).unwrap();
         assert_eq!(std::fs::read_to_string(&dest).unwrap(), "line one\nline two\n");
         assert_eq!(export_private("again", &dest).err().unwrap(), FILE_EXISTS);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn exported_key_is_readable_only_by_the_current_user() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("id_locked_down");
+        export_private("secret", &dest).unwrap();
+        let output = std::process::Command::new("icacls").arg(&dest).output().unwrap();
+        let listing = String::from_utf8_lossy(&output.stdout).replace(dest.to_string_lossy().as_ref(), "");
+        let user = std::env::var("USERNAME").unwrap();
+        assert!(listing.contains(&user), "current user missing from ACL: {listing}");
+        for other in ["Everyone", "BUILTIN\\Users", "Authenticated Users", "Administrators", "SYSTEM"] {
+            assert!(!listing.contains(other), "{other} still has access: {listing}");
+        }
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), "secret\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn exported_key_is_mode_600() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("id_locked_down");
+        export_private("secret", &dest).unwrap();
+        assert_eq!(std::fs::metadata(&dest).unwrap().permissions().mode() & 0o777, 0o600);
+    }
+
+    #[test]
+    fn access_is_restricted_before_the_secret_is_written() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("id_ordered");
+        export_with("secret", &dest, |path| {
+            assert_eq!(std::fs::metadata(path).unwrap().len(), 0, "secret written before restriction");
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), "secret\n");
+    }
+
+    #[test]
+    fn a_failed_export_leaves_no_file_and_can_be_retried() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("id_failed");
+        let error = export_with("secret", &dest, |_| Err(IO.to_string())).err().unwrap();
+        assert_eq!(error, IO);
+        assert!(!dest.exists(), "a failed export must not leave a file behind");
+        export_private("secret", &dest).unwrap();
     }
 }
