@@ -105,11 +105,14 @@ function ExportDialog({ onClose }: { onClose: () => void }) {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   async function submit() {
-    const dest = await save({ title: "导出加密备份", defaultPath: `Stacker-保管库-${today()}.skv`, filters: BACKUP_FILTERS });
-    if (!dest) return;
     setBusy(true);
-    try { await vaultApi.exportBackup(password, dest); toast("已导出加密备份。", "ok"); onClose(); }
-    catch (error) { toast(vaultError(error), "err"); }
+    try {
+      const dest = await save({ title: "导出加密备份", defaultPath: `Stacker-保管库-${today()}.skv`, filters: BACKUP_FILTERS });
+      if (!dest) return;
+      await vaultApi.exportBackup(password, dest);
+      toast("已导出加密备份。", "ok");
+      onClose();
+    } catch (error) { toast(vaultError(error), "err"); }
     finally { setBusy(false); }
   }
   return (
@@ -133,8 +136,12 @@ function ImportDialog({ onClose, onChanged }: { onClose: () => void; onChanged: 
   const credential: Credential = { kind, value };
 
   async function choose() {
-    const picked = await open({ title: "选择备份文件", multiple: false, directory: false, filters: BACKUP_FILTERS });
-    if (typeof picked === "string") { setSrc(picked); setPreview(null); }
+    setBusy(true);
+    try {
+      const picked = await open({ title: "选择备份文件", multiple: false, directory: false, filters: BACKUP_FILTERS });
+      if (typeof picked === "string") { setSrc(picked); setPreview(null); }
+    } catch (error) { toast(vaultError(error), "err"); }
+    finally { setBusy(false); }
   }
   async function run(apply: boolean) {
     setBusy(true);
@@ -157,29 +164,42 @@ function ImportDialog({ onClose, onChanged }: { onClose: () => void; onChanged: 
         <div className="vault-sub">导入仅新增和更新条目，不会删除现有条目；同一条目保留较新的版本。</div>
         <div className="vault-bar"><button className="gh sm" disabled={busy} onClick={() => void choose()}><i className="ti ti-folder-open" /> 选择备份文件</button><span className="mut grow">{src}</span></div>
         <div className="seg">
-          <button className={kind === "password" ? "on" : ""} onClick={() => { setKind("password"); setPreview(null); }}>备份的主密码</button>
-          <button className={kind === "recovery" ? "on" : ""} onClick={() => { setKind("recovery"); setPreview(null); }}>备份的恢复密钥</button>
+          <button className={kind === "password" ? "on" : ""} disabled={busy} onClick={() => { setKind("password"); setPreview(null); }}>备份的主密码</button>
+          <button className={kind === "recovery" ? "on" : ""} disabled={busy} onClick={() => { setKind("recovery"); setPreview(null); }}>备份的恢复密钥</button>
         </div>
-        <input className="ip full" type="password" autoComplete="off" value={value} onChange={(e) => { setValue(e.target.value); setPreview(null); }} />
+        <input className="ip full" type="password" autoComplete="off" disabled={busy} value={value} onChange={(e) => { setValue(e.target.value); setPreview(null); }} />
         {preview && <div className="callout"><i className="ti ti-info-circle" /><div>新增 {preview.added} / 更新 {preview.updated} / 相同 {preview.same}</div></div>}
       </div>
     </Modal>
   );
 }
 
-function AutoLockDialog({ onClose }: { onClose: () => void }) {
+export function AutoLockDialog({ onClose }: { onClose: () => void }) {
   const toast = useToast();
   const [minutes, setMinutes] = useState<number | null>(null);
-  const [dirs, setDirs] = useState<string[]>([]);
+  const [ready, setReady] = useState(false);
+  const [busy, setBusy] = useState(false);
   useEffect(() => {
-    vaultApi.settings().then((settings) => { setMinutes(settings.vault_auto_lock_minutes); setDirs(settings.vault_scan_dirs); }).catch(() => setMinutes(10));
-  }, []);
+    let alive = true;
+    vaultApi.settings()
+      .then((settings) => { if (alive) { setMinutes(settings.vault_auto_lock_minutes); setReady(true); } })
+      .catch((error) => { if (alive) toast(vaultError(error), "err"); });
+    return () => { alive = false; };
+  }, [toast]);
+  // settings_set_vault replaces the scan folders wholesale, so re-read them right before saving.
   async function choose(next: number) {
-    try { await vaultApi.setSettings(next, dirs); setMinutes(next); toast("已保存。", "ok"); } catch (error) { toast(vaultError(error), "err"); }
+    setBusy(true);
+    try {
+      const fresh = await vaultApi.settings();
+      const saved = await vaultApi.setSettings(next, fresh.vault_scan_dirs);
+      setMinutes(saved.vault_auto_lock_minutes);
+      toast("已保存。", "ok");
+    } catch (error) { toast(vaultError(error), "err"); }
+    finally { setBusy(false); }
   }
   return (
     <Modal title="自动锁定" icon="ti-clock-lock" sub="Stacker 窗口内无操作达到设定时长后锁定；Windows 锁屏或系统睡眠时也会锁定。" onClose={onClose}>
-      <div className="seg">{AUTO_LOCK_CHOICES.map((value) => <button key={value} className={minutes === value ? "on" : ""} onClick={() => void choose(value)}>{value} 分钟</button>)}</div>
+      <div className="seg">{AUTO_LOCK_CHOICES.map((value) => <button key={value} className={minutes === value ? "on" : ""} disabled={!ready || busy} onClick={() => void choose(value)}>{value} 分钟</button>)}</div>
     </Modal>
   );
 }

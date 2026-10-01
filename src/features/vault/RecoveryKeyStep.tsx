@@ -40,7 +40,7 @@ export function RecoveryKeyStep({ recoveryKey, onConfirmed, onCancel }: { recove
       </div>
       <div className="vault-actions">
         <button className="gh sm" disabled={busy} onClick={() => void cancel()}>取消</button>
-        <button className="pr sm" disabled={busy || group.trim().length === 0} onClick={() => void confirm()}>完成</button>
+        <button className="pr sm" disabled={busy || group.trim().length !== 4} onClick={() => void confirm()}>完成</button>
       </div>
     </div>
   );
