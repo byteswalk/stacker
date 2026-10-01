@@ -18,8 +18,7 @@ const PREFIXES: &[(&str, &str, Kind)] = &[
     ("ghp_", "GitHub", Kind::Token),
     ("gho_", "GitHub", Kind::Token),
     ("glpat-", "GitLab", Kind::Token),
-    ("xoxb-", "Slack", Kind::Token),
-    ("xoxp-", "Slack", Kind::Token),
+    ("xox", "Slack", Kind::Token),
     ("AIza", "Google", Kind::ApiKey),
     ("hf_", "Hugging Face", Kind::Token),
     ("npm_", "npm", Kind::Token),
@@ -47,7 +46,9 @@ pub(crate) fn is_placeholder(value: &str) -> bool {
 }
 
 fn looks_like_path(value: &str) -> bool {
-    value.contains(":\\") || value.starts_with('/') || value.starts_with("\\\\") || value.starts_with("~/") || value.starts_with("./")
+    value.contains(":\\")
+        || value.starts_with('/')
+        || ["\\\\", "~/", "~\\", "./", ".\\", "../", "..\\"].iter().any(|start| value.starts_with(start))
 }
 
 fn url_has_credentials(value: &str) -> bool {
@@ -86,7 +87,7 @@ pub(crate) fn value_ok(value: &str) -> bool {
 
 pub(crate) fn known_prefix(value: &str) -> Option<(&'static str, Kind)> {
     let value = value.trim();
-    if value.chars().count() < MIN_PREFIXED_CHARS || value.chars().any(char::is_whitespace) || is_placeholder(value) {
+    if value.chars().count() < MIN_PREFIXED_CHARS || value.chars().any(char::is_whitespace) || !value_ok(value) {
         return None;
     }
     PREFIXES
@@ -100,7 +101,8 @@ pub(crate) fn classify(name: &str, value: &str) -> Option<(String, Kind)> {
         return Some((platform.to_string(), kind));
     }
     if name_matches(name) && value_ok(value) {
-        let kind = if name.to_ascii_uppercase().contains("TOKEN") { Kind::Token } else { Kind::ApiKey };
+        let is_token = name.to_ascii_uppercase().split(['_', '-', '.']).any(|segment| segment == "TOKEN");
+        let kind = if is_token { Kind::Token } else { Kind::ApiKey };
         return Some((String::new(), kind));
     }
     None
@@ -112,7 +114,9 @@ pub(crate) fn primary_field(kind: Kind) -> &'static str {
 
 /// `NAME=value` lines: `export ` prefixes, quotes and trailing ` #` comments are understood.
 pub(crate) fn parse_env(text: &str) -> Vec<(String, String)> {
-    text.lines()
+    text.strip_prefix('\u{feff}')
+        .unwrap_or(text)
+        .lines()
         .filter_map(|line| {
             let line = line.trim();
             if line.is_empty() || line.starts_with('#') {
@@ -170,6 +174,10 @@ mod tests {
             "https://api.service.io/v1/endpoint",
             "aaaaaaaaaaaaaaaaaaaa",
             "changeme-changeme-123",
+            ".\\config\\secrets.json",
+            "..\\config\\secrets.json",
+            "../config/secrets.json",
+            "~\\keys\\id_ed25519.pem",
         ] {
             assert!(!value_ok(value), "{value}");
         }
@@ -182,6 +190,40 @@ mod tests {
         assert_eq!(known_prefix(&sample(&["sk-"])), Some(("", Kind::ApiKey)));
         assert_eq!(known_prefix("sk-your-key-goes-here"), None);
         assert_eq!(known_prefix(&["gh", "p_x"].concat()), None);
+    }
+
+    #[test]
+    fn a_prefix_hit_must_still_look_like_a_secret() {
+        let flat = ["sk-", &"a".repeat(20)].concat();
+        assert_eq!(known_prefix(&flat), None);
+        assert_eq!(classify("WHATEVER", &flat), None);
+        assert_eq!(classify("SERVICE_KEY", &flat), None);
+    }
+
+    #[test]
+    fn every_listed_prefix_is_recognised() {
+        for (prefix, platform, kind) in PREFIXES {
+            assert_eq!(known_prefix(&sample(&[prefix])), Some((*platform, *kind)), "{prefix}");
+        }
+        assert_eq!(known_prefix(&sample(&["xox", "b-"])), Some(("Slack", Kind::Token)));
+    }
+
+    #[test]
+    fn cloud_key_ids_are_not_prefix_hits() {
+        for prefix in [["AK", "IA"], ["AK", "LT"], ["LT", "AI"]] {
+            assert_eq!(known_prefix(&sample(&prefix)), None, "{}", prefix.concat());
+        }
+    }
+
+    #[test]
+    fn token_kind_needs_a_whole_token_segment() {
+        assert_eq!(classify("TOKENIZER_API_KEY", &sample(&[])), Some((String::new(), Kind::ApiKey)));
+        assert_eq!(classify("GH_TOKEN", &sample(&[])), Some((String::new(), Kind::Token)));
+    }
+
+    #[test]
+    fn a_leading_bom_is_ignored() {
+        assert_eq!(parse_env("\u{feff}A_TOKEN=one\nB_KEY=two\n"), vec![("A_TOKEN".into(), "one".into()), ("B_KEY".into(), "two".into())]);
     }
 
     #[test]
