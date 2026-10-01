@@ -5,4 +5,17 @@ pub(crate) mod crypto;
 pub(crate) mod errors;
 pub(crate) mod format;
 pub(crate) mod model;
+pub(crate) mod session;
 pub(crate) mod ssh;
+
+use std::path::PathBuf;
+use std::sync::OnceLock;
+
+pub(crate) fn default_path() -> PathBuf {
+    dirs::config_dir().unwrap_or_default().join("stacker").join("vault.skv")
+}
+
+pub(crate) fn vault() -> &'static session::Vault {
+    static VAULT: OnceLock<session::Vault> = OnceLock::new();
+    VAULT.get_or_init(|| session::Vault::new(default_path(), crypto::KdfParams::STANDARD))
+}
