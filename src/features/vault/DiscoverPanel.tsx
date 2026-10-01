@@ -25,6 +25,7 @@ export function DiscoverPanel({ onImported }: { onImported: () => void }) {
   const [dirs, setDirs] = useState<string[]>([]);
   const [dirsReady, setDirsReady] = useState(false);
   const [dirsBusy, setDirsBusy] = useState(false);
+  const [scanned, setScanned] = useState(false);
   const [status, setStatus] = useState<DiscoverStatus | null>(null);
   const [chosen, setChosen] = useState<Record<number, Choice>>({});
   const [busy, setBusy] = useState(false);
@@ -60,14 +61,16 @@ export function DiscoverPanel({ onImported }: { onImported: () => void }) {
   }
   async function addDir() {
     let picked: string | string[] | null;
+    setDirsBusy(true);
     try { picked = await open({ title: "添加项目文件夹", directory: true, multiple: false }); }
-    catch (error) { toast(vaultError(error), "err"); return; }
+    catch (error) { toast(vaultError(error), "err"); setDirsBusy(false); return; }
+    setDirsBusy(false);
     const dir = typeof picked === "string" ? picked.trim() : "";
     if (dir) await saveDirs((current) => (current.includes(dir) ? current : [...current, dir]));
   }
   async function start() {
     setChosen({});
-    try { await vaultApi.discoverStart({ ...scope, projectDirs: dirs }); await refresh(); }
+    try { await vaultApi.discoverStart({ ...scope, projectDirs: dirs }); setScanned(true); await refresh(); }
     catch (error) { toast(vaultError(error), "err"); }
   }
   async function cancel() {
@@ -113,6 +116,8 @@ export function DiscoverPanel({ onImported }: { onImported: () => void }) {
   const findings = status?.findings ?? [];
   const selectedCount = Object.keys(chosen).length;
   const foldersLocked = !dirsReady || dirsBusy;
+  // The backend reports an idle, empty status before any scan: only show a result once a scan has really happened.
+  const hasResult = Boolean(status) && (scanned || status!.files > 0 || status!.cancelled || status!.truncated || findings.length > 0);
 
   return (
     <>
@@ -136,7 +141,7 @@ export function DiscoverPanel({ onImported }: { onImported: () => void }) {
         <div className="vault-actions">
           {running
             ? <button className="gh sm" onClick={() => void cancel()}>取消扫描</button>
-            : <button className="pr sm" disabled={!scope.ssh && !scope.configs && !scope.env && dirs.length === 0} onClick={() => void start()}><i className="ti ti-radar" /> 开始扫描</button>}
+            : <button className="pr sm" disabled={!dirsReady || (!scope.ssh && !scope.configs && !scope.env && dirs.length === 0)} onClick={() => void start()}><i className="ti ti-radar" /> 开始扫描</button>}
         </div>
       </div>
 
@@ -144,7 +149,7 @@ export function DiscoverPanel({ onImported }: { onImported: () => void }) {
       {status?.truncated && <div className="callout"><i className="ti ti-alert-triangle" /><div>已达到单次 5 万个文件上限，结果可能不完整。</div></div>}
       {status?.cancelled && <div className="callout"><i className="ti ti-info-circle" /><div>扫描已取消，以下为已找到的结果。</div></div>}
 
-      {status && !running && (
+      {hasResult && !running && (
         <div className="pxcard">
           {findings.length === 0 ? <div className="vault-empty">未发现明文密钥。</div> : (
             <>

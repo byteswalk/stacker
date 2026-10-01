@@ -27,7 +27,7 @@ function finding(id: number, status: Finding["status"]): Finding {
   return { id, source: "dotenv", location: `D:\\p${id}\\.env`, name: `KEY_${id}`, preview: "abcd•••", platform: "GitHub", kind: "token", risks: [], status };
 }
 const scanned: DiscoverStatus = { running: false, cancelled: false, truncated: false, files: 7, findings: [finding(1, "new"), finding(2, "in_vault")] };
-const idle: DiscoverStatus = { ...scanned, findings: [] };
+const idle: DiscoverStatus = { running: false, cancelled: false, truncated: false, files: 0, findings: [] };
 
 function mockBackend(handlers: Record<string, (args: unknown) => unknown>) {
   vi.mocked(invoke).mockImplementation(async (command: string, args?: unknown) => {
@@ -62,7 +62,44 @@ describe("DiscoverPanel results", () => {
   });
 });
 
+describe("DiscoverPanel empty state", () => {
+  it("shows no result before any scan has run", async () => {
+    mockBackend({ settings_get: () => ({ vault_auto_lock_minutes: 10, vault_scan_dirs: [] }), vault_discover_status: () => idle });
+    await render();
+    expect(document.body.textContent).not.toContain("未发现明文密钥。");
+  });
+
+  it("says nothing was found after a completed scan with zero findings", async () => {
+    mockBackend({ settings_get: () => ({ vault_auto_lock_minutes: 10, vault_scan_dirs: [] }), vault_discover_status: () => ({ ...idle, files: 12 }) });
+    await render();
+    expect(document.body.textContent).toContain("未发现明文密钥。");
+  });
+
+  it("keeps the scan button disabled until settings have loaded", async () => {
+    let release!: (value: unknown) => void;
+    mockBackend({ vault_discover_status: () => idle });
+    vi.mocked(invoke).mockImplementation((command: string) =>
+      command === "settings_get" ? new Promise((resolve) => { release = resolve; }) : Promise.resolve(idle));
+    await render();
+    expect(button("开始扫描").disabled).toBe(true);
+    await act(async () => release({ vault_auto_lock_minutes: 10, vault_scan_dirs: [] }));
+    expect(button("开始扫描").disabled).toBe(false);
+  });
+});
+
 describe("DiscoverPanel project folders", () => {
+  it("locks the folder buttons while the folder dialog is open", async () => {
+    let pick!: (value: string | null) => void;
+    mockBackend({ settings_get: () => ({ vault_auto_lock_minutes: 10, vault_scan_dirs: ["D:/a"] }), vault_discover_status: () => idle });
+    vi.mocked(open).mockImplementation(() => new Promise((resolve) => { pick = resolve as (value: string | null) => void; }));
+    await render();
+    await act(async () => { button("添加文件夹").click(); });
+    expect(button("添加文件夹").disabled).toBe(true);
+    expect(document.body.querySelector<HTMLButtonElement>("button[title=移除]")!.disabled).toBe(true);
+    await act(async () => pick(null));
+    expect(button("添加文件夹").disabled).toBe(false);
+  });
+
   it("re-reads settings before saving and sends the fresh auto-lock minutes", async () => {
     let reads = 0;
     mockBackend({
