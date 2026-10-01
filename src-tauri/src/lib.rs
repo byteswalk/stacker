@@ -363,6 +363,8 @@ pub fn run() {
             space_analysis::space_cleanup_status,
             space_analysis::space_cleanup_cancel,
             space_analysis::space_cleanup_result,
+            space_analysis::file_removal::space_recycle_files,
+            space_analysis::file_removal::space_protected_paths,
             space_analysis::space_cleanup_history,
             space_analysis::space_cleanup_history_clear,
             space_analysis::space_snapshot_save,

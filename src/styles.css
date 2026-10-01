@@ -965,7 +965,7 @@ button{ font-family:inherit; }
   border:.5px dashed var(--bdh); border-radius:7px; background:transparent; color:var(--mut); font:inherit; font-size:11.5px; cursor:pointer; }
 .a .space-load-more:hover{ color:var(--tx); background:rgba(255,255,255,.035); }
 .a .space-load-more:disabled{ cursor:default; opacity:.55; }
-.a .space-large-file-row{ display:grid; grid-template-columns:34px minmax(180px,1fr) 110px 142px auto; align-items:center; gap:10px;
+.a .space-large-file-row{ display:grid; grid-template-columns:18px 34px minmax(180px,1fr) 110px 142px auto; align-items:center; gap:10px;
   min-width:0; min-height:64px; padding:9px 11px; border:.5px solid var(--bd); border-radius:8px; background:var(--card); }
 .a .space-file-icon{ width:34px; height:34px; display:grid; place-items:center; border-radius:7px; background:rgba(106,176,245,.12); color:var(--blue); }
 .a .space-large-file-main > div{ display:flex; align-items:center; gap:7px; min-width:0; }
@@ -977,9 +977,9 @@ button{ font-family:inherit; }
 @media (max-width:1000px){
   .a .space-overview-metrics{ grid-template-columns:repeat(2,minmax(0,1fr)); }
   .a .space-directory-row{ grid-template-columns:26px 22px minmax(140px,1fr) 100px auto; }
-  .a .space-large-file-row{ grid-template-columns:34px minmax(150px,1fr) 100px auto; }
-  .a .space-large-file-time{ grid-column:2 / span 2; grid-row:2; text-align:left; }
-  .a .space-large-file-row .space-row-actions{ grid-column:4; grid-row:1 / span 2; }
+  .a .space-large-file-row{ grid-template-columns:18px 34px minmax(150px,1fr) 100px auto; }
+  .a .space-large-file-time{ grid-column:3 / span 2; grid-row:2; text-align:left; }
+  .a .space-large-file-row .space-row-actions{ grid-column:5; grid-row:1 / span 2; }
 }
 @media (max-width:700px){
   .a .space-analysis-section-heading{ align-items:flex-start; flex-direction:column; gap:5px; }
@@ -1624,3 +1624,17 @@ button{ font-family:inherit; }
 .a .gw-result-text small{ font-size:11px; color:var(--mut); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .a .gw-result > button{ flex:0 0 auto; align-self:center; }
 .a .gw-modelhd > .s{ white-space:normal; line-height:1.6; }
+
+/* Picking files for removal: a checkbox (or a lock, for system files) before each row, and
+   one bar above the list with the count and the button. */
+.a .recycle-bar{ display:flex; align-items:center; gap:12px; margin:0 0 10px; padding:8px 12px; border:.5px solid var(--bd);
+  border-radius:9px; background:var(--card); font-size:12px; }
+.a .recycle-bar-count{ margin-left:auto; color:var(--mut); }
+.a .recycle-all{ display:inline-flex; align-items:center; gap:6px; color:var(--tx); cursor:pointer; }
+.a .recycle-all input, .a .recycle-check{ width:15px; height:15px; margin:0; accent-color:var(--acc); cursor:pointer; }
+.a .recycle-lock{ color:var(--mut); font-size:13px; display:grid; place-items:center; }
+.a .space-large-file-row.picked{ border-color:color-mix(in srgb,var(--acc) 55%,var(--bd)); }
+.a .recycle-permanent{ display:flex; align-items:center; gap:7px; margin-top:12px; font-size:12.5px; color:var(--mut); cursor:pointer; }
+.a .recycle-permanent input{ accent-color:#d6463d; }
+.a .dupe-path .recycle-lock{ width:15px; }
+.a .dupe-path.picked code{ color:var(--acc); text-decoration:line-through; text-decoration-color:color-mix(in srgb,var(--acc) 60%,transparent); }

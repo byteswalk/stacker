@@ -4,6 +4,7 @@ import { invoke } from "../../../invoke";
 import { useBusyRead, useToast } from "../../../ui";
 import type { LargeFileRow, Paged } from "../types";
 import { formatSpaceBytes } from "./SpaceOverview";
+import { RecycleBar, useProtectedPaths } from "./FileRemoval";
 
 const PAGE_SIZE = 100;
 
@@ -70,6 +71,9 @@ export function LargeFiles({ taskId, thresholdBytes }: { taskId: string; thresho
   const [page, setPage] = useState<LargeFilePageState>({ items: [], total: 0, nextOffset: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Picked for removal, by path; files under Windows or a program's folder cannot be picked.
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const protectedPaths = useProtectedPaths(page.items.map((item) => item.path));
 
   useEffect(() => {
     const requested = {
@@ -80,6 +84,7 @@ export function LargeFiles({ taskId, thresholdBytes }: { taskId: string; thresho
     activeRequest.current = requested;
     requestPending.current = false;
     setPage({ items: [], total: 0, nextOffset: 0 });
+    setPicked(new Set());
     setLoading(true);
     setError(null);
 
@@ -151,6 +156,19 @@ export function LargeFiles({ taskId, thresholdBytes }: { taskId: string; thresho
     }
   }
 
+  const pickable = page.items.filter((item) => !protectedPaths.has(item.path));
+  const allPicked = pickable.length > 0 && pickable.every((item) => picked.has(item.path));
+  const toggle = (path: string) => setPicked((old) => {
+    const next = new Set(old);
+    if (next.has(path)) next.delete(path); else next.add(path);
+    return next;
+  });
+  const removed = (paths: string[]) => {
+    const gone = new Set(paths);
+    setPage((current) => ({ ...current, items: current.items.filter((item) => !gone.has(item.path)), total: current.total - gone.size }));
+    setPicked((old) => new Set([...old].filter((path) => !gone.has(path))));
+  };
+
   return (
     <div className="space-large-files">
       <div className="space-analysis-section-heading">
@@ -174,14 +192,27 @@ export function LargeFiles({ taskId, thresholdBytes }: { taskId: string; thresho
         </div>
       )}
 
+      {page.items.length > 0 && <RecycleBar
+        files={page.items.filter((item) => picked.has(item.path)).map((item) => ({ path: item.path, bytes: item.logicalBytes }))}
+        extra={<label className="recycle-all">
+          <input type="checkbox" checked={allPicked} disabled={!pickable.length}
+            onChange={(e) => setPicked(e.target.checked ? new Set(pickable.map((item) => item.path)) : new Set())} />
+          {tr("全选已加载的")}
+        </label>}
+        onDone={removed} />}
+
       <div className="space-large-file-list">
         {page.items.map((file) => (
-          <div className="space-large-file-row" key={file.nodeId}>
+          <div className={"space-large-file-row" + (picked.has(file.path) ? " picked" : "")} key={file.nodeId}>
+            {protectedPaths.has(file.path)
+              ? <span className="recycle-lock" title={tr("系统或程序目录里的文件不能在这里删除")}><i className="ti ti-lock" /></span>
+              : <input type="checkbox" className="recycle-check" checked={picked.has(file.path)} aria-label={tr("选择")}
+                onChange={() => toggle(file.path)} />}
             <span className="space-file-icon"><i className="ti ti-file" /></span>
             <div className="space-large-file-main">
               <div>
                 <strong title={file.name}>{file.name}</strong>
-                <span className="bd">{tr("仅查看")}</span>
+                {protectedPaths.has(file.path) && <span className="bd">{tr("系统文件")}</span>}
               </div>
               <span title={file.path}>{file.path}</span>
             </div>

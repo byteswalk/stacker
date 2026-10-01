@@ -80,6 +80,13 @@ pub fn append(result: &CleanupResult) {
     }
 }
 
+/// A record made elsewhere (files moved to the Recycle Bin) joins the same list.
+pub fn append_record(record: HistoryRecord) {
+    if let Err(error) = append_to(&file(), record) {
+        log::warn!("failed to record the cleanup in its history: {error}");
+    }
+}
+
 fn append_to(path: &std::path::Path, record: HistoryRecord) -> Result<(), String> {
     if record.items.is_empty() {
         return Ok(());

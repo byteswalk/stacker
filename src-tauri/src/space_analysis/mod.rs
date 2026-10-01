@@ -3,6 +3,7 @@ pub mod cleanup_plan;
 pub mod cleanup_tasks;
 pub mod duplicates;
 pub mod elevated;
+pub mod file_removal;
 pub mod history;
 pub mod known;
 pub mod model;
