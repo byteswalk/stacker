@@ -39,6 +39,7 @@ mod storage;
 mod tool_relocation;
 pub mod update;
 mod versions;
+mod vault;
 mod webchat;
 mod winadmin;
 mod winenv;
