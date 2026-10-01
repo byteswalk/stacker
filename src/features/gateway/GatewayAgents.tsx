@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { invoke } from "../../invoke";
 import { useI18n } from "../../i18n";
-import { Select } from "../../Select";
-import { useBusy, useToast } from "../../ui";
+import { Modal, useBusy, useToast } from "../../ui";
 import { FoldToggle, useFold } from "./Fold";
 import { shortVersion } from "../agents/tileState";
 
@@ -11,7 +10,7 @@ type AgentModel = { call: string; label: string; efforts: string[]; defaultEffor
 export type AgentCard = {
   id: string; name: string; vendor: string; installed: boolean; version: string | null;
   supported: boolean; reason: string; login: LoginStatus | null; enabled: boolean;
-  defaultModel: string | null; defaultEffort: string | null; defaultIsChosen: boolean;
+  /** Reasoning levels a request naming only the agent takes. */
   efforts: string[]; models: AgentModel[];
 };
 type TestResult = { ok: boolean; reply: string; error: string; detail?: string; elapsedMs: number; model: string; effort: string };
@@ -83,19 +82,7 @@ export function agentState(card: AgentCard, past?: PastTest): { label: string; c
   return { label: "未测试", cls: "n" };
 }
 
-/**
- * What a model's reasoning levels add to the line above the table, which already names the
- * ones they all share: nothing when they match, "仅 …" when the model takes fewer.
- */
-export function effortNote(own: string[], shared: string[]): string {
-  if (!own.length || !shared.length) return "";
-  const set = new Set(shared);
-  const same = own.length === shared.length && own.every((e) => set.has(e));
-  if (same) return "";
-  return own.every((e) => set.has(e)) ? `仅 ${own.join(" / ")}` : `支持 ${own.join(" / ")}`;
-}
-
-/** One block per agent: can it be used, what it runs by default, how to call it, its models. */
+/** One block per agent: can it be used, and each name it answers to with the levels that name takes. */
 export function GatewayAgents({ base, token }: { base: string; token: string }) {
   const { tr: t } = useI18n();
   const toast = useToast();
@@ -123,20 +110,14 @@ export function GatewayAgents({ base, token }: { base: string; token: string }) 
     catch (e) { toast(String(e), "err"); }
   }
 
-  async function setDefault(card: AgentCard, model: string | null, effort: string | null) {
-    try {
-      await invoke("gateway_set_agent_default", { agent: card.id, model, effort });
-      await load();
-      toast(t("已保存默认设置"), "ok");
-    } catch (e) { toast(String(e), "err"); }
-  }
-
-  async function test(card: AgentCard, model?: string) {
-    const key = model ?? card.id;
+  /** A test of one name, at the level picked in its row; `call` is the agent's own id for the bare name. */
+  async function test(card: AgentCard, call: string, effort: string | null) {
+    const key = call;
     setTests((old) => ({ ...old, [key]: "running" }));
     try {
-      const result = await busy({ title: `${t("正在测试")} ${card.name}`, message: t("发送一条简短消息并等待回复，通常需要 5–30 秒。") },
-        () => invoke<TestResult>("gateway_test", { agent: card.id, model: model ? model.slice(card.id.length + 1) : null }));
+      const model = call === card.id ? null : call.slice(card.id.length + 1);
+      const result = await busy({ title: `${t("正在测试")} ${call}${effort ? ` · ${effort}` : ""}`, message: t("发送一条简短消息并等待回复，通常需要 5–30 秒。") },
+        () => invoke<TestResult>("gateway_test", { agent: card.id, model, effort }));
       setTests((old) => ({ ...old, [key]: result }));
       setPast((old) => {
         const next = { ...old, [key]: { at: Date.now(), ok: result.ok, elapsedMs: result.elapsedMs } };
@@ -172,8 +153,7 @@ export function GatewayAgents({ base, token }: { base: string; token: string }) 
     {refreshNote}
     {usable.map((card) => <AgentBlock key={card.id} card={card} base={base} token={token}
       past={past} testLine={testLine} running={(key) => tests[key] === "running"}
-      onTest={(model) => void test(card, model)} onToggle={(on) => void toggle(card, on)}
-      onDefault={(model, effort) => void setDefault(card, model, effort)} onCopy={copy} />)}
+      onTest={(call, effort) => void test(card, call, effort)} onToggle={(on) => void toggle(card, on)} onCopy={copy} />)}
 
     {!!needLogin.length && <div className="pxcard">
       <div className="pxsec"><i className="ti ti-login" /> {t("登录后即可用于接口服务")}</div>
@@ -189,18 +169,28 @@ export function GatewayAgents({ base, token }: { base: string; token: string }) 
 
 type Snippet = "openai" | "anthropic" | "curl" | "client";
 
-/** Ready-to-run code for this agent, with the port, key and model already filled in. */
-export function snippet(kind: Snippet, base: string, token: string, model: string): string {
+/**
+ * Ready-to-run code for one name at one reasoning level, each in its own API's field:
+ * `reasoning_effort` for OpenAI's Chat Completions, `output_config.effort` for Anthropic's
+ * Messages. No level means none is sent and the agent decides.
+ */
+export function snippet(kind: Snippet, base: string, token: string, model: string, effort: string | null = null): string {
   if (kind === "openai") {
-    return `from openai import OpenAI\n\nclient = OpenAI(\n    base_url="${base}/v1",\n    api_key="${token}",\n)\nreply = client.chat.completions.create(\n    model="${model}",\n    messages=[{"role": "user", "content": "你好"}],\n)\nprint(reply.choices[0].message.content)`;
+    const level = effort ? `\n    reasoning_effort="${effort}",` : "";
+    return `from openai import OpenAI\n\nclient = OpenAI(\n    base_url="${base}/v1",\n    api_key="${token}",\n)\nreply = client.chat.completions.create(\n    model="${model}",${level}\n    messages=[{"role": "user", "content": "你好"}],\n)\nprint(reply.choices[0].message.content)`;
   }
   if (kind === "anthropic") {
-    return `from anthropic import Anthropic\n\nclient = Anthropic(\n    base_url="${base}",\n    api_key="${token}",\n)\nreply = client.messages.create(\n    model="${model}", max_tokens=1024,\n    messages=[{"role": "user", "content": "你好"}],\n)\nprint(reply.content[0].text)`;
+    const level = effort ? `\n    output_config={"effort": "${effort}"},` : "";
+    return `from anthropic import Anthropic\n\nclient = Anthropic(\n    base_url="${base}",\n    api_key="${token}",\n)\nreply = client.messages.create(\n    model="${model}", max_tokens=1024,${level}\n    messages=[{"role": "user", "content": "你好"}],\n)\nprint(reply.content[0].text)`;
   }
   if (kind === "curl") {
-    return `curl ${base}/v1/chat/completions \\\n  -H "Authorization: Bearer ${token}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"model":"${model}","messages":[{"role":"user","content":"你好"}]}'`;
+    const level = effort ? `"reasoning_effort":"${effort}",` : "";
+    return `curl ${base}/v1/chat/completions \\\n  -H "Authorization: Bearer ${token}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"model":"${model}",${level}"messages":[{"role":"user","content":"你好"}]}'`;
   }
-  return `接口类型：OpenAI 兼容（Chatbox、Cherry Studio、编辑器插件都选这个）\nAPI 地址：${base}/v1\nAPI 密钥：${token}\n模型名称：${model}  ← 只写 ${model} 就用下面设定的默认模型；要指定某个模型，换成下表里的调用名，例如 ${model}/xxx\n推理强度：客户端里没有这一项，不用填。要按次指定就在请求里加 reasoning_effort（low / medium / high），不加就用上面为该智能体设定的默认档位。`;
+  const level = effort
+    ? `推理强度：${effort}（客户端有“推理强度 / reasoning_effort”设置项就选它；没有这一项的客户端无法指定，由智能体自己决定）`
+    : "推理强度：不指定，由智能体自己决定";
+  return `接口类型：OpenAI 兼容（Chatbox、Cherry Studio、编辑器插件都选这个）\nAPI 地址：${base}/v1\nAPI 密钥：${token}\n模型名称：${model}\n${level}`;
 }
 
 const SNIPPETS: [Snippet, string][] = [
@@ -210,44 +200,64 @@ const SNIPPETS: [Snippet, string][] = [
   ["client", "客户端填写"],
 ];
 
-function AgentBlock({ card, base, token, past, testLine, running, onTest, onToggle, onDefault, onCopy }: {
+/** Every way to call one name at one level, ready to copy. */
+function ExampleModal({ base, token, call, effort, onCopy, onClose }: {
+  base: string; token: string; call: string; effort: string | null;
+  onCopy: (text: string) => void; onClose: () => void;
+}) {
+  const { tr: t } = useI18n();
+  const [kind, setKind] = useState<Snippet>("openai");
+  const code = snippet(kind, base, token, call, effort);
+  return <Modal wide icon="ti-code" title={<>{t("调用示例")} · <code>{call}</code> · {effort ?? t("跟随默认")}</>} onClose={onClose}
+    footer={<button className="pr sm" onClick={() => onCopy(code)}><i className="ti ti-copy" /> {t("复制")}</button>}>
+    <div className="gw-use-tabs">
+      {SNIPPETS.map(([k, label]) => <button key={k} className={k === kind ? "on" : ""} onClick={() => setKind(k)}>{t(label)}</button>)}
+    </div>
+    <pre className="gw-use-code">{code}</pre>
+  </Modal>;
+}
+
+/** Qoder lists only the models the account can use now; its own menu shows the rest. */
+const PARTIAL_LIST: Record<string, string> = {
+  qoder: "这里只列出账号当前能用的模型；Qoder 菜单里的其它模型需要额度，有额度后会自动出现。",
+  qodercn: "这里只列出账号当前能用的模型；Qoder 菜单里的其它模型需要额度，有额度后会自动出现。",
+};
+
+function AgentBlock({ card, base, token, past, testLine, running, onTest, onToggle, onCopy }: {
   card: AgentCard;
   base: string;
   token: string;
   past: Record<string, PastTest>;
   testLine: (key: string) => ReactNode;
   running: (key: string) => boolean;
-  onTest: (model?: string) => void;
+  onTest: (call: string, effort: string | null) => void;
   onToggle: (enabled: boolean) => void;
-  onDefault: (model: string | null, effort: string | null) => void;
   onCopy: (text: string) => void;
 }) {
   const toast = useToast();
-  // One click makes this model the one Stacker's own AI features use; Preferences shows it.
-  async function adoptForStacker(call: string) {
-    try {
-      await invoke("ai_config_use_local", { model: call });
-      toast(`${t("Stacker 的 AI 已改用")} ${call}`, "ok");
-    } catch (e) { toast(String(e), "err"); }
-  }
   const { tr: t } = useI18n();
   const [open, toggleOpen] = useFold(`agent:${card.id}`, false);
-  const [kind, setKind] = useState<Snippet>("openai");
-  // The examples are reference material, not the first thing to read about an agent.
-  const [showUse, setShowUse] = useState(false);
   const [query, setQuery] = useState("");
+  // The level picked in each row, for that row's test, examples and Stacker AI.
+  const [levels, setLevels] = useState<Record<string, string>>({});
+  const [example, setExample] = useState<string | null>(null);
+  const pick = (call: string) => levels[call] ?? null;
+  // One click makes this name, at this level, what Stacker's own AI features use.
+  async function adoptForStacker(call: string) {
+    try {
+      await invoke("ai_config_use_local", { model: call, effort: pick(call) });
+      toast(`${t("Stacker 的 AI 已改用")} ${call}${pick(call) ? ` · ${pick(call)}` : ""}`, "ok");
+    } catch (e) { toast(String(e), "err"); }
+  }
   const state = agentState(card, past[card.id]);
   const method = card.login?.state === "logged_in" && card.login.method ? card.login.method : "";
   const subtitle = [card.vendor, method, `${card.models.length} ${t("个模型")}`].filter(Boolean).join(" · ");
-  // Efforts every model shares are said once above the table; a row only names its own.
-  const shared = card.efforts;
   const needle = query.trim().toLowerCase();
-  const matches = card.models.filter((m) => !needle
-    || m.label.toLowerCase().includes(needle)
-    || m.call.toLowerCase().includes(needle));
-  const shown = matches;
-  const modelOptions = [{ value: "", label: t("跟随 CLI 默认") }, ...card.models.map((m) => ({ value: m.call.slice(card.id.length + 1), label: m.label }))];
-  const effortOptions = [{ value: "", label: t("跟随 CLI 默认") }, ...shared.map((e) => ({ value: e, label: e }))];
+  // The bare name first: what the agent runs when a request names no model.
+  const rows = [
+    { call: card.id, label: t("跟随 CLI 默认"), efforts: card.efforts },
+    ...card.models.map((m) => ({ call: m.call, label: m.label, efforts: m.efforts })),
+  ].filter((m) => !needle || m.label.toLowerCase().includes(needle) || m.call.toLowerCase().includes(needle));
 
   return <div className={"pxcard gw-agent" + (open ? " open" : "")}>
     <div className="gw-head">
@@ -258,8 +268,6 @@ function AgentBlock({ card, base, token, past, testLine, running, onTest, onTogg
       </div>
       <span className={"bd " + state.cls}>{t(state.label)}</span>
       <div className="gw-agent-actions">
-        {testLine(card.id)}
-        <button className="gh sm" disabled={running(card.id)} onClick={() => onTest()}><i className="ti ti-player-play" /> {t("测试")}</button>
         <label className="gw-switch" title={t("关闭后接口服务不再接受这个智能体的请求")}>
           <span>{t(card.enabled ? "已开放" : "已关闭")}</span>
           <span className="sw"><input type="checkbox" checked={card.enabled} onChange={(e) => onToggle(e.target.checked)} /><span className="tk" /></span>
@@ -267,65 +275,38 @@ function AgentBlock({ card, base, token, past, testLine, running, onTest, onTogg
       </div>
     </div>
 
-    <div className="gw-default">
-      <span>{t("请求里写")} <code>{card.id}</code> {t("时用")}</span>
-      <Select value={card.defaultIsChosen ? (card.defaultModel ?? "") : ""} width={200}
-        onChange={(v) => onDefault(v || null, card.defaultEffort ?? null)} options={modelOptions} />
-      <Select value={card.defaultIsChosen ? (card.defaultEffort ?? "") : ""} width={150}
-        onChange={(v) => onDefault(card.defaultModel ?? null, v || null)} options={effortOptions} />
-      {!card.defaultIsChosen && <span className="s dim">{t("现在由 CLI 自己决定；选一个就固定下来")}</span>}
-    </div>
-
-    {open && <>
-      <button className="gw-use-toggle" onClick={() => setShowUse(!showUse)}>
-        <i className={"ti " + (showUse ? "ti-chevron-down" : "ti-chevron-right")} />
-        {t("接入示例与客户端填写")}
-      </button>
-      {showUse && <div className="gw-use">
-        <div className="gw-use-tabs">
-          {SNIPPETS.map(([k, label]) => <button key={k} className={k === kind ? "on" : ""} onClick={() => setKind(k)}>{t(label)}</button>)}
-        </div>
-        <pre className="gw-use-code">{snippet(kind, base, token, card.id)}</pre>
-        <div className="gw-use-bar">
-          <i className="ti ti-info-circle" /> {t(kind === "client"
-            ? "照上面四项填进客户端即可；推理强度不是客户端的设置项"
-            : "端口和密钥已经填好；要指定模型，把 model 换成下面表里的调用名")}
-          <button className="pr sm" onClick={() => onCopy(snippet(kind, base, token, card.id))}><i className="ti ti-copy" /> {t("复制")}</button>
-        </div>
-      </div>}
-
-      <div className="gw-modelbox">
-      <div className="gw-modelhd">
-        <b>{t("可指定的模型")}</b>
+    {open && <div className="gw-modelbox">
+      {(card.models.length >= SEARCH_FROM || PARTIAL_LIST[card.id]) && <div className="gw-modelhd">
+        {PARTIAL_LIST[card.id] && <span className="s dim"><i className="ti ti-info-circle" /> {t(PARTIAL_LIST[card.id])}</span>}
         {card.models.length >= SEARCH_FROM && <label className="gw-search">
           <i className="ti ti-search" />
           <input value={query} placeholder={t("搜索模型…")} onChange={(e) => setQuery(e.target.value)} />
         </label>}
-        {!!shared.length && <span className="s dim">{t("这些模型都支持")} {shared.join(" / ")} {t("推理档位；只有不一样的会在行内标注")}</span>}
-      </div>
-
+      </div>}
       <div className="gw-models">
-        {shown.map((m) => {
-          const note = effortNote(m.efforts, shared);
-          const isDefault = card.defaultIsChosen && card.defaultModel === m.call.slice(card.id.length + 1);
-          return <div className={"gw-model" + (isDefault ? " on" : "")} key={m.call}>
-            <span className="nm">
-              <b>{m.label} {isDefault && <span className="bd g">{t("当前默认")}</span>}{note && <span className="s dim"> · {t(note)}</span>}</b>
-              <code>{m.call}</code>
+        {rows.map((m) => <div className="gw-model" key={m.call}>
+          <span className="nm">
+            <b>{m.label} <code>{m.call}</code></b>
+            <span className="gw-levels">
+              {m.efforts.length
+                ? m.efforts.map((e) => <button key={e} className={"gw-level" + (pick(m.call) === e ? " on" : "")}
+                  aria-pressed={pick(m.call) === e}
+                  onClick={() => setLevels((old) => ({ ...old, [m.call]: old[m.call] === e ? "" : e }))}>{e}</button>)
+                : <span className="s dim">{t("由 CLI 自己的设置决定")}</span>}
             </span>
-            <span className="acts">
-              {testLine(m.call)}
-              {!isDefault && <button className="gh xs" title={t("设为默认模型")} onClick={() => onDefault(m.call.slice(card.id.length + 1), card.defaultEffort ?? null)}><i className="ti ti-star" /></button>}
-              <button className="gh xs" title={t("复制调用名")} onClick={() => onCopy(m.call)}><i className="ti ti-copy" /></button>
-              <button className="gh xs" disabled={running(m.call)} title={t("测试这个模型")} onClick={() => onTest(m.call)}><i className="ti ti-player-play" /></button>
-              <button className="gh xs" title={t("设为 Stacker 自己的 AI（同步到偏好设置）")} onClick={() => void adoptForStacker(m.call)}><i className="ti ti-sparkles" /></button>
-            </span>
-          </div>;
-        })}
-        {!card.models.length && <p className="proxy-note">{t("没有读到模型列表，可在请求里直接写完整模型名。")}</p>}
-        {!!needle && !matches.length && <p className="proxy-note">{t("没有匹配的模型。")}</p>}
+          </span>
+          <span className="acts">
+            {testLine(m.call)}
+            <button className="gh sm" disabled={running(m.call)} onClick={() => onTest(m.call, pick(m.call) || null)}><i className="ti ti-player-play" /> {t("测试")}</button>
+            <button className="gh sm" onClick={() => setExample(m.call)}><i className="ti ti-code" /> {t("调用示例")}</button>
+            <button className="gh sm" title={t("设为 Stacker 自己的 AI（同步到偏好设置）")} aria-label={t("设为 Stacker 自己的 AI")} onClick={() => void adoptForStacker(m.call)}><i className="ti ti-star" /></button>
+          </span>
+        </div>)}
+        {!!needle && !rows.length && <p className="proxy-note">{t("没有匹配的模型。")}</p>}
       </div>
-      </div>
-    </>}
+      <p className="s dim gw-levels-note">{t("推理强度只用于这一行的测试、调用示例和设为 Stacker AI，不选就跟随默认。客户端请求时用接口的标准字段指定：OpenAI 兼容用 reasoning_effort，Anthropic 兼容用 output_config.effort。")}</p>
+    </div>}
+    {example && <ExampleModal base={base} token={token} call={example} effort={pick(example) || null}
+      onCopy={onCopy} onClose={() => setExample(null)} />}
   </div>;
 }

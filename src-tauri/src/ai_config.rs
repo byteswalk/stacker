@@ -115,10 +115,17 @@ pub fn apply(update: AiUpdate) -> Result<AiView, String> {
         "anthropic" => "anthropic".to_string(),
         _ => return Err("E_AI_PROTOCOL".into()),
     };
-    let effort = match update.effort.as_str() {
-        "" | "low" | "medium" | "high" => update.effort.clone(),
-        _ => return Err("E_AI_EFFORT".into()),
+    // Each source takes its own set: an external API its specification's values, a local
+    // agent the levels its CLI lists (checked again when a request is made).
+    let allowed: &[&str] = match (kind.as_str(), protocol.as_str()) {
+        ("external", "anthropic") => crate::gateway::protocol::ANTHROPIC_EFFORTS,
+        ("external", _) => crate::gateway::protocol::OPENAI_EFFORTS,
+        _ => &["low", "medium", "high", "xhigh", "max"],
     };
+    let effort = update.effort.trim().to_string();
+    if !effort.is_empty() && !allowed.contains(&effort.as_str()) {
+        return Err("E_AI_EFFORT".into());
+    }
     let mut config = load();
     config.effort = effort;
     config.kind = kind;
@@ -135,11 +142,13 @@ pub fn apply(update: AiUpdate) -> Result<AiView, String> {
     Ok(view(&config))
 }
 
-/// Makes a name from the API service Stacker's AI in one step.
-pub fn use_local(model: &str) -> Result<AiView, String> {
+/// Makes a name from the API service, with the reasoning level picked beside it, Stacker's AI
+/// in one step; no level means the agent decides.
+pub fn use_local(model: &str, effort: Option<&str>) -> Result<AiView, String> {
     let mut config = load();
     config.kind = "local".into();
     config.local_model = model.trim().to_string();
+    config.effort = effort.map(str::trim).unwrap_or_default().to_string();
     save(&config)?;
     Ok(view(&config))
 }
@@ -241,34 +250,24 @@ fn local_effort(backend: &str, effort: &str) -> Option<String> {
         .then(|| effort.to_string())
 }
 
-/// Anthropic has no named levels; extended thinking takes a token budget instead.
-fn thinking_budget(effort: &str) -> Option<u32> {
-    match effort {
-        "low" => Some(2048),
-        "medium" => Some(8192),
-        "high" => Some(16384),
-        _ => None,
-    }
-}
-
 /// The request body for an external API, with the reasoning level where one is set.
 fn external_body(protocol: &str, model: &str, effort: &str, prompt: &str) -> serde_json::Value {
+    // Each API's own field: Anthropic's `output_config.effort` (a thinking token budget is
+    // refused by current Claude models), OpenAI's `reasoning_effort`.
     let messages = serde_json::json!([{ "role": "user", "content": prompt }]);
-    if protocol == "anthropic" {
-        match thinking_budget(effort) {
-            Some(budget) => serde_json::json!({
-                "model": model,
-                "max_tokens": budget + 2048,
-                "thinking": { "type": "enabled", "budget_tokens": budget },
-                "messages": messages,
-            }),
-            None => serde_json::json!({ "model": model, "max_tokens": 1024, "messages": messages }),
-        }
-    } else if effort.is_empty() {
-        serde_json::json!({ "model": model, "messages": messages })
+    let mut body = if protocol == "anthropic" {
+        serde_json::json!({ "model": model, "max_tokens": 16000, "messages": messages })
     } else {
-        serde_json::json!({ "model": model, "reasoning_effort": effort, "messages": messages })
+        serde_json::json!({ "model": model, "messages": messages })
+    };
+    if !effort.is_empty() {
+        if protocol == "anthropic" {
+            body["output_config"] = serde_json::json!({ "effort": effort });
+        } else {
+            body["reasoning_effort"] = serde_json::json!(effort);
+        }
     }
+    body
 }
 
 /// The answer text; Anthropic puts thinking blocks ahead of it when thinking is on.
@@ -464,8 +463,8 @@ pub fn ai_config_set(update: AiUpdate) -> Result<AiView, String> {
 }
 
 #[tauri::command]
-pub fn ai_config_use_local(model: String) -> Result<AiView, String> {
-    use_local(&model)
+pub fn ai_config_use_local(model: String, effort: Option<String>) -> Result<AiView, String> {
+    use_local(&model, effort.as_deref())
 }
 
 /// One short question, to prove the configuration answers.
@@ -510,11 +509,12 @@ mod tests {
         assert!(external_body("openai", "gpt", "", "hi")
             .get("reasoning_effort")
             .is_none());
-        let anthropic = external_body("anthropic", "claude", "medium", "hi");
-        assert_eq!(anthropic["thinking"]["budget_tokens"], 8192);
-        assert!(anthropic["max_tokens"].as_u64().unwrap() > 8192);
+        let anthropic = external_body("anthropic", "claude", "xhigh", "hi");
+        assert_eq!(anthropic["output_config"]["effort"], "xhigh");
+        assert!(anthropic.get("thinking").is_none());
+        assert!(anthropic.get("reasoning_effort").is_none());
         assert!(external_body("anthropic", "claude", "", "hi")
-            .get("thinking")
+            .get("output_config")
             .is_none());
     }
 
@@ -532,6 +532,14 @@ mod tests {
         let update = AiUpdate {
             kind: "none".into(),
             effort: "turbo".into(),
+            ..Default::default()
+        };
+        assert_eq!(apply(update).unwrap_err(), "E_AI_EFFORT");
+        // "none" is OpenAI's value, not Anthropic's.
+        let update = AiUpdate {
+            kind: "external".into(),
+            protocol: "anthropic".into(),
+            effort: "none".into(),
             ..Default::default()
         };
         assert_eq!(apply(update).unwrap_err(), "E_AI_EFFORT");

@@ -12,9 +12,18 @@ export type AiView = {
   baseUrl: string;
   model: string;
   hasKey: boolean;
-  /** "" leaves it to the model; otherwise low, medium or high. */
-  effort: "" | "low" | "medium" | "high";
+  /** "" leaves it to the model; otherwise one of the levels the source takes. */
+  effort: string;
 };
+
+const OPENAI_LEVELS = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
+const ANTHROPIC_LEVELS = ["low", "medium", "high", "xhigh", "max"];
+const AGENT_LEVELS = ["low", "medium", "high", "xhigh", "max"];
+
+function levelsFor(view: AiView): string[] {
+  if (view.kind !== "external") return AGENT_LEVELS;
+  return view.protocol === "anthropic" ? ANTHROPIC_LEVELS : OPENAI_LEVELS;
+}
 
 export const AI_ERRORS: Record<string, string> = {
   E_AI_NONE: "还没有配置 AI：到「偏好设置 → AI 能力」选一个本机智能体或填外部 API。",
@@ -58,7 +67,9 @@ export function AiSettings() {
     setBusy(true);
     setTest(null);
     try {
-      const saved = await invoke<AiView>("ai_config_set", { update: { ...next, apiKey: withKey, clearKey } });
+      // A level the source no longer takes (the protocol changed) is not sent.
+      const effort = levelsFor(next).includes(next.effort) ? next.effort : "";
+      const saved = await invoke<AiView>("ai_config_set", { update: { ...next, effort, apiKey: withKey, clearKey } });
       setView(saved);
       setKey("");
       toast(tr("AI 设置已保存"), "ok");
@@ -77,6 +88,9 @@ export function AiSettings() {
   }
 
   const update = (patch: Partial<AiView>) => setView({ ...view, ...patch });
+  // Each source's own values: OpenAI's reasoning_effort, Anthropic's output_config.effort, or
+  // the levels agent CLIs take.
+  const levels = levelsFor(view);
 
   return <>
     <div className="srcrow">
@@ -112,15 +126,12 @@ export function AiSettings() {
         <div className="s dim">{view.kind === "local"
           ? tr("传给智能体的 --effort；它不认识的级别会自动不传。")
           : view.protocol === "anthropic"
-            ? tr("Anthropic 没有档位，换算成扩展思考的 token 预算（低 2K / 中 8K / 高 16K）；不支持思考的模型会报错。")
-            : tr("作为 reasoning_effort 发送，只有推理模型认；普通模型会报错，那就选“默认”。")}</div>
+            ? tr("作为 Anthropic 接口的 output_config.effort 发送；模型不支持的档位会报错，那就选“默认”。")
+            : tr("作为 OpenAI 接口的 reasoning_effort 发送；只有推理模型认，支持哪些档位看模型，不支持会报错，那就选“默认”。")}</div>
       </div>
-      <Select value={view.effort} width={170} onChange={(v) => update({ effort: v as AiView["effort"] })} options={[
-        { value: "", label: tr("默认（不指定）") },
-        { value: "low", label: tr("低") },
-        { value: "medium", label: tr("中") },
-        { value: "high", label: tr("高") },
-      ]} />
+      <Select value={levels.includes(view.effort) ? view.effort : ""} width={170}
+        onChange={(v) => update({ effort: v })}
+        options={[{ value: "", label: tr("默认（不指定）") }, ...levels.map((level) => ({ value: level, label: level }))]} />
     </div>}
 
     {view.kind === "external" && <div className="ai-external">

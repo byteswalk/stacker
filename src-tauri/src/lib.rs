@@ -488,7 +488,6 @@ pub fn run() {
             project_junk::project_junk_clean,
             gateway::gateway_new_token,
             gateway::agents::gateway_agents,
-            gateway::agents::gateway_set_agent_default,
             gateway::agents::gateway_log,
             gateway::agents::gateway_log_remove,
             gateway::agents::gateway_log_clear,

@@ -346,6 +346,9 @@ fn handle(mut req: Request, shared: &Shared) {
                     &model,
                 );
             }
+            if let Some(e) = unsupported_effort(&chat, style) {
+                return respond(req, error(style, &e), &model);
+            }
             if shared.in_flight.fetch_add(1, Ordering::SeqCst) >= RUNNING + WAITING {
                 shared.in_flight.fetch_sub(1, Ordering::SeqCst);
                 return respond(
@@ -384,6 +387,33 @@ fn handle(mut req: Request, shared: &Shared) {
             "",
         ),
     }
+}
+
+/// A level the API allows that this model does not take, refused the way the APIs refuse it.
+fn unsupported_effort(chat: &ChatRequest, style: Style) -> Option<ApiError> {
+    let effort = chat.effort.as_deref()?;
+    let supported =
+        super::agents::supported_efforts(&chat.model.backend, chat.model.model.as_deref())?;
+    if supported.iter().any(|level| level == effort) {
+        return None;
+    }
+    let field = match style {
+        Style::OpenAi => "reasoning_effort",
+        Style::Anthropic => "output_config.effort",
+    };
+    Some(ApiError::new(
+        400,
+        "invalid_request_error",
+        format!(
+            "Unsupported value: '{field}' does not support '{effort}' with model '{}'. Supported values are: {}.",
+            chat.model_name,
+            supported
+                .iter()
+                .map(|level| format!("'{level}'"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    ))
 }
 
 fn run_chat(
@@ -639,6 +669,54 @@ mod tests {
             "POST {path} HTTP/1.1\r\nHost: localhost\r\n{auth}{extra}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
             body.len()
         ))
+    }
+
+    #[test]
+    fn each_api_sets_reasoning_the_way_its_specification_does() {
+        let server = start(0, false, fake()).unwrap();
+        let port = server.port;
+        let openai = |body: &str| {
+            post(
+                port,
+                "/v1/chat/completions",
+                "Authorization: Bearer sk-test\r\n",
+                "",
+                body,
+            )
+        };
+        let anthropic = |body: &str| post(port, "/v1/messages", "x-api-key: sk-test\r\n", "", body);
+
+        // OpenAI: reasoning_effort.
+        let (status, body) = openai(
+            r#"{"model":"claude","reasoning_effort":"high","messages":[{"role":"user","content":"hi"}]}"#,
+        );
+        assert_eq!(status, 200, "{body}");
+        assert!(body.contains("echo:claude:high:0"), "{body}");
+        // Anthropic: output_config.effort; OpenAI's field means nothing there.
+        let (status, body) = anthropic(
+            r#"{"model":"claude","max_tokens":5,"output_config":{"effort":"max"},"messages":[{"role":"user","content":"hi"}]}"#,
+        );
+        assert_eq!(status, 200, "{body}");
+        assert!(body.contains("echo:claude:max:0"), "{body}");
+        let (_, body) = anthropic(
+            r#"{"model":"claude","max_tokens":5,"reasoning_effort":"high","messages":[{"role":"user","content":"hi"}]}"#,
+        );
+        assert!(
+            body.contains("echo:claude:low:0"),
+            "the fake's own default, not high: {body}"
+        );
+
+        // A value outside the API's own set, and one the model does not take, are both 400.
+        let (status, body) = anthropic(
+            r#"{"model":"claude","max_tokens":5,"output_config":{"effort":"none"},"messages":[{"role":"user","content":"hi"}]}"#,
+        );
+        assert_eq!(status, 400, "{body}");
+        assert!(body.contains("output_config.effort"), "{body}");
+        let (status, body) = openai(
+            r#"{"model":"claude","reasoning_effort":"minimal","messages":[{"role":"user","content":"hi"}]}"#,
+        );
+        assert_eq!(status, 400, "{body}");
+        assert!(body.contains("Supported values are"), "{body}");
     }
 
     #[test]

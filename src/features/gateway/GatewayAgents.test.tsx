@@ -3,20 +3,20 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "../../invoke";
-import { GatewayAgents, agentState, effortNote, sinceText, snippet, type AgentCard } from "./GatewayAgents";
+import { GatewayAgents, agentState, sinceText, snippet, type AgentCard } from "./GatewayAgents";
 
 vi.mock("../../invoke", () => ({ invoke: vi.fn(), reportFrontendWarning: vi.fn() }));
 
 const cards: AgentCard[] = [
-  { id: "codex", name: "Codex CLI", vendor: "OpenAI", installed: true, version: "0.155.1", supported: true, reason: "", enabled: true, defaultIsChosen: false,
-    login: { state: "logged_in", method: "ChatGPT" }, defaultModel: null, defaultEffort: "low", efforts: ["low", "high"],
+  { id: "codex", name: "Codex CLI", vendor: "OpenAI", installed: true, version: "0.155.1", supported: true, reason: "", enabled: true,
+    login: { state: "logged_in", method: "ChatGPT" }, efforts: ["low", "high"],
     models: [{ call: "codex/gpt-5.6-sol", label: "GPT-5.6-Sol", efforts: ["low", "high"], defaultEffort: "low" }] },
   // Signed out: one sign-in away from working, so the page still names it.
-  { id: "mimo", name: "MiMo Code CLI", vendor: "小米", installed: true, version: "0.1.15", supported: false, reason: "未登录：请在终端运行该智能体并完成登录", enabled: false, defaultIsChosen: false,
-    login: { state: "logged_out", method: "" }, defaultModel: null, defaultEffort: null, efforts: [], models: [] },
+  { id: "mimo", name: "MiMo Code CLI", vendor: "小米", installed: true, version: "0.1.15", supported: false, reason: "未登录：请在终端运行该智能体并完成登录", enabled: false,
+    login: { state: "logged_out", method: "" }, efforts: [], models: [] },
   // No API backend at all: nothing the user can do about it, so it stays off the page.
-  { id: "hermes", name: "Hermes CLI", vendor: "", installed: true, version: "1.0", supported: false, reason: "需要自备第三方 API key", enabled: false, defaultIsChosen: false,
-    login: null, defaultModel: null, defaultEffort: null, efforts: [], models: [] },
+  { id: "hermes", name: "Hermes CLI", vendor: "", installed: true, version: "1.0", supported: false, reason: "需要自备第三方 API key", enabled: false,
+    login: null, efforts: [], models: [] },
 ];
 
 let host: HTMLDivElement;
@@ -36,15 +36,19 @@ describe("gateway agents", () => {
     expect(host.textContent).toContain("Codex CLI");
     // The line under the name says who makes it and how the account signed in.
     expect(host.textContent).toContain("OpenAI · ChatGPT · 1 个模型");
-    // Folded: the default is always visible, the code and models open from the header.
+    // Folded until asked for; then one row per name, the bare one first, levels to pick.
     expect(host.textContent).not.toContain("codex/gpt-5.6-sol");
-    expect(host.textContent).toContain("请求里写");
+    expect(host.textContent).not.toContain("请求里写");
     await act(async () => { host.querySelector<HTMLButtonElement>(".gw-fold")!.click(); });
+    expect(host.textContent).toContain("跟随 CLI 默认");
     expect(host.textContent).toContain("codex/gpt-5.6-sol");
-    // The examples are reference material: they open from a fold of their own.
-    expect(host.textContent).not.toContain("sk-stacker-test");
-    await act(async () => { host.querySelector<HTMLButtonElement>(".gw-use-toggle")!.click(); });
-    expect(host.textContent).toContain("sk-stacker-test");
+    // Picking a level, then the examples: the code carries that level in OpenAI's own field.
+    const level = [...host.querySelectorAll<HTMLButtonElement>(".gw-model:nth-child(2) .gw-level")].find((b) => b.textContent === "high")!;
+    await act(async () => { level.click(); });
+    const examples = [...host.querySelectorAll<HTMLButtonElement>(".gw-model:nth-child(2) button")].find((b) => b.textContent?.includes("调用示例"))!;
+    await act(async () => { examples.click(); });
+    expect(document.body.textContent).toContain('reasoning_effort="high"');
+    expect(document.body.textContent).toContain("sk-stacker-test");
     expect(host.textContent).toContain("MiMo Code CLI");
     expect(host.textContent).toContain("mimo auth login");
     expect(host.textContent).not.toContain("Hermes CLI");
@@ -91,16 +95,15 @@ describe("what the header says", () => {
   });
 });
 
-describe("reasoning levels in the model list", () => {
-  const all = ["low", "medium", "high"];
+describe("reasoning levels in the examples", () => {
+  const base = "http://127.0.0.1:8765";
 
-  it("says nothing when a model takes the same levels as the rest", () => {
-    expect(effortNote(["high", "low", "medium"], all)).toBe("");
-    expect(effortNote([], all)).toBe("");
-  });
-
-  it("names them only where the model differs", () => {
-    expect(effortNote(["low", "medium"], all)).toBe("仅 low / medium");
-    expect(effortNote(["low", "xhigh"], all)).toBe("支持 low / xhigh");
+  it("puts each level in its own API's field, and none when nothing is picked", () => {
+    expect(snippet("openai", base, "k", "claude/opus", "xhigh")).toContain('reasoning_effort="xhigh"');
+    expect(snippet("anthropic", base, "k", "claude/opus", "max")).toContain('output_config={"effort": "max"}');
+    expect(snippet("anthropic", base, "k", "claude/opus", "max")).not.toContain("reasoning_effort");
+    expect(snippet("curl", base, "k", "claude/opus", "low")).toContain('"reasoning_effort":"low"');
+    expect(snippet("openai", base, "k", "claude")).not.toContain("reasoning_effort");
+    expect(snippet("client", base, "k", "claude")).toContain("由智能体自己决定");
   });
 });

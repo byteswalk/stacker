@@ -18,10 +18,6 @@ pub struct GatewayConfig {
     pub token: String,
     /// Agents turned off on the page (missing = on).
     pub disabled_agents: Vec<String>,
-    /// What a request that names only the agent runs with. Without an entry the CLI decides,
-    /// which is a value Stacker cannot read or show, so the page lets the user pick one.
-    #[serde(default)]
-    pub agent_defaults: Vec<AgentDefault>,
     /// Whether requests are written to the log at all.
     #[serde(default = "yes")]
     pub log_enabled: bool,
@@ -41,14 +37,6 @@ fn default_retention() -> u32 {
     7
 }
 
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
-pub struct AgentDefault {
-    pub agent: String,
-    /// The model id as the CLI names it, without the `<agent>/` prefix.
-    pub model: Option<String>,
-    pub effort: Option<String>,
-}
-
 impl Default for GatewayConfig {
     fn default() -> Self {
         Self {
@@ -56,7 +44,6 @@ impl Default for GatewayConfig {
             port: DEFAULT_PORT,
             token: String::new(),
             disabled_agents: Vec::new(),
-            agent_defaults: Vec::new(),
             log_enabled: true,
             log_retention_days: default_retention(),
             lan_access: false,
@@ -118,28 +105,10 @@ fn live_runner() -> Runner {
     Arc::new(crate::runner::run)
 }
 
-/// What the user picked for the agent on the service page; otherwise the CLI's own default.
+/// A request runs with the model and reasoning level it names; what it leaves out, the CLI
+/// decides, as it would in a terminal.
 pub(crate) fn live_defaults() -> Defaults {
-    Arc::new(|chat: &protocol::ChatRequest| {
-        // What the user picked on the page wins; anything else is left to the CLI.
-        let picked = load()
-            .agent_defaults
-            .into_iter()
-            .find(|d| d.agent == chat.model.backend);
-        if let Some(picked) = picked {
-            if picked.model.is_some() || picked.effort.is_some() {
-                return (
-                    chat.model.model.clone().or(picked.model),
-                    chat.effort.clone().or(picked.effort),
-                );
-            }
-        }
-        let (model, effort): (Option<String>, Option<String>) = (None, None);
-        (
-            chat.model.model.clone().or(model),
-            chat.effort.clone().or(effort),
-        )
-    })
+    Arc::new(|chat: &protocol::ChatRequest| (chat.model.model.clone(), chat.effort.clone()))
 }
 
 fn stop_locked(state: &mut State) {
@@ -186,8 +155,8 @@ pub struct GatewayStatus {
     pub log_retention_days: u32,
     /// Whether the service answers the rest of the network.
     pub lan_access: bool,
-    /// Every address the service can be reached at, this machine's first.
-    pub addresses: Vec<String>,
+    /// Every address the service can be reached at, the likeliest first.
+    pub addresses: Vec<LanAddress>,
 }
 
 /// This machine's addresses on the networks it is attached to. Windows is asked for every
@@ -217,6 +186,161 @@ pub fn lan_addresses() -> Vec<String> {
         found.push(name);
     }
     found
+}
+
+/// One way another machine can reach the service, with the adapter it belongs to.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct LanAddress {
+    /// An IPv4 address or a host name.
+    pub host: String,
+    /// The adapter's name as Windows shows it; empty for the host name.
+    pub adapter: String,
+    /// `lan` (a real network card), `hostname`, `tailscale`, `vm` (a hypervisor's own
+    /// network), `vpn` (any other virtual adapter) or `other`.
+    pub kind: String,
+}
+
+/// What an adapter is, from its name and the driver's description. A hardware card is the
+/// ordinary network; the rest are told apart by the software that made them.
+pub fn adapter_kind(ip: &str, alias: &str, description: &str, hardware: bool) -> &'static str {
+    let text = format!("{alias} {description}").to_lowercase();
+    let has = |words: &[&str]| words.iter().any(|w| text.contains(w));
+    if has(&["tailscale"]) || in_cgnat(ip) && has(&["tunnel", "wintun"]) {
+        "tailscale"
+    } else if has(&[
+        "vmware",
+        "virtualbox",
+        "hyper-v",
+        "vethernet",
+        "wsl",
+        "vmnet",
+        "parallels",
+    ]) {
+        "vm"
+    } else if hardware && !has(&["virtual", "vpn", "tap-", "wintun", "wireguard"]) {
+        "lan"
+    } else if has(&[
+        "vpn",
+        "tap",
+        "tun",
+        "wireguard",
+        "zerotier",
+        "openvpn",
+        "sangfor",
+        "atrust",
+        "easyconnect",
+        "fortinet",
+        "forticlient",
+        "cisco anyconnect",
+        "globalprotect",
+        "virtual",
+        "vnic",
+    ]) {
+        "vpn"
+    } else {
+        "other"
+    }
+}
+
+/// 100.64.0.0/10, the shared range Tailscale and carrier NAT use.
+fn in_cgnat(ip: &str) -> bool {
+    let mut parts = ip.split('.').filter_map(|p| p.parse::<u8>().ok());
+    matches!((parts.next(), parts.next()), (Some(100), Some(b)) if (64..128).contains(&b))
+}
+
+fn kind_rank(kind: &str) -> u8 {
+    match kind {
+        "lan" => 0,
+        "hostname" => 1,
+        "tailscale" => 2,
+        "other" => 3,
+        "vm" => 4,
+        _ => 5,
+    }
+}
+
+/// The adapters behind each IPv4 address, as `Get-NetAdapter` describes them.
+fn adapter_details() -> Vec<(String, String, String, bool)> {
+    let script = "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | ForEach-Object { $a = Get-NetAdapter -InterfaceIndex $_.InterfaceIndex -ErrorAction SilentlyContinue; '{0}|{1}|{2}|{3}' -f $_.IPAddress, $_.InterfaceAlias, $a.InterfaceDescription, $a.HardwareInterface }";
+    crate::agents::process::run_powershell(
+        &[
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            script,
+        ],
+        "Get-NetIPAddress",
+        std::time::Duration::from_secs(10),
+    )
+    .map(|text| {
+        text.lines()
+            .filter_map(|line| {
+                let mut parts = line.trim().splitn(4, '|');
+                Some((
+                    parts.next()?.to_string(),
+                    parts.next()?.to_string(),
+                    parts.next().unwrap_or("").to_string(),
+                    parts
+                        .next()
+                        .is_some_and(|h| h.trim().eq_ignore_ascii_case("true")),
+                ))
+            })
+            .collect()
+    })
+    .unwrap_or_default()
+}
+
+/// The addresses with what each one is, ordered by how likely a caller can use it: the real
+/// network first, a VPN's own range last.
+pub fn lan_entries() -> Vec<LanAddress> {
+    let details = adapter_details();
+    let mut entries: Vec<LanAddress> = lan_addresses()
+        .into_iter()
+        .map(|host| {
+            if host.parse::<std::net::Ipv4Addr>().is_err() {
+                return LanAddress {
+                    host,
+                    adapter: String::new(),
+                    kind: "hostname".into(),
+                };
+            }
+            match details.iter().find(|(ip, ..)| *ip == host) {
+                Some((ip, alias, description, hardware)) => LanAddress {
+                    kind: adapter_kind(ip, alias, description, *hardware).into(),
+                    adapter: if description.is_empty() || description == alias {
+                        alias.clone()
+                    } else {
+                        format!("{alias} · {description}")
+                    },
+                    host,
+                },
+                None => LanAddress {
+                    kind: "other".into(),
+                    adapter: String::new(),
+                    host,
+                },
+            }
+        })
+        .collect();
+    entries.sort_by_key(|entry| kind_rank(&entry.kind));
+    entries
+}
+
+/// The page asks for the status every few seconds; adapters change far less often than that,
+/// and asking Windows about them takes about a second.
+fn cached_lan_entries() -> Vec<LanAddress> {
+    static CACHE: Mutex<Option<(std::time::Instant, Vec<LanAddress>)>> = Mutex::new(None);
+    let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((at, entries)) = cache.as_ref() {
+        if at.elapsed() < std::time::Duration::from_secs(60) {
+            return entries.clone();
+        }
+    }
+    let entries = lan_entries();
+    *cache = Some((std::time::Instant::now(), entries.clone()));
+    entries
 }
 
 fn is_private_lan(ip: &str) -> bool {
@@ -281,7 +405,7 @@ pub fn status() -> GatewayStatus {
         log_retention_days: config.log_retention_days,
         lan_access: config.lan_access,
         addresses: if config.lan_access {
-            lan_addresses()
+            cached_lan_entries()
         } else {
             Vec::new()
         },
@@ -371,4 +495,50 @@ pub async fn gateway_new_token() -> Result<GatewayStatus, String> {
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_address_is_told_by_its_adapter() {
+        let wifi = "MediaTek Wi-Fi 7 MT7925 Wireless LAN Card";
+        assert_eq!(adapter_kind("192.168.1.2", "WLAN", wifi, true), "lan");
+        assert_eq!(
+            adapter_kind("100.94.113.98", "Tailscale", "Tailscale Tunnel", false),
+            "tailscale"
+        );
+        let vmnet = "VMware Virtual Ethernet Adapter for VMnet8";
+        assert_eq!(
+            adapter_kind(
+                "192.168.139.1",
+                "VMware Network Adapter VMnet8",
+                vmnet,
+                false
+            ),
+            "vm"
+        );
+        let hyperv = "Hyper-V Virtual Ethernet Adapter";
+        assert_eq!(
+            adapter_kind("172.20.0.1", "vEthernet (WSL)", hyperv, false),
+            "vm"
+        );
+        assert_eq!(
+            adapter_kind("2.0.0.1", "本地连接", "Sangfor aTrust VNIC", false),
+            "vpn"
+        );
+        assert_eq!(
+            adapter_kind("10.8.0.2", "以太网 2", "TAP-Windows Adapter V9", false),
+            "vpn"
+        );
+    }
+
+    #[test]
+    #[ignore = "reads this machine's adapters"]
+    fn this_machine_s_addresses() {
+        for entry in lan_entries() {
+            println!("{entry:?}");
+        }
+    }
 }

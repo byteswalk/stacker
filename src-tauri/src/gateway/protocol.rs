@@ -451,7 +451,20 @@ pub fn parse_openai_with(v: &Value, fetch: Fetch) -> Result<ChatRequest, ApiErro
             other => return Err(unsupported(&format!("role \"{other}\""))),
         }
     }
-    finish(model_name, model, system.join("\n\n"), turns, parts, v)
+    let effort = effort_field(
+        v.get("reasoning_effort"),
+        OPENAI_EFFORTS,
+        "reasoning_effort",
+    )?;
+    finish(
+        model_name,
+        model,
+        system.join("\n\n"),
+        turns,
+        parts,
+        v,
+        effort,
+    )
 }
 
 pub fn parse_anthropic(v: &Value) -> Result<ChatRequest, ApiError> {
@@ -481,7 +494,38 @@ pub fn parse_anthropic_with(v: &Value, fetch: Fetch) -> Result<ChatRequest, ApiE
             other => return Err(unsupported(&format!("role \"{other}\""))),
         }
     }
-    finish(model_name, model, system, turns, parts, v)
+    let effort = effort_field(
+        v.get("output_config").and_then(|c| c.get("effort")),
+        ANTHROPIC_EFFORTS,
+        "output_config.effort",
+    )?;
+    finish(model_name, model, system, turns, parts, v, effort)
+}
+
+/// The values OpenAI's Chat Completions API takes for `reasoning_effort`.
+pub const OPENAI_EFFORTS: &[&str] = &["none", "minimal", "low", "medium", "high", "xhigh", "max"];
+/// The values Anthropic's Messages API takes for `output_config.effort`.
+pub const ANTHROPIC_EFFORTS: &[&str] = &["low", "medium", "high", "xhigh", "max"];
+
+/// A reasoning level as each API defines it: absent, or one of that API's own values. The
+/// other API's field is not read: each endpoint follows its own specification.
+fn effort_field(
+    value: Option<&Value>,
+    allowed: &[&str],
+    field: &str,
+) -> Result<Option<String>, ApiError> {
+    match value {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(level)) if allowed.contains(&level.as_str()) => Ok(Some(level.clone())),
+        Some(other) => Err(invalid(format!(
+            "Invalid value for '{field}': {other}. Supported values are: {}.",
+            allowed
+                .iter()
+                .map(|level| format!("'{level}'"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ))),
+    }
 }
 
 fn finish(
@@ -491,6 +535,7 @@ fn finish(
     turns: Vec<(Role, String)>,
     parts: Parts,
     v: &Value,
+    effort: Option<String>,
 ) -> Result<ChatRequest, ApiError> {
     if !turns.iter().any(|(r, _)| *r == Role::User) {
         return Err(invalid("at least one user message is required"));
@@ -502,10 +547,7 @@ fn finish(
         turns,
         attachments: parts.attachments,
         stream: v.get("stream").and_then(Value::as_bool).unwrap_or(false),
-        effort: v
-            .get("reasoning_effort")
-            .and_then(Value::as_str)
-            .map(str::to_string),
+        effort,
     })
 }
 

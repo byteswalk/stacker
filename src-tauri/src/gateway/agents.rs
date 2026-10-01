@@ -1,5 +1,5 @@
 //! Per-agent view of the API service: installed, signed in, models, efforts, on/off, test.
-use super::{live_defaults, load, protocol, save, GatewayConfig, Shared, STATE};
+use super::{load, protocol, save, GatewayConfig, Shared, STATE};
 use crate::runner::backends;
 use crate::runner::login::LoginStatus;
 use serde::Serialize;
@@ -38,30 +38,26 @@ pub struct AgentCard {
     pub reason: String,
     pub login: Option<LoginStatus>,
     pub enabled: bool,
-    /// Used when a request names only the agent.
-    pub default_model: Option<String>,
-    pub default_effort: Option<String>,
-    /// Whether that default is the user's own choice rather than the CLI's.
-    pub default_is_chosen: bool,
     /// Reasoning levels usable without naming a model.
     pub efforts: Vec<String>,
     pub models: Vec<AgentModel>,
 }
 
-fn defaults_for(id: &str) -> (Option<String>, Option<String>) {
-    let chat = protocol::ChatRequest {
-        model_name: id.into(),
-        model: protocol::ModelSpec {
-            backend: id.into(),
-            model: None,
-        },
-        system: String::new(),
-        turns: Vec::new(),
-        attachments: Vec::new(),
-        stream: false,
-        effort: None,
+/// The reasoning levels an agent's model takes: the model's own list, or the agent's when the
+/// request names no model. None when Stacker does not know the model or its levels; the CLI
+/// then decides.
+pub fn supported_efforts(backend: &str, model: Option<&str>) -> Option<Vec<String>> {
+    let b = backends::get(backend)?;
+    let levels = match model {
+        None => (b.efforts)(),
+        Some(id) => {
+            (b.models)()
+                .into_iter()
+                .find(|m| m.id.eq_ignore_ascii_case(id))?
+                .efforts
+        }
     };
-    live_defaults()(&chat)
+    (!levels.is_empty()).then_some(levels)
 }
 
 /// Every agent CLI Stacker knows, with what the API service can do with it.
@@ -111,9 +107,6 @@ fn card_for(config: &GatewayConfig, cli_id: &str, tool: &crate::agents::VibeTool
         reason: String::new(),
         login: None,
         enabled: false,
-        default_model: None,
-        default_effort: None,
-        default_is_chosen: false,
         efforts: Vec::new(),
         models: Vec::new(),
     };
@@ -128,13 +121,6 @@ fn card_for(config: &GatewayConfig, cli_id: &str, tool: &crate::agents::VibeTool
             card.supported = login.state != "logged_out";
             card.login = Some(login);
             card.enabled = card.supported && !config.disabled_agents.iter().any(|d| d == cli_id);
-            let (model, effort) = defaults_for(b.id);
-            card.default_model = model;
-            card.default_effort = effort;
-            card.default_is_chosen = config
-                .agent_defaults
-                .iter()
-                .any(|d| d.agent == cli_id && (d.model.is_some() || d.effort.is_some()));
             card.efforts = (b.efforts)();
             card.models = (b.models)()
                 .into_iter()
@@ -155,27 +141,6 @@ pub async fn gateway_agents() -> Vec<AgentCard> {
     tauri::async_runtime::spawn_blocking(agent_cards)
         .await
         .unwrap_or_default()
-}
-
-/// Saves what a request that names only this agent should run with.
-#[tauri::command]
-pub fn gateway_set_agent_default(
-    agent: String,
-    model: Option<String>,
-    effort: Option<String>,
-) -> Result<(), String> {
-    let mut config = load();
-    config.agent_defaults.retain(|d| d.agent != agent);
-    let clean = |value: Option<String>| value.filter(|v| !v.trim().is_empty());
-    let (model, effort) = (clean(model), clean(effort));
-    if model.is_some() || effort.is_some() {
-        config.agent_defaults.push(super::AgentDefault {
-            agent,
-            model,
-            effort,
-        });
-    }
-    save(&config)
 }
 
 /// The request log: what it holds, what a filter matches, and how long rows are kept.
@@ -240,9 +205,14 @@ pub struct TestResult {
     pub effort: String,
 }
 
-/// Sends one short message through the same runner and defaults the service uses.
+/// Sends one short message through the same runner the service uses, with the model and
+/// reasoning level the row has picked.
 #[tauri::command]
-pub async fn gateway_test(agent: String, model: Option<String>) -> Result<TestResult, String> {
+pub async fn gateway_test(
+    agent: String,
+    model: Option<String>,
+    effort: Option<String>,
+) -> Result<TestResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let backend = backends::get(&agent).ok_or("E_REQUEST")?;
         let chat = protocol::ChatRequest {
@@ -255,9 +225,9 @@ pub async fn gateway_test(agent: String, model: Option<String>) -> Result<TestRe
             turns: vec![(protocol::Role::User, "Reply with exactly: OK".into())],
             attachments: Vec::new(),
             stream: false,
-            effort: None,
+            effort: effort.filter(|e| !e.is_empty()),
         };
-        let (model, effort) = live_defaults()(&chat);
+        let (model, effort) = (chat.model.model.clone(), chat.effort.clone());
         let started = std::time::Instant::now();
         let result = crate::runner::run(
             &crate::runner::RunRequest {
