@@ -5,7 +5,7 @@ import { Modal, useBusy, useToast } from "../../ui";
 import { FoldToggle, useFold } from "./Fold";
 import { shortVersion } from "../agents/tileState";
 
-type LoginStatus = { state: "logged_in" | "logged_out" | "unknown"; method: string };
+type LoginStatus = { state: "logged_in" | "logged_out" | "unknown"; method: string; account?: string };
 type AgentModel = { call: string; label: string; efforts: string[]; defaultEffort: string | null };
 export type AgentCard = {
   id: string; name: string; vendor: string; installed: boolean; version: string | null;
@@ -131,12 +131,18 @@ export function GatewayAgents({ base, token }: { base: string; token: string }) 
   const testLine = (key: string) => {
     const r = tests[key];
     if (!r) return null;
-    if (r === "running") return <span className="gw-test"><i className="ti ti-loader spin" /> {t("测试中…")}</span>;
-    if (r.ok) return <span className="gw-test ok"><i className="ti ti-circle-check" /> {(r.elapsedMs / 1000).toFixed(1)}s {t("测试通过")}</span>;
-    return <span className="gw-test bad" title={r.detail || undefined}>
-      <i className="ti ti-alert-circle" /> {t(RUN_ERRORS[r.error] ?? r.error)}
-      {r.detail && <em className="gw-test-detail" title={r.detail}>{detailText(r.detail)}{detailLink(r.detail) && <button className="lk" onClick={() => void invoke("app_open_url", { url: detailLink(r.detail as string) })}>{t("去处理")}</button>}</em>}
-    </span>;
+    if (r === "running") return <div className="gw-result"><i className="ti ti-loader spin" /><span>{t("测试中…")}</span></div>;
+    if (r.ok) return <div className="gw-result ok"><i className="ti ti-circle-check" /><span>{t("测试通过")} · {(r.elapsedMs / 1000).toFixed(1)}s</span></div>;
+    const link = r.detail ? detailLink(r.detail) : null;
+    const said = r.detail ? detailText(r.detail) : "";
+    return <div className="gw-result bad">
+      <i className="ti ti-alert-circle" />
+      <div className="gw-result-text">
+        <span>{t(RUN_ERRORS[r.error] ?? r.error)}</span>
+        {said && <small title={r.detail}>{t("命令行原话：")}{said}</small>}
+      </div>
+      {link && <button className="gh xs" onClick={() => void invoke("app_open_url", { url: link })}><i className="ti ti-external-link" /> {t("去处理")}</button>}
+    </div>;
   };
 
   if (!cards) return <div className="pxcard"><p className="proxy-note"><i className="ti ti-loader spin" /> {t("正在检查本机智能体…")}</p></div>;
@@ -219,8 +225,8 @@ function ExampleModal({ base, token, call, effort, onCopy, onClose }: {
 
 /** Qoder lists only the models the account can use now; its own menu shows the rest. */
 const PARTIAL_LIST: Record<string, string> = {
-  qoder: "只列出这个账号现在能用的模型：额度用完时 Qoder 会停用付费模型，它们只在 Qoder 自己的菜单里显示，调用会失败；充值后自动出现在这里。",
-  qodercn: "只列出这个账号现在能用的模型：额度用完时 Qoder 会停用付费模型，它们只在 Qoder 自己的菜单里显示，调用会失败；充值后自动出现在这里。",
+  qoder: "只列出 CLI 当前登录账号能用的模型。国际版和中国版可以登录不同的账号（见上方账号）；没有额度的账号只能用免费模型，要用付费模型请在终端运行 qodercli login 换到有额度的账号。",
+  qodercn: "只列出 CLI 当前登录账号能用的模型。国际版和中国版可以登录不同的账号（见上方账号）；没有额度的账号只能用免费模型，要用付费模型请在终端运行 qodercn login 换到有额度的账号。",
 };
 
 function AgentBlock({ card, base, token, past, testLine, running, onTest, onToggle, onCopy, stackerAi, onStackerAi }: {
@@ -254,7 +260,9 @@ function AgentBlock({ card, base, token, past, testLine, running, onTest, onTogg
   }
   const state = agentState(card, past[card.id]);
   const method = card.login?.state === "logged_in" && card.login.method ? card.login.method : "";
-  const subtitle = [card.vendor, method, `${card.models.length} ${t("个模型")}`].filter(Boolean).join(" · ");
+  // The account a CLI is signed in to, where it says: two editions on two accounts look alike otherwise.
+  const account = card.login?.state === "logged_in" && card.login.account ? `${t("账号")} ${card.login.account}` : "";
+  const subtitle = [card.vendor, method, account, `${card.models.length} ${t("个模型")}`].filter(Boolean).join(" · ");
   const needle = query.trim().toLowerCase();
   // The bare name first: what the agent runs when a request names no model.
   const rows = [
@@ -302,13 +310,13 @@ function AgentBlock({ card, base, token, past, testLine, running, onTest, onTogg
             </span>
           </span>
           <span className="acts">
-            {testLine(m.call)}
             <button className="gh sm" disabled={running(m.call)} onClick={() => onTest(m.call, pick(m.call) || null)}><i className="ti ti-player-play" /> {t("测试")}</button>
             <button className="gh sm" onClick={() => setExample(m.call)}><i className="ti ti-code" /> {t("调用示例")}</button>
             <button className={"gh sm gw-ai-btn" + (inUse ? " on" : "")} aria-pressed={inUse}
               title={t(inUse ? "Stacker 自己的 AI 正在用这一行；再点一次会按这一行现在选的推理强度更新" : "设为 Stacker 自己的 AI（同步到偏好设置）")}
               aria-label={t("设为 Stacker 自己的 AI")} onClick={() => void adoptForStacker(m.call)}><i className="ti ti-sparkles" /></button>
           </span>
+          {testLine(m.call)}
         </div>;
         })}
         {!!needle && !rows.length && <p className="proxy-note">{t("没有匹配的模型。")}</p>}

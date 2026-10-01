@@ -25,6 +25,7 @@ fn status(state: &str, method: &str) -> LoginStatus {
     LoginStatus {
         state: state.into(),
         method: method.into(),
+        account: String::new(),
     }
 }
 

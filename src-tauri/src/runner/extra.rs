@@ -155,6 +155,7 @@ pub fn codebuddy_login() -> LoginStatus {
     LoginStatus {
         state: "unknown".into(),
         method: String::new(),
+        account: String::new(),
     }
 }
 
@@ -304,13 +305,22 @@ pub fn parse_qoder_login(text: &str) -> LoginStatus {
         Some(false) => "logged_out",
         None => "unknown",
     };
+    // The e-mail says which account it is; the name alone often does not.
+    let account = ["email", "username"]
+        .iter()
+        .find_map(|key| {
+            value
+                .get(*key)
+                .and_then(Value::as_str)
+                .filter(|v| !v.trim().is_empty())
+        })
+        .unwrap_or("")
+        .to_string();
+    let signed_in = state == "logged_in";
     LoginStatus {
         state: state.into(),
-        method: if state == "logged_in" {
-            method
-        } else {
-            String::new()
-        },
+        method: if signed_in { method } else { String::new() },
+        account: if signed_in { account } else { String::new() },
     }
 }
 
@@ -431,7 +441,12 @@ mod tests {
             (s.state.as_str(), s.method.as_str()),
             ("logged_in", "browser")
         );
-        assert!(!format!("{s:?}").contains("example.com"));
+        // The account is named, by e-mail: two editions on two accounts look alike otherwise.
+        assert_eq!(s.account, "someone@example.com");
+        assert_eq!(
+            parse_qoder_login(r#"{"logged_in":false,"email":"someone@example.com"}"#).account,
+            ""
+        );
         assert_eq!(
             parse_qoder_login(r#"{"logged_in":false}"#).state,
             "logged_out"

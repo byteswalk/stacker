@@ -1614,3 +1614,13 @@ button{ font-family:inherit; }
 .a .gw-ai-badge{ display:inline-flex; align-items:center; gap:3px; margin-left:8px; padding:1px 7px; border-radius:5px;
   background:rgba(245,130,31,.15); color:var(--acc); font-size:11px; font-weight:500; }
 .a .gw-ai-btn.on{ background:var(--acc); border-color:var(--acc); color:#fff; }
+/* A test's outcome: its own line under the row, the message first, the CLI's words under it. */
+.a .gw-model > .gw-result{ grid-column:1 / -1; display:flex; align-items:flex-start; gap:8px; margin-top:2px;
+  padding:7px 10px; border-radius:7px; font-size:12px; line-height:1.55; background:rgba(127,127,127,.08); color:var(--mut); }
+.a .gw-result > i{ flex:0 0 auto; font-size:14px; margin-top:2px; }
+.a .gw-result.ok{ background:rgba(46,158,84,.10); color:var(--green); }
+.a .gw-result.bad{ background:rgba(230,180,80,.10); color:#e6b450; }
+.a .gw-result-text{ flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
+.a .gw-result-text small{ font-size:11px; color:var(--mut); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.a .gw-result > button{ flex:0 0 auto; align-self:center; }
+.a .gw-modelhd > .s{ white-space:normal; line-height:1.6; }

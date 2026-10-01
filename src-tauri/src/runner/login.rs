@@ -10,14 +10,20 @@ use std::time::Duration;
 pub struct LoginStatus {
     /// logged_in | logged_out | unknown
     pub state: String,
-    /// How it is signed in ("ChatGPT", "claude.ai"…); never the account itself.
+    /// How it is signed in ("ChatGPT", "claude.ai"…).
     pub method: String,
+    /// Which account, where the CLI reports it (Qoder): the international and China
+    /// editions are often signed in to different accounts, which a model list cannot tell.
+    /// Shown on this machine's own page only.
+    #[serde(default)]
+    pub account: String,
 }
 
 fn status(state: &str, method: &str) -> LoginStatus {
     LoginStatus {
         state: state.into(),
         method: method.into(),
+        account: String::new(),
     }
 }
 
