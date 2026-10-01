@@ -4,7 +4,7 @@ use super::crypto;
 use super::errors::{INVALID, NOT_FOUND};
 use super::ssh::{self, SshInfo};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use zeroize::{Zeroize, Zeroizing};
 
 pub(crate) const HISTORY_PER_FIELD: usize = 10;
@@ -128,8 +128,8 @@ fn new_id() -> String {
     crypto::to_hex(&crypto::random::<16>())
 }
 
-fn valid_date(value: &str) -> bool {
-    chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d").is_ok()
+fn normalize_date(value: &str) -> Option<String> {
+    chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d").ok().map(|date| date.format("%Y-%m-%d").to_string())
 }
 
 fn clean_tags(tags: Vec<String>) -> Vec<String> {
@@ -143,14 +143,18 @@ fn clean_tags(tags: Vec<String>) -> Vec<String> {
     out
 }
 
-/// Newest first, at most HISTORY_PER_FIELD per field name.
+/// Newest first, at most HISTORY_PER_FIELD per field name; dropped items are wiped.
 pub(crate) fn trim_history(history: &mut Vec<HistoryItem>) {
     history.sort_by(|a, b| b.at.cmp(&a.at));
     let mut kept: HashMap<String, usize> = HashMap::new();
-    history.retain(|item| {
+    history.retain_mut(|item| {
         let count = kept.entry(item.field.clone()).or_insert(0);
         *count += 1;
-        *count <= HISTORY_PER_FIELD
+        let keep = *count <= HISTORY_PER_FIELD;
+        if !keep {
+            item.zeroize();
+        }
+        keep
     });
 }
 
@@ -184,7 +188,7 @@ pub(crate) fn apply_input(body: &mut Body, input: EntryInput, now: i64) -> Resul
         };
         fields.push(Field { name, value, secret: field.secret });
     }
-    let expires_at = input.expires_at.filter(|date| valid_date(date));
+    let expires_at = input.expires_at.as_deref().and_then(normalize_date);
     let tags = clean_tags(input.tags);
     let platform = input.platform.trim().to_string();
     match index {
@@ -363,6 +367,80 @@ pub(crate) fn purge_expired(body: &mut Body, now: i64) -> bool {
     body.entries.len() != before
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+pub(crate) struct MergeStats {
+    pub added: usize,
+    pub updated: usize,
+    pub same: usize,
+}
+
+/// Imports never delete: a newer copy replaces the content, the local trash state stays,
+/// histories and ignored digests are combined.
+pub(crate) fn merge(local: &mut Body, incoming: &Body) -> MergeStats {
+    let mut stats = MergeStats::default();
+    for theirs in &incoming.entries {
+        match local.entries.iter_mut().find(|entry| entry.id == theirs.id) {
+            None => {
+                local.entries.push(theirs.clone());
+                stats.added += 1;
+            }
+            Some(mine) => {
+                let mut history = mine.history.clone();
+                for item in &theirs.history {
+                    if !history.contains(item) {
+                        history.push(item.clone());
+                    }
+                }
+                trim_history(&mut history);
+                if theirs.updated_at > mine.updated_at {
+                    let deleted_at = mine.deleted_at;
+                    std::mem::replace(mine, theirs.clone()).zeroize();
+                    mine.deleted_at = deleted_at;
+                    stats.updated += 1;
+                } else {
+                    stats.same += 1;
+                }
+                std::mem::replace(&mut mine.history, history).zeroize();
+            }
+        }
+    }
+    for digest in &incoming.ignored {
+        if !local.ignored.contains(digest) {
+            local.ignored.push(digest.clone());
+        }
+    }
+    stats
+}
+
+pub(crate) struct Digests {
+    pub current: HashSet<String>,
+    pub old: HashSet<String>,
+    pub ignored: HashSet<String>,
+}
+
+/// Secrets in live entries are current; history and trashed entries count as old values.
+pub(crate) fn digests(body: &Body) -> Digests {
+    let mut out = Digests {
+        current: HashSet::new(),
+        old: HashSet::new(),
+        ignored: body.ignored.iter().cloned().collect(),
+    };
+    for entry in &body.entries {
+        for field in entry.fields.iter().filter(|field| field.secret && !field.value.is_empty()) {
+            let digest = crypto::secret_digest(&field.value);
+            if entry.deleted_at.is_none() {
+                out.current.insert(digest);
+            } else {
+                out.old.insert(digest);
+            }
+        }
+        for item in &entry.history {
+            out.old.insert(crypto::secret_digest(&item.value));
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -459,6 +537,68 @@ mod tests {
         soft_delete(&mut body, &b, 1).unwrap();
         purge(&mut body, &b).unwrap();
         assert!(body.entries.is_empty());
+    }
+
+    #[test]
+    fn expiry_dates_are_stored_normalized() {
+        let mut body = Body::default();
+        let mut loose = input(None, "t", vec![]);
+        loose.expires_at = Some("2026-1-5".into());
+        let id = apply_input(&mut body, loose, 1).unwrap();
+        assert_eq!(view_of(&body, &id).unwrap().expires_at.as_deref(), Some("2026-01-05"));
+    }
+
+    fn entry(id: &str, updated_at: i64, secret: &str) -> Entry {
+        Entry {
+            id: id.into(),
+            title: id.into(),
+            platform: String::new(),
+            kind: Kind::ApiKey,
+            fields: vec![Field { name: "Key".into(), value: secret.into(), secret: true }],
+            expires_at: None,
+            tags: vec![],
+            note: String::new(),
+            favorite: false,
+            created_at: 0,
+            updated_at,
+            deleted_at: None,
+            history: vec![],
+        }
+    }
+
+    #[test]
+    fn merge_adds_updates_and_never_deletes() {
+        let mut local = Body { entries: vec![entry("a", 5, "a-local"), entry("b", 5, "b-local")], ignored: vec!["x".into()] };
+        local.entries[0].deleted_at = Some(4);
+        let mut newer_a = entry("a", 9, "a-backup");
+        newer_a.history.push(HistoryItem { field: "Key".into(), value: "a-older".into(), at: 1 });
+        let mut trashed_c = entry("c", 1, "c");
+        trashed_c.deleted_at = Some(1);
+        let incoming = Body {
+            entries: vec![newer_a, entry("b", 3, "b-backup"), trashed_c, entry("d", 1, "d")],
+            ignored: vec!["x".into(), "y".into()],
+        };
+        let stats = merge(&mut local, &incoming);
+        assert_eq!(stats, MergeStats { added: 2, updated: 1, same: 1 });
+        let a = local.entries.iter().find(|e| e.id == "a").unwrap();
+        assert_eq!(a.fields[0].value, "a-backup");
+        assert_eq!(a.deleted_at, Some(4), "local trash state is kept");
+        assert_eq!(a.history.len(), 1);
+        assert_eq!(local.entries.iter().find(|e| e.id == "b").unwrap().fields[0].value, "b-local");
+        assert!(local.entries.iter().find(|e| e.id == "c").unwrap().deleted_at.is_some());
+        assert_eq!(local.ignored, vec!["x", "y"]);
+    }
+
+    #[test]
+    fn digests_split_current_old_and_ignored() {
+        let mut body = Body { entries: vec![entry("a", 1, "live"), entry("b", 1, "gone")], ignored: vec!["ign".into()] };
+        body.entries[0].history.push(HistoryItem { field: "Key".into(), value: "rotated\r\n".into(), at: 1 });
+        body.entries[1].deleted_at = Some(1);
+        let d = digests(&body);
+        assert!(d.current.contains(&crypto::secret_digest("live")));
+        assert!(d.old.contains(&crypto::secret_digest("rotated")));
+        assert!(d.old.contains(&crypto::secret_digest("gone")));
+        assert!(d.ignored.contains("ign"));
     }
 
     #[test]
