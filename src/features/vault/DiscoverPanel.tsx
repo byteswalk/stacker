@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
+import { useI18n } from "../../i18n";
 import { useToast } from "../../ui";
 import { vaultApi, vaultError, type DiscoverStatus, type Finding, type Kind } from "./api";
 import { ENV_SCOPE_LABELS, KIND_LABELS, KIND_ORDER, RISK_LABELS, SOURCE_LABELS, STATUS_LABELS } from "./labels";
@@ -21,6 +22,7 @@ type Choice = { platform: string; kind: Kind };
 
 export function DiscoverPanel({ onImported }: { onImported: () => void }) {
   const toast = useToast();
+  const { tr } = useI18n();
   const [scope, setScope] = useState({ ssh: true, configs: true, env: true });
   const [dirs, setDirs] = useState<string[]>([]);
   const [dirsReady, setDirsReady] = useState(false);
@@ -62,7 +64,7 @@ export function DiscoverPanel({ onImported }: { onImported: () => void }) {
   async function addDir() {
     let picked: string | string[] | null;
     setDirsBusy(true);
-    try { picked = await open({ title: "添加项目文件夹", directory: true, multiple: false }); }
+    try { picked = await open({ title: tr("添加项目文件夹"), directory: true, multiple: false }); }
     catch (error) { toast(vaultError(error), "err"); setDirsBusy(false); return; }
     setDirsBusy(false);
     const dir = typeof picked === "string" ? picked.trim() : "";
@@ -157,7 +159,7 @@ export function DiscoverPanel({ onImported }: { onImported: () => void }) {
                 <button className="gh sm" disabled={busy} onClick={chooseAllNew}>选择全部新发现</button>
                 <span className="grow" />
                 <button className="gh sm" disabled={busy || selectedCount === 0} onClick={() => void ignoreChosen()}>忽略所选</button>
-                <button className="pr sm" disabled={busy || selectedCount === 0} onClick={() => void importChosen()}>导入所选（{selectedCount}）</button>
+                <button className="pr sm" disabled={busy || selectedCount === 0} onClick={() => void importChosen()}>{`导入所选（${selectedCount}）`}</button>
               </div>
               {groupFindings(findings).map(([source, items]) => (
                 <div key={source}>

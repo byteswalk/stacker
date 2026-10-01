@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
+import { useI18n } from "../../i18n";
 import { ConfirmModal, useToast } from "../../ui";
 import { vaultApi, vaultError, type EntryView } from "./api";
 import { KIND_LABELS, RISK_LABELS } from "./labels";
@@ -11,6 +12,7 @@ export function EntryDetail({ entry, today, onEdit, onChanged }: {
   entry: EntryView; today: Date; onEdit: () => void; onChanged: () => void;
 }) {
   const toast = useToast();
+  const { tr } = useI18n();
   const { revealed, show, hide, clear } = useRevealed();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -40,7 +42,7 @@ export function EntryDetail({ entry, today, onEdit, onChanged }: {
   }
   async function exportKey() {
     try {
-      const dest = await save({ title: "导出私钥", defaultPath: entry.title.replace(/[\\/:*?"<>|]/g, "_") });
+      const dest = await save({ title: tr("导出私钥"), defaultPath: entry.title.replace(/[\\/:*?"<>|]/g, "_") });
       if (dest) setExportPath(dest);
     } catch (error) { toast(vaultError(error), "err"); }
   }

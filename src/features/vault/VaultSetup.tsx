@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
+import { useI18n } from "../../i18n";
 import { useToast } from "../../ui";
 import { vaultApi, vaultError } from "./api";
 import { PasswordForm } from "./PasswordForm";
@@ -7,6 +8,7 @@ import { RecoveryKeyStep } from "./RecoveryKeyStep";
 
 export function VaultSetup({ onDone }: { onDone: () => void }) {
   const toast = useToast();
+  const { tr } = useI18n();
   const [recoveryKey, setRecoveryKey] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -18,7 +20,7 @@ export function VaultSetup({ onDone }: { onDone: () => void }) {
   }
   async function restore() {
     try {
-      const src = await open({ title: "从备份文件恢复", multiple: false, directory: false, filters: [{ name: "Stacker 保管库", extensions: ["skv"] }] });
+      const src = await open({ title: tr("从备份文件恢复"), multiple: false, directory: false, filters: [{ name: tr("Stacker 保管库"), extensions: ["skv"] }] });
       if (typeof src !== "string") return;
       await vaultApi.restoreBackup(src); toast("已从备份恢复，请使用该备份的主密码解锁。", "ok"); onDone();
     }

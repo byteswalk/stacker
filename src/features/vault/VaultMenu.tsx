@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { useI18n } from "../../i18n";
 import { Modal, useToast } from "../../ui";
 import { vaultApi, vaultError, type Credential, type MergeStats } from "./api";
 import { AUTO_LOCK_CHOICES } from "./labels";
@@ -7,7 +8,7 @@ import { PasswordForm } from "./PasswordForm";
 import { RecoveryKeyStep } from "./RecoveryKeyStep";
 import { TrashDialog } from "./TrashDialog";
 
-const BACKUP_FILTERS = [{ name: "Stacker 保管库", extensions: ["skv"] }];
+const backupFilters = (tr: (text: string) => string) => [{ name: tr("Stacker 保管库"), extensions: ["skv"] }];
 type Dialog = "password" | "recovery" | "export" | "import" | "trash" | "autolock" | null;
 
 function today(): string {
@@ -102,12 +103,13 @@ function ResetRecoveryDialog({ onClose }: { onClose: () => void }) {
 
 function ExportDialog({ onClose }: { onClose: () => void }) {
   const toast = useToast();
+  const { tr } = useI18n();
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   async function submit() {
     setBusy(true);
     try {
-      const dest = await save({ title: "导出加密备份", defaultPath: `Stacker-保管库-${today()}.skv`, filters: BACKUP_FILTERS });
+      const dest = await save({ title: tr("导出加密备份"), defaultPath: `Stacker-保管库-${today()}.skv`, filters: backupFilters(tr) });
       if (!dest) return;
       await vaultApi.exportBackup(password, dest);
       toast("已导出加密备份。", "ok");
@@ -128,6 +130,7 @@ function ExportDialog({ onClose }: { onClose: () => void }) {
 
 function ImportDialog({ onClose, onChanged }: { onClose: () => void; onChanged: () => void }) {
   const toast = useToast();
+  const { tr } = useI18n();
   const [src, setSrc] = useState("");
   const [kind, setKind] = useState<Credential["kind"]>("password");
   const [value, setValue] = useState("");
@@ -138,7 +141,7 @@ function ImportDialog({ onClose, onChanged }: { onClose: () => void; onChanged: 
   async function choose() {
     setBusy(true);
     try {
-      const picked = await open({ title: "选择备份文件", multiple: false, directory: false, filters: BACKUP_FILTERS });
+      const picked = await open({ title: tr("选择备份文件"), multiple: false, directory: false, filters: backupFilters(tr) });
       if (typeof picked === "string") { setSrc(picked); setPreview(null); }
     } catch (error) { toast(vaultError(error), "err"); }
     finally { setBusy(false); }
