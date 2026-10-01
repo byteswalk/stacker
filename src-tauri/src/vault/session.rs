@@ -37,8 +37,15 @@ enum Phase {
 }
 
 enum Pending {
-    Create { dek: SecretKey, password: Zeroizing<String>, recovery: Zeroizing<String> },
-    Rotate { password: Zeroizing<String>, recovery: Zeroizing<String> },
+    Create {
+        dek: SecretKey,
+        password: Zeroizing<String>,
+        recovery: Zeroizing<String>,
+    },
+    Rotate {
+        password: Zeroizing<String>,
+        recovery: Zeroizing<String>,
+    },
 }
 
 impl Pending {
@@ -81,6 +88,8 @@ impl std::fmt::Debug for Credential {
         }
     }
 }
+
+type WriteFn = fn(&Path, &[u8], Option<&Snapshot>) -> Result<Snapshot, String>;
 
 pub(crate) struct Vault {
     pub(crate) path: PathBuf,
@@ -141,7 +150,11 @@ pub(crate) fn replace_body(open: &mut Open, next: Body) {
 fn old_names(vault_path: &Path, stamp: &str) -> (PathBuf, PathBuf) {
     let mut n = 0;
     loop {
-        let stem = if n == 0 { format!("vault-{stamp}") } else { format!("vault-{stamp}-{n}") };
+        let stem = if n == 0 {
+            format!("vault-{stamp}")
+        } else {
+            format!("vault-{stamp}-{n}")
+        };
         let main = vault_path.with_file_name(format!("{stem}.skv.old"));
         let backup = vault_path.with_file_name(format!("{stem}.skv.bak.old"));
         if !main.exists() && !backup.exists() {
@@ -160,7 +173,12 @@ fn read_one(path: &Path, unwrap: Unwrapper) -> Result<Option<Open>, String> {
     };
     let plain = format::decrypt_body(&loaded, &dek)?;
     let body: Body = serde_json::from_slice(&plain).map_err(|_| CORRUPT.to_string())?;
-    Ok(Some(Open { dek, header: loaded.header, body, snapshot: loaded.snapshot }))
+    Ok(Some(Open {
+        dek,
+        header: loaded.header,
+        body,
+        snapshot: loaded.snapshot,
+    }))
 }
 
 impl Vault {
@@ -179,7 +197,9 @@ impl Vault {
     }
 
     fn inner(&self) -> MutexGuard<'_, Inner> {
-        self.inner.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     pub(crate) fn status(&self) -> Status {
@@ -193,9 +213,19 @@ impl Vault {
         };
         let wait_seconds = inner
             .wait_until
-            .map(|until| until.saturating_duration_since(Instant::now()).as_secs_f64().ceil() as u64)
+            .map(|until| {
+                until
+                    .saturating_duration_since(Instant::now())
+                    .as_secs_f64()
+                    .ceil() as u64
+            })
             .unwrap_or(0);
-        Status { exists, state, wait_seconds, pending: inner.pending.is_some() }
+        Status {
+            exists,
+            state,
+            wait_seconds,
+            pending: inner.pending.is_some(),
+        }
     }
 
     fn header_for(&self, dek: &[u8; 32], password: &str, recovery: &str) -> Result<Header, String> {
@@ -234,7 +264,7 @@ impl Vault {
         dek: &[u8; 32],
         body: &Body,
         expected: Option<&Snapshot>,
-        write: fn(&Path, &[u8], Option<&Snapshot>) -> Result<Snapshot, String>,
+        write: WriteFn,
     ) -> Result<Snapshot, String> {
         let plain = Zeroizing::new(serde_json::to_vec(body).map_err(|_| IO.to_string())?);
         let bytes = format::encode(header, dek, &plain)?;
@@ -287,14 +317,23 @@ impl Vault {
             return Err(CONFIRM.into());
         }
         match inner.pending.take().expect("checked above") {
-            Pending::Create { dek, password, recovery } => {
+            Pending::Create {
+                dek,
+                password,
+                recovery,
+            } => {
                 if self.path.exists() {
                     return Err(EXISTS.into());
                 }
                 let header = self.header_for(&dek, &password, &recovery)?;
                 let body = Body::default();
                 let snapshot = self.write_body_rekeyed(&header, &dek, &body, None)?;
-                inner.phase = Phase::Unlocked(Open { dek, header, body, snapshot });
+                inner.phase = Phase::Unlocked(Open {
+                    dek,
+                    header,
+                    body,
+                    snapshot,
+                });
             }
             Pending::Rotate { password, recovery } => {
                 let dek = crypto::new_key();
@@ -303,9 +342,15 @@ impl Vault {
                     Phase::Recovering(open) | Phase::Unlocked(open) => open,
                     Phase::Locked => return Err(LOCKED.into()),
                 };
-                let snapshot = self.write_body_rekeyed(&header, &dek, &open.body, Some(&open.snapshot))?;
+                let snapshot =
+                    self.write_body_rekeyed(&header, &dek, &open.body, Some(&open.snapshot))?;
                 let body = std::mem::take(&mut open.body);
-                inner.phase = Phase::Unlocked(Open { dek, header, body, snapshot });
+                inner.phase = Phase::Unlocked(Open {
+                    dek,
+                    header,
+                    body,
+                    snapshot,
+                });
             }
         }
         inner.last_activity = Instant::now();
@@ -324,7 +369,8 @@ impl Vault {
     pub(crate) fn unlock(&self, password: &str) -> Result<(), String> {
         let mut inner = self.inner();
         check_wait(&mut inner)?;
-        let opened = self.read_open(&|header| header.password.unwrap_key(password.as_bytes(), header.kdf))?;
+        let opened =
+            self.read_open(&|header| header.password.unwrap_key(password.as_bytes(), header.kdf))?;
         let Some(mut open) = opened else {
             register_failure(&mut inner);
             return Err(PASSWORD.into());
@@ -357,7 +403,8 @@ impl Vault {
             register_failure(&mut inner);
             return Err(RECOVERY.into());
         };
-        let opened = self.read_open(&|header| header.recovery.unwrap_key(raw.as_slice(), header.kdf))?;
+        let opened =
+            self.read_open(&|header| header.recovery.unwrap_key(raw.as_slice(), header.kdf))?;
         let Some(open) = opened else {
             register_failure(&mut inner);
             return Err(RECOVERY.into());
@@ -369,14 +416,20 @@ impl Vault {
         Ok(())
     }
 
-    pub(crate) fn recovery_set_password(&self, password: &str) -> Result<Zeroizing<String>, String> {
+    pub(crate) fn recovery_set_password(
+        &self,
+        password: &str,
+    ) -> Result<Zeroizing<String>, String> {
         let mut inner = self.inner();
         if !matches!(inner.phase, Phase::Recovering(_)) {
             return Err(LOCKED.into());
         }
         check_password(password)?;
         let recovery = crypto::new_recovery_key();
-        inner.pending = Some(Pending::Rotate { password: Zeroizing::new(password.to_string()), recovery: recovery.clone() });
+        inner.pending = Some(Pending::Rotate {
+            password: Zeroizing::new(password.to_string()),
+            recovery: recovery.clone(),
+        });
         Ok(recovery)
     }
 
@@ -388,13 +441,19 @@ impl Vault {
         let Phase::Unlocked(open) = &mut inner.phase else {
             return Err(LOCKED.into());
         };
-        if open.header.password.unwrap_key(current.as_bytes(), open.header.kdf)?.is_none() {
+        if open
+            .header
+            .password
+            .unwrap_key(current.as_bytes(), open.header.kdf)?
+            .is_none()
+        {
             register_failure(&mut inner);
             return Err(PASSWORD.into());
         }
         let mut header = open.header.clone();
         header.password = Wrap::new(next.as_bytes(), &open.dek, header.kdf)?;
-        open.snapshot = self.write_body_rekeyed(&header, &open.dek, &open.body, Some(&open.snapshot))?;
+        open.snapshot =
+            self.write_body_rekeyed(&header, &open.dek, &open.body, Some(&open.snapshot))?;
         open.header = header;
         // A rotation waiting for confirmation carries the old password; confirming it later would
         // write that password back.
@@ -410,13 +469,21 @@ impl Vault {
         let Phase::Unlocked(open) = &inner.phase else {
             return Err(LOCKED.into());
         };
-        if open.header.password.unwrap_key(password.as_bytes(), open.header.kdf)?.is_none() {
+        if open
+            .header
+            .password
+            .unwrap_key(password.as_bytes(), open.header.kdf)?
+            .is_none()
+        {
             register_failure(&mut inner);
             return Err(PASSWORD.into());
         }
         inner.failures = 0;
         let recovery = crypto::new_recovery_key();
-        inner.pending = Some(Pending::Rotate { password: Zeroizing::new(password.to_string()), recovery: recovery.clone() });
+        inner.pending = Some(Pending::Rotate {
+            password: Zeroizing::new(password.to_string()),
+            recovery: recovery.clone(),
+        });
         Ok(recovery)
     }
 
@@ -450,7 +517,9 @@ impl Vault {
         if let Some(dir) = self.path.parent() {
             std::fs::create_dir_all(dir).map_err(|_| IO.to_string())?;
         }
-        std::fs::copy(src, &self.path).map(|_| ()).map_err(|_| IO.to_string())
+        std::fs::copy(src, &self.path)
+            .map(|_| ())
+            .map_err(|_| IO.to_string())
     }
 
     /// Both credentials lost: the file is renamed, never deleted, so it can be imported later.
@@ -471,7 +540,10 @@ impl Vault {
         Ok(target.display().to_string())
     }
 
-    fn with_unlocked<T>(&self, f: impl FnOnce(&mut Open) -> Result<T, String>) -> Result<T, String> {
+    fn with_unlocked<T>(
+        &self,
+        f: impl FnOnce(&mut Open) -> Result<T, String>,
+    ) -> Result<T, String> {
         let mut inner = self.inner();
         inner.last_activity = Instant::now();
         match &mut inner.phase {
@@ -523,7 +595,11 @@ impl Vault {
         self.with_unlocked(|open| model::history_views(&open.body, id))
     }
 
-    pub(crate) fn history_value(&self, id: &str, index: usize) -> Result<Zeroizing<String>, String> {
+    pub(crate) fn history_value(
+        &self,
+        id: &str,
+        index: usize,
+    ) -> Result<Zeroizing<String>, String> {
         self.with_unlocked(|open| model::history_value(&open.body, id, index))
     }
 
@@ -553,7 +629,12 @@ impl Vault {
         let Phase::Unlocked(open) = &inner.phase else {
             return Err(LOCKED.into());
         };
-        if open.header.password.unwrap_key(password.as_bytes(), open.header.kdf)?.is_none() {
+        if open
+            .header
+            .password
+            .unwrap_key(password.as_bytes(), open.header.kdf)?
+            .is_none()
+        {
             register_failure(&mut inner);
             return Err(PASSWORD.into());
         }
@@ -567,23 +648,33 @@ impl Vault {
         if dest == self.path {
             return Err(FILE_EXISTS.into());
         }
-        std::fs::copy(&self.path, dest).map(|_| ()).map_err(|_| IO.to_string())
+        std::fs::copy(&self.path, dest)
+            .map(|_| ())
+            .map_err(|_| IO.to_string())
     }
 
     fn read_backup(&self, src: &Path, credential: &Credential) -> Result<Body, String> {
         let mut opened = match credential {
-            Credential::Password(password) => {
-                read_one(src, &|header| header.password.unwrap_key(password.as_bytes(), header.kdf))?.ok_or(PASSWORD)?
-            }
+            Credential::Password(password) => read_one(src, &|header| {
+                header.password.unwrap_key(password.as_bytes(), header.kdf)
+            })?
+            .ok_or(PASSWORD)?,
             Credential::Recovery(key) => {
                 let raw = crypto::decode_recovery(key).ok_or(RECOVERY)?;
-                read_one(src, &|header| header.recovery.unwrap_key(raw.as_slice(), header.kdf))?.ok_or(RECOVERY)?
+                read_one(src, &|header| {
+                    header.recovery.unwrap_key(raw.as_slice(), header.kdf)
+                })?
+                .ok_or(RECOVERY)?
             }
         };
         Ok(std::mem::take(&mut opened.body))
     }
 
-    pub(crate) fn import_preview(&self, src: &Path, credential: &Credential) -> Result<MergeStats, String> {
+    pub(crate) fn import_preview(
+        &self,
+        src: &Path,
+        credential: &Credential,
+    ) -> Result<MergeStats, String> {
         if !self.is_unlocked() {
             return Err(LOCKED.into());
         }
@@ -598,7 +689,11 @@ impl Vault {
         stats
     }
 
-    pub(crate) fn import_apply(&self, src: &Path, credential: &Credential) -> Result<MergeStats, String> {
+    pub(crate) fn import_apply(
+        &self,
+        src: &Path,
+        credential: &Credential,
+    ) -> Result<MergeStats, String> {
         if !self.is_unlocked() {
             return Err(LOCKED.into());
         }
@@ -650,7 +745,9 @@ mod tests {
     pub(super) fn created(dir: &tempfile::TempDir) -> (Vault, String) {
         let vault = fresh(dir);
         let recovery = vault.create_begin(PW).unwrap();
-        vault.confirm_recovery(crypto::last_group(&recovery)).unwrap();
+        vault
+            .confirm_recovery(crypto::last_group(&recovery))
+            .unwrap();
         (vault, recovery.to_string())
     }
 
@@ -660,10 +757,21 @@ mod tests {
         let vault = fresh(&dir);
         let recovery = vault.create_begin(PW).unwrap();
         assert!(!vault.path.exists());
-        assert_eq!(vault.status(), Status { exists: false, state: "missing", wait_seconds: 0, pending: true });
+        assert_eq!(
+            vault.status(),
+            Status {
+                exists: false,
+                state: "missing",
+                wait_seconds: 0,
+                pending: true
+            }
+        );
         assert_eq!(*vault.pending_recovery().unwrap(), *recovery);
         assert_eq!(vault.confirm_recovery("ZZZZ").err().unwrap(), CONFIRM);
-        assert!(vault.status().pending, "a wrong group keeps the pending key");
+        assert!(
+            vault.status().pending,
+            "a wrong group keeps the pending key"
+        );
         let typed = crypto::last_group(&recovery).to_ascii_lowercase();
         vault.confirm_recovery(&typed).unwrap();
         assert!(vault.path.exists());
@@ -708,7 +816,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (vault, recovery) = created(&dir);
         vault.lock();
-        assert_eq!(vault.unlock_recovery("0000-0000-0000-0000-0000-0000-0000-0000").err().unwrap(), RECOVERY);
+        assert_eq!(
+            vault
+                .unlock_recovery("0000-0000-0000-0000-0000-0000-0000-0000")
+                .err()
+                .unwrap(),
+            RECOVERY
+        );
         vault.unlock_recovery(&recovery).unwrap();
         assert_eq!(vault.status().state, "recovering");
         assert!(!vault.is_unlocked());
@@ -739,7 +853,13 @@ mod tests {
     fn changing_the_password_keeps_the_recovery_key() {
         let dir = tempfile::tempdir().unwrap();
         let (vault, recovery) = created(&dir);
-        assert_eq!(vault.change_password("wrong password!!", PW2).err().unwrap(), PASSWORD);
+        assert_eq!(
+            vault
+                .change_password("wrong password!!", PW2)
+                .err()
+                .unwrap(),
+            PASSWORD
+        );
         assert_eq!(vault.change_password(PW, "short").err().unwrap(), WEAK);
         vault.change_password(PW, PW2).unwrap();
         vault.lock();
@@ -753,7 +873,10 @@ mod tests {
     fn resetting_the_recovery_key_needs_the_password_and_retires_the_old_one() {
         let dir = tempfile::tempdir().unwrap();
         let (vault, recovery) = created(&dir);
-        assert_eq!(vault.reset_recovery("wrong password!!").err().unwrap(), PASSWORD);
+        assert_eq!(
+            vault.reset_recovery("wrong password!!").err().unwrap(),
+            PASSWORD
+        );
         let next = vault.reset_recovery(PW).unwrap();
         assert!(vault.is_unlocked(), "entries stay visible while confirming");
         vault.confirm_recovery(crypto::last_group(&next)).unwrap();
@@ -797,7 +920,13 @@ mod tests {
         assert_eq!(target.restore_backup(&vault.path).err().unwrap(), EXISTS);
         let garbage = elsewhere.path().join("garbage.skv");
         std::fs::write(&garbage, b"nothing").unwrap();
-        assert_eq!(fresh(&tempfile::tempdir().unwrap()).restore_backup(&garbage).err().unwrap(), CORRUPT);
+        assert_eq!(
+            fresh(&tempfile::tempdir().unwrap())
+                .restore_backup(&garbage)
+                .err()
+                .unwrap(),
+            CORRUPT
+        );
     }
 
     fn corrupt_main_file(vault: &Vault) {
@@ -834,7 +963,13 @@ mod tests {
         let next = vault.reset_recovery(PW).unwrap();
         vault.change_password(PW, PW2).unwrap();
         assert!(!vault.status().pending);
-        assert_eq!(vault.confirm_recovery(crypto::last_group(&next)).err().unwrap(), NO_PENDING);
+        assert_eq!(
+            vault
+                .confirm_recovery(crypto::last_group(&next))
+                .err()
+                .unwrap(),
+            NO_PENDING
+        );
         vault.lock();
         assert_eq!(vault.unlock(PW).err().unwrap(), PASSWORD);
         vault.unlock(PW2).unwrap();
@@ -891,14 +1026,26 @@ mod tests {
         let vault_path = dir.path().join("vault.skv");
         let (main, backup) = old_names(&vault_path, "20260101-000000");
         assert_eq!(main.file_name().unwrap(), "vault-20260101-000000.skv.old");
-        assert_eq!(backup.file_name().unwrap(), "vault-20260101-000000.skv.bak.old");
+        assert_eq!(
+            backup.file_name().unwrap(),
+            "vault-20260101-000000.skv.bak.old"
+        );
         std::fs::write(&main, b"x").unwrap();
-        assert_eq!(old_names(&vault_path, "20260101-000000").0.file_name().unwrap(), "vault-20260101-000000-1.skv.old");
+        assert_eq!(
+            old_names(&vault_path, "20260101-000000")
+                .0
+                .file_name()
+                .unwrap(),
+            "vault-20260101-000000-1.skv.old"
+        );
         std::fs::write(dir.path().join("vault-20260101-000000-1.skv.bak.old"), b"x").unwrap();
         std::fs::write(dir.path().join("vault-20260101-000000-1.skv.old"), b"x").unwrap();
         let (main, backup) = old_names(&vault_path, "20260101-000000");
         assert_eq!(main.file_name().unwrap(), "vault-20260101-000000-2.skv.old");
-        assert_eq!(backup.file_name().unwrap(), "vault-20260101-000000-2.skv.bak.old");
+        assert_eq!(
+            backup.file_name().unwrap(),
+            "vault-20260101-000000-2.skv.bak.old"
+        );
     }
 
     #[test]
@@ -935,7 +1082,13 @@ mod tests {
         let (vault, old) = created(&dir);
         let next = vault.reset_recovery(PW).unwrap();
         std::fs::create_dir(vault.path.with_extension("skv.bak.tmp")).unwrap();
-        assert_eq!(vault.confirm_recovery(crypto::last_group(&next)).err().unwrap(), IO);
+        assert_eq!(
+            vault
+                .confirm_recovery(crypto::last_group(&next))
+                .err()
+                .unwrap(),
+            IO
+        );
         vault.lock();
         vault.unlock_recovery(&old).unwrap();
     }
@@ -965,8 +1118,12 @@ mod tests {
         model::soft_delete(&mut body, &id, 1).unwrap();
         {
             let mut inner = vault.inner();
-            let Phase::Unlocked(open) = &mut inner.phase else { panic!("created vault is unlocked") };
-            open.snapshot = vault.write_body(&open.header, &open.dek, &body, Some(&open.snapshot)).unwrap();
+            let Phase::Unlocked(open) = &mut inner.phase else {
+                panic!("created vault is unlocked")
+            };
+            open.snapshot = vault
+                .write_body(&open.header, &open.dek, &body, Some(&open.snapshot))
+                .unwrap();
         }
         vault.lock();
         // A directory where the temporary file belongs makes the purge write fail.
@@ -974,15 +1131,29 @@ mod tests {
         let before = format::current_snapshot(&vault.path);
         vault.unlock(PW).unwrap();
         assert!(vault.is_unlocked());
-        assert_eq!(format::current_snapshot(&vault.path), before, "nothing was purged on disk");
+        assert_eq!(
+            format::current_snapshot(&vault.path),
+            before,
+            "nothing was purged on disk"
+        );
         let inner = vault.inner();
-        let Phase::Unlocked(open) = &inner.phase else { panic!("unlocked") };
-        assert_eq!(open.body.entries.len(), 1, "the expired entry is still there, to be purged next time");
+        let Phase::Unlocked(open) = &inner.phase else {
+            panic!("unlocked")
+        };
+        assert_eq!(
+            open.body.entries.len(),
+            1,
+            "the expired entry is still there, to be purged next time"
+        );
     }
 
     #[test]
     fn credentials_never_print_their_values() {
-        let shown = format!("{:?} {:?}", Credential::Password("hunter2-hunter2".into()), Credential::Recovery("ABCD".into()));
+        let shown = format!(
+            "{:?} {:?}",
+            Credential::Password("hunter2-hunter2".into()),
+            Credential::Recovery("ABCD".into())
+        );
         assert!(!shown.contains("hunter2") && !shown.contains("ABCD"));
         assert!(shown.contains("Password") && shown.contains("Recovery"));
     }
@@ -1000,7 +1171,12 @@ mod entry_tests {
             title: title.into(),
             platform: "GitHub".into(),
             kind: Kind::Token,
-            fields: vec![FieldInput { name: "Token".into(), previous_name: None, value: Some(secret.into()), secret: true }],
+            fields: vec![FieldInput {
+                name: "Token".into(),
+                previous_name: None,
+                value: Some(secret.into()),
+                secret: true,
+            }],
             expires_at: None,
             tags: vec![],
             note: String::new(),
@@ -1015,7 +1191,10 @@ mod entry_tests {
         let view = vault.save(input("gh", "tok-value-1")).unwrap();
         assert_eq!(view.fields[0].value, None);
         let raw = std::fs::read(&vault.path).unwrap();
-        assert!(!raw.windows(11).any(|w| w == b"tok-value-1"), "never stored in clear");
+        assert!(
+            !raw.windows(11).any(|w| w == b"tok-value-1"),
+            "never stored in clear"
+        );
         let again = fresh(&dir);
         again.unlock(PW).unwrap();
         assert_eq!(*again.reveal(&view.id, "Token").unwrap(), "tok-value-1");
@@ -1045,11 +1224,26 @@ mod entry_tests {
         assert_eq!(vault.ssh_private(&id).err().unwrap(), LOCKED);
         assert_eq!(vault.digest_sets().err().unwrap(), LOCKED);
         assert_eq!(vault.save(input("x", "y")).err().unwrap(), LOCKED);
-        assert_eq!(vault.add_entries(vec![input("x", "y")]).err().unwrap(), LOCKED);
+        assert_eq!(
+            vault.add_entries(vec![input("x", "y")]).err().unwrap(),
+            LOCKED
+        );
         assert_eq!(vault.ignore(vec!["d".into()]).err().unwrap(), LOCKED);
         let elsewhere = dir.path().join("b.skv");
-        assert_eq!(vault.import_preview(&elsewhere, &Credential::Password(PW.into())).err().unwrap(), LOCKED);
-        assert_eq!(vault.import_apply(&elsewhere, &Credential::Password(PW.into())).err().unwrap(), LOCKED);
+        assert_eq!(
+            vault
+                .import_preview(&elsewhere, &Credential::Password(PW.into()))
+                .err()
+                .unwrap(),
+            LOCKED
+        );
+        assert_eq!(
+            vault
+                .import_apply(&elsewhere, &Credential::Password(PW.into()))
+                .err()
+                .unwrap(),
+            LOCKED
+        );
         assert_eq!(vault.export(PW, &elsewhere).err().unwrap(), LOCKED);
     }
 
@@ -1081,7 +1275,10 @@ mod entry_tests {
         other.unlock(PW).unwrap();
         other.save(input("from other", "o")).unwrap();
         assert_eq!(vault.save(input("mine", "m")).err().unwrap(), CHANGED);
-        assert!(vault.list(false).unwrap().is_empty(), "memory stays as it was");
+        assert!(
+            vault.list(false).unwrap().is_empty(),
+            "memory stays as it was"
+        );
     }
 
     #[test]
@@ -1090,7 +1287,10 @@ mod entry_tests {
         let (vault, recovery) = created(&dir);
         vault.save(input("shared", "s")).unwrap();
         let backup = dir.path().join("backup.skv");
-        assert_eq!(vault.export("wrong password!!", &backup).err().unwrap(), PASSWORD);
+        assert_eq!(
+            vault.export("wrong password!!", &backup).err().unwrap(),
+            PASSWORD
+        );
         vault.export(PW, &backup).unwrap();
 
         let other_dir = tempfile::tempdir().unwrap();
@@ -1099,9 +1299,21 @@ mod entry_tests {
         let by_password = Credential::Password(PW.into());
         let stats = other.import_preview(&backup, &by_password).unwrap();
         assert_eq!(stats.added, 1);
-        assert_eq!(other.list(false).unwrap().len(), 1, "a preview changes nothing");
-        assert_eq!(other.import_apply(&backup, &Credential::Password("wrong password!!".into())).err().unwrap(), PASSWORD);
-        other.import_apply(&backup, &Credential::Recovery(recovery)).unwrap();
+        assert_eq!(
+            other.list(false).unwrap().len(),
+            1,
+            "a preview changes nothing"
+        );
+        assert_eq!(
+            other
+                .import_apply(&backup, &Credential::Password("wrong password!!".into()))
+                .err()
+                .unwrap(),
+            PASSWORD
+        );
+        other
+            .import_apply(&backup, &Credential::Recovery(recovery))
+            .unwrap();
         assert_eq!(other.list(false).unwrap().len(), 2);
     }
 
@@ -1109,7 +1321,12 @@ mod entry_tests {
     fn discovery_helpers_add_ignore_and_report_digests() {
         let dir = tempfile::tempdir().unwrap();
         let (vault, _) = created(&dir);
-        assert_eq!(vault.add_entries(vec![input("a", "va"), input("b", "vb")]).unwrap(), 2);
+        assert_eq!(
+            vault
+                .add_entries(vec![input("a", "va"), input("b", "vb")])
+                .unwrap(),
+            2
+        );
         vault.ignore(vec!["d1".into(), "d1".into()]).unwrap();
         let digests = vault.digest_sets().unwrap();
         assert!(digests.current.contains(&crypto::secret_digest("va")));

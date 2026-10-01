@@ -28,7 +28,11 @@ impl Reason {
 }
 
 pub(crate) fn set_auto_lock_minutes(minutes: u16) {
-    let minutes = if ALLOWED_MINUTES.contains(&minutes) { minutes } else { 10 };
+    let minutes = if ALLOWED_MINUTES.contains(&minutes) {
+        minutes
+    } else {
+        10
+    };
     AUTO_LOCK_MINUTES.store(minutes, Ordering::Relaxed);
 }
 
@@ -36,7 +40,12 @@ fn limit() -> Duration {
     Duration::from_secs(AUTO_LOCK_MINUTES.load(Ordering::Relaxed) as u64 * 60)
 }
 
-pub(crate) fn decide(idle: Duration, limit: Duration, session_locked: bool, wall_gap: Duration) -> Option<Reason> {
+pub(crate) fn decide(
+    idle: Duration,
+    limit: Duration,
+    session_locked: bool,
+    wall_gap: Duration,
+) -> Option<Reason> {
     if wall_gap >= SLEEP_GAP {
         Some(Reason::Sleep)
     } else if session_locked {
@@ -65,7 +74,10 @@ pub(crate) fn start(app: tauri::AppHandle) {
         loop {
             std::thread::sleep(TICK);
             let now = SystemTime::now();
-            let gap = now.duration_since(last_wall).unwrap_or_default().saturating_sub(TICK);
+            let gap = now
+                .duration_since(last_wall)
+                .unwrap_or_default()
+                .saturating_sub(TICK);
             last_wall = now;
             let vault = super::vault();
             if !vault.is_open() {
@@ -111,10 +123,19 @@ mod tests {
     fn sleep_beats_session_beats_idle() {
         let limit = 10 * MIN;
         assert_eq!(decide(Duration::ZERO, limit, false, Duration::ZERO), None);
-        assert_eq!(decide(10 * MIN, limit, false, Duration::ZERO), Some(Reason::Idle));
-        assert_eq!(decide(Duration::ZERO, limit, true, Duration::ZERO), Some(Reason::Session));
+        assert_eq!(
+            decide(10 * MIN, limit, false, Duration::ZERO),
+            Some(Reason::Idle)
+        );
+        assert_eq!(
+            decide(Duration::ZERO, limit, true, Duration::ZERO),
+            Some(Reason::Session)
+        );
         assert_eq!(decide(10 * MIN, limit, true, 2 * MIN), Some(Reason::Sleep));
-        assert_eq!(decide(Duration::ZERO, limit, false, Duration::from_secs(59)), None);
+        assert_eq!(
+            decide(Duration::ZERO, limit, false, Duration::from_secs(59)),
+            None
+        );
     }
 
     #[test]

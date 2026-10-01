@@ -10,8 +10,12 @@ use super::{clipboard, guard, ssh, vault};
 use std::path::PathBuf;
 use zeroize::Zeroizing;
 
-async fn blocking<T: Send + 'static>(work: impl FnOnce() -> Result<T, String> + Send + 'static) -> Result<T, String> {
-    tauri::async_runtime::spawn_blocking(work).await.map_err(|_| IO.to_string())?
+async fn blocking<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|_| IO.to_string())?
 }
 
 #[tauri::command]
@@ -71,7 +75,12 @@ pub async fn vault_unlock_recovery(recovery_key: String) -> Result<(), String> {
 #[tauri::command]
 pub async fn vault_recovery_set_password(password: String) -> Result<String, String> {
     let password = Zeroizing::new(password);
-    blocking(move || vault().recovery_set_password(&password).map(|key| key.to_string())).await
+    blocking(move || {
+        vault()
+            .recovery_set_password(&password)
+            .map(|key| key.to_string())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -128,7 +137,12 @@ pub async fn vault_history(id: String) -> Result<Vec<HistoryView>, String> {
 
 #[tauri::command]
 pub async fn vault_history_reveal(id: String, index: usize) -> Result<String, String> {
-    blocking(move || vault().history_value(&id, index).map(|value| value.to_string())).await
+    blocking(move || {
+        vault()
+            .history_value(&id, index)
+            .map(|value| value.to_string())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -168,7 +182,10 @@ pub async fn vault_export(password: String, dest: String) -> Result<(), String> 
 }
 
 #[tauri::command]
-pub async fn vault_import_preview(src: String, credential: Credential) -> Result<MergeStats, String> {
+pub async fn vault_import_preview(
+    src: String,
+    credential: Credential,
+) -> Result<MergeStats, String> {
     blocking(move || vault().import_preview(&PathBuf::from(src), &credential)).await
 }
 
@@ -212,7 +229,10 @@ pub async fn vault_discover_cancel() -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn vault_discover_import(items: Vec<ImportItem>, note_prefix: String) -> Result<usize, String> {
+pub async fn vault_discover_import(
+    items: Vec<ImportItem>,
+    note_prefix: String,
+) -> Result<usize, String> {
     blocking(move || discover::import(vault(), &items, &note_prefix)).await
 }
 

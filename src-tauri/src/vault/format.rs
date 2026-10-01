@@ -49,21 +49,31 @@ impl Wrap {
     }
 
     /// Ok(None): this secret does not open the wrap.
-    pub(crate) fn unwrap_key(&self, secret: &[u8], kdf: KdfParams) -> Result<Option<SecretKey>, String> {
+    pub(crate) fn unwrap_key(
+        &self,
+        secret: &[u8],
+        kdf: KdfParams,
+    ) -> Result<Option<SecretKey>, String> {
         let salt = crypto::from_hex(&self.salt).ok_or(CORRUPT)?;
         let sealed = crypto::from_hex(&self.sealed).ok_or(CORRUPT)?;
         let kek = crypto::derive_key(secret, &salt, kdf)?;
         let Some(plain) = crypto::open(&kek, WRAP_AAD, &sealed) else {
             return Ok(None);
         };
-        let key: [u8; 32] = plain.as_slice().try_into().map_err(|_| CORRUPT.to_string())?;
+        let key: [u8; 32] = plain
+            .as_slice()
+            .try_into()
+            .map_err(|_| CORRUPT.to_string())?;
         Ok(Some(Zeroizing::new(key)))
     }
 }
 
 fn snapshot_of(bytes: &[u8]) -> Snapshot {
     use sha2::{Digest, Sha256};
-    Snapshot { len: bytes.len() as u64, digest: Sha256::digest(bytes).into() }
+    Snapshot {
+        len: bytes.len() as u64,
+        digest: Sha256::digest(bytes).into(),
+    }
 }
 
 pub(crate) fn current_snapshot(path: &Path) -> Option<Snapshot> {
@@ -127,7 +137,11 @@ pub(crate) fn decrypt_body(loaded: &Loaded, dek: &[u8; 32]) -> Result<Zeroizing<
 
 /// Writes a temporary file, flushes it, keeps the current file as `.bak`, then renames over it.
 /// `expected` is what was read last; anything else on disk is someone else's change.
-pub(crate) fn write(path: &Path, bytes: &[u8], expected: Option<&Snapshot>) -> Result<Snapshot, String> {
+pub(crate) fn write(
+    path: &Path,
+    bytes: &[u8],
+    expected: Option<&Snapshot>,
+) -> Result<Snapshot, String> {
     if let Some(expected) = expected {
         if current_snapshot(path).as_ref() != Some(expected) {
             return Err(CHANGED.into());
@@ -154,7 +168,11 @@ pub(crate) fn write(path: &Path, bytes: &[u8], expected: Option<&Snapshot>) -> R
 ///
 /// Any Err leaves the vault file itself untouched: both temporary files are staged first, the
 /// backup is replaced next, and the vault file is renamed into place last.
-pub(crate) fn write_rekeyed(path: &Path, bytes: &[u8], expected: Option<&Snapshot>) -> Result<Snapshot, String> {
+pub(crate) fn write_rekeyed(
+    path: &Path,
+    bytes: &[u8],
+    expected: Option<&Snapshot>,
+) -> Result<Snapshot, String> {
     if let Some(expected) = expected {
         if current_snapshot(path).as_ref() != Some(expected) {
             return Err(CHANGED.into());
@@ -200,9 +218,27 @@ mod tests {
     fn wraps_open_only_with_their_secret() {
         let dek = crypto::new_key();
         let header = header_for(&dek);
-        assert_eq!(*header.password.unwrap_key(b"main password!", header.kdf).unwrap().unwrap(), *dek);
-        assert!(header.password.unwrap_key(b"wrong", header.kdf).unwrap().is_none());
-        assert_eq!(*header.recovery.unwrap_key(&[9u8; 20], header.kdf).unwrap().unwrap(), *dek);
+        assert_eq!(
+            *header
+                .password
+                .unwrap_key(b"main password!", header.kdf)
+                .unwrap()
+                .unwrap(),
+            *dek
+        );
+        assert!(header
+            .password
+            .unwrap_key(b"wrong", header.kdf)
+            .unwrap()
+            .is_none());
+        assert_eq!(
+            *header
+                .recovery
+                .unwrap_key(&[9u8; 20], header.kdf)
+                .unwrap()
+                .unwrap(),
+            *dek
+        );
     }
 
     #[test]
@@ -210,7 +246,10 @@ mod tests {
         let dek = crypto::new_key();
         let bytes = encode(&header_for(&dek), &dek, b"{\"entries\":[]}").unwrap();
         let loaded = parse(&bytes).unwrap();
-        assert_eq!(decrypt_body(&loaded, &dek).unwrap().as_slice(), b"{\"entries\":[]}");
+        assert_eq!(
+            decrypt_body(&loaded, &dek).unwrap().as_slice(),
+            b"{\"entries\":[]}"
+        );
     }
 
     #[test]
@@ -244,7 +283,11 @@ mod tests {
     fn an_unreasonable_kdf_in_the_header_is_refused() {
         let dek = crypto::new_key();
         let mut header = header_for(&dek);
-        header.kdf = KdfParams { mem_kib: 4_194_304, iters: 3, lanes: 1 };
+        header.kdf = KdfParams {
+            mem_kib: 4_194_304,
+            iters: 3,
+            lanes: 1,
+        };
         let bytes = encode(&header, &dek, b"x").unwrap();
         assert_eq!(parse(&bytes).err().unwrap(), CORRUPT);
     }
@@ -259,7 +302,10 @@ mod tests {
         assert_eq!(std::fs::read(backup_path(&path)).unwrap(), b"one");
         assert_eq!(std::fs::read(&path).unwrap(), b"two");
         std::fs::write(&path, b"edited elsewhere").unwrap();
-        assert_eq!(write(&path, b"three", Some(&second)).err().unwrap(), CHANGED);
+        assert_eq!(
+            write(&path, b"three", Some(&second)).err().unwrap(),
+            CHANGED
+        );
         assert_eq!(std::fs::read(&path).unwrap(), b"edited elsewhere");
     }
 
@@ -281,7 +327,10 @@ mod tests {
         let first = write(&path, b"one", None).unwrap();
         // A directory in the backup's staging place makes the backup step fail.
         std::fs::create_dir(path.with_extension("skv.bak.tmp")).unwrap();
-        assert_eq!(write_rekeyed(&path, b"two", Some(&first)).err().unwrap(), IO);
+        assert_eq!(
+            write_rekeyed(&path, b"two", Some(&first)).err().unwrap(),
+            IO
+        );
         assert_eq!(current_snapshot(&path), Some(first));
         assert_eq!(std::fs::read(&path).unwrap(), b"one");
         assert!(!path.with_extension("skv.tmp").exists());

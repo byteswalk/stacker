@@ -11,7 +11,17 @@ use zeroize::Zeroizing;
 pub(crate) const MAX_FILE_BYTES: u64 = 1_048_576;
 pub(crate) const MAX_FILES: usize = 50_000;
 const SKIP_DIRS: &[&str] = &[
-    "node_modules", ".git", "target", "dist", "build", ".venv", "venv", "__pycache__", ".next", ".idea", ".vs",
+    "node_modules",
+    ".git",
+    "target",
+    "dist",
+    "build",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".next",
+    ".idea",
+    ".vs",
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -32,7 +42,11 @@ pub(crate) struct RawField {
 
 impl std::fmt::Debug for RawField {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RawField").field("name", &self.name).field("value", &"<redacted>").field("secret", &self.secret).finish()
+        f.debug_struct("RawField")
+            .field("name", &self.name)
+            .field("value", &"<redacted>")
+            .field("secret", &self.secret)
+            .finish()
     }
 }
 
@@ -49,12 +63,20 @@ pub(crate) struct Raw {
 
 impl Raw {
     pub(crate) fn primary(&self) -> &str {
-        self.fields.iter().find(|field| field.secret).map(|field| field.value.as_str()).unwrap_or("")
+        self.fields
+            .iter()
+            .find(|field| field.secret)
+            .map(|field| field.value.as_str())
+            .unwrap_or("")
     }
 }
 
 fn field(name: &str, value: String, secret: bool) -> RawField {
-    RawField { name: name.to_string(), value: Zeroizing::new(value), secret }
+    RawField {
+        name: name.to_string(),
+        value: Zeroizing::new(value),
+        secret,
+    }
 }
 
 pub(crate) struct Walk<'a> {
@@ -66,7 +88,12 @@ pub(crate) struct Walk<'a> {
 impl Walk<'_> {
     /// Files under `root` at most `depth` levels down (1 = only `root` itself), never through
     /// links or junctions, skipping build and dependency folders.
-    pub(crate) fn files(&self, root: &Path, depth: usize, keep: &dyn Fn(&str) -> bool) -> Vec<PathBuf> {
+    pub(crate) fn files(
+        &self,
+        root: &Path,
+        depth: usize,
+        keep: &dyn Fn(&str) -> bool,
+    ) -> Vec<PathBuf> {
         let mut out = Vec::new();
         self.visit(root, depth, keep, &mut out);
         out
@@ -80,13 +107,17 @@ impl Walk<'_> {
         if self.stopped() {
             return;
         }
-        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
         for entry in entries.flatten() {
             if self.stopped() {
                 return;
             }
             let path = entry.path();
-            let Ok(meta) = std::fs::symlink_metadata(&path) else { continue };
+            let Ok(meta) = std::fs::symlink_metadata(&path) else {
+                continue;
+            };
             if is_link(&meta) {
                 continue;
             }
@@ -124,7 +155,10 @@ fn read_small(path: &Path) -> Option<Zeroizing<String>> {
 
 pub(crate) fn ssh_keys(home: &Path, walk: &Walk) -> Vec<Raw> {
     let keep = |name: &str| {
-        !name.ends_with(".pub") && !name.starts_with("known_hosts") && name != "config" && name != "authorized_keys"
+        !name.ends_with(".pub")
+            && !name.starts_with("known_hosts")
+            && name != "config"
+            && name != "authorized_keys"
     };
     walk.files(&home.join(".ssh"), 3, &keep)
         .into_iter()
@@ -137,7 +171,10 @@ pub(crate) fn ssh_keys(home: &Path, walk: &Walk) -> Vec<Raw> {
             let public = info
                 .as_ref()
                 .and_then(|info| info.public_key.clone())
-                .or_else(|| read_small(&PathBuf::from(format!("{}.pub", path.display()))).map(|text| text.trim().to_string()));
+                .or_else(|| {
+                    read_small(&PathBuf::from(format!("{}.pub", path.display())))
+                        .map(|text| text.trim().to_string())
+                });
             let mut fields = vec![field("私钥", text.to_string(), true)];
             if let Some(public) = public {
                 fields.push(field("公钥", public, false));
@@ -168,18 +205,32 @@ fn ini_sections(text: &str) -> Vec<Section> {
             out.push((line[1..line.len() - 1].trim().to_string(), Vec::new()));
         } else if let Some((key, value)) = line.split_once('=') {
             let value = value.trim().trim_matches('"').to_string();
-            out.last_mut().expect("starts with one section").1.push((key.trim().to_string(), value));
+            out.last_mut()
+                .expect("starts with one section")
+                .1
+                .push((key.trim().to_string(), value));
         }
     }
     out
 }
 
 fn get(pairs: &[(String, String)], key: &str) -> Option<String> {
-    pairs.iter().find(|(name, _)| name.eq_ignore_ascii_case(key)).map(|(_, value)| value.clone())
+    pairs
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case(key))
+        .map(|(_, value)| value.clone())
 }
 
 fn config_raw(path: &Path, name: String, platform: &str, kind: Kind, fields: Vec<RawField>) -> Raw {
-    Raw { source: Source::Config, location: path.display().to_string(), name, platform: platform.to_string(), kind, fields, risks: Vec::new() }
+    Raw {
+        source: Source::Config,
+        location: path.display().to_string(),
+        name,
+        platform: platform.to_string(),
+        kind,
+        fields,
+        risks: Vec::new(),
+    }
 }
 
 fn usable(value: &str) -> bool {
@@ -192,10 +243,16 @@ fn aws(path: &Path, text: &str) -> Vec<Raw> {
         .filter_map(|(section, pairs)| {
             let id = get(&pairs, "aws_access_key_id")?;
             let secret = get(&pairs, "aws_secret_access_key").filter(|value| usable(value))?;
-            Some(config_raw(path, format!("AWS {section}"), "AWS", Kind::AkSk, vec![
-                field("Access Key ID", id, false),
-                field("Secret Access Key", secret, true),
-            ]))
+            Some(config_raw(
+                path,
+                format!("AWS {section}"),
+                "AWS",
+                Kind::AkSk,
+                vec![
+                    field("Access Key ID", id, false),
+                    field("Secret Access Key", secret, true),
+                ],
+            ))
         })
         .collect()
 }
@@ -204,12 +261,18 @@ fn aws(path: &Path, text: &str) -> Vec<Raw> {
 fn unquote(value: &str) -> &str {
     ['"', '\'']
         .iter()
-        .find_map(|quote| value.strip_prefix(*quote).and_then(|rest| rest.strip_suffix(*quote)))
+        .find_map(|quote| {
+            value
+                .strip_prefix(*quote)
+                .and_then(|rest| rest.strip_suffix(*quote))
+        })
         .unwrap_or(value)
 }
 
 fn decoded(text: &str) -> String {
-    percent_encoding::percent_decode_str(text).decode_utf8_lossy().into_owned()
+    percent_encoding::percent_decode_str(text)
+        .decode_utf8_lossy()
+        .into_owned()
 }
 
 fn npmrc(path: &Path, text: &str) -> Vec<Raw> {
@@ -217,11 +280,18 @@ fn npmrc(path: &Path, text: &str) -> Vec<Raw> {
         .filter_map(|line| {
             let (key, value) = line.trim().split_once('=')?;
             let (key, value) = (key.trim(), unquote(value.trim()));
-            let secret_key = key.ends_with("_authToken") || key.ends_with("_auth") || key.ends_with("_password");
+            let secret_key =
+                key.ends_with("_authToken") || key.ends_with("_auth") || key.ends_with("_password");
             if !secret_key || !usable(value) {
                 return None;
             }
-            Some(config_raw(path, key.to_string(), "npm", Kind::Token, vec![field("Token", value.to_string(), true)]))
+            Some(config_raw(
+                path,
+                key.to_string(),
+                "npm",
+                Kind::Token,
+                vec![field("Token", value.to_string(), true)],
+            ))
         })
         .collect()
 }
@@ -236,10 +306,13 @@ fn git_credentials(path: &Path, text: &str) -> Vec<Raw> {
             }
             let user = decoded(url.username());
             let host = url.host_str()?.to_string();
-            Some(config_raw(path, format!("{user}@{host}"), &host, Kind::Token, vec![
-                field("账号", user, false),
-                field("Token", token, true),
-            ]))
+            Some(config_raw(
+                path,
+                format!("{user}@{host}"),
+                &host,
+                Kind::Token,
+                vec![field("账号", user, false), field("Token", token, true)],
+            ))
         })
         .collect()
 }
@@ -250,10 +323,13 @@ fn pypirc(path: &Path, text: &str) -> Vec<Raw> {
         .filter_map(|(section, pairs)| {
             let password = get(&pairs, "password").filter(|value| usable(value))?;
             let user = get(&pairs, "username").unwrap_or_default();
-            Some(config_raw(path, format!("PyPI {section}"), "PyPI", Kind::Token, vec![
-                field("账号", user, false),
-                field("Token", password, true),
-            ]))
+            Some(config_raw(
+                path,
+                format!("PyPI {section}"),
+                "PyPI",
+                Kind::Token,
+                vec![field("账号", user, false), field("Token", password, true)],
+            ))
         })
         .collect()
 }
@@ -263,14 +339,25 @@ fn cargo(path: &Path, text: &str) -> Vec<Raw> {
         .into_iter()
         .filter_map(|(section, pairs)| {
             let token = get(&pairs, "token").filter(|value| usable(value))?;
-            let name = if section.is_empty() { "crates.io".to_string() } else { section };
-            Some(config_raw(path, name, "crates.io", Kind::Token, vec![field("Token", token, true)]))
+            let name = if section.is_empty() {
+                "crates.io".to_string()
+            } else {
+                section
+            };
+            Some(config_raw(
+                path,
+                name,
+                "crates.io",
+                Kind::Token,
+                vec![field("Token", token, true)],
+            ))
         })
         .collect()
 }
 
 pub(crate) fn config_files(home: &Path) -> Vec<Raw> {
-    let parsers: [(&str, fn(&Path, &str) -> Vec<Raw>); 5] = [
+    type Parser = fn(&Path, &str) -> Vec<Raw>;
+    let parsers: [(&str, Parser); 5] = [
         (".aws/credentials", aws),
         (".npmrc", npmrc),
         (".git-credentials", git_credentials),
@@ -281,7 +368,9 @@ pub(crate) fn config_files(home: &Path) -> Vec<Raw> {
         .iter()
         .flat_map(|(relative, parse)| {
             let path = home.join(relative);
-            read_small(&path).map(|text| parse(&path, &text)).unwrap_or_default()
+            read_small(&path)
+                .map(|text| parse(&path, &text))
+                .unwrap_or_default()
         })
         .collect()
 }
@@ -291,15 +380,27 @@ fn env_scopes() -> Vec<(&'static str, Vec<(String, String)>)> {
     use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
     use winreg::RegKey;
     let read = |root, path: &str| -> Vec<(String, String)> {
-        let Ok(key) = RegKey::predef(root).open_subkey(path) else { return Vec::new() };
+        let Ok(key) = RegKey::predef(root).open_subkey(path) else {
+            return Vec::new();
+        };
         key.enum_values()
             .flatten()
-            .filter_map(|(name, _)| key.get_value::<String, _>(&name).ok().map(|value| (name, value)))
+            .filter_map(|(name, _)| {
+                key.get_value::<String, _>(&name)
+                    .ok()
+                    .map(|value| (name, value))
+            })
             .collect()
     };
     vec![
         ("user", read(HKEY_CURRENT_USER, "Environment")),
-        ("system", read(HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment")),
+        (
+            "system",
+            read(
+                HKEY_LOCAL_MACHINE,
+                r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment",
+            ),
+        ),
     ]
 }
 
@@ -312,7 +413,9 @@ pub(crate) fn env_vars() -> Vec<Raw> {
     let mut out = Vec::new();
     for (scope, pairs) in env_scopes() {
         for (name, value) in pairs {
-            let Some((platform, kind)) = rules::classify(&name, &value) else { continue };
+            let Some((platform, kind)) = rules::classify(&name, &value) else {
+                continue;
+            };
             out.push(Raw {
                 source: Source::Env,
                 location: scope.to_string(),
@@ -329,7 +432,9 @@ pub(crate) fn env_vars() -> Vec<Raw> {
 
 pub(crate) fn is_env_file(name: &str) -> bool {
     (name == ".env" || name.starts_with(".env."))
-        && ![".example", ".sample", ".template"].iter().any(|suffix| name.ends_with(suffix))
+        && ![".example", ".sample", ".template"]
+            .iter()
+            .any(|suffix| name.ends_with(suffix))
 }
 
 pub(crate) fn dotenv_files(dirs: &[PathBuf], walk: &Walk) -> Vec<Raw> {
@@ -378,10 +483,18 @@ mod tests {
 
     impl Counters {
         fn new() -> Self {
-            Counters { cancel: AtomicBool::new(false), files: AtomicUsize::new(0), truncated: AtomicBool::new(false) }
+            Counters {
+                cancel: AtomicBool::new(false),
+                files: AtomicUsize::new(0),
+                truncated: AtomicBool::new(false),
+            }
         }
         fn walk(&self) -> Walk<'_> {
-            Walk { cancel: &self.cancel, files: &self.files, truncated: &self.truncated }
+            Walk {
+                cancel: &self.cancel,
+                files: &self.files,
+                truncated: &self.truncated,
+            }
         }
     }
 
@@ -403,7 +516,13 @@ mod tests {
         assert_eq!(raw.kind, Kind::SshKey);
         assert_eq!(raw.name, "id_old");
         assert!(raw.risks.contains(&crate::vault::ssh::RISK_DSA));
-        assert_eq!(raw.fields.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(), vec!["私钥", "公钥"]);
+        assert_eq!(
+            raw.fields
+                .iter()
+                .map(|f| f.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["私钥", "公钥"]
+        );
         assert!(raw.primary().contains("DSA PRIVATE KEY"));
     }
 
@@ -415,12 +534,30 @@ mod tests {
             "[default]\naws_access_key_id = ID1\naws_secret_access_key = {token}\n[blank]\naws_access_key_id = ID2\naws_secret_access_key = your-secret-here\n"
         ));
         put(&home.path().join(".npmrc"), &format!("registry=https://registry.npmjs.org/\n//registry.npmjs.org/:_authToken={token}\n//x/:_authToken=${{NPM_TOKEN}}\n"));
-        put(&home.path().join(".git-credentials"), &format!("https://alice:{token}@github.com\nnot a url\n"));
-        put(&home.path().join(".pypirc"), &format!("[pypi]\nusername = __token__\npassword = {token}\n"));
-        put(&home.path().join(".cargo/credentials.toml"), &format!("[registry]\ntoken = \"{token}\"\n"));
+        put(
+            &home.path().join(".git-credentials"),
+            &format!("https://alice:{token}@github.com\nnot a url\n"),
+        );
+        put(
+            &home.path().join(".pypirc"),
+            &format!("[pypi]\nusername = __token__\npassword = {token}\n"),
+        );
+        put(
+            &home.path().join(".cargo/credentials.toml"),
+            &format!("[registry]\ntoken = \"{token}\"\n"),
+        );
         let found = config_files(home.path());
         let names: Vec<&str> = found.iter().map(|raw| raw.name.as_str()).collect();
-        assert_eq!(names, vec!["AWS default", "//registry.npmjs.org/:_authToken", "alice@github.com", "PyPI pypi", "registry"]);
+        assert_eq!(
+            names,
+            vec![
+                "AWS default",
+                "//registry.npmjs.org/:_authToken",
+                "alice@github.com",
+                "PyPI pypi",
+                "registry"
+            ]
+        );
         let aws = &found[0];
         assert_eq!(aws.kind, Kind::AkSk);
         assert_eq!(aws.primary(), token);
@@ -439,16 +576,27 @@ mod tests {
         put(&root.path().join("proj/node_modules/pkg/.env"), &line);
         put(&root.path().join("a/b/c/.env"), &line);
         put(&root.path().join("a/b/c/d/.env"), &line);
-        put(&root.path().join("big/.env"), &format!("{line}{}", "#".repeat(1_100_000)));
+        put(
+            &root.path().join("big/.env"),
+            &format!("{line}{}", "#".repeat(1_100_000)),
+        );
         let counters = Counters::new();
         let found = dotenv_files(&[root.path().to_path_buf()], &counters.walk());
         let mut places: Vec<String> = found
             .iter()
-            .map(|raw| Path::new(&raw.location).strip_prefix(root.path()).unwrap().to_string_lossy().replace('\\', "/"))
+            .map(|raw| {
+                Path::new(&raw.location)
+                    .strip_prefix(root.path())
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/")
+            })
             .collect();
         places.sort();
         assert_eq!(places, vec!["a/b/c/.env", "proj/.env", "proj/.env.local"]);
-        assert!(found.iter().all(|raw| raw.name == "OPENAI_API_KEY" && raw.source == Source::Dotenv));
+        assert!(found
+            .iter()
+            .all(|raw| raw.name == "OPENAI_API_KEY" && raw.source == Source::Dotenv));
     }
 
     #[test]
@@ -469,7 +617,10 @@ mod tests {
     fn junctions_are_not_followed() {
         let root = tempfile::tempdir().unwrap();
         let outside = tempfile::tempdir().unwrap();
-        put(&outside.path().join(".env"), &format!("A_KEY={}\n", sample()));
+        put(
+            &outside.path().join(".env"),
+            &format!("A_KEY={}\n", sample()),
+        );
         let link = root.path().join("link");
         let made = std::process::Command::new("cmd")
             .args(["/C", "mklink", "/J"])
@@ -487,7 +638,10 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let encoded = format!("{}%40{}", &sample()[..6], &sample()[6..]);
         let decoded = format!("{}@{}", &sample()[..6], &sample()[6..]);
-        put(&home.path().join(".git-credentials"), &format!("https://al%40ice:{encoded}@github.com\n"));
+        put(
+            &home.path().join(".git-credentials"),
+            &format!("https://al%40ice:{encoded}@github.com\n"),
+        );
         let found = config_files(home.path());
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].primary(), decoded);
@@ -516,7 +670,12 @@ mod tests {
     fn read_small_reads_regular_files_only() {
         let dir = tempfile::tempdir().unwrap();
         put(&dir.path().join("f.txt"), "hello");
-        assert_eq!(read_small(&dir.path().join("f.txt")).as_deref().map(String::as_str), Some("hello"));
+        assert_eq!(
+            read_small(&dir.path().join("f.txt"))
+                .as_deref()
+                .map(String::as_str),
+            Some("hello")
+        );
         assert!(read_small(dir.path()).is_none());
     }
 
@@ -524,7 +683,10 @@ mod tests {
     fn npmrc_values_lose_one_pair_of_quotes() {
         let home = tempfile::tempdir().unwrap();
         let token = sample();
-        put(&home.path().join(".npmrc"), &format!("//r/:_authToken=\"{token}\"\n//s/:_authToken='{token}'\n"));
+        put(
+            &home.path().join(".npmrc"),
+            &format!("//r/:_authToken=\"{token}\"\n//s/:_authToken='{token}'\n"),
+        );
         let found = config_files(home.path());
         assert_eq!(found.len(), 2);
         assert!(found.iter().all(|raw| raw.primary() == token));
@@ -535,7 +697,14 @@ mod tests {
         for name in [".env", ".env.local", ".env.production"] {
             assert!(is_env_file(name), "{name}");
         }
-        for name in [".env.example", ".env.sample", ".env.template", "env", "app.env", ".envrc"] {
+        for name in [
+            ".env.example",
+            ".env.sample",
+            ".env.template",
+            "env",
+            "app.env",
+            ".envrc",
+        ] {
             assert!(!is_env_file(name), "{name}");
         }
     }

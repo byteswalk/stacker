@@ -55,7 +55,11 @@ fn inspect_pem(text: &str) -> Option<SshInfo> {
         _ => return None,
     };
     let encrypted = header.contains("ENCRYPTED") || text.contains("Proc-Type: 4,ENCRYPTED");
-    let bits = if rsa && !encrypted { pkcs1_modulus_bits(text) } else { None };
+    let bits = if rsa && !encrypted {
+        pkcs1_modulus_bits(text)
+    } else {
+        None
+    };
     Some(finish(algorithm.to_string(), bits, encrypted, None, None))
 }
 
@@ -76,7 +80,14 @@ fn finish(
     if algorithm == "ssh-rsa" && bits.is_some_and(|bits| bits < 2048) {
         risks.push(RISK_RSA_SHORT);
     }
-    SshInfo { algorithm, bits, encrypted, fingerprint, public_key, risks }
+    SshInfo {
+        algorithm,
+        bits,
+        encrypted,
+        fingerprint,
+        public_key,
+        risks,
+    }
 }
 
 fn bit_length(bytes: &[u8]) -> u32 {
@@ -100,7 +111,9 @@ fn der_item(input: &[u8]) -> Option<(u8, &[u8], &[u8])> {
         }
         let (len_bytes, tail) = rest.split_at(count);
         rest = tail;
-        len_bytes.iter().fold(0usize, |acc, b| (acc << 8) | *b as usize)
+        len_bytes
+            .iter()
+            .fold(0usize, |acc, b| (acc << 8) | *b as usize)
     };
     if rest.len() < len {
         return None;
@@ -137,7 +150,11 @@ pub(crate) fn export_private(text: &str, dest: &Path) -> Result<(), String> {
     export_with(text, dest, restrict_to_current_user)
 }
 
-fn export_with(text: &str, dest: &Path, restrict: impl FnOnce(&Path) -> Result<(), String>) -> Result<(), String> {
+fn export_with(
+    text: &str,
+    dest: &Path,
+    restrict: impl FnOnce(&Path) -> Result<(), String>,
+) -> Result<(), String> {
     use std::io::Write;
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create_new(true);
@@ -152,7 +169,8 @@ fn export_with(text: &str, dest: &Path, restrict: impl FnOnce(&Path) -> Result<(
         if !content.ends_with('\n') {
             content.push('\n');
         }
-        file.write_all(content.as_bytes()).map_err(|_| IO.to_string())
+        file.write_all(content.as_bytes())
+            .map_err(|_| IO.to_string())
     });
     drop(file);
     if written.is_err() {
@@ -180,13 +198,18 @@ fn restrict_to_current_user(path: &Path) -> Result<(), String> {
         .stderr(std::process::Stdio::null())
         .status()
         .map_err(|_| IO.to_string())?;
-    if status.success() { Ok(()) } else { Err(IO.into()) }
+    if status.success() {
+        Ok(())
+    } else {
+        Err(IO.into())
+    }
 }
 
 #[cfg(not(windows))]
 fn restrict_to_current_user(path: &Path) -> Result<(), String> {
     use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).map_err(|_| IO.to_string())
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+        .map_err(|_| IO.to_string())
 }
 
 #[cfg(test)]
@@ -223,11 +246,19 @@ mod tests {
         assert!(info.fingerprint.unwrap().starts_with("SHA256:"));
         assert!(info.public_key.unwrap().starts_with("ssh-ed25519 "));
 
-        let locked = keygen(dir.path(), "locked", &["-t", "ed25519", "-N", "fixture-pass"]).unwrap();
+        let locked = keygen(
+            dir.path(),
+            "locked",
+            &["-t", "ed25519", "-N", "fixture-pass"],
+        )
+        .unwrap();
         let info = inspect(&locked).unwrap();
         assert!(info.encrypted);
         assert!(info.risks.is_empty());
-        assert!(info.public_key.is_some(), "OpenSSH files carry the public key in the clear");
+        assert!(
+            info.public_key.is_some(),
+            "OpenSSH files carry the public key in the clear"
+        );
     }
 
     #[test]
@@ -242,7 +273,12 @@ mod tests {
         assert!(info.fingerprint.unwrap().starts_with("SHA256:"));
         assert_eq!(info.risks, vec![RISK_UNENCRYPTED]);
 
-        let locked = keygen(dir.path(), "ec_locked", &["-t", "ecdsa", "-b", "256", "-N", "fixture-pass"]).unwrap();
+        let locked = keygen(
+            dir.path(),
+            "ec_locked",
+            &["-t", "ecdsa", "-b", "256", "-N", "fixture-pass"],
+        )
+        .unwrap();
         let info = inspect(&locked).unwrap();
         assert_eq!(info.algorithm, "ecdsa-sha2-nistp256");
         assert!(info.encrypted);
@@ -253,7 +289,8 @@ mod tests {
     #[test]
     fn short_rsa_is_flagged_in_both_formats() {
         let dir = tempfile::tempdir().unwrap();
-        let Some(openssh) = keygen(dir.path(), "rsa", &["-t", "rsa", "-b", "1024", "-N", ""]) else {
+        let Some(openssh) = keygen(dir.path(), "rsa", &["-t", "rsa", "-b", "1024", "-N", ""])
+        else {
             eprintln!("ssh-keygen not found; skipped");
             return;
         };
@@ -261,7 +298,12 @@ mod tests {
         assert_eq!(info.bits, Some(1024));
         assert!(info.risks.contains(&RISK_RSA_SHORT));
 
-        let pem = keygen(dir.path(), "rsa_pem", &["-t", "rsa", "-b", "1024", "-m", "PEM", "-N", ""]).unwrap();
+        let pem = keygen(
+            dir.path(),
+            "rsa_pem",
+            &["-t", "rsa", "-b", "1024", "-m", "PEM", "-N", ""],
+        )
+        .unwrap();
         let info = inspect(&pem).unwrap();
         assert_eq!(info.algorithm, "ssh-rsa");
         assert_eq!(info.bits, Some(1024));
@@ -274,7 +316,8 @@ mod tests {
         let dsa = "-----BEGIN DSA PRIVATE KEY-----\nAAAA\n-----END DSA PRIVATE KEY-----\n";
         let info = inspect(dsa).unwrap();
         assert!(info.risks.contains(&RISK_DSA));
-        let encrypted = "-----BEGIN ENCRYPTED PRIVATE KEY-----\nAAAA\n-----END ENCRYPTED PRIVATE KEY-----\n";
+        let encrypted =
+            "-----BEGIN ENCRYPTED PRIVATE KEY-----\nAAAA\n-----END ENCRYPTED PRIVATE KEY-----\n";
         assert!(inspect(encrypted).unwrap().encrypted);
         assert!(inspect("just some text").is_none());
     }
@@ -284,7 +327,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let dest = dir.path().join("id_restored");
         export_private("line one\r\nline two", &dest).unwrap();
-        assert_eq!(std::fs::read_to_string(&dest).unwrap(), "line one\nline two\n");
+        assert_eq!(
+            std::fs::read_to_string(&dest).unwrap(),
+            "line one\nline two\n"
+        );
         assert_eq!(export_private("again", &dest).err().unwrap(), FILE_EXISTS);
     }
 
@@ -294,12 +340,28 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let dest = dir.path().join("id_locked_down");
         export_private("secret", &dest).unwrap();
-        let output = std::process::Command::new("icacls").arg(&dest).output().unwrap();
-        let listing = String::from_utf8_lossy(&output.stdout).replace(dest.to_string_lossy().as_ref(), "");
+        let output = std::process::Command::new("icacls")
+            .arg(&dest)
+            .output()
+            .unwrap();
+        let listing =
+            String::from_utf8_lossy(&output.stdout).replace(dest.to_string_lossy().as_ref(), "");
         let user = std::env::var("USERNAME").unwrap();
-        assert!(listing.contains(&user), "current user missing from ACL: {listing}");
-        for other in ["Everyone", "BUILTIN\\Users", "Authenticated Users", "Administrators", "SYSTEM"] {
-            assert!(!listing.contains(other), "{other} still has access: {listing}");
+        assert!(
+            listing.contains(&user),
+            "current user missing from ACL: {listing}"
+        );
+        for other in [
+            "Everyone",
+            "BUILTIN\\Users",
+            "Authenticated Users",
+            "Administrators",
+            "SYSTEM",
+        ] {
+            assert!(
+                !listing.contains(other),
+                "{other} still has access: {listing}"
+            );
         }
         assert_eq!(std::fs::read_to_string(&dest).unwrap(), "secret\n");
     }
@@ -311,7 +373,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let dest = dir.path().join("id_locked_down");
         export_private("secret", &dest).unwrap();
-        assert_eq!(std::fs::metadata(&dest).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(
+            std::fs::metadata(&dest).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
     }
 
     #[test]
@@ -319,7 +384,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let dest = dir.path().join("id_ordered");
         export_with("secret", &dest, |path| {
-            assert_eq!(std::fs::metadata(path).unwrap().len(), 0, "secret written before restriction");
+            assert_eq!(
+                std::fs::metadata(path).unwrap().len(),
+                0,
+                "secret written before restriction"
+            );
             Ok(())
         })
         .unwrap();
@@ -330,9 +399,14 @@ mod tests {
     fn a_failed_export_leaves_no_file_and_can_be_retried() {
         let dir = tempfile::tempdir().unwrap();
         let dest = dir.path().join("id_failed");
-        let error = export_with("secret", &dest, |_| Err(IO.to_string())).err().unwrap();
+        let error = export_with("secret", &dest, |_| Err(IO.to_string()))
+            .err()
+            .unwrap();
         assert_eq!(error, IO);
-        assert!(!dest.exists(), "a failed export must not leave a file behind");
+        assert!(
+            !dest.exists(),
+            "a failed export must not leave a file behind"
+        );
         export_private("secret", &dest).unwrap();
     }
 }

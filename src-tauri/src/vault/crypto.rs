@@ -20,7 +20,11 @@ pub(crate) struct KdfParams {
 }
 
 impl KdfParams {
-    pub(crate) const STANDARD: KdfParams = KdfParams { mem_kib: 64 * 1024, iters: 3, lanes: 1 };
+    pub(crate) const STANDARD: KdfParams = KdfParams {
+        mem_kib: 64 * 1024,
+        iters: 3,
+        lanes: 1,
+    };
 
     /// Bounds for parameters read from a file, so a tampered header cannot force a huge allocation.
     pub(crate) fn is_reasonable(&self) -> bool {
@@ -31,7 +35,11 @@ impl KdfParams {
     }
     /// Cheap parameters so unit tests stay fast; never used outside tests.
     #[cfg(test)]
-    pub(crate) const FAST: KdfParams = KdfParams { mem_kib: 256, iters: 1, lanes: 1 };
+    pub(crate) const FAST: KdfParams = KdfParams {
+        mem_kib: 256,
+        iters: 1,
+        lanes: 1,
+    };
 }
 
 pub(crate) fn random<const N: usize>() -> [u8; N] {
@@ -44,7 +52,11 @@ pub(crate) fn new_key() -> SecretKey {
     Zeroizing::new(random::<32>())
 }
 
-pub(crate) fn derive_key(secret: &[u8], salt: &[u8], params: KdfParams) -> Result<SecretKey, String> {
+pub(crate) fn derive_key(
+    secret: &[u8],
+    salt: &[u8],
+    params: KdfParams,
+) -> Result<SecretKey, String> {
     let params = Params::new(params.mem_kib, params.iters, params.lanes, Some(32))
         .map_err(|_| CORRUPT.to_string())?;
     let mut out = Zeroizing::new([0u8; 32]);
@@ -165,7 +177,14 @@ mod tests {
 
     #[test]
     fn kdf_bounds_are_enforced() {
-        let p = |mem_kib, iters, lanes| KdfParams { mem_kib, iters, lanes }.is_reasonable();
+        let p = |mem_kib, iters, lanes| {
+            KdfParams {
+                mem_kib,
+                iters,
+                lanes,
+            }
+            .is_reasonable()
+        };
         assert!(KdfParams::STANDARD.is_reasonable());
         assert!(KdfParams::FAST.is_reasonable());
         // (mem_kib, iters, lanes, accepted)
@@ -187,7 +206,11 @@ mod tests {
             (64, 1, 8, true),
         ];
         for (mem_kib, iters, lanes, accepted) in table {
-            assert_eq!(p(mem_kib, iters, lanes), accepted, "mem={mem_kib} iters={iters} lanes={lanes}");
+            assert_eq!(
+                p(mem_kib, iters, lanes),
+                accepted,
+                "mem={mem_kib} iters={iters} lanes={lanes}"
+            );
         }
     }
 
@@ -204,14 +227,21 @@ mod tests {
     fn seal_round_trips_and_rejects_tampering() {
         let key = new_key();
         let sealed = seal(&key, b"aad", b"secret text");
-        assert_eq!(open(&key, b"aad", &sealed).unwrap().as_slice(), b"secret text");
+        assert_eq!(
+            open(&key, b"aad", &sealed).unwrap().as_slice(),
+            b"secret text"
+        );
         assert!(open(&key, b"other aad", &sealed).is_none());
         let mut flipped = sealed.clone();
         *flipped.last_mut().unwrap() ^= 1;
         assert!(open(&key, b"aad", &flipped).is_none());
         assert!(open(&new_key(), b"aad", &sealed).is_none());
         assert!(open(&key, b"aad", &sealed[..10]).is_none());
-        assert_ne!(seal(&key, b"aad", b"x"), seal(&key, b"aad", b"x"), "fresh nonce each time");
+        assert_ne!(
+            seal(&key, b"aad", b"x"),
+            seal(&key, b"aad", b"x"),
+            "fresh nonce each time"
+        );
     }
 
     #[test]
@@ -249,7 +279,10 @@ mod tests {
         let squashed = encoded.replace('-', "");
         assert_eq!(*decode_recovery(&squashed).unwrap(), bytes);
         // I/L read as 1 and O as 0, the way Crockford intends.
-        assert_eq!(decode_recovery(&"O".repeat(32)).unwrap().as_slice(), &[0u8; 20]);
+        assert_eq!(
+            decode_recovery(&"O".repeat(32)).unwrap().as_slice(),
+            &[0u8; 20]
+        );
         assert!(decode_recovery(&"U".repeat(32)).is_none());
         assert!(decode_recovery(&encoded[..30]).is_none());
         assert!(decode_recovery(&format!("{}0", encoded.as_str())).is_none());

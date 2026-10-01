@@ -16,7 +16,10 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 
 pub(crate) fn default_path() -> PathBuf {
-    dirs::config_dir().unwrap_or_default().join("stacker").join("vault.skv")
+    dirs::config_dir()
+        .unwrap_or_default()
+        .join("stacker")
+        .join("vault.skv")
 }
 
 pub(crate) fn vault() -> &'static session::Vault {

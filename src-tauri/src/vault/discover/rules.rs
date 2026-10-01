@@ -4,7 +4,15 @@
 use crate::vault::model::Kind;
 
 const NAME_SEGMENTS: &[&str] = &[
-    "KEY", "TOKEN", "SECRET", "PASSWORD", "PASSWD", "PWD", "CREDENTIAL", "CREDENTIALS", "AUTH",
+    "KEY",
+    "TOKEN",
+    "SECRET",
+    "PASSWORD",
+    "PASSWD",
+    "PWD",
+    "CREDENTIAL",
+    "CREDENTIALS",
+    "AUTH",
 ];
 const NAME_CONTAINS: &[&str] = &["APIKEY", "ACCESSKEY"];
 const MIN_VALUE_CHARS: usize = 12;
@@ -27,10 +35,16 @@ const PREFIXES: &[(&str, &str, Kind)] = &[
 
 pub(crate) fn name_matches(name: &str) -> bool {
     let upper = name.to_ascii_uppercase();
-    if upper.split(['_', '-', '.']).any(|segment| NAME_SEGMENTS.contains(&segment)) {
+    if upper
+        .split(['_', '-', '.'])
+        .any(|segment| NAME_SEGMENTS.contains(&segment))
+    {
         return true;
     }
-    let squashed: String = upper.chars().filter(|c| !matches!(c, '_' | '-' | '.')).collect();
+    let squashed: String = upper
+        .chars()
+        .filter(|c| !matches!(c, '_' | '-' | '.'))
+        .collect();
     NAME_CONTAINS.iter().any(|needle| squashed.contains(needle))
 }
 
@@ -39,7 +53,15 @@ pub(crate) fn is_placeholder(value: &str) -> bool {
     let lower = value.to_ascii_lowercase();
     lower.contains("your")
         || lower.starts_with("xxx")
-        || ["changeme", "placeholder", "example", "replace_me", "replace-me"].iter().any(|word| lower.contains(word))
+        || [
+            "changeme",
+            "placeholder",
+            "example",
+            "replace_me",
+            "replace-me",
+        ]
+        .iter()
+        .any(|word| lower.contains(word))
         || (value.starts_with('<') && value.ends_with('>'))
         || value.contains("${")
         || (value.len() > 1 && value.starts_with('%') && value.ends_with('%'))
@@ -48,7 +70,9 @@ pub(crate) fn is_placeholder(value: &str) -> bool {
 fn looks_like_path(value: &str) -> bool {
     value.contains(":\\")
         || value.starts_with('/')
-        || ["\\\\", "~/", "~\\", "./", ".\\", "../", "..\\"].iter().any(|start| value.starts_with(start))
+        || ["\\\\", "~/", "~\\", "./", ".\\", "../", "..\\"]
+            .iter()
+            .any(|start| value.starts_with(start))
 }
 
 fn url_has_credentials(value: &str) -> bool {
@@ -70,7 +94,13 @@ pub(crate) fn entropy(value: &str) -> f64 {
         *counts.entry(*c).or_insert(0usize) += 1;
     }
     let total = chars.len() as f64;
-    counts.values().map(|n| { let p = *n as f64 / total; -p * p.log2() }).sum()
+    counts
+        .values()
+        .map(|n| {
+            let p = *n as f64 / total;
+            -p * p.log2()
+        })
+        .sum()
 }
 
 pub(crate) fn value_ok(value: &str) -> bool {
@@ -79,7 +109,9 @@ pub(crate) fn value_ok(value: &str) -> bool {
         return false;
     }
     let lower = value.to_ascii_lowercase();
-    if (lower.starts_with("http://") || lower.starts_with("https://")) && !url_has_credentials(value) {
+    if (lower.starts_with("http://") || lower.starts_with("https://"))
+        && !url_has_credentials(value)
+    {
         return false;
     }
     entropy(value) >= MIN_ENTROPY
@@ -87,7 +119,10 @@ pub(crate) fn value_ok(value: &str) -> bool {
 
 pub(crate) fn known_prefix(value: &str) -> Option<(&'static str, Kind)> {
     let value = value.trim();
-    if value.chars().count() < MIN_PREFIXED_CHARS || value.chars().any(char::is_whitespace) || !value_ok(value) {
+    if value.chars().count() < MIN_PREFIXED_CHARS
+        || value.chars().any(char::is_whitespace)
+        || !value_ok(value)
+    {
         return None;
     }
     PREFIXES
@@ -101,7 +136,10 @@ pub(crate) fn classify(name: &str, value: &str) -> Option<(String, Kind)> {
         return Some((platform.to_string(), kind));
     }
     if name_matches(name) && value_ok(value) {
-        let is_token = name.to_ascii_uppercase().split(['_', '-', '.']).any(|segment| segment == "TOKEN");
+        let is_token = name
+            .to_ascii_uppercase()
+            .split(['_', '-', '.'])
+            .any(|segment| segment == "TOKEN");
         let kind = if is_token { Kind::Token } else { Kind::ApiKey };
         return Some((String::new(), kind));
     }
@@ -109,7 +147,11 @@ pub(crate) fn classify(name: &str, value: &str) -> Option<(String, Kind)> {
 }
 
 pub(crate) fn primary_field(kind: Kind) -> &'static str {
-    if kind == Kind::Token { "Token" } else { "Key" }
+    if kind == Kind::Token {
+        "Token"
+    } else {
+        "Key"
+    }
 }
 
 /// `NAME=value` lines: `export ` prefixes, quotes and trailing ` #` comments are understood.
@@ -151,7 +193,14 @@ mod tests {
 
     #[test]
     fn names_match_whole_segments() {
-        for name in ["OPENAI_API_KEY", "github-token", "db.password", "OPENAIAPIKEY", "AWS_SECRET_ACCESS_KEY", "Auth"] {
+        for name in [
+            "OPENAI_API_KEY",
+            "github-token",
+            "db.password",
+            "OPENAIAPIKEY",
+            "AWS_SECRET_ACCESS_KEY",
+            "Auth",
+        ] {
             assert!(name_matches(name), "{name}");
         }
         for name in ["MONKEY", "KEYBOARD_LAYOUT", "JAVA_HOME", "TOKENIZER_PATH_X"] {
@@ -162,7 +211,10 @@ mod tests {
     #[test]
     fn values_must_look_like_secrets() {
         assert!(value_ok(&sample(&[])));
-        assert!(value_ok(&format!("https://alice:{}@git.host.io", sample(&[]))));
+        assert!(value_ok(&format!(
+            "https://alice:{}@git.host.io",
+            sample(&[])
+        )));
         for value in [
             "short",
             "your_api_key_here_please",
@@ -185,8 +237,14 @@ mod tests {
 
     #[test]
     fn known_prefixes_name_the_platform() {
-        assert_eq!(known_prefix(&sample(&["gh", "p_"])), Some(("GitHub", Kind::Token)));
-        assert_eq!(known_prefix(&sample(&["sk-", "ant-"])), Some(("Anthropic", Kind::ApiKey)));
+        assert_eq!(
+            known_prefix(&sample(&["gh", "p_"])),
+            Some(("GitHub", Kind::Token))
+        );
+        assert_eq!(
+            known_prefix(&sample(&["sk-", "ant-"])),
+            Some(("Anthropic", Kind::ApiKey))
+        );
         assert_eq!(known_prefix(&sample(&["sk-"])), Some(("", Kind::ApiKey)));
         assert_eq!(known_prefix("sk-your-key-goes-here"), None);
         assert_eq!(known_prefix(&["gh", "p_x"].concat()), None);
@@ -203,9 +261,16 @@ mod tests {
     #[test]
     fn every_listed_prefix_is_recognised() {
         for (prefix, platform, kind) in PREFIXES {
-            assert_eq!(known_prefix(&sample(&[prefix])), Some((*platform, *kind)), "{prefix}");
+            assert_eq!(
+                known_prefix(&sample(&[prefix])),
+                Some((*platform, *kind)),
+                "{prefix}"
+            );
         }
-        assert_eq!(known_prefix(&sample(&["xox", "b-"])), Some(("Slack", Kind::Token)));
+        assert_eq!(
+            known_prefix(&sample(&["xox", "b-"])),
+            Some(("Slack", Kind::Token))
+        );
     }
 
     #[test]
@@ -217,20 +282,41 @@ mod tests {
 
     #[test]
     fn token_kind_needs_a_whole_token_segment() {
-        assert_eq!(classify("TOKENIZER_API_KEY", &sample(&[])), Some((String::new(), Kind::ApiKey)));
-        assert_eq!(classify("GH_TOKEN", &sample(&[])), Some((String::new(), Kind::Token)));
+        assert_eq!(
+            classify("TOKENIZER_API_KEY", &sample(&[])),
+            Some((String::new(), Kind::ApiKey))
+        );
+        assert_eq!(
+            classify("GH_TOKEN", &sample(&[])),
+            Some((String::new(), Kind::Token))
+        );
     }
 
     #[test]
     fn a_leading_bom_is_ignored() {
-        assert_eq!(parse_env("\u{feff}A_TOKEN=one\nB_KEY=two\n"), vec![("A_TOKEN".into(), "one".into()), ("B_KEY".into(), "two".into())]);
+        assert_eq!(
+            parse_env("\u{feff}A_TOKEN=one\nB_KEY=two\n"),
+            vec![
+                ("A_TOKEN".into(), "one".into()),
+                ("B_KEY".into(), "two".into())
+            ]
+        );
     }
 
     #[test]
     fn classify_combines_prefix_and_name_rules() {
-        assert_eq!(classify("WHATEVER", &sample(&["gl", "pat-"])), Some(("GitLab".into(), Kind::Token)));
-        assert_eq!(classify("SERVICE_TOKEN", &sample(&[])), Some((String::new(), Kind::Token)));
-        assert_eq!(classify("SERVICE_KEY", &sample(&[])), Some((String::new(), Kind::ApiKey)));
+        assert_eq!(
+            classify("WHATEVER", &sample(&["gl", "pat-"])),
+            Some(("GitLab".into(), Kind::Token))
+        );
+        assert_eq!(
+            classify("SERVICE_TOKEN", &sample(&[])),
+            Some((String::new(), Kind::Token))
+        );
+        assert_eq!(
+            classify("SERVICE_KEY", &sample(&[])),
+            Some((String::new(), Kind::ApiKey))
+        );
         assert_eq!(classify("NODE_ENV", "development"), None);
         assert_eq!(classify("PLAIN_NAME", &sample(&[])), None);
     }

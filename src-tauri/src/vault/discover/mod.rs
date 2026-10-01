@@ -60,9 +60,18 @@ pub(crate) struct Outcome {
     pub truncated: bool,
 }
 
-pub(crate) fn scan(scope: &Scope, home: &Path, cancel: &AtomicBool, files: &AtomicUsize) -> Outcome {
+pub(crate) fn scan(
+    scope: &Scope,
+    home: &Path,
+    cancel: &AtomicBool,
+    files: &AtomicUsize,
+) -> Outcome {
     let truncated = AtomicBool::new(false);
-    let walk = Walk { cancel, files, truncated: &truncated };
+    let walk = Walk {
+        cancel,
+        files,
+        truncated: &truncated,
+    };
     let live = || !cancel.load(Ordering::Relaxed);
     let mut found = Vec::new();
     if scope.ssh {
@@ -79,8 +88,17 @@ pub(crate) fn scan(scope: &Scope, home: &Path, cancel: &AtomicBool, files: &Atom
         found.extend(sources::dotenv_files(&dirs, &walk));
     }
     let mut seen = HashSet::new();
-    found.retain(|raw| seen.insert((raw.location.clone(), raw.name.clone(), crypto::secret_digest(raw.primary()))));
-    Outcome { findings: found, truncated: truncated.load(Ordering::Relaxed) }
+    found.retain(|raw| {
+        seen.insert((
+            raw.location.clone(),
+            raw.name.clone(),
+            crypto::secret_digest(raw.primary()),
+        ))
+    });
+    Outcome {
+        findings: found,
+        truncated: truncated.load(Ordering::Relaxed),
+    }
 }
 
 fn status_of(raw: &Raw, digests: &Digests) -> &'static str {
@@ -98,7 +116,9 @@ fn status_of(raw: &Raw, digests: &Digests) -> &'static str {
 
 fn preview(raw: &Raw) -> String {
     if raw.kind == Kind::SshKey {
-        return super::ssh::inspect(raw.primary()).and_then(|info| info.fingerprint).unwrap_or_default();
+        return super::ssh::inspect(raw.primary())
+            .and_then(|info| info.fingerprint)
+            .unwrap_or_default();
     }
     let head: String = raw.primary().chars().take(4).collect();
     format!("{head}•••")
@@ -124,13 +144,20 @@ pub(crate) fn views(findings: &[Raw], digests: &Digests) -> Vec<FindingView> {
 
 /// Entries for the chosen findings that are still new; the note records where each came from.
 /// The same value chosen twice (found in two places) yields one entry, from the first chosen item.
-pub(crate) fn entries_for(findings: &[Raw], items: &[ImportItem], digests: &Digests, note_prefix: &str) -> Vec<EntryInput> {
+pub(crate) fn entries_for(
+    findings: &[Raw],
+    items: &[ImportItem],
+    digests: &Digests,
+    note_prefix: &str,
+) -> Vec<EntryInput> {
     let mut chosen = HashSet::new();
     items
         .iter()
         .filter_map(|item| {
             let raw = findings.get(item.id)?;
-            if status_of(raw, digests) != "new" || !chosen.insert(crypto::secret_digest(raw.primary())) {
+            if status_of(raw, digests) != "new"
+                || !chosen.insert(crypto::secret_digest(raw.primary()))
+            {
                 return None;
             }
             Some(EntryInput {
@@ -170,7 +197,9 @@ struct Job {
 
 fn job() -> MutexGuard<'static, Job> {
     static JOB: OnceLock<Mutex<Job>> = OnceLock::new();
-    JOB.get_or_init(Default::default).lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    JOB.get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 pub(crate) fn start(vault: &'static Vault, scope: Scope, home: PathBuf) -> Result<(), String> {
@@ -257,7 +286,11 @@ pub(crate) fn clear() {
     job.findings.clear();
 }
 
-pub(crate) fn import(vault: &Vault, items: &[ImportItem], note_prefix: &str) -> Result<usize, String> {
+pub(crate) fn import(
+    vault: &Vault,
+    items: &[ImportItem],
+    note_prefix: &str,
+) -> Result<usize, String> {
     let digests = vault.digest_sets()?;
     let inputs = entries_for(&job().findings, items, &digests, note_prefix);
     if inputs.is_empty() {
@@ -296,14 +329,24 @@ mod tests {
     }
 
     fn no_digests() -> Digests {
-        Digests { current: HashSet::new(), old: HashSet::new(), ignored: HashSet::new() }
+        Digests {
+            current: HashSet::new(),
+            old: HashSet::new(),
+            ignored: HashSet::new(),
+        }
     }
 
     fn home_with_findings() -> (tempfile::TempDir, String) {
         let home = tempfile::tempdir().unwrap();
         let token = sample();
-        put(&home.path().join(".npmrc"), &format!("//r/:_authToken={token}\n"));
-        put(&home.path().join("code/app/.env"), &format!("APP_TOKEN={token}\nAPP_TOKEN={token}\n"));
+        put(
+            &home.path().join(".npmrc"),
+            &format!("//r/:_authToken={token}\n"),
+        );
+        put(
+            &home.path().join("code/app/.env"),
+            &format!("APP_TOKEN={token}\nAPP_TOKEN={token}\n"),
+        );
         (home, token)
     }
 
@@ -316,7 +359,12 @@ mod tests {
             env: false,
             project_dirs: vec![home.path().join("code").display().to_string()],
         };
-        let outcome = scan(&scope, home.path(), &AtomicBool::new(false), &AtomicUsize::new(0));
+        let outcome = scan(
+            &scope,
+            home.path(),
+            &AtomicBool::new(false),
+            &AtomicUsize::new(0),
+        );
         let sources: Vec<Source> = outcome.findings.iter().map(|raw| raw.source).collect();
         assert_eq!(sources, vec![Source::Config, Source::Dotenv]);
         assert!(!outcome.truncated);
@@ -325,8 +373,19 @@ mod tests {
     #[test]
     fn statuses_previews_and_import_inputs() {
         let (home, token) = home_with_findings();
-        let scope = Scope { ssh: false, configs: true, env: false, project_dirs: vec![] };
-        let findings = scan(&scope, home.path(), &AtomicBool::new(false), &AtomicUsize::new(0)).findings;
+        let scope = Scope {
+            ssh: false,
+            configs: true,
+            env: false,
+            project_dirs: vec![],
+        };
+        let findings = scan(
+            &scope,
+            home.path(),
+            &AtomicBool::new(false),
+            &AtomicUsize::new(0),
+        )
+        .findings;
         let mut digests = no_digests();
         assert_eq!(views(&findings, &digests)[0].status, "new");
         assert_eq!(views(&findings, &digests)[0].preview, "Zq81•••");
@@ -335,8 +394,15 @@ mod tests {
         digests.current.insert(crypto::secret_digest(&token));
         assert_eq!(views(&findings, &digests)[0].status, "in_vault");
 
-        let items = [ImportItem { id: 0, platform: " npm registry ".into(), kind: Kind::Token }];
-        assert!(entries_for(&findings, &items, &digests, "来源：").is_empty(), "known values are not imported again");
+        let items = [ImportItem {
+            id: 0,
+            platform: " npm registry ".into(),
+            kind: Kind::Token,
+        }];
+        assert!(
+            entries_for(&findings, &items, &digests, "来源：").is_empty(),
+            "known values are not imported again"
+        );
         let inputs = entries_for(&findings, &items, &no_digests(), "来源：");
         assert_eq!(inputs.len(), 1);
         assert_eq!(inputs[0].platform, "npm registry");
@@ -347,15 +413,22 @@ mod tests {
     static TEST_LOCK: Mutex<()> = Mutex::new(());
 
     fn serial() -> MutexGuard<'static, ()> {
-        TEST_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     fn unlocked_vault() -> &'static Vault {
         let dir = tempfile::tempdir().unwrap();
-        let vault: &'static Vault = Box::leak(Box::new(Vault::new(dir.path().join("vault.skv"), KdfParams::FAST)));
+        let vault: &'static Vault = Box::leak(Box::new(Vault::new(
+            dir.path().join("vault.skv"),
+            KdfParams::FAST,
+        )));
         std::mem::forget(dir);
         let recovery = vault.create_begin("correct horse battery").unwrap();
-        vault.confirm_recovery(crypto::last_group(&recovery)).unwrap();
+        vault
+            .confirm_recovery(crypto::last_group(&recovery))
+            .unwrap();
         vault
     }
 
@@ -368,19 +441,40 @@ mod tests {
     }
 
     fn token(id: usize) -> ImportItem {
-        ImportItem { id, platform: "npm".into(), kind: Kind::Token }
+        ImportItem {
+            id,
+            platform: "npm".into(),
+            kind: Kind::Token,
+        }
     }
 
     #[test]
     fn one_value_found_in_two_places_is_imported_once() {
         let (home, token_value) = home_with_findings();
-        let scope = Scope { ssh: false, configs: true, env: false, project_dirs: vec![home.path().join("code").display().to_string()] };
-        let findings = scan(&scope, home.path(), &AtomicBool::new(false), &AtomicUsize::new(0)).findings;
+        let scope = Scope {
+            ssh: false,
+            configs: true,
+            env: false,
+            project_dirs: vec![home.path().join("code").display().to_string()],
+        };
+        let findings = scan(
+            &scope,
+            home.path(),
+            &AtomicBool::new(false),
+            &AtomicUsize::new(0),
+        )
+        .findings;
         assert_eq!(findings.len(), 2);
         let inputs = entries_for(&findings, &[token(1), token(0)], &no_digests(), "from: ");
         assert_eq!(inputs.len(), 1);
-        assert!(inputs[0].note.ends_with(".env"), "the first selected item wins");
-        assert_eq!(inputs[0].fields[0].value.as_deref(), Some(token_value.as_str()));
+        assert!(
+            inputs[0].note.ends_with(".env"),
+            "the first selected item wins"
+        );
+        assert_eq!(
+            inputs[0].fields[0].value.as_deref(),
+            Some(token_value.as_str())
+        );
     }
 
     #[test]
@@ -388,34 +482,70 @@ mod tests {
         let _serial = serial();
         let (home, _) = home_with_findings();
         let other = ["Qw3r", "Ty7u", "Io9p", "As5d", "Fg1h", "Jk6l"].concat();
-        put(&home.path().join("code/other/.env"), &format!("OTHER_TOKEN={other}\n"));
+        put(
+            &home.path().join("code/other/.env"),
+            &format!("OTHER_TOKEN={other}\n"),
+        );
         let dir = tempfile::tempdir().unwrap();
-        let vault: &'static Vault = Box::leak(Box::new(Vault::new(dir.path().join("vault.skv"), KdfParams::FAST)));
-        assert_eq!(start(vault, Scope::default(), home.path().to_path_buf()).err().unwrap(), crate::vault::errors::LOCKED);
+        let vault: &'static Vault = Box::leak(Box::new(Vault::new(
+            dir.path().join("vault.skv"),
+            KdfParams::FAST,
+        )));
+        assert_eq!(
+            start(vault, Scope::default(), home.path().to_path_buf())
+                .err()
+                .unwrap(),
+            crate::vault::errors::LOCKED
+        );
         let recovery = vault.create_begin("correct horse battery").unwrap();
-        vault.confirm_recovery(crypto::last_group(&recovery)).unwrap();
+        vault
+            .confirm_recovery(crypto::last_group(&recovery))
+            .unwrap();
 
-        let scope = Scope { ssh: false, configs: true, env: false, project_dirs: vec![home.path().join("code").display().to_string()] };
+        let scope = Scope {
+            ssh: false,
+            configs: true,
+            env: false,
+            project_dirs: vec![home.path().join("code").display().to_string()],
+        };
         start(vault, scope, home.path().to_path_buf()).unwrap();
         wait_until_idle(vault);
         let found = status(vault).findings;
         assert_eq!(found.len(), 3);
-        let same: Vec<usize> = found.iter().filter(|f| f.preview == "Zq81•••").map(|f| f.id).collect();
+        let same: Vec<usize> = found
+            .iter()
+            .filter(|f| f.preview == "Zq81•••")
+            .map(|f| f.id)
+            .collect();
         let new_one = found.iter().find(|f| f.preview == "Qw3r•••").unwrap().id;
         assert_eq!(same.len(), 2);
 
         let imported = import(vault, &[token(same[0]), token(same[1])], "来源：").unwrap();
         assert_eq!(imported, 1, "one value, one entry");
         let after = status(vault).findings;
-        assert!(same.iter().all(|id| after[*id].status == "in_vault"), "same value found in two places");
+        assert!(
+            same.iter().all(|id| after[*id].status == "in_vault"),
+            "same value found in two places"
+        );
         assert_eq!(after[new_one].status, "new");
         assert_eq!(vault.list(false).unwrap().len(), 1);
 
         ignore(vault, &[new_one]).unwrap();
         assert_eq!(status(vault).findings[new_one].status, "ignored");
-        assert_eq!(import(vault, &[token(new_one)], "来源：").unwrap(), 0, "ignored values are not imported");
+        assert_eq!(
+            import(vault, &[token(new_one)], "来源：").unwrap(),
+            0,
+            "ignored values are not imported"
+        );
         assert_eq!(vault.list(false).unwrap().len(), 1);
-        assert!(vault.digest_sets().unwrap().ignored.contains(&crypto::secret_digest(&other)), "the ignore is stored in the vault");
+        assert!(
+            vault
+                .digest_sets()
+                .unwrap()
+                .ignored
+                .contains(&crypto::secret_digest(&other)),
+            "the ignore is stored in the vault"
+        );
         ignore(vault, &[999]).unwrap();
 
         clear();
@@ -427,13 +557,23 @@ mod tests {
         let _serial = serial();
         let (home, _) = home_with_findings();
         let vault = unlocked_vault();
-        let scope = Scope { ssh: false, configs: true, env: false, project_dirs: vec![] };
+        let scope = Scope {
+            ssh: false,
+            configs: true,
+            env: false,
+            project_dirs: vec![],
+        };
         // Deterministic core: a finished scan whose generation was superseded is discarded.
         start(vault, scope.clone(), home.path().to_path_buf()).unwrap();
         wait_until_idle(vault);
         let stale = job().generation;
         clear();
-        let outcome = scan(&scope, home.path(), &AtomicBool::new(false), &AtomicUsize::new(0));
+        let outcome = scan(
+            &scope,
+            home.path(),
+            &AtomicBool::new(false),
+            &AtomicUsize::new(0),
+        );
         assert!(!outcome.findings.is_empty());
         publish(stale, false, outcome);
         assert!(status(vault).findings.is_empty());

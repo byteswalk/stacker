@@ -129,7 +129,9 @@ fn new_id() -> String {
 }
 
 fn normalize_date(value: &str) -> Option<String> {
-    chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d").ok().map(|date| date.format("%Y-%m-%d").to_string())
+    chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d")
+        .ok()
+        .map(|date| date.format("%Y-%m-%d").to_string())
 }
 
 fn clean_tags(tags: Vec<String>) -> Vec<String> {
@@ -145,7 +147,7 @@ fn clean_tags(tags: Vec<String>) -> Vec<String> {
 
 /// Newest first, at most HISTORY_PER_FIELD per field name; dropped items are wiped.
 pub(crate) fn trim_history(history: &mut Vec<HistoryItem>) {
-    history.sort_by(|a, b| b.at.cmp(&a.at));
+    history.sort_by_key(|item| std::cmp::Reverse(item.at));
     let mut kept: HashMap<String, usize> = HashMap::new();
     history.retain_mut(|item| {
         let count = kept.entry(item.field.clone()).or_insert(0);
@@ -172,7 +174,9 @@ pub(crate) fn apply_input(body: &mut Body, input: EntryInput, now: i64) -> Resul
         ),
         None => None,
     };
-    let previous: &[Field] = index.map(|i| body.entries[i].fields.as_slice()).unwrap_or(&[]);
+    let previous: &[Field] = index
+        .map(|i| body.entries[i].fields.as_slice())
+        .unwrap_or(&[]);
     let mut fields = Vec::new();
     for field in input.fields {
         let name = field.name.trim().to_string();
@@ -183,10 +187,18 @@ pub(crate) fn apply_input(body: &mut Body, input: EntryInput, now: i64) -> Resul
             Some(value) => value,
             None => {
                 let from = field.previous_name.as_deref().unwrap_or(&name);
-                previous.iter().find(|old| old.name == from).map(|old| old.value.clone()).unwrap_or_default()
+                previous
+                    .iter()
+                    .find(|old| old.name == from)
+                    .map(|old| old.value.clone())
+                    .unwrap_or_default()
             }
         };
-        fields.push(Field { name, value, secret: field.secret });
+        fields.push(Field {
+            name,
+            value,
+            secret: field.secret,
+        });
     }
     let expires_at = input.expires_at.as_deref().and_then(normalize_date);
     let tags = clean_tags(input.tags);
@@ -194,9 +206,17 @@ pub(crate) fn apply_input(body: &mut Body, input: EntryInput, now: i64) -> Resul
     match index {
         Some(i) => {
             let entry = &mut body.entries[i];
-            for old in entry.fields.iter().filter(|old| old.secret && !old.value.is_empty()) {
+            for old in entry
+                .fields
+                .iter()
+                .filter(|old| old.secret && !old.value.is_empty())
+            {
                 if !fields.iter().any(|new| new.value == old.value) {
-                    entry.history.push(HistoryItem { field: old.name.clone(), value: old.value.clone(), at: now });
+                    entry.history.push(HistoryItem {
+                        field: old.name.clone(),
+                        value: old.value.clone(),
+                        at: now,
+                    });
                 }
             }
             trim_history(&mut entry.history);
@@ -274,16 +294,30 @@ fn view(entry: &Entry) -> EntryView {
 }
 
 fn find<'a>(body: &'a Body, id: &str) -> Result<&'a Entry, String> {
-    body.entries.iter().find(|entry| entry.id == id).ok_or_else(|| NOT_FOUND.to_string())
+    body.entries
+        .iter()
+        .find(|entry| entry.id == id)
+        .ok_or_else(|| NOT_FOUND.to_string())
 }
 
 fn find_mut<'a>(body: &'a mut Body, id: &str) -> Result<&'a mut Entry, String> {
-    body.entries.iter_mut().find(|entry| entry.id == id).ok_or_else(|| NOT_FOUND.to_string())
+    body.entries
+        .iter_mut()
+        .find(|entry| entry.id == id)
+        .ok_or_else(|| NOT_FOUND.to_string())
 }
 
 pub(crate) fn views(body: &Body, trash: bool) -> Vec<EntryView> {
-    let mut list: Vec<&Entry> = body.entries.iter().filter(|entry| entry.deleted_at.is_some() == trash).collect();
-    list.sort_by(|a, b| b.favorite.cmp(&a.favorite).then(b.updated_at.cmp(&a.updated_at)));
+    let mut list: Vec<&Entry> = body
+        .entries
+        .iter()
+        .filter(|entry| entry.deleted_at.is_some() == trash)
+        .collect();
+    list.sort_by(|a, b| {
+        b.favorite
+            .cmp(&a.favorite)
+            .then(b.updated_at.cmp(&a.updated_at))
+    });
     list.into_iter().map(view).collect()
 }
 
@@ -311,11 +345,19 @@ pub(crate) fn history_views(body: &Body, id: &str) -> Result<Vec<HistoryView>, S
         .history
         .iter()
         .enumerate()
-        .map(|(index, item)| HistoryView { index, field: item.field.clone(), at: item.at })
+        .map(|(index, item)| HistoryView {
+            index,
+            field: item.field.clone(),
+            at: item.at,
+        })
         .collect())
 }
 
-pub(crate) fn history_value(body: &Body, id: &str, index: usize) -> Result<Zeroizing<String>, String> {
+pub(crate) fn history_value(
+    body: &Body,
+    id: &str,
+    index: usize,
+) -> Result<Zeroizing<String>, String> {
     find(body, id)?
         .history
         .get(index)
@@ -346,7 +388,12 @@ pub(crate) fn purge(body: &mut Body, id: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub(crate) fn set_favorite(body: &mut Body, id: &str, favorite: bool, now: i64) -> Result<(), String> {
+pub(crate) fn set_favorite(
+    body: &mut Body,
+    id: &str,
+    favorite: bool,
+    now: i64,
+) -> Result<(), String> {
     let entry = find_mut(body, id)?;
     entry.favorite = favorite;
     entry.updated_at = now;
@@ -388,9 +435,20 @@ pub(crate) fn merge(local: &mut Body, incoming: &Body) -> MergeStats {
                 let mut history = mine.history.clone();
                 if theirs.updated_at > mine.updated_at {
                     // Same rule as apply_input: a secret the replacing copy no longer holds is kept.
-                    for old in mine.fields.iter().filter(|old| old.secret && !old.value.is_empty()) {
-                        let kept = theirs.fields.iter().any(|new| new.secret && new.value == old.value);
-                        let item = HistoryItem { field: old.name.clone(), value: old.value.clone(), at: theirs.updated_at };
+                    for old in mine
+                        .fields
+                        .iter()
+                        .filter(|old| old.secret && !old.value.is_empty())
+                    {
+                        let kept = theirs
+                            .fields
+                            .iter()
+                            .any(|new| new.secret && new.value == old.value);
+                        let item = HistoryItem {
+                            field: old.name.clone(),
+                            value: old.value.clone(),
+                            at: theirs.updated_at,
+                        };
                         if !kept && !history.contains(&item) {
                             history.push(item);
                         }
@@ -436,7 +494,11 @@ pub(crate) fn digests(body: &Body) -> Digests {
         ignored: body.ignored.iter().cloned().collect(),
     };
     for entry in &body.entries {
-        for field in entry.fields.iter().filter(|field| field.secret && !field.value.is_empty()) {
+        for field in entry
+            .fields
+            .iter()
+            .filter(|field| field.secret && !field.value.is_empty())
+        {
             let digest = crypto::secret_digest(&field.value);
             if entry.deleted_at.is_none() {
                 out.current.insert(digest);
@@ -472,17 +534,31 @@ mod tests {
     }
 
     fn field(name: &str, value: Option<&str>, secret: bool) -> FieldInput {
-        FieldInput { name: name.into(), previous_name: None, value: value.map(str::to_string), secret }
+        FieldInput {
+            name: name.into(),
+            previous_name: None,
+            value: value.map(str::to_string),
+            secret,
+        }
     }
 
     #[test]
     fn creating_cleans_input_and_masks_secrets_in_views() {
         let mut body = Body::default();
-        let id = apply_input(&mut body, input(None, " Coding Plan ", vec![
-            field("Key", Some("k-1"), true),
-            field("Base URL", Some("https://x"), false),
-            field("  ", Some("dropped"), false),
-        ]), 1).unwrap();
+        let id = apply_input(
+            &mut body,
+            input(
+                None,
+                " Coding Plan ",
+                vec![
+                    field("Key", Some("k-1"), true),
+                    field("Base URL", Some("https://x"), false),
+                    field("  ", Some("dropped"), false),
+                ],
+            ),
+            1,
+        )
+        .unwrap();
         let view = view_of(&body, &id).unwrap();
         assert_eq!(view.title, "Coding Plan");
         assert_eq!(view.platform, "火山方舟");
@@ -497,7 +573,12 @@ mod tests {
     #[test]
     fn empty_title_and_bad_dates_are_handled() {
         let mut body = Body::default();
-        assert_eq!(apply_input(&mut body, input(None, "  ", vec![]), 1).err().unwrap(), INVALID);
+        assert_eq!(
+            apply_input(&mut body, input(None, "  ", vec![]), 1)
+                .err()
+                .unwrap(),
+            INVALID
+        );
         let mut bad = input(None, "t", vec![]);
         bad.expires_at = Some("31/10/2026".into());
         let id = apply_input(&mut body, bad, 1).unwrap();
@@ -507,8 +588,18 @@ mod tests {
     #[test]
     fn a_secret_sent_without_value_keeps_its_value_even_when_renamed() {
         let mut body = Body::default();
-        let id = apply_input(&mut body, input(None, "t", vec![field("Key", Some("v1"), true)]), 1).unwrap();
-        let renamed = FieldInput { name: "API Key".into(), previous_name: Some("Key".into()), value: None, secret: true };
+        let id = apply_input(
+            &mut body,
+            input(None, "t", vec![field("Key", Some("v1"), true)]),
+            1,
+        )
+        .unwrap();
+        let renamed = FieldInput {
+            name: "API Key".into(),
+            previous_name: Some("Key".into()),
+            value: None,
+            secret: true,
+        };
         apply_input(&mut body, input(Some(&id), "t", vec![renamed]), 2).unwrap();
         assert_eq!(*field_value(&body, &id, "API Key").unwrap(), "v1");
         assert!(history_views(&body, &id).unwrap().is_empty());
@@ -517,10 +608,34 @@ mod tests {
     #[test]
     fn changed_secrets_go_to_history_capped_per_field() {
         let mut body = Body::default();
-        let id = apply_input(&mut body, input(None, "t", vec![field("Key", Some("v0"), true), field("Url", Some("u0"), false)]), 0).unwrap();
+        let id = apply_input(
+            &mut body,
+            input(
+                None,
+                "t",
+                vec![
+                    field("Key", Some("v0"), true),
+                    field("Url", Some("u0"), false),
+                ],
+            ),
+            0,
+        )
+        .unwrap();
         for n in 1..=12 {
             let value = format!("v{n}");
-            apply_input(&mut body, input(Some(&id), "t", vec![field("Key", Some(&value), true), field("Url", Some(&format!("u{n}")), false)]), n).unwrap();
+            apply_input(
+                &mut body,
+                input(
+                    Some(&id),
+                    "t",
+                    vec![
+                        field("Key", Some(&value), true),
+                        field("Url", Some(&format!("u{n}")), false),
+                    ],
+                ),
+                n,
+            )
+            .unwrap();
         }
         let history = history_views(&body, &id).unwrap();
         assert_eq!(history.len(), HISTORY_PER_FIELD);
@@ -534,7 +649,11 @@ mod tests {
         let mut body = Body::default();
         let a = apply_input(&mut body, input(None, "a", vec![]), 1).unwrap();
         let b = apply_input(&mut body, input(None, "b", vec![]), 1).unwrap();
-        assert_eq!(purge(&mut body, &a).err().unwrap(), NOT_FOUND, "only trashed entries can be purged");
+        assert_eq!(
+            purge(&mut body, &a).err().unwrap(),
+            NOT_FOUND,
+            "only trashed entries can be purged"
+        );
         soft_delete(&mut body, &a, 10).unwrap();
         soft_delete(&mut body, &b, 10 + 5 * DAY).unwrap();
         assert!(views(&body, false).is_empty());
@@ -555,7 +674,10 @@ mod tests {
         let mut loose = input(None, "t", vec![]);
         loose.expires_at = Some("2026-1-5".into());
         let id = apply_input(&mut body, loose, 1).unwrap();
-        assert_eq!(view_of(&body, &id).unwrap().expires_at.as_deref(), Some("2026-01-05"));
+        assert_eq!(
+            view_of(&body, &id).unwrap().expires_at.as_deref(),
+            Some("2026-01-05")
+        );
     }
 
     fn entry(id: &str, updated_at: i64, secret: &str) -> Entry {
@@ -564,7 +686,11 @@ mod tests {
             title: id.into(),
             platform: String::new(),
             kind: Kind::ApiKey,
-            fields: vec![Field { name: "Key".into(), value: secret.into(), secret: true }],
+            fields: vec![Field {
+                name: "Key".into(),
+                value: secret.into(),
+                secret: true,
+            }],
             expires_at: None,
             tags: vec![],
             note: String::new(),
@@ -578,60 +704,130 @@ mod tests {
 
     #[test]
     fn merge_adds_updates_and_never_deletes() {
-        let mut local = Body { entries: vec![entry("a", 5, "a-local"), entry("b", 5, "b-local")], ignored: vec!["x".into()] };
+        let mut local = Body {
+            entries: vec![entry("a", 5, "a-local"), entry("b", 5, "b-local")],
+            ignored: vec!["x".into()],
+        };
         local.entries[0].deleted_at = Some(4);
         let mut newer_a = entry("a", 9, "a-backup");
-        newer_a.history.push(HistoryItem { field: "Key".into(), value: "a-older".into(), at: 1 });
+        newer_a.history.push(HistoryItem {
+            field: "Key".into(),
+            value: "a-older".into(),
+            at: 1,
+        });
         let mut trashed_c = entry("c", 1, "c");
         trashed_c.deleted_at = Some(1);
         let incoming = Body {
-            entries: vec![newer_a, entry("b", 3, "b-backup"), trashed_c, entry("d", 1, "d")],
+            entries: vec![
+                newer_a,
+                entry("b", 3, "b-backup"),
+                trashed_c,
+                entry("d", 1, "d"),
+            ],
             ignored: vec!["x".into(), "y".into()],
         };
         let stats = merge(&mut local, &incoming);
-        assert_eq!(stats, MergeStats { added: 2, updated: 1, same: 1 });
+        assert_eq!(
+            stats,
+            MergeStats {
+                added: 2,
+                updated: 1,
+                same: 1
+            }
+        );
         let a = local.entries.iter().find(|e| e.id == "a").unwrap();
         assert_eq!(a.fields[0].value, "a-backup");
         assert_eq!(a.deleted_at, Some(4), "local trash state is kept");
-        assert_eq!(a.history.len(), 2, "their older value and the local value the copy replaced");
-        assert_eq!(local.entries.iter().find(|e| e.id == "b").unwrap().fields[0].value, "b-local");
-        assert!(local.entries.iter().find(|e| e.id == "c").unwrap().deleted_at.is_some());
+        assert_eq!(
+            a.history.len(),
+            2,
+            "their older value and the local value the copy replaced"
+        );
+        assert_eq!(
+            local.entries.iter().find(|e| e.id == "b").unwrap().fields[0].value,
+            "b-local"
+        );
+        assert!(local
+            .entries
+            .iter()
+            .find(|e| e.id == "c")
+            .unwrap()
+            .deleted_at
+            .is_some());
         assert_eq!(local.ignored, vec!["x", "y"]);
     }
 
     #[test]
     fn a_newer_copy_archives_the_local_secret_it_replaces() {
-        let mut local = Body { entries: vec![entry("a", 5, "rotated-locally")], ignored: vec![] };
-        let incoming = Body { entries: vec![entry("a", 9, "from-backup")], ignored: vec![] };
+        let mut local = Body {
+            entries: vec![entry("a", 5, "rotated-locally")],
+            ignored: vec![],
+        };
+        let incoming = Body {
+            entries: vec![entry("a", 9, "from-backup")],
+            ignored: vec![],
+        };
         merge(&mut local, &incoming);
         let a = &local.entries[0];
         assert_eq!(a.fields[0].value, "from-backup");
         assert_eq!(a.history.len(), 1);
-        assert_eq!(a.history[0], HistoryItem { field: "Key".into(), value: "rotated-locally".into(), at: 9 });
+        assert_eq!(
+            a.history[0],
+            HistoryItem {
+                field: "Key".into(),
+                value: "rotated-locally".into(),
+                at: 9
+            }
+        );
     }
 
     #[test]
     fn a_local_secret_the_copy_still_holds_is_not_archived() {
-        let mut local = Body { entries: vec![entry("a", 5, "same")], ignored: vec![] };
+        let mut local = Body {
+            entries: vec![entry("a", 5, "same")],
+            ignored: vec![],
+        };
         let mut newer = entry("a", 9, "same");
         newer.title = "renamed".into();
-        merge(&mut local, &Body { entries: vec![newer], ignored: vec![] });
+        merge(
+            &mut local,
+            &Body {
+                entries: vec![newer],
+                ignored: vec![],
+            },
+        );
         assert_eq!(local.entries[0].title, "renamed");
         assert!(local.entries[0].history.is_empty());
     }
 
     #[test]
     fn an_older_copy_archives_nothing() {
-        let mut local = Body { entries: vec![entry("a", 9, "local")], ignored: vec![] };
-        merge(&mut local, &Body { entries: vec![entry("a", 5, "older")], ignored: vec![] });
+        let mut local = Body {
+            entries: vec![entry("a", 9, "local")],
+            ignored: vec![],
+        };
+        merge(
+            &mut local,
+            &Body {
+                entries: vec![entry("a", 5, "older")],
+                ignored: vec![],
+            },
+        );
         assert_eq!(local.entries[0].fields[0].value, "local");
         assert!(local.entries[0].history.is_empty());
     }
 
     #[test]
     fn digests_split_current_old_and_ignored() {
-        let mut body = Body { entries: vec![entry("a", 1, "live"), entry("b", 1, "gone")], ignored: vec!["ign".into()] };
-        body.entries[0].history.push(HistoryItem { field: "Key".into(), value: "rotated\r\n".into(), at: 1 });
+        let mut body = Body {
+            entries: vec![entry("a", 1, "live"), entry("b", 1, "gone")],
+            ignored: vec!["ign".into()],
+        };
+        body.entries[0].history.push(HistoryItem {
+            field: "Key".into(),
+            value: "rotated\r\n".into(),
+            at: 1,
+        });
         body.entries[1].deleted_at = Some(1);
         let d = digests(&body);
         assert!(d.current.contains(&crypto::secret_digest("live")));

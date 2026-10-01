@@ -41,12 +41,14 @@ fn clear_if_ours(sequence: u32) {
 mod platform {
     use super::IO;
     use std::time::Duration;
-    use windows_sys::Win32::System::DataExchange::{
-        CloseClipboard, EmptyClipboard, GetClipboardSequenceNumber, OpenClipboard, RegisterClipboardFormatW,
-        SetClipboardData,
-    };
     use windows_sys::Win32::Foundation::GlobalFree;
-    use windows_sys::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
+    use windows_sys::Win32::System::DataExchange::{
+        CloseClipboard, EmptyClipboard, GetClipboardSequenceNumber, OpenClipboard,
+        RegisterClipboardFormatW, SetClipboardData,
+    };
+    use windows_sys::Win32::System::Memory::{
+        GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE,
+    };
     use zeroize::Zeroize;
 
     const CF_UNICODETEXT: u32 = 13;
@@ -183,7 +185,10 @@ mod platform {
     #[cfg(test)]
     pub(super) fn write_plain(text: &str) -> u32 {
         assert!(open());
-        let bytes: Vec<u8> = wide(text).iter().flat_map(|unit| unit.to_le_bytes()).collect();
+        let bytes: Vec<u8> = wide(text)
+            .iter()
+            .flat_map(|unit| unit.to_le_bytes())
+            .collect();
         unsafe {
             EmptyClipboard();
             assert!(put(CF_UNICODETEXT, &bytes));
@@ -194,7 +199,10 @@ mod platform {
 
     #[cfg(test)]
     pub(super) fn has_text() -> bool {
-        unsafe { windows_sys::Win32::System::DataExchange::IsClipboardFormatAvailable(CF_UNICODETEXT) != 0 }
+        unsafe {
+            windows_sys::Win32::System::DataExchange::IsClipboardFormatAvailable(CF_UNICODETEXT)
+                != 0
+        }
     }
 
     #[cfg(test)]
