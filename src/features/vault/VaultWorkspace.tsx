@@ -1,0 +1,79 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useToast } from "../../ui";
+import { vaultApi, vaultError, type EntryView } from "./api";
+import { DiscoverPanel } from "./DiscoverPanel";
+import { EntryDetail } from "./EntryDetail";
+import { EntryEditor } from "./EntryEditor";
+import { EntryList } from "./EntryList";
+import { VaultMenu } from "./VaultMenu";
+import { filterEntries, platformsOf, soonCount } from "./vaultView";
+
+export function VaultWorkspace({ onLocked }: { onLocked: () => void }) {
+  const toast = useToast();
+  const [tab, setTab] = useState<"entries" | "discover">("entries");
+  const [entries, setEntries] = useState<EntryView[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [filter, setFilter] = useState({ query: "", platform: "", soonOnly: false });
+  const [editing, setEditing] = useState<EntryView | null | "new">(null);
+  const today = useMemo(() => new Date(), []);
+
+  const load = useCallback(async () => {
+    try { setEntries(await vaultApi.list(false)); }
+    catch (error) {
+      if (String(error).includes("E_VAULT_LOCKED")) onLocked();
+      else toast(vaultError(error), "err");
+    }
+  }, [onLocked, toast]);
+  useEffect(() => { void load(); }, [load]);
+
+  const visible = filterEntries(entries, filter, today);
+  const selected = entries.find((entry) => entry.id === selectedId) ?? visible[0] ?? null;
+  const soon = soonCount(entries, today);
+
+  async function lock() {
+    await vaultApi.lock().catch(() => undefined);
+    onLocked();
+  }
+
+  return (
+    <>
+      <div className="vault-bar">
+        <div className="seg">
+          <button className={tab === "entries" ? "on" : ""} onClick={() => setTab("entries")}>条目</button>
+          <button className={tab === "discover" ? "on" : ""} onClick={() => setTab("discover")}>发现</button>
+        </div>
+        <span className="grow" />
+        {tab === "entries" && <button className="pr sm" onClick={() => setEditing("new")}><i className="ti ti-plus" /> 新建</button>}
+        <button className="gh sm" onClick={() => void lock()}><i className="ti ti-lock" /> 锁定</button>
+        <VaultMenu onChanged={() => void load()} />
+      </div>
+
+      {tab === "discover" ? <DiscoverPanel onImported={() => void load()} /> : (
+        <>
+          {soon > 0 && <div className="callout"><i className="ti ti-calendar-exclamation" /><div>{soon} 项凭据将在 14 天内到期。</div></div>}
+          <div className="vault-bar">
+            <input className="ip grow" placeholder="搜索标题、平台、标签、备注" value={filter.query} onChange={(e) => setFilter({ ...filter, query: e.target.value })} />
+            <select className="ip" value={filter.platform} onChange={(e) => setFilter({ ...filter, platform: e.target.value })}>
+              <option value="">全部平台</option>
+              {platformsOf(entries).map((platform) => <option key={platform} value={platform}>{platform}</option>)}
+            </select>
+            <button className={"gh sm" + (filter.soonOnly ? " on" : "")} onClick={() => setFilter({ ...filter, soonOnly: !filter.soonOnly })}>即将到期</button>
+          </div>
+          {entries.length === 0 ? (
+            <div className="pxcard vault-empty">暂无条目。添加 API Key、令牌或 SSH 密钥，数据加密后仅保存在本机。</div>
+          ) : (
+            <div className="vault-grid">
+              <div className="pxcard"><EntryList entries={visible} selectedId={selected?.id ?? null} today={today} onSelect={setSelectedId} /></div>
+              {selected && <EntryDetail key={selected.id} entry={selected} today={today} onEdit={() => setEditing(selected)} onChanged={() => void load()} />}
+            </div>
+          )}
+        </>
+      )}
+
+      {editing && (
+        <EntryEditor entry={editing === "new" ? null : editing} onClose={() => setEditing(null)}
+          onSaved={(view) => { setEditing(null); setSelectedId(view.id); void load(); }} />
+      )}
+    </>
+  );
+}

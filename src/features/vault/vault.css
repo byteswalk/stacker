@@ -3,7 +3,7 @@
 .a .vault-title{ font-size:15px; font-weight:600; margin-bottom:6px; display:flex; gap:8px; align-items:center; }
 .a .vault-sub{ font-size:12px; color:var(--mut); line-height:1.7; margin-bottom:12px; }
 .a .vault-form{ display:flex; flex-direction:column; gap:10px; }
-.a .vault-form label{ display:flex; flex-direction:column; gap:5px; font-size:12px; color:var(--mut); }
+.a .vault-form label:not(.sw){ display:flex; flex-direction:column; gap:5px; font-size:12px; color:var(--mut); }
 .a .vault-actions{ display:flex; gap:8px; justify-content:flex-end; align-items:center; margin-top:12px; flex-wrap:wrap; }
 .a .vault-links{ display:flex; gap:14px; margin-top:12px; font-size:12px; }
 .a .vault-link{ background:none; border:0; padding:0; color:var(--acc); cursor:pointer; font-size:12px; }
