@@ -509,7 +509,7 @@ export default function Agents() {
           <div className="agent-catalog-toolbar">
             <div className="seclabel">
               <i className="ti ti-sparkles" /> 智能体列表
-              <span className="cnt">显示 {visibleTools.length} / {tools.length} 项 · 可更新 {updates} 项</span>
+              <span className="cnt">当前显示 {visibleTools.length} / {tools.length} 项 · 可更新 {updates} 项</span>
             </div>
             <div className="agent-catalog-filters">
               <label className="agent-search"><i className="ti ti-search" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索智能体" /></label>

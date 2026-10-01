@@ -118,7 +118,7 @@ export function SessionList({ page, query, projects, loading, selected, onSelect
               <span className={`session-tag agent-${s.agent}`}>{AGENT_LABEL[s.agent]}</span>
               <span className="session-tag">{t(CLIENT_LABEL[s.client])}</span>
               {!!s.copies.length && <span className="session-tag" title={t("这个会话切换过工作目录，Claude 在其他 worktree 目录里另存了记录；占用已合并计算，删除时一起删除。")}>{t("副本")} {s.copies.length}</span>}
-              {s.importedBy?.map((by) => <span key={by} className="session-tag" title={t("这条对话被导入过另一个智能体的库；只算一份，删除本条不会动那份副本。")}>{t("副本 · ")}{AGENT_LABEL[by]}{t(" 导入")}</span>)}
+              {s.importedBy?.map((by) => <span key={by} className="session-tag" title={t("这条对话被导入过另一个智能体的库；只算一份，删除本条不会动那份副本。")}>{t("副本 · ")}{t("已导入到 ")}{AGENT_LABEL[by]}</span>)}
               {s.importedFrom && <span className="session-tag" title={t("这条对话是从别的智能体导入的，原件已不在磁盘上。")}>{t("导入自 ")}{AGENT_LABEL[s.importedFrom]}</span>}
               {!!s.children.length && <button className="session-tag link" aria-expanded={expanded === s.id} onClick={() => setExpanded(expanded === s.id ? null : s.id)}>{t("子任务")} {s.children.length}</button>}
             </span>

@@ -80,8 +80,8 @@ export function SpaceMonitorModal({ roots, onClose }: { roots: string[]; onClose
 
   function changeLabel(change: MonitorFileChange) {
     if (change.kind === "added") return tr("新增");
-    if (change.kind === "removed") return tr("删除");
-    return tr("修改");
+    if (change.kind === "removed") return tr("已删除");
+    return tr("已修改");
   }
 
   return (

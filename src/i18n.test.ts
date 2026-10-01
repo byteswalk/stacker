@@ -20,6 +20,16 @@ describe("internationalization", () => {
       .toBe("Quick Scan · Choose Folder · Choose Disk · All-disk Analysis");
   });
 
+  it("keeps short action words imperative and status words past tense", () => {
+    expect(translateText("删除", "en-US")).toBe("Delete");
+    expect(translateText("修改", "en-US")).toBe("Modify");
+    expect(translateText("显示", "en-US")).toBe("Show");
+    expect(translateText("导入", "en-US")).toBe("Import");
+    expect(translateText("已删除", "en-US")).toBe("Deleted");
+    expect(translateText("已修改", "en-US")).toBe("Modified");
+    expect(translateText("当前显示 ", "en-US")).toBe("Showing ");
+  });
+
   it("translates dynamic messages without changing values", () => {
     expect(translateText("当前版本：1.2.3", "en-US")).toContain("1.2.3");
     expect(translateText("安装失败：network timeout", "en-US")).toBe("Installation failed: network timeout");
