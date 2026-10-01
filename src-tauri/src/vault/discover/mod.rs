@@ -123,12 +123,14 @@ pub(crate) fn views(findings: &[Raw], digests: &Digests) -> Vec<FindingView> {
 }
 
 /// Entries for the chosen findings that are still new; the note records where each came from.
+/// The same value chosen twice (found in two places) yields one entry, from the first chosen item.
 pub(crate) fn entries_for(findings: &[Raw], items: &[ImportItem], digests: &Digests, note_prefix: &str) -> Vec<EntryInput> {
+    let mut chosen = HashSet::new();
     items
         .iter()
         .filter_map(|item| {
             let raw = findings.get(item.id)?;
-            if status_of(raw, digests) != "new" {
+            if status_of(raw, digests) != "new" || !chosen.insert(crypto::secret_digest(raw.primary())) {
                 return None;
             }
             Some(EntryInput {
@@ -190,17 +192,39 @@ pub(crate) fn start(vault: &'static Vault, scope: Scope, home: PathBuf) -> Resul
         (job.generation, job.cancel.clone(), job.files.clone())
     };
     std::thread::spawn(move || {
+        let _guard = RunGuard(generation);
         let outcome = scan(&scope, &home, &cancel, &files);
-        let mut job = job();
-        if job.generation != generation {
-            return;
-        }
-        job.running = false;
-        job.cancelled = cancel.load(Ordering::Relaxed);
-        job.truncated = outcome.truncated;
-        job.findings = outcome.findings;
+        publish(generation, cancel.load(Ordering::Relaxed), outcome);
     });
     Ok(())
+}
+
+/// Stores a finished scan unless `clear` or a newer scan has superseded it.
+fn publish(generation: u64, cancelled: bool, outcome: Outcome) {
+    let mut job = job();
+    if job.generation != generation {
+        return;
+    }
+    job.running = false;
+    job.cancelled = cancelled;
+    job.truncated = outcome.truncated;
+    job.findings = outcome.findings;
+}
+
+/// If the scan thread unwinds, the job must not stay "running" forever.
+struct RunGuard(u64);
+
+impl Drop for RunGuard {
+    fn drop(&mut self) {
+        if !std::thread::panicking() {
+            return;
+        }
+        let mut job = job();
+        if job.generation == self.0 {
+            job.running = false;
+            job.findings.clear();
+        }
+    }
 }
 
 /// Nothing is shown while the vault is locked.
@@ -250,6 +274,9 @@ pub(crate) fn ignore(vault: &Vault, ids: &[usize]) -> Result<(), String> {
             .map(|raw| crypto::secret_digest(raw.primary()))
             .collect()
     };
+    if digests.is_empty() {
+        return Ok(());
+    }
     vault.ignore(digests)
 }
 
@@ -317,9 +344,51 @@ mod tests {
         assert_eq!(inputs[0].fields[0].value.as_deref(), Some(token.as_str()));
     }
 
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    fn serial() -> MutexGuard<'static, ()> {
+        TEST_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn unlocked_vault() -> &'static Vault {
+        let dir = tempfile::tempdir().unwrap();
+        let vault: &'static Vault = Box::leak(Box::new(Vault::new(dir.path().join("vault.skv"), KdfParams::FAST)));
+        std::mem::forget(dir);
+        let recovery = vault.create_begin("correct horse battery").unwrap();
+        vault.confirm_recovery(crypto::last_group(&recovery)).unwrap();
+        vault
+    }
+
+    fn wait_until_idle(vault: &Vault) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while status(vault).running {
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    }
+
+    fn token(id: usize) -> ImportItem {
+        ImportItem { id, platform: "npm".into(), kind: Kind::Token }
+    }
+
+    #[test]
+    fn one_value_found_in_two_places_is_imported_once() {
+        let (home, token_value) = home_with_findings();
+        let scope = Scope { ssh: false, configs: true, env: false, project_dirs: vec![home.path().join("code").display().to_string()] };
+        let findings = scan(&scope, home.path(), &AtomicBool::new(false), &AtomicUsize::new(0)).findings;
+        assert_eq!(findings.len(), 2);
+        let inputs = entries_for(&findings, &[token(1), token(0)], &no_digests(), "from: ");
+        assert_eq!(inputs.len(), 1);
+        assert!(inputs[0].note.ends_with(".env"), "the first selected item wins");
+        assert_eq!(inputs[0].fields[0].value.as_deref(), Some(token_value.as_str()));
+    }
+
     #[test]
     fn the_background_job_imports_ignores_and_forgets_on_clear() {
-        let (home, token) = home_with_findings();
+        let _serial = serial();
+        let (home, _) = home_with_findings();
+        let other = ["Qw3r", "Ty7u", "Io9p", "As5d", "Fg1h", "Jk6l"].concat();
+        put(&home.path().join("code/other/.env"), &format!("OTHER_TOKEN={other}\n"));
         let dir = tempfile::tempdir().unwrap();
         let vault: &'static Vault = Box::leak(Box::new(Vault::new(dir.path().join("vault.skv"), KdfParams::FAST)));
         assert_eq!(start(vault, Scope::default(), home.path().to_path_buf()).err().unwrap(), crate::vault::errors::LOCKED);
@@ -328,24 +397,87 @@ mod tests {
 
         let scope = Scope { ssh: false, configs: true, env: false, project_dirs: vec![home.path().join("code").display().to_string()] };
         start(vault, scope, home.path().to_path_buf()).unwrap();
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-        while status(vault).running {
-            assert!(std::time::Instant::now() < deadline);
-            std::thread::sleep(std::time::Duration::from_millis(20));
-        }
+        wait_until_idle(vault);
         let found = status(vault).findings;
-        assert_eq!(found.len(), 2);
+        assert_eq!(found.len(), 3);
+        let same: Vec<usize> = found.iter().filter(|f| f.preview == "Zq81•••").map(|f| f.id).collect();
+        let new_one = found.iter().find(|f| f.preview == "Qw3r•••").unwrap().id;
+        assert_eq!(same.len(), 2);
 
-        let imported = import(vault, &[ImportItem { id: 0, platform: "npm".into(), kind: Kind::Token }], "来源：").unwrap();
-        assert_eq!(imported, 1);
+        let imported = import(vault, &[token(same[0]), token(same[1])], "来源：").unwrap();
+        assert_eq!(imported, 1, "one value, one entry");
         let after = status(vault).findings;
-        assert_eq!(after[0].status, "in_vault");
-        assert_eq!(after[1].status, "in_vault", "same value found in two places");
+        assert!(same.iter().all(|id| after[*id].status == "in_vault"), "same value found in two places");
+        assert_eq!(after[new_one].status, "new");
         assert_eq!(vault.list(false).unwrap().len(), 1);
-        let _ = token;
 
-        ignore(vault, &[1]).unwrap();
+        ignore(vault, &[new_one]).unwrap();
+        assert_eq!(status(vault).findings[new_one].status, "ignored");
+        assert_eq!(import(vault, &[token(new_one)], "来源：").unwrap(), 0, "ignored values are not imported");
+        assert_eq!(vault.list(false).unwrap().len(), 1);
+        assert!(vault.digest_sets().unwrap().ignored.contains(&crypto::secret_digest(&other)), "the ignore is stored in the vault");
+        ignore(vault, &[999]).unwrap();
+
         clear();
         assert!(status(vault).findings.is_empty());
+    }
+
+    #[test]
+    fn a_cleared_scan_never_publishes_its_findings() {
+        let _serial = serial();
+        let (home, _) = home_with_findings();
+        let vault = unlocked_vault();
+        let scope = Scope { ssh: false, configs: true, env: false, project_dirs: vec![] };
+        // Deterministic core: a finished scan whose generation was superseded is discarded.
+        start(vault, scope.clone(), home.path().to_path_buf()).unwrap();
+        wait_until_idle(vault);
+        let stale = job().generation;
+        clear();
+        let outcome = scan(&scope, home.path(), &AtomicBool::new(false), &AtomicUsize::new(0));
+        assert!(!outcome.findings.is_empty());
+        publish(stale, false, outcome);
+        assert!(status(vault).findings.is_empty());
+        assert!(!status(vault).running);
+        // End to end: clearing right after start leaves nothing behind whichever side wins the race.
+        start(vault, scope, home.path().to_path_buf()).unwrap();
+        clear();
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        assert!(status(vault).findings.is_empty());
+        assert!(!status(vault).running);
+    }
+
+    #[test]
+    fn a_panicking_scan_does_not_leave_the_job_running() {
+        let _serial = serial();
+        clear();
+        let generation = {
+            let mut job = job();
+            job.generation += 1;
+            job.running = true;
+            job.generation
+        };
+        let result = std::thread::spawn(move || {
+            let _guard = RunGuard(generation);
+            panic!("scan failed");
+        })
+        .join();
+        assert!(result.is_err());
+        assert!(!job().running);
+
+        // A superseded scan that panics must not disturb the newer one.
+        let stale = {
+            let mut job = job();
+            job.generation += 1;
+            job.running = true;
+            job.generation
+        };
+        job().generation += 1;
+        let _ = std::thread::spawn(move || {
+            let _guard = RunGuard(stale);
+            panic!("scan failed");
+        })
+        .join();
+        assert!(job().running);
+        clear();
     }
 }
