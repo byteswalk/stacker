@@ -17,6 +17,8 @@ import { ALL_NAV_ITEMS, NAV_FOOT, NAV_SECTIONS, initialCollapsedSections, sectio
 import { TaskCenter } from "./features/agent-tasks/TaskCenter";
 import { useTaskToasts } from "./features/agent-tasks/useTaskToasts";
 import "./features/agent-tasks/agentTasks.css";
+import { useVaultActivity } from "./features/vault/useVaultActivity";
+import { useVaultLockNotice } from "./features/vault/useVaultLockNotice";
 
 const Overview = lazy(() => import("./pages/Overview"));
 const Agents = lazy(() => import("./pages/Agents"));
@@ -36,6 +38,7 @@ const Go = lazy(() => import("./pages/Go"));
 const Cleanup = lazy(() => import("./pages/Cleanup"));
 const Node = lazy(() => import("./pages/Node"));
 const Settings = lazy(() => import("./pages/Settings"));
+const Vault = lazy(() => import("./pages/Vault"));
 
 export type { Page } from "./pageState";
 
@@ -207,6 +210,8 @@ function WindowControls() {
 
 function Shell() {
   useTaskToasts();
+  useVaultActivity();
+  useVaultLockNotice();
   const [collapsedSections, setCollapsedSections] = useState<string[]>(initialCollapsedSections);
   const [sideNarrow, setSideNarrowState] = useState(() => {
     try { return localStorage.getItem(SIDE_NARROW_KEY) === "1"; } catch { return false; }
@@ -451,6 +456,7 @@ function Shell() {
               : page === "rust" ? <Rust key={configEpoch} />
               : page === "go" ? <Go key={configEpoch} />
               : page === "cleanup" ? <Cleanup key={configEpoch} />
+              : page === "vault" ? <Vault key={configEpoch} />
               : page === "settings" ? <Settings key={configEpoch} />
               : <Stub item={cur} />}
           </Suspense>

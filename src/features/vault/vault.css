@@ -1,0 +1,29 @@
+.a .vault-center{ max-width:480px; margin:24px auto; }
+.a .vault-center .pxcard{ padding:15px; }
+.a .vault-title{ font-size:15px; font-weight:600; margin-bottom:6px; display:flex; gap:8px; align-items:center; }
+.a .vault-sub{ font-size:12px; color:var(--mut); line-height:1.7; margin-bottom:12px; }
+.a .vault-form{ display:flex; flex-direction:column; gap:10px; }
+.a .vault-form label:not(.sw){ display:flex; flex-direction:column; gap:5px; font-size:12px; color:var(--mut); }
+.a .vault-actions{ display:flex; gap:8px; justify-content:flex-end; align-items:center; margin-top:12px; flex-wrap:wrap; }
+.a .vault-links{ display:flex; gap:14px; margin-top:12px; font-size:12px; }
+.a .vault-link{ background:none; border:0; padding:0; color:var(--acc); cursor:pointer; font-size:12px; }
+.a .vault-key{ font-family:ui-monospace,Consolas,monospace; font-size:17px; letter-spacing:1px; padding:12px; border:.5px solid var(--bd); border-radius:8px; text-align:center; user-select:all; margin:8px 0; }
+.a .vault-warn{ color:#d6463d; font-size:12px; }
+.a .vault-meter{ display:flex; gap:4px; } .a .vault-meter span{ flex:1; height:4px; border-radius:2px; background:var(--bd); }
+.a .vault-meter span.on{ background:var(--acc); }
+.a .vault-bar{ display:flex; gap:8px; align-items:center; margin-bottom:12px; flex-wrap:wrap; }
+.a .vault-bar .grow{ flex:1; }
+.a .vault-grid{ display:grid; grid-template-columns:minmax(0,1.15fr) minmax(0,1fr); gap:12px; align-items:start; }
+.a .vault-rows{ display:flex; flex-direction:column; }
+.a .vault-row{ display:grid; grid-template-columns:18px minmax(0,1.4fr) minmax(0,1fr) 92px 92px; gap:8px; align-items:center; padding:9px 8px; border-radius:8px; cursor:pointer; font-size:12.5px; background:none; border:0; color:var(--tx); text-align:left; }
+.a .vault-row:hover{ background:rgba(255,255,255,.05); } .a .vault-row.on{ background:rgba(245,130,31,.12); }
+.a .vault-row .mut{ color:var(--mut); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.a .vault-badge{ font-size:11px; padding:1px 6px; border-radius:6px; border:.5px solid var(--bd); color:var(--mut); white-space:nowrap; }
+.a .vault-badge.soon{ color:var(--acc); border-color:var(--acc); } .a .vault-badge.expired{ color:#d6463d; border-color:#d6463d; }
+.a .vault-field{ display:grid; grid-template-columns:96px minmax(0,1fr) auto; gap:8px; align-items:center; padding:6px 0; border-bottom:.5px solid var(--bd); font-size:12.5px; }
+.a .vault-field code{ overflow:hidden; text-overflow:ellipsis; white-space:pre-wrap; word-break:break-all; max-height:120px; overflow-y:auto; }
+.a .vault-field .name{ color:var(--mut); }
+.a .vault-edit-field{ display:grid; grid-template-columns:120px minmax(0,1fr) auto auto; gap:6px; align-items:start; margin-bottom:6px; }
+.a .vault-edit-field textarea{ min-height:84px; font-family:ui-monospace,Consolas,monospace; }
+.a .vault-tags{ display:flex; gap:6px; flex-wrap:wrap; }
+.a .vault-empty{ color:var(--mut); font-size:12.5px; padding:24px 0; text-align:center; }

@@ -43,6 +43,7 @@ export const NAV_SECTIONS: NavSection[] = [
 ];
 
 export const NAV_FOOT: NavItem[] = [
+  { id: "vault", icon: "ti-shield-lock", labelKey: "nav.vault" },
   { id: "history", icon: "ti-history", labelKey: "nav.history" },
   { id: "settings", icon: "ti-settings", labelKey: "nav.settings" },
 ];

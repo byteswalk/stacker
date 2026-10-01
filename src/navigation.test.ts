@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ALL_NAV_ITEMS, NAV_SECTIONS, initialCollapsedSections, sectionKeyOf, toggleSection } from "./navigation";
+import { ALL_NAV_ITEMS, NAV_FOOT, NAV_SECTIONS, initialCollapsedSections, sectionKeyOf, toggleSection } from "./navigation";
 import { PAGE_IDS } from "./pageState";
 import { t } from "./i18n";
 
@@ -32,5 +32,11 @@ describe("sidebar navigation", () => {
     expect(toggleSection(next, "nav.section.devEnv")).toContain("nav.section.devEnv");
     expect(sectionKeyOf("rust")).toBe("nav.section.devEnv");
     expect(sectionKeyOf("overview")).toBeNull();
+  });
+
+  it("puts 密钥保管 at the foot, above 配置备份 and 偏好设置", () => {
+    expect(NAV_FOOT.map((item) => item.id)).toEqual(["vault", "history", "settings"]);
+    expect(t("nav.vault", "zh-CN")).toBe("密钥保管");
+    expect(t("nav.vault", "en-US")).toBe("Key Vault");
   });
 });

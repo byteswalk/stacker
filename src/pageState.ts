@@ -15,6 +15,7 @@ export const PAGE_IDS = [
   "rust",
   "proxy",
   "cleanup",
+  "vault",
   "history",
   "settings",
 ] as const;

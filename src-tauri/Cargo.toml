@@ -38,18 +38,25 @@ notify = "8"
 rusqlite = { version = "0.38", features = ["bundled"] }
 sha2 = "0.10"
 url = "2"
+percent-encoding = "2"
 regex = "1"
 ureq = "2"
 zip = "2"
 flate2 = "1"
 tiny_http = "0.12"
 minisign-verify = "0.2.5"
+argon2 = { version = "0.5", features = ["zeroize"] }
+chacha20poly1305 = "0.10"
+zeroize = { version = "1", features = ["derive"] }
+getrandom = "0.2"
+ssh-key = { version = "0.6", default-features = false, features = ["alloc", "ecdsa"] }
+base64ct = { version = "1", features = ["alloc"] }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
 winapi = { version = "0.3", features = ["winuser", "fileapi", "shellapi", "synchapi", "processthreadsapi", "handleapi", "winbase", "dpapi", "wincrypt", "minwindef", "winnt", "errhandlingapi", "tlhelp32", "jobapi2"] }
 if-addrs = "0.15"
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Pipes", "Win32_System_Threading"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Pipes", "Win32_System_Threading", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_StationsAndDesktops"] }
 
 [profile.dev]
 debug = 1

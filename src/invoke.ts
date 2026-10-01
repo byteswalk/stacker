@@ -1,7 +1,7 @@
 import { invoke as tauriInvoke, type InvokeArgs, type InvokeOptions } from "@tauri-apps/api/core";
 import { debug, error, warn } from "@tauri-apps/plugin-log";
 
-const quietCommands = new Set(["settings_read_log"]);
+const quietCommands = new Set(["settings_read_log", "vault_touch", "vault_discover_status"]);
 
 export function safeLogText(value: unknown): string {
   return String(value)
