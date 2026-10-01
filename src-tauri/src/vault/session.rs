@@ -5,7 +5,7 @@
 use super::crypto::{self, KdfParams, SecretKey};
 use super::errors::*;
 use super::format::{self, Header, Snapshot, Wrap};
-use super::model::Body;
+use super::model::{self, Body, Digests, EntryInput, EntryView, HistoryView, MergeStats};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
@@ -214,7 +214,7 @@ impl Vault {
         body: &Body,
         expected: Option<&Snapshot>,
     ) -> Result<Snapshot, String> {
-        self.save(header, dek, body, expected, format::write)
+        self.write_with(header, dek, body, expected, format::write)
     }
 
     /// For writes that change a credential: the backup gets the new bytes as well.
@@ -225,10 +225,10 @@ impl Vault {
         body: &Body,
         expected: Option<&Snapshot>,
     ) -> Result<Snapshot, String> {
-        self.save(header, dek, body, expected, format::write_rekeyed)
+        self.write_with(header, dek, body, expected, format::write_rekeyed)
     }
 
-    fn save(
+    fn write_with(
         &self,
         header: &Header,
         dek: &[u8; 32],
@@ -334,7 +334,7 @@ impl Vault {
         let mut purged = open.body.clone();
         // A failed purge write must not keep the user out: they unlock with the old body and
         // the purge is retried at the next unlock.
-        if super::model::purge_expired(&mut purged, now_ms()) {
+        if model::purge_expired(&mut purged, now_ms()) {
             match self.write_body(&open.header, &open.dek, &purged, Some(&open.snapshot)) {
                 Ok(snapshot) => {
                     open.snapshot = snapshot;
@@ -469,6 +469,169 @@ impl Vault {
             std::fs::rename(&backup, &backup_target).map_err(|_| IO.to_string())?;
         }
         Ok(target.display().to_string())
+    }
+
+    fn with_unlocked<T>(&self, f: impl FnOnce(&mut Open) -> Result<T, String>) -> Result<T, String> {
+        let mut inner = self.inner();
+        inner.last_activity = Instant::now();
+        match &mut inner.phase {
+            Phase::Unlocked(open) => f(open),
+            _ => Err(LOCKED.into()),
+        }
+    }
+
+    /// Changes a copy, saves it, and only then swaps it in, so a failed save leaves memory
+    /// and disk agreeing.
+    fn mutate<T>(&self, f: impl FnOnce(&mut Body) -> Result<T, String>) -> Result<T, String> {
+        self.with_unlocked(|open| {
+            let mut next = open.body.clone();
+            let out = match f(&mut next) {
+                Ok(out) => out,
+                Err(error) => {
+                    next.zeroize();
+                    return Err(error);
+                }
+            };
+            match self.write_body(&open.header, &open.dek, &next, Some(&open.snapshot)) {
+                Ok(snapshot) => {
+                    open.snapshot = snapshot;
+                    replace_body(open, next);
+                    Ok(out)
+                }
+                Err(error) => {
+                    next.zeroize();
+                    Err(error)
+                }
+            }
+        })
+    }
+
+    pub(crate) fn list(&self, trash: bool) -> Result<Vec<EntryView>, String> {
+        self.with_unlocked(|open| Ok(model::views(&open.body, trash)))
+    }
+
+    pub(crate) fn save(&self, input: EntryInput) -> Result<EntryView, String> {
+        let id = self.mutate(|body| model::apply_input(body, input, now_ms()))?;
+        self.with_unlocked(|open| model::view_of(&open.body, &id))
+    }
+
+    pub(crate) fn reveal(&self, id: &str, field: &str) -> Result<Zeroizing<String>, String> {
+        self.with_unlocked(|open| model::field_value(&open.body, id, field))
+    }
+
+    pub(crate) fn history(&self, id: &str) -> Result<Vec<HistoryView>, String> {
+        self.with_unlocked(|open| model::history_views(&open.body, id))
+    }
+
+    pub(crate) fn history_value(&self, id: &str, index: usize) -> Result<Zeroizing<String>, String> {
+        self.with_unlocked(|open| model::history_value(&open.body, id, index))
+    }
+
+    pub(crate) fn delete(&self, id: &str) -> Result<(), String> {
+        self.mutate(|body| model::soft_delete(body, id, now_ms()))
+    }
+
+    pub(crate) fn restore(&self, id: &str) -> Result<(), String> {
+        self.mutate(|body| model::restore(body, id))
+    }
+
+    pub(crate) fn purge(&self, id: &str) -> Result<(), String> {
+        self.mutate(|body| model::purge(body, id))
+    }
+
+    pub(crate) fn favorite(&self, id: &str, favorite: bool) -> Result<(), String> {
+        self.mutate(|body| model::set_favorite(body, id, favorite, now_ms()))
+    }
+
+    pub(crate) fn ssh_private(&self, id: &str) -> Result<Zeroizing<String>, String> {
+        self.with_unlocked(|open| model::ssh_private(&open.body, id))
+    }
+
+    fn verify_password(&self, password: &str) -> Result<(), String> {
+        let mut inner = self.inner();
+        check_wait(&mut inner)?;
+        let Phase::Unlocked(open) = &inner.phase else {
+            return Err(LOCKED.into());
+        };
+        if open.header.password.unwrap_key(password.as_bytes(), open.header.kdf)?.is_none() {
+            register_failure(&mut inner);
+            return Err(PASSWORD.into());
+        }
+        inner.failures = 0;
+        Ok(())
+    }
+
+    /// The backup is the vault file as it is, still sealed by its master password and recovery key.
+    pub(crate) fn export(&self, password: &str, dest: &Path) -> Result<(), String> {
+        self.verify_password(password)?;
+        if dest == self.path {
+            return Err(FILE_EXISTS.into());
+        }
+        std::fs::copy(&self.path, dest).map(|_| ()).map_err(|_| IO.to_string())
+    }
+
+    fn read_backup(&self, src: &Path, credential: &Credential) -> Result<Body, String> {
+        let mut opened = match credential {
+            Credential::Password(password) => {
+                read_one(src, &|header| header.password.unwrap_key(password.as_bytes(), header.kdf))?.ok_or(PASSWORD)?
+            }
+            Credential::Recovery(key) => {
+                let raw = crypto::decode_recovery(key).ok_or(RECOVERY)?;
+                read_one(src, &|header| header.recovery.unwrap_key(raw.as_slice(), header.kdf))?.ok_or(RECOVERY)?
+            }
+        };
+        Ok(std::mem::take(&mut opened.body))
+    }
+
+    pub(crate) fn import_preview(&self, src: &Path, credential: &Credential) -> Result<MergeStats, String> {
+        if !self.is_unlocked() {
+            return Err(LOCKED.into());
+        }
+        let mut incoming = self.read_backup(src, credential)?;
+        let stats = self.with_unlocked(|open| {
+            let mut copy = open.body.clone();
+            let stats = model::merge(&mut copy, &incoming);
+            copy.zeroize();
+            Ok(stats)
+        });
+        incoming.zeroize();
+        stats
+    }
+
+    pub(crate) fn import_apply(&self, src: &Path, credential: &Credential) -> Result<MergeStats, String> {
+        if !self.is_unlocked() {
+            return Err(LOCKED.into());
+        }
+        let mut incoming = self.read_backup(src, credential)?;
+        let stats = self.mutate(|body| Ok(model::merge(body, &incoming)));
+        incoming.zeroize();
+        stats
+    }
+
+    pub(crate) fn digest_sets(&self) -> Result<Digests, String> {
+        self.with_unlocked(|open| Ok(model::digests(&open.body)))
+    }
+
+    pub(crate) fn add_entries(&self, inputs: Vec<EntryInput>) -> Result<usize, String> {
+        self.mutate(|body| {
+            let now = now_ms();
+            let count = inputs.len();
+            for input in inputs {
+                model::apply_input(body, input, now)?;
+            }
+            Ok(count)
+        })
+    }
+
+    pub(crate) fn ignore(&self, digests: Vec<String>) -> Result<(), String> {
+        self.mutate(|body| {
+            for digest in digests {
+                if !body.ignored.contains(&digest) {
+                    body.ignored.push(digest);
+                }
+            }
+            Ok(())
+        })
     }
 }
 
@@ -822,5 +985,134 @@ mod tests {
         let shown = format!("{:?} {:?}", Credential::Password("hunter2-hunter2".into()), Credential::Recovery("ABCD".into()));
         assert!(!shown.contains("hunter2") && !shown.contains("ABCD"));
         assert!(shown.contains("Password") && shown.contains("Recovery"));
+    }
+}
+
+#[cfg(test)]
+mod entry_tests {
+    use super::tests::{created, fresh, PW};
+    use super::*;
+    use crate::vault::model::{FieldInput, Kind};
+
+    fn input(title: &str, secret: &str) -> EntryInput {
+        EntryInput {
+            id: None,
+            title: title.into(),
+            platform: "GitHub".into(),
+            kind: Kind::Token,
+            fields: vec![FieldInput { name: "Token".into(), previous_name: None, value: Some(secret.into()), secret: true }],
+            expires_at: None,
+            tags: vec![],
+            note: String::new(),
+            favorite: false,
+        }
+    }
+
+    #[test]
+    fn entries_are_saved_encrypted_and_survive_a_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let (vault, _) = created(&dir);
+        let view = vault.save(input("gh", "tok-value-1")).unwrap();
+        assert_eq!(view.fields[0].value, None);
+        let raw = std::fs::read(&vault.path).unwrap();
+        assert!(!raw.windows(11).any(|w| w == b"tok-value-1"), "never stored in clear");
+        let again = fresh(&dir);
+        again.unlock(PW).unwrap();
+        assert_eq!(*again.reveal(&view.id, "Token").unwrap(), "tok-value-1");
+    }
+
+    #[test]
+    fn everything_needs_an_unlocked_vault() {
+        let dir = tempfile::tempdir().unwrap();
+        let (vault, _) = created(&dir);
+        let id = vault.save(input("gh", "v")).unwrap().id;
+        vault.lock();
+        assert_eq!(vault.list(false).err().unwrap(), LOCKED);
+        assert_eq!(vault.reveal(&id, "Token").err().unwrap(), LOCKED);
+        assert_eq!(vault.save(input("x", "y")).err().unwrap(), LOCKED);
+    }
+
+    #[test]
+    fn a_recovering_vault_shows_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let (vault, recovery) = created(&dir);
+        let id = vault.save(input("gh", "v")).unwrap().id;
+        vault.lock();
+        vault.unlock_recovery(&recovery).unwrap();
+        assert_eq!(vault.list(false).err().unwrap(), LOCKED);
+        assert_eq!(vault.reveal(&id, "Token").err().unwrap(), LOCKED);
+        assert_eq!(vault.history(&id).err().unwrap(), LOCKED);
+        assert_eq!(vault.ssh_private(&id).err().unwrap(), LOCKED);
+        assert_eq!(vault.digest_sets().err().unwrap(), LOCKED);
+        assert_eq!(vault.save(input("x", "y")).err().unwrap(), LOCKED);
+        assert_eq!(vault.add_entries(vec![input("x", "y")]).err().unwrap(), LOCKED);
+        assert_eq!(vault.ignore(vec!["d".into()]).err().unwrap(), LOCKED);
+        let elsewhere = dir.path().join("b.skv");
+        assert_eq!(vault.import_preview(&elsewhere, &Credential::Password(PW.into())).err().unwrap(), LOCKED);
+        assert_eq!(vault.import_apply(&elsewhere, &Credential::Password(PW.into())).err().unwrap(), LOCKED);
+        assert_eq!(vault.export(PW, &elsewhere).err().unwrap(), LOCKED);
+    }
+
+    #[test]
+    fn delete_restore_purge_favorite_and_history() {
+        let dir = tempfile::tempdir().unwrap();
+        let (vault, _) = created(&dir);
+        let id = vault.save(input("gh", "first")).unwrap().id;
+        let mut edit = input("gh", "second");
+        edit.id = Some(id.clone());
+        vault.save(edit).unwrap();
+        assert_eq!(vault.history(&id).unwrap().len(), 1);
+        assert_eq!(*vault.history_value(&id, 0).unwrap(), "first");
+        vault.favorite(&id, true).unwrap();
+        assert!(vault.list(false).unwrap()[0].favorite);
+        vault.delete(&id).unwrap();
+        assert!(vault.list(false).unwrap().is_empty());
+        vault.restore(&id).unwrap();
+        vault.delete(&id).unwrap();
+        vault.purge(&id).unwrap();
+        assert!(vault.list(true).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_file_changed_elsewhere_is_not_overwritten() {
+        let dir = tempfile::tempdir().unwrap();
+        let (vault, _) = created(&dir);
+        let other = fresh(&dir);
+        other.unlock(PW).unwrap();
+        other.save(input("from other", "o")).unwrap();
+        assert_eq!(vault.save(input("mine", "m")).err().unwrap(), CHANGED);
+        assert!(vault.list(false).unwrap().is_empty(), "memory stays as it was");
+    }
+
+    #[test]
+    fn export_then_import_merges_without_deleting() {
+        let dir = tempfile::tempdir().unwrap();
+        let (vault, recovery) = created(&dir);
+        vault.save(input("shared", "s")).unwrap();
+        let backup = dir.path().join("backup.skv");
+        assert_eq!(vault.export("wrong password!!", &backup).err().unwrap(), PASSWORD);
+        vault.export(PW, &backup).unwrap();
+
+        let other_dir = tempfile::tempdir().unwrap();
+        let (other, _) = created(&other_dir);
+        other.save(input("local only", "l")).unwrap();
+        let by_password = Credential::Password(PW.into());
+        let stats = other.import_preview(&backup, &by_password).unwrap();
+        assert_eq!(stats.added, 1);
+        assert_eq!(other.list(false).unwrap().len(), 1, "a preview changes nothing");
+        assert_eq!(other.import_apply(&backup, &Credential::Password("wrong password!!".into())).err().unwrap(), PASSWORD);
+        other.import_apply(&backup, &Credential::Recovery(recovery)).unwrap();
+        assert_eq!(other.list(false).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn discovery_helpers_add_ignore_and_report_digests() {
+        let dir = tempfile::tempdir().unwrap();
+        let (vault, _) = created(&dir);
+        assert_eq!(vault.add_entries(vec![input("a", "va"), input("b", "vb")]).unwrap(), 2);
+        vault.ignore(vec!["d1".into(), "d1".into()]).unwrap();
+        let digests = vault.digest_sets().unwrap();
+        assert!(digests.current.contains(&crypto::secret_digest("va")));
+        assert_eq!(digests.ignored.len(), 1);
     }
 }

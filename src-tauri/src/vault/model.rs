@@ -386,6 +386,16 @@ pub(crate) fn merge(local: &mut Body, incoming: &Body) -> MergeStats {
             }
             Some(mine) => {
                 let mut history = mine.history.clone();
+                if theirs.updated_at > mine.updated_at {
+                    // Same rule as apply_input: a secret the replacing copy no longer holds is kept.
+                    for old in mine.fields.iter().filter(|old| old.secret && !old.value.is_empty()) {
+                        let kept = theirs.fields.iter().any(|new| new.secret && new.value == old.value);
+                        let item = HistoryItem { field: old.name.clone(), value: old.value.clone(), at: theirs.updated_at };
+                        if !kept && !history.contains(&item) {
+                            history.push(item);
+                        }
+                    }
+                }
                 for item in &theirs.history {
                     if !history.contains(item) {
                         history.push(item.clone());
@@ -583,10 +593,39 @@ mod tests {
         let a = local.entries.iter().find(|e| e.id == "a").unwrap();
         assert_eq!(a.fields[0].value, "a-backup");
         assert_eq!(a.deleted_at, Some(4), "local trash state is kept");
-        assert_eq!(a.history.len(), 1);
+        assert_eq!(a.history.len(), 2, "their older value and the local value the copy replaced");
         assert_eq!(local.entries.iter().find(|e| e.id == "b").unwrap().fields[0].value, "b-local");
         assert!(local.entries.iter().find(|e| e.id == "c").unwrap().deleted_at.is_some());
         assert_eq!(local.ignored, vec!["x", "y"]);
+    }
+
+    #[test]
+    fn a_newer_copy_archives_the_local_secret_it_replaces() {
+        let mut local = Body { entries: vec![entry("a", 5, "rotated-locally")], ignored: vec![] };
+        let incoming = Body { entries: vec![entry("a", 9, "from-backup")], ignored: vec![] };
+        merge(&mut local, &incoming);
+        let a = &local.entries[0];
+        assert_eq!(a.fields[0].value, "from-backup");
+        assert_eq!(a.history.len(), 1);
+        assert_eq!(a.history[0], HistoryItem { field: "Key".into(), value: "rotated-locally".into(), at: 9 });
+    }
+
+    #[test]
+    fn a_local_secret_the_copy_still_holds_is_not_archived() {
+        let mut local = Body { entries: vec![entry("a", 5, "same")], ignored: vec![] };
+        let mut newer = entry("a", 9, "same");
+        newer.title = "renamed".into();
+        merge(&mut local, &Body { entries: vec![newer], ignored: vec![] });
+        assert_eq!(local.entries[0].title, "renamed");
+        assert!(local.entries[0].history.is_empty());
+    }
+
+    #[test]
+    fn an_older_copy_archives_nothing() {
+        let mut local = Body { entries: vec![entry("a", 9, "local")], ignored: vec![] };
+        merge(&mut local, &Body { entries: vec![entry("a", 5, "older")], ignored: vec![] });
+        assert_eq!(local.entries[0].fields[0].value, "local");
+        assert!(local.entries[0].history.is_empty());
     }
 
     #[test]
