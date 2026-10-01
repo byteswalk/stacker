@@ -1432,24 +1432,8 @@ button{ font-family:inherit; }
 .a .gw-others>div:first-child{border-top:0}
 .a .gw-others>div>span:last-child{margin-left:auto}
 
-/* Narrow sidebar: icons only, names as tooltips; sections stay open so every page is one click away. */
+/* The sidebar slides shut rather than jumping. */
 .a .side{ transition:width .18s ease; }
-.a .side .side-toggle{ color:#6b7380; }
-.a .side .side-toggle:hover{ color:var(--tx); }
-.a .side.narrow{ width:56px; padding-left:8px; padding-right:8px; }
-.a .side.narrow .brand{ justify-content:center; padding-left:0; padding-right:0; }
-.a .side.narrow .brand-text,
-.a .side.narrow .brand-version,
-.a .side.narrow .nl,
-.a .side.narrow nav .navgroup-hd{ display:none; }
-.a .side.narrow nav{ margin-right:-4px; padding-right:4px; }
-.a .side.narrow nav .navgroup.collapsed .navgroup-body{ grid-template-rows:1fr; }
-.a .side.narrow nav .navgroup-hd + .navgroup-body .navgroup-items{ margin:0; padding-left:0; border-left:none; }
-.a .side.narrow .ni,
-.a .side.narrow nav .navgroup-hd + .navgroup-body .ni{ justify-content:center; padding-left:0; padding-right:0; position:relative; }
-.a .side.narrow .ni > i:first-child{ font-size:16px; }
-.a .side.narrow .navdot{ position:absolute; top:2px; right:4px; margin:0; min-width:14px; height:14px; font-size:8px; }
-
 /* Python page: where pyenv and the default interpreter live, found runtimes to remove. */
 .a .py-where{display:flex;flex-wrap:wrap;gap:6px 18px;margin:0 2px 10px;font-size:12px;color:var(--mut)}
 .a .py-where span{display:flex;align-items:center;gap:5px;min-width:0}
@@ -1591,3 +1575,32 @@ button{ font-family:inherit; }
 .a .gw-level:hover{color:var(--tx)}
 .a .gw-level.on{border-color:var(--blue);background:rgba(47,111,219,.16);color:var(--blue)}
 .a .gw-levels-note{margin:8px 2px 0;font-size:11.5px;line-height:1.6}
+
+/* The sidebar hides whole. A tab on its right edge hides it; the logo in the title bar
+   brings it back. */
+.a .side{ position:relative; }
+.a .side.hidden{ width:0; padding-left:0; padding-right:0; border-right:0; overflow:hidden; }
+.a .side-collapse{ position:absolute; top:50%; right:-1px; transform:translateY(-50%); z-index:3;
+  width:14px; height:44px; padding:0; display:flex; align-items:center; justify-content:center;
+  border:.5px solid var(--bd); border-right:0; border-radius:7px 0 0 7px; background:var(--side);
+  color:var(--mut); font-size:12px; cursor:pointer; opacity:.55; transition:opacity .15s, color .15s, width .15s; }
+.a .side:hover .side-collapse{ opacity:1; }
+.a .side-collapse:hover{ width:18px; color:var(--tx); background:var(--cardh); }
+.a .side.hidden .side-collapse{ display:none; }
+.a .tb-logo{ display:flex; align-items:center; justify-content:center; width:26px; height:26px; margin-left:8px;
+  padding:0; border:0; border-radius:7px; background:transparent; cursor:pointer; }
+.a .tb-logo:hover{ background:var(--cardh); }
+.a .tb-logo .logo-mark{ width:18px; height:18px; }
+.a .tb-logo + .tb-title{ padding-left:6px; }
+/* Search boxes match the selects beside them: same height, border, surface and type. */
+.a .gw-search{ display:inline-flex; align-items:center; gap:7px; height:auto; padding:6px 10px; min-width:220px;
+  border:.5px solid var(--bd); border-radius:8px; background:#232932; color:var(--mut); font-size:12.5px; }
+.a .gw-search:hover{ border-color:var(--bdh); }
+.a .gw-search:focus-within{ border-color:var(--blue); color:var(--tx); }
+.a .gw-search input{ flex:1; width:auto; min-width:0; font-size:12.5px; line-height:1.4; }
+[data-theme="light"] .a .gw-search{ background:#fff; }
+/* The row Stacker's own AI runs on: a badge by its name and a lit button. */
+.a .gw-model.ai-on{ border-color:color-mix(in srgb,var(--acc) 55%,var(--line)); background:color-mix(in srgb,var(--acc) 6%,var(--card)); }
+.a .gw-ai-badge{ display:inline-flex; align-items:center; gap:3px; margin-left:8px; padding:1px 7px; border-radius:5px;
+  background:rgba(245,130,31,.15); color:var(--acc); font-size:11px; font-weight:500; }
+.a .gw-ai-btn.on{ background:var(--acc); border-color:var(--acc); color:#fff; }

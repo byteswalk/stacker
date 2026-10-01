@@ -31,6 +31,8 @@ const RUN_ERRORS: Record<string, string> = {
   E_RUNNER_AUTH: "未登录：请在终端运行该智能体并完成登录。",
   E_RUNNER_INELIGIBLE: "账号已登录，但厂商不允许它使用：换一个有资格的账号登录，或先按下方提示验证账号。",
   E_RUNNER_MISSING: "未找到命令行程序。",
+  E_RUNNER_START: "命令行程序启动失败，详情见日志。",
+  E_RUNNER_NO_PLAN: "账号已登录，但没有开通命令行可用的套餐或额度已用完：到厂商那里开通编程套餐或充值后再试。桌面版的免费对话额度不能给命令行用。",
   E_RUNNER_TIMEOUT: "5 分钟内没有回复。",
   E_PROMPT_TOO_LONG: "内容太长：这个智能体只能从命令行接收提问，上限约 3 万字。",
 };
@@ -50,7 +52,6 @@ function writeJson(key: string, value: unknown) {
   try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* per-viewer convenience only */ }
 }
 
-/** "刚刚" / "13 分钟前" / "3 小时前": how fresh the last successful test is. */
 /** The link a CLI printed with its refusal, for the button that opens it. */
 export function detailLink(detail: string): string | null {
   return detail.split(/\s+/).find((word) => word.startsWith("https://")) ?? null;
@@ -62,23 +63,13 @@ export function detailText(detail: string): string {
   return (link ? detail.replace(link, "") : detail).trim();
 }
 
-export function sinceText(at: number, now = Date.now()): string {
-  const minutes = Math.floor((now - at) / 60_000);
-  if (minutes < 1) return "刚刚";
-  if (minutes < 60) return `${minutes} 分钟前`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} 小时前`;
-  return `${Math.floor(hours / 24)} 天前`;
-}
-
 /**
- * One line that says whether the agent can be used, instead of a sign-in state and a test
- * result contradicting each other: a test that went through proves it works.
+ * Whether the agent is signed in, said the same way for every agent. CodeBuddy cannot report
+ * a sign-in, but it lists models only for a signed-in account, and a passing test proves one.
  */
 export function agentState(card: AgentCard, past?: PastTest): { label: string; cls: string } {
-  if (past?.ok) return { label: `可用 · ${sinceText(past.at)}测试通过`, cls: "g" };
   if (card.login?.state === "logged_out") return { label: "未登录", cls: "y" };
-  if (card.login?.state === "logged_in") return { label: "已登录", cls: "g" };
+  if (card.login?.state === "logged_in" || past?.ok || card.models.length > 0) return { label: "已登录", cls: "g" };
   return { label: "未测试", cls: "n" };
 }
 
@@ -91,6 +82,12 @@ export function GatewayAgents({ base, token }: { base: string; token: string }) 
   const [refreshing, setRefreshing] = useState(false);
   const [tests, setTests] = useState<Record<string, TestResult | "running">>({});
   const [past, setPast] = useState<Record<string, PastTest>>(() => readJson<Record<string, PastTest>>(TESTS_KEY) ?? {});
+  const [stackerAi, setStackerAi] = useState<StackerAi | null>(null);
+  useEffect(() => {
+    invoke<{ kind: string; localModel: string; effort: string }>("ai_config_get")
+      .then((view) => setStackerAi(view.kind === "local" ? { call: view.localModel, effort: view.effort } : null))
+      .catch(() => setStackerAi(null));
+  }, []);
 
   // No blocking dialog: the last check stays on screen and is replaced when a new one ends.
   const load = useCallback(async () => {
@@ -153,7 +150,8 @@ export function GatewayAgents({ base, token }: { base: string; token: string }) 
     {refreshNote}
     {usable.map((card) => <AgentBlock key={card.id} card={card} base={base} token={token}
       past={past} testLine={testLine} running={(key) => tests[key] === "running"}
-      onTest={(call, effort) => void test(card, call, effort)} onToggle={(on) => void toggle(card, on)} onCopy={copy} />)}
+      onTest={(call, effort) => void test(card, call, effort)} onToggle={(on) => void toggle(card, on)} onCopy={copy}
+      stackerAi={stackerAi} onStackerAi={setStackerAi} />)}
 
     {!!needLogin.length && <div className="pxcard">
       <div className="pxsec"><i className="ti ti-login" /> {t("登录后即可用于接口服务")}</div>
@@ -168,6 +166,8 @@ export function GatewayAgents({ base, token }: { base: string; token: string }) 
 }
 
 type Snippet = "openai" | "anthropic" | "curl" | "client";
+/** The name, and level, Stacker's own AI features run on, when that is a local agent. */
+type StackerAi = { call: string; effort: string };
 
 /**
  * Ready-to-run code for one name at one reasoning level, each in its own API's field:
@@ -219,11 +219,11 @@ function ExampleModal({ base, token, call, effort, onCopy, onClose }: {
 
 /** Qoder lists only the models the account can use now; its own menu shows the rest. */
 const PARTIAL_LIST: Record<string, string> = {
-  qoder: "这里只列出账号当前能用的模型；Qoder 菜单里的其它模型需要额度，有额度后会自动出现。",
-  qodercn: "这里只列出账号当前能用的模型；Qoder 菜单里的其它模型需要额度，有额度后会自动出现。",
+  qoder: "只列出这个账号现在能用的模型：额度用完时 Qoder 会停用付费模型，它们只在 Qoder 自己的菜单里显示，调用会失败；充值后自动出现在这里。",
+  qodercn: "只列出这个账号现在能用的模型：额度用完时 Qoder 会停用付费模型，它们只在 Qoder 自己的菜单里显示，调用会失败；充值后自动出现在这里。",
 };
 
-function AgentBlock({ card, base, token, past, testLine, running, onTest, onToggle, onCopy }: {
+function AgentBlock({ card, base, token, past, testLine, running, onTest, onToggle, onCopy, stackerAi, onStackerAi }: {
   card: AgentCard;
   base: string;
   token: string;
@@ -233,6 +233,8 @@ function AgentBlock({ card, base, token, past, testLine, running, onTest, onTogg
   onTest: (call: string, effort: string | null) => void;
   onToggle: (enabled: boolean) => void;
   onCopy: (text: string) => void;
+  stackerAi: StackerAi | null;
+  onStackerAi: (next: StackerAi) => void;
 }) {
   const toast = useToast();
   const { tr: t } = useI18n();
@@ -246,6 +248,7 @@ function AgentBlock({ card, base, token, past, testLine, running, onTest, onTogg
   async function adoptForStacker(call: string) {
     try {
       await invoke("ai_config_use_local", { model: call, effort: pick(call) });
+      onStackerAi({ call, effort: pick(call) ?? "" });
       toast(`${t("Stacker 的 AI 已改用")} ${call}${pick(call) ? ` · ${pick(call)}` : ""}`, "ok");
     } catch (e) { toast(String(e), "err"); }
   }
@@ -284,9 +287,12 @@ function AgentBlock({ card, base, token, past, testLine, running, onTest, onTogg
         </label>}
       </div>}
       <div className="gw-models">
-        {rows.map((m) => <div className="gw-model" key={m.call}>
+        {rows.map((m) => {
+          const inUse = stackerAi?.call === m.call;
+          return <div className={"gw-model" + (inUse ? " ai-on" : "")} key={m.call}>
           <span className="nm">
-            <b>{m.label} <code>{m.call}</code></b>
+            <b>{m.label} <code>{m.call}</code>
+              {inUse && <span className="gw-ai-badge"><i className="ti ti-sparkles" /> {t("Stacker AI 在用")}{stackerAi?.effort ? ` · ${stackerAi.effort}` : ""}</span>}</b>
             <span className="gw-levels">
               {m.efforts.length
                 ? m.efforts.map((e) => <button key={e} className={"gw-level" + (pick(m.call) === e ? " on" : "")}
@@ -299,9 +305,12 @@ function AgentBlock({ card, base, token, past, testLine, running, onTest, onTogg
             {testLine(m.call)}
             <button className="gh sm" disabled={running(m.call)} onClick={() => onTest(m.call, pick(m.call) || null)}><i className="ti ti-player-play" /> {t("测试")}</button>
             <button className="gh sm" onClick={() => setExample(m.call)}><i className="ti ti-code" /> {t("调用示例")}</button>
-            <button className="gh sm" title={t("设为 Stacker 自己的 AI（同步到偏好设置）")} aria-label={t("设为 Stacker 自己的 AI")} onClick={() => void adoptForStacker(m.call)}><i className="ti ti-star" /></button>
+            <button className={"gh sm gw-ai-btn" + (inUse ? " on" : "")} aria-pressed={inUse}
+              title={t(inUse ? "Stacker 自己的 AI 正在用这一行；再点一次会按这一行现在选的推理强度更新" : "设为 Stacker 自己的 AI（同步到偏好设置）")}
+              aria-label={t("设为 Stacker 自己的 AI")} onClick={() => void adoptForStacker(m.call)}><i className="ti ti-sparkles" /></button>
           </span>
-        </div>)}
+        </div>;
+        })}
         {!!needle && !rows.length && <p className="proxy-note">{t("没有匹配的模型。")}</p>}
       </div>
       <p className="s dim gw-levels-note">{t("推理强度只用于这一行的测试、调用示例和设为 Stacker AI，不选就跟随默认。客户端请求时用接口的标准字段指定：OpenAI 兼容用 reasoning_effort，Anthropic 兼容用 output_config.effort。")}</p>

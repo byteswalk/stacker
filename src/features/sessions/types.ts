@@ -107,6 +107,8 @@ export const ERRORS: Record<string, string> = {
   E_APP_RUNNING: "对应程序正在运行，请先退出后再清理。",
   E_RUNNER_MISSING: "未找到该智能体的命令行，请在「安装更新」页安装，或在摘要设置中改用另一个。",
   E_RUNNER_AUTH: "该智能体尚未登录，请先在终端运行它并完成登录。",
+  E_RUNNER_NO_PLAN: "该智能体的账号没有开通命令行可用的套餐，或额度已用完。",
+  E_RUNNER_START: "该智能体的命令行程序启动失败，详情见日志。",
   E_RUNNER_TIMEOUT: "智能体 5 分钟内没有完成，已停止。",
   E_RUNNER_INELIGIBLE: "账号已登录，但厂商不允许它使用该产品。",
   E_RUNNER_FAILED: "智能体运行失败，请稍后重试或换一个模型。",

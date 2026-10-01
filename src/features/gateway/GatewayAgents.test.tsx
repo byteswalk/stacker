@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "../../invoke";
-import { GatewayAgents, agentState, sinceText, snippet, type AgentCard } from "./GatewayAgents";
+import { GatewayAgents, agentState, snippet, type AgentCard } from "./GatewayAgents";
 
 vi.mock("../../invoke", () => ({ invoke: vi.fn(), reportFrontendWarning: vi.fn() }));
 
@@ -69,21 +69,13 @@ describe("gateway agents", () => {
 describe("what the header says", () => {
   const card = cards[0];
 
-  it("lets a passing test answer whether the agent works", () => {
-    // CodeBuddy has no way to report a sign-in, and saying "unknown" next to a test that
-    // just succeeded told the user two different things.
+  it("says signed in the same way for every agent", () => {
+    // CodeBuddy cannot report a sign-in; a model list or a passing test shows one all the same.
     const unknown = { ...card, login: { state: "unknown" as const, method: "" } };
-    expect(agentState(unknown).label).toBe("未测试");
-    const passed = agentState(unknown, { at: Date.now() - 4 * 60_000, ok: true, elapsedMs: 4100 });
-    expect(passed.label).toBe("可用 · 4 分钟前测试通过");
+    expect(agentState({ ...unknown, models: [] }).label).toBe("未测试");
+    expect(agentState(unknown).label).toBe("已登录");
+    expect(agentState({ ...unknown, models: [] }, { at: Date.now(), ok: true, elapsedMs: 4100 }).label).toBe("已登录");
     expect(agentState({ ...card, login: { state: "logged_out", method: "" } }).label).toBe("未登录");
-  });
-
-  it("counts the wait in words", () => {
-    const now = Date.parse("2026-09-26T12:00:00Z");
-    expect(sinceText(now - 30_000, now)).toBe("刚刚");
-    expect(sinceText(now - 90 * 60_000, now)).toBe("1 小时前");
-    expect(sinceText(now - 50 * 60 * 60_000, now)).toBe("2 天前");
   });
 
   it("fills the port, key and model into code that runs as it is", () => {

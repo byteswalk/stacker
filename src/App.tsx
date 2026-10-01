@@ -356,11 +356,21 @@ function Shell() {
   return (
     <div className="a">
       <div className="titlebar" data-tauri-drag-region>
+        {sideNarrow && <button className="tb-logo" title={tr("展开侧栏")} aria-label={tr("展开侧栏")} onClick={() => setSideNarrow(false)}>
+          <svg className="logo-mark" viewBox="0 0 32 32" focusable="false" aria-hidden="true">
+            <path className="logo-layer-1" d="M16 4 28 10 16 16 4 10Z" />
+            <path className="logo-layer-2" d="M16 10 28 16 16 22 4 16Z" />
+            <path className="logo-layer-3" d="M16 16 28 22 16 28 4 22Z" />
+          </svg>
+        </button>}
         <span className="tb-title" data-tauri-drag-region>Stacker</span>
         <WindowControls />
       </div>
       <div className="ashell">
-      <aside className={"side" + (sideNarrow ? " narrow" : "")}>
+      <aside className={"side" + (sideNarrow ? " hidden" : "")} aria-hidden={sideNarrow || undefined}>
+        <button className="side-collapse" title={tr("收起侧栏")} aria-label={tr("收起侧栏")} onClick={() => setSideNarrow(true)}>
+          <i className="ti ti-chevron-left" aria-hidden="true" />
+        </button>
         <div className="brand" data-tauri-drag-region>
           <span className="logo" aria-hidden="true">
             <svg className="logo-mark" viewBox="0 0 32 32" focusable="false">
@@ -381,9 +391,6 @@ function Shell() {
         </nav>
         <div className="sidefoot">
           {NAV_FOOT.map((n) => <NavBtn key={n.id} item={n} page={page} set={setPage} />)}
-          <button className="ni side-toggle" title={tr(sideNarrow ? "展开侧栏" : "收起侧栏")} aria-pressed={sideNarrow} onClick={() => setSideNarrow(!sideNarrow)}>
-            <i className={"ti " + (sideNarrow ? "ti-layout-sidebar-left-expand" : "ti-layout-sidebar-left-collapse")} aria-hidden="true" /> <span className="nl">{tr("收起侧栏")}</span>
-          </button>
         </div>
       </aside>
 

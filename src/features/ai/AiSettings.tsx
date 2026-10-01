@@ -35,6 +35,12 @@ export const AI_ERRORS: Record<string, string> = {
   E_AI_PROTOCOL: "无效的接口类型。",
   E_AI_EFFORT: "无效的推理强度。",
   E_AI_NO_NOTES: "拿不到这次更新的官方日志，就不让 AI 猜了。可以去产品主页看更新说明。",
+  E_RUNNER_AUTH: "选的本机智能体没有登录：在终端运行它并完成登录。",
+  E_RUNNER_NO_PLAN: "选的本机智能体账号没有开通命令行可用的套餐，或额度已用完：开通或充值，或换一个智能体。",
+  E_RUNNER_MISSING: "找不到选的本机智能体的命令行程序。",
+  E_RUNNER_START: "选的本机智能体的命令行程序启动失败，详情见日志。",
+  E_RUNNER_TIMEOUT: "本机智能体 5 分钟内没有回复。",
+  E_RUNNER_FAILED: "本机智能体运行失败，详情见日志。",
   E_PROBE_URL: "请输入以 http:// 或 https:// 开头的地址。",
 };
 export const aiError = (e: unknown) => AI_ERRORS[String(e)] ?? String(e);
