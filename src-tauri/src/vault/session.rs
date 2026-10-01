@@ -739,6 +739,85 @@ mod tests {
     }
 
     #[test]
+    fn a_failed_password_change_leaves_memory_and_file_in_agreement() {
+        let dir = tempfile::tempdir().unwrap();
+        let (vault, _) = created(&dir);
+        let blocker = vault.path.with_extension("skv.bak.tmp");
+        std::fs::create_dir(&blocker).unwrap();
+        let before = format::current_snapshot(&vault.path);
+        assert_eq!(vault.change_password(PW, PW2).err().unwrap(), IO);
+        assert_eq!(format::current_snapshot(&vault.path), before);
+        assert!(!vault.path.with_extension("skv.tmp").exists());
+        std::fs::remove_dir(&blocker).unwrap();
+        // The in-memory snapshot still matches the file, so a retry is not refused as CHANGED.
+        vault.change_password(PW, PW2).unwrap();
+        vault.lock();
+        assert_eq!(vault.unlock(PW).err().unwrap(), PASSWORD);
+        vault.unlock(PW2).unwrap();
+    }
+
+    #[test]
+    fn a_failed_password_change_keeps_the_old_password_on_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let (vault, _) = created(&dir);
+        std::fs::create_dir(vault.path.with_extension("skv.bak.tmp")).unwrap();
+        assert_eq!(vault.change_password(PW, PW2).err().unwrap(), IO);
+        vault.lock();
+        vault.unlock(PW).unwrap();
+    }
+
+    #[test]
+    fn a_failed_confirm_keeps_the_old_recovery_key_working() {
+        let dir = tempfile::tempdir().unwrap();
+        let (vault, old) = created(&dir);
+        let next = vault.reset_recovery(PW).unwrap();
+        std::fs::create_dir(vault.path.with_extension("skv.bak.tmp")).unwrap();
+        assert_eq!(vault.confirm_recovery(crypto::last_group(&next)).err().unwrap(), IO);
+        vault.lock();
+        vault.unlock_recovery(&old).unwrap();
+    }
+
+    #[test]
+    fn a_failing_purge_write_does_not_keep_the_user_out() {
+        use super::super::model::{self, EntryInput, Kind};
+        let dir = tempfile::tempdir().unwrap();
+        let (vault, _) = created(&dir);
+        let mut body = Body::default();
+        let id = model::apply_input(
+            &mut body,
+            EntryInput {
+                id: None,
+                title: "old".into(),
+                platform: String::new(),
+                kind: Kind::TokenPlan,
+                fields: vec![],
+                expires_at: None,
+                tags: vec![],
+                note: String::new(),
+                favorite: false,
+            },
+            1,
+        )
+        .unwrap();
+        model::soft_delete(&mut body, &id, 1).unwrap();
+        {
+            let mut inner = vault.inner();
+            let Phase::Unlocked(open) = &mut inner.phase else { panic!("created vault is unlocked") };
+            open.snapshot = vault.write_body(&open.header, &open.dek, &body, Some(&open.snapshot)).unwrap();
+        }
+        vault.lock();
+        // A directory where the temporary file belongs makes the purge write fail.
+        std::fs::create_dir(vault.path.with_extension("skv.tmp")).unwrap();
+        let before = format::current_snapshot(&vault.path);
+        vault.unlock(PW).unwrap();
+        assert!(vault.is_unlocked());
+        assert_eq!(format::current_snapshot(&vault.path), before, "nothing was purged on disk");
+        let inner = vault.inner();
+        let Phase::Unlocked(open) = &inner.phase else { panic!("unlocked") };
+        assert_eq!(open.body.entries.len(), 1, "the expired entry is still there, to be purged next time");
+    }
+
+    #[test]
     fn credentials_never_print_their_values() {
         let shown = format!("{:?} {:?}", Credential::Password("hunter2-hunter2".into()), Credential::Recovery("ABCD".into()));
         assert!(!shown.contains("hunter2") && !shown.contains("ABCD"));

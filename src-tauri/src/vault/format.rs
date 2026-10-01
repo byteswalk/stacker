@@ -151,18 +151,36 @@ pub(crate) fn write(path: &Path, bytes: &[u8], expected: Option<&Snapshot>) -> R
 
 /// A write that changes who can open the vault (new password or recovery key): the backup must
 /// hold the new bytes too, or the retired credential would still open the vault through it.
+///
+/// Any Err leaves the vault file itself untouched: both temporary files are staged first, the
+/// backup is replaced next, and the vault file is renamed into place last.
 pub(crate) fn write_rekeyed(path: &Path, bytes: &[u8], expected: Option<&Snapshot>) -> Result<Snapshot, String> {
-    let snapshot = write(path, bytes, expected)?;
-    let backup = backup_path(path);
-    let tmp = path.with_extension("skv.bak.tmp");
-    {
-        use std::io::Write;
-        let mut file = std::fs::File::create(&tmp).map_err(|_| IO.to_string())?;
-        file.write_all(bytes).map_err(|_| IO.to_string())?;
-        file.sync_all().map_err(|_| IO.to_string())?;
+    if let Some(expected) = expected {
+        if current_snapshot(path).as_ref() != Some(expected) {
+            return Err(CHANGED.into());
+        }
     }
-    std::fs::rename(&tmp, &backup).map_err(|_| IO.to_string())?;
-    Ok(snapshot)
+    let dir = path.parent().ok_or(IO)?;
+    std::fs::create_dir_all(dir).map_err(|_| IO.to_string())?;
+    let tmp = path.with_extension("skv.tmp");
+    let backup_tmp = path.with_extension("skv.bak.tmp");
+    let staged = stage(&tmp, bytes)
+        .and_then(|_| stage(&backup_tmp, bytes))
+        .and_then(|_| std::fs::rename(&backup_tmp, backup_path(path)).map_err(|_| IO.to_string()))
+        .and_then(|_| std::fs::rename(&tmp, path).map_err(|_| IO.to_string()));
+    if let Err(error) = staged {
+        let _ = std::fs::remove_file(&tmp);
+        let _ = std::fs::remove_file(&backup_tmp);
+        return Err(error);
+    }
+    Ok(snapshot_of(bytes))
+}
+
+fn stage(tmp: &Path, bytes: &[u8]) -> Result<(), String> {
+    use std::io::Write;
+    let mut file = std::fs::File::create(tmp).map_err(|_| IO.to_string())?;
+    file.write_all(bytes).map_err(|_| IO.to_string())?;
+    file.sync_all().map_err(|_| IO.to_string())
 }
 
 #[cfg(test)]
@@ -254,6 +272,19 @@ mod tests {
         assert_eq!(std::fs::read(&path).unwrap(), b"two");
         assert_eq!(std::fs::read(backup_path(&path)).unwrap(), b"two");
         assert!(!path.with_extension("skv.bak.tmp").exists());
+    }
+
+    #[test]
+    fn a_failed_rekeyed_write_leaves_the_vault_file_untouched() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("vault.skv");
+        let first = write(&path, b"one", None).unwrap();
+        // A directory in the backup's staging place makes the backup step fail.
+        std::fs::create_dir(path.with_extension("skv.bak.tmp")).unwrap();
+        assert_eq!(write_rekeyed(&path, b"two", Some(&first)).err().unwrap(), IO);
+        assert_eq!(current_snapshot(&path), Some(first));
+        assert_eq!(std::fs::read(&path).unwrap(), b"one");
+        assert!(!path.with_extension("skv.tmp").exists());
     }
 
     #[test]
