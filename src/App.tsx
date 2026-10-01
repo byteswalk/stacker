@@ -356,29 +356,32 @@ function Shell() {
   return (
     <div className="a">
       <div className="titlebar" data-tauri-drag-region>
-        {sideNarrow && <button className="tb-logo" title={tr("展开侧栏")} aria-label={tr("展开侧栏")} onClick={() => setSideNarrow(false)}>
-          <svg className="logo-mark" viewBox="0 0 32 32" focusable="false" aria-hidden="true">
-            <path className="logo-layer-1" d="M16 4 28 10 16 16 4 10Z" />
-            <path className="logo-layer-2" d="M16 10 28 16 16 22 4 16Z" />
-            <path className="logo-layer-3" d="M16 16 28 22 16 28 4 22Z" />
-          </svg>
-        </button>}
-        <span className="tb-title" data-tauri-drag-region>Stacker</span>
+        {sideNarrow
+          ? <button className="tb-title tb-title-btn" title={tr("展开侧栏")} onClick={() => setSideNarrow(false)}>Stacker</button>
+          : <span className="tb-title" data-tauri-drag-region>Stacker</span>}
         <WindowControls />
       </div>
       <div className="ashell">
-      <aside className={"side" + (sideNarrow ? " hidden" : "")} aria-hidden={sideNarrow || undefined}>
-        <button className="side-collapse" title={tr("收起侧栏")} aria-label={tr("收起侧栏")} onClick={() => setSideNarrow(true)}>
+      <aside className={"side" + (sideNarrow ? " narrow" : "")}>
+        {!sideNarrow && <button className="side-collapse" title={tr("收起侧栏")} aria-label={tr("收起侧栏")} onClick={() => setSideNarrow(true)}>
           <i className="ti ti-chevron-left" aria-hidden="true" />
-        </button>
+        </button>}
         <div className="brand" data-tauri-drag-region>
-          <span className="logo" aria-hidden="true">
-            <svg className="logo-mark" viewBox="0 0 32 32" focusable="false">
+          {sideNarrow
+            ? <button className="logo logo-btn" title={tr("展开侧栏")} aria-label={tr("展开侧栏")} onClick={() => setSideNarrow(false)}>
+              <svg className="logo-mark" viewBox="0 0 32 32" focusable="false" aria-hidden="true">
               <path className="logo-layer-1" d="M16 4 28 10 16 16 4 10Z" />
               <path className="logo-layer-2" d="M16 10 28 16 16 22 4 16Z" />
               <path className="logo-layer-3" d="M16 16 28 22 16 28 4 22Z" />
-            </svg>
-          </span>
+              </svg>
+            </button>
+            : <span className="logo" aria-hidden="true">
+              <svg className="logo-mark" viewBox="0 0 32 32" focusable="false">
+              <path className="logo-layer-1" d="M16 4 28 10 16 16 4 10Z" />
+              <path className="logo-layer-2" d="M16 10 28 16 16 22 4 16Z" />
+              <path className="logo-layer-3" d="M16 16 28 22 16 28 4 22Z" />
+              </svg>
+            </span>}
           <span className="brand-text">Stacker</span>
           {appVersion && <span className="brand-version" title={`Stacker v${appVersion}`}>v{appVersion}</span>}
         </div>

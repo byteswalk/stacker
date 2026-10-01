@@ -1576,22 +1576,32 @@ button{ font-family:inherit; }
 .a .gw-level.on{border-color:var(--blue);background:rgba(47,111,219,.16);color:var(--blue)}
 .a .gw-levels-note{margin:8px 2px 0;font-size:11.5px;line-height:1.6}
 
-/* The sidebar hides whole. A tab on its right edge hides it; the logo in the title bar
-   brings it back. */
+/* The sidebar narrows to its icons, which keep working. A tab on its right edge narrows it;
+   the logo at its top, or the name in the title bar, widens it again. */
 .a .side{ position:relative; }
-.a .side.hidden{ width:0; padding-left:0; padding-right:0; border-right:0; overflow:hidden; }
+.a .side.narrow{ width:56px; padding-left:8px; padding-right:8px; }
+.a .side.narrow .brand{ justify-content:center; padding-left:0; padding-right:0; }
+.a .side.narrow .brand-text,
+.a .side.narrow .brand-version,
+.a .side.narrow .nl,
+.a .side.narrow nav .navgroup-hd{ display:none; }
+.a .side.narrow nav{ margin-right:-4px; padding-right:4px; }
+.a .side.narrow nav .navgroup.collapsed .navgroup-body{ grid-template-rows:1fr; }
+.a .side.narrow nav .navgroup-hd + .navgroup-body .navgroup-items{ margin:0; padding-left:0; border-left:none; }
+.a .side.narrow .ni,
+.a .side.narrow nav .navgroup-hd + .navgroup-body .ni{ justify-content:center; padding-left:0; padding-right:0; position:relative; }
+.a .side.narrow .ni > i:first-child{ font-size:16px; }
+.a .side.narrow .navdot{ position:absolute; top:2px; right:4px; margin:0; min-width:14px; height:14px; font-size:8px; }
 .a .side-collapse{ position:absolute; top:50%; right:-1px; transform:translateY(-50%); z-index:3;
   width:14px; height:44px; padding:0; display:flex; align-items:center; justify-content:center;
   border:.5px solid var(--bd); border-right:0; border-radius:7px 0 0 7px; background:var(--side);
   color:var(--mut); font-size:12px; cursor:pointer; opacity:.55; transition:opacity .15s, color .15s, width .15s; }
 .a .side:hover .side-collapse{ opacity:1; }
 .a .side-collapse:hover{ width:18px; color:var(--tx); background:var(--cardh); }
-.a .side.hidden .side-collapse{ display:none; }
-.a .tb-logo{ display:flex; align-items:center; justify-content:center; width:26px; height:26px; margin-left:8px;
-  padding:0; border:0; border-radius:7px; background:transparent; cursor:pointer; }
-.a .tb-logo:hover{ background:var(--cardh); }
-.a .tb-logo .logo-mark{ width:18px; height:18px; }
-.a .tb-logo + .tb-title{ padding-left:6px; }
+.a .logo-btn{ padding:0; border:0; cursor:pointer; }
+.a .logo-btn:hover{ filter:brightness(1.15); }
+.a .tb-title-btn{ height:100%; border:0; background:transparent; font-family:inherit; cursor:pointer; }
+.a .tb-title-btn:hover{ color:var(--tx); }
 /* Search boxes match the selects beside them: same height, border, surface and type. */
 .a .gw-search{ display:inline-flex; align-items:center; gap:7px; height:auto; padding:6px 10px; min-width:220px;
   border:.5px solid var(--bd); border-radius:8px; background:#232932; color:var(--mut); font-size:12.5px; }
