@@ -7,6 +7,7 @@ import { KIND_LABELS, RISK_LABELS } from "./labels";
 import { ExpiryBadge } from "./EntryList";
 import { HistoryDialog } from "./HistoryDialog";
 import { useRevealed } from "./useRevealed";
+import { publicKeyOf, SERVERS_FIELD, SshKeyActions, SshServers } from "./SshKeys";
 
 /** One entry in a dialog: its fields to show and copy, and what can be done with it. */
 export function EntryDetail({ entry, today, onEdit, onChanged, onClose }: {
@@ -58,7 +59,7 @@ export function EntryDetail({ entry, today, onEdit, onChanged, onClose }: {
         <button className="pr sm" disabled={busy} onClick={onEdit}><i className="ti ti-edit" /> 编辑</button>
       </>}>
       <div className="vault-detail">
-      {entry.fields.map((field) => {
+      {entry.fields.filter((field) => !(entry.kind === "ssh_key" && field.name === SERVERS_FIELD)).map((field) => {
         const shown = field.secret ? revealed[field.name] : field.value ?? "";
         return (
           <div className="vault-field" key={field.name}>
@@ -82,6 +83,10 @@ export function EntryDetail({ entry, today, onEdit, onChanged, onClose }: {
           <span className="vault-tags">{entry.ssh.risks.map((risk) => <span key={risk} className="vault-badge expired">{RISK_LABELS[risk] ?? risk}</span>)}</span>
         </div>
       )}
+      {entry.kind === "ssh_key" && <>
+        {publicKeyOf(entry) !== "" && <div className="vault-field"><span className="name">交给服务器</span><SshKeyActions entry={entry} /><span /></div>}
+        <SshServers entry={entry} onChanged={onChanged} />
+      </>}
       <div className="vault-field"><span className="name">到期</span><span><ExpiryBadge expiresAt={entry.expiresAt} today={today} /></span><span /></div>
       {entry.tags.length > 0 && <div className="vault-field"><span className="name">标签</span><span className="vault-tags">{entry.tags.map((tag) => <span key={tag} className="vault-badge">{tag}</span>)}</span><span /></div>}
       {entry.note && <div className="vault-field"><span className="name">备注</span><code translate="no">{entry.note}</code><span /></div>}

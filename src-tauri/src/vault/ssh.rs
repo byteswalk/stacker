@@ -1,8 +1,9 @@
 //! SSH 私钥：识别算法、是否加密、指纹与公钥，标出弱密钥；导出时把权限收紧为仅当前用户。
 
-use super::errors::{FILE_EXISTS, IO};
-use serde::Serialize;
+use super::errors::{FILE_EXISTS, HOST, HOST_EXISTS, IO, NAME};
+use serde::{Deserialize, Serialize};
 use std::path::Path;
+use zeroize::Zeroizing;
 
 pub(crate) const RISK_UNENCRYPTED: &str = "unencrypted";
 pub(crate) const RISK_DSA: &str = "dsa";
@@ -143,6 +144,149 @@ fn pkcs1_modulus_bits(text: &str) -> Option<u32> {
     (tag == 0x02).then(|| bit_length(modulus))
 }
 
+/// A new key pair in OpenSSH form: the private key as it goes into the vault, the public
+/// key as a server's `authorized_keys` takes it.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct KeyPair {
+    pub private_key: String,
+    pub public_key: String,
+}
+
+/// `ed25519` (the default everywhere it is supported) or `rsa` at 4096 bits for servers
+/// too old for it. A non-empty passphrase encrypts the private key the OpenSSH way.
+pub(crate) fn generate(
+    algorithm: &str,
+    comment: &str,
+    passphrase: &str,
+) -> Result<KeyPair, String> {
+    use ssh_key::private::{KeypairData, RsaKeypair};
+    use ssh_key::rand_core::OsRng;
+    use ssh_key::{Algorithm, LineEnding, PrivateKey};
+
+    // The comment ends up inside a quoted shell command, so only plain characters stay.
+    let comment: String = comment
+        .trim()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || "@._-+ ".contains(*c))
+        .take(120)
+        .collect();
+    let mut key = match algorithm {
+        "ed25519" => PrivateKey::random(&mut OsRng, Algorithm::Ed25519),
+        "rsa" => RsaKeypair::random(&mut OsRng, 4096)
+            .and_then(|pair| PrivateKey::new(KeypairData::from(pair), "")),
+        _ => return Err(IO.into()),
+    }
+    .map_err(|_| IO.to_string())?;
+    key.set_comment(comment);
+    let public_key = key.public_key().to_openssh().map_err(|_| IO.to_string())?;
+    if !passphrase.is_empty() {
+        key = key
+            .encrypt(&mut OsRng, passphrase)
+            .map_err(|_| IO.to_string())?;
+    }
+    let private_key: Zeroizing<String> =
+        key.to_openssh(LineEnding::LF).map_err(|_| IO.to_string())?;
+    Ok(KeyPair {
+        private_key: private_key.to_string(),
+        public_key,
+    })
+}
+
+/// The `Host` block to add to `~/.ssh/config`, so `ssh <alias>` uses the key.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LocalHost {
+    pub alias: String,
+    pub host: String,
+    pub user: String,
+    pub port: Option<u16>,
+}
+
+fn plain(text: &str, extra: &str) -> bool {
+    !text.is_empty()
+        && text
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || extra.contains(c))
+}
+
+/// A file name of the key's own: no path, no dot file, none of the names ssh itself keeps.
+fn key_file_name(name: &str) -> bool {
+    plain(name, "._-")
+        && !name.starts_with('.')
+        && !name.ends_with(".pub")
+        && !matches!(
+            name.to_ascii_lowercase().as_str(),
+            "config" | "known_hosts" | "authorized_keys"
+        )
+}
+
+fn has_host(config: &str, alias: &str) -> bool {
+    config.lines().any(|line| {
+        let mut words = line.split_whitespace();
+        words.next().is_some_and(|w| w.eq_ignore_ascii_case("host"))
+            && words.any(|w| w.eq_ignore_ascii_case(alias))
+    })
+}
+
+/// Puts a vault key where ssh finds it: the private key as `<dir>/<name>` (never over an
+/// existing file, readable by the current user only), the public key beside it, and, when
+/// asked, a `Host` block appended to `<dir>/config`. Everything that can be refused is
+/// checked before the first file is written; `backup` sees the config before it changes.
+pub(crate) fn install_local(
+    dir: &Path,
+    name: &str,
+    private: &str,
+    public: Option<&str>,
+    host: Option<&LocalHost>,
+    backup: impl FnOnce(&Path),
+) -> Result<String, String> {
+    if !key_file_name(name) {
+        return Err(NAME.into());
+    }
+    let config_path = dir.join("config");
+    let config = std::fs::read_to_string(&config_path).unwrap_or_default();
+    if let Some(host) = host {
+        if !plain(&host.alias, "._-") || !plain(&host.host, ".:_-") || !plain(&host.user, "._-") {
+            return Err(HOST.into());
+        }
+        if has_host(&config, &host.alias) {
+            return Err(HOST_EXISTS.into());
+        }
+    }
+    std::fs::create_dir_all(dir).map_err(|_| IO.to_string())?;
+    let dest = dir.join(name);
+    export_private(private, &dest)?;
+    if let Some(public) = public.map(str::trim).filter(|text| !text.is_empty()) {
+        let beside = dir.join(format!("{name}.pub"));
+        if !beside.exists() {
+            let _ = std::fs::write(beside, format!("{public}\n"));
+        }
+    }
+    if let Some(host) = host {
+        backup(&config_path);
+        let mut next = config;
+        if !next.is_empty() && !next.ends_with('\n') {
+            next.push('\n');
+        }
+        if !next.is_empty() {
+            next.push('\n');
+        }
+        next.push_str(&format!(
+            "Host {}\n    HostName {}\n    User {}\n",
+            host.alias, host.host, host.user
+        ));
+        if let Some(port) = host.port.filter(|port| *port != 22) {
+            next.push_str(&format!("    Port {port}\n"));
+        }
+        next.push_str(&format!(
+            "    IdentityFile ~/.ssh/{name}\n    IdentitiesOnly yes\n"
+        ));
+        std::fs::write(&config_path, next).map_err(|_| IO.to_string())?;
+    }
+    Ok(dest.display().to_string())
+}
+
 /// Never overwrites. OpenSSH refuses a private key others can read, so the empty file is
 /// locked down to the current user before any secret goes into it; if anything fails after
 /// the file was created, it is removed again so a retry starts clean.
@@ -230,6 +374,169 @@ mod tests {
             return None;
         }
         std::fs::read_to_string(&path).ok()
+    }
+
+    #[test]
+    fn a_generated_key_reads_back_as_what_was_asked_for() {
+        let pair = generate("ed25519", "me@box 'quoted'", "").unwrap();
+        assert!(pair.public_key.starts_with("ssh-ed25519 "));
+        assert!(
+            pair.public_key.ends_with(" me@box quoted"),
+            "{}",
+            pair.public_key
+        );
+        let info = inspect(&pair.private_key).unwrap();
+        assert_eq!(info.algorithm, "ssh-ed25519");
+        assert!(!info.encrypted);
+        assert_eq!(info.public_key.unwrap(), pair.public_key);
+
+        let locked = generate("ed25519", "", "a passphrase").unwrap();
+        assert!(inspect(&locked.private_key).unwrap().encrypted);
+        assert!(generate("dsa", "", "").is_err());
+    }
+
+    /// The system's own ssh-keygen reads the key we made and derives the same public key.
+    #[test]
+    fn openssh_itself_accepts_a_generated_key() {
+        let dir = tempfile::tempdir().unwrap();
+        for algorithm in ["ed25519"] {
+            let pair = generate(algorithm, "check", "").unwrap();
+            let path = dir.path().join(algorithm);
+            export_private(&pair.private_key, &path).unwrap();
+            let Ok(out) = std::process::Command::new("ssh-keygen")
+                .arg("-y")
+                .arg("-f")
+                .arg(&path)
+                .output()
+            else {
+                eprintln!("ssh-keygen not found; skipped");
+                return;
+            };
+            assert!(
+                out.status.success(),
+                "{}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            let derived = String::from_utf8_lossy(&out.stdout);
+            let mut words = pair.public_key.split(' ');
+            let (kind, body) = (words.next().unwrap(), words.next().unwrap());
+            assert!(
+                derived.trim().starts_with(&format!("{kind} {body}")),
+                "{derived}"
+            );
+        }
+    }
+
+    #[test]
+    fn installing_a_key_locally_writes_the_files_and_one_host_block() {
+        let dir = tempfile::tempdir().unwrap();
+        let ssh = dir.path().join(".ssh");
+        let pair = generate("ed25519", "me@box", "").unwrap();
+        let host = LocalHost {
+            alias: "vps1".into(),
+            host: "203.0.113.7".into(),
+            user: "root".into(),
+            port: Some(2222),
+        };
+        let backed_up = std::cell::Cell::new(false);
+        let path = install_local(
+            &ssh,
+            "vps1_ed25519",
+            &pair.private_key,
+            Some(&pair.public_key),
+            Some(&host),
+            |_| backed_up.set(true),
+        )
+        .unwrap();
+        assert!(path.ends_with("vps1_ed25519") && backed_up.get());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), pair.private_key);
+        assert_eq!(
+            std::fs::read_to_string(ssh.join("vps1_ed25519.pub"))
+                .unwrap()
+                .trim(),
+            pair.public_key
+        );
+        let config = std::fs::read_to_string(ssh.join("config")).unwrap();
+        assert_eq!(
+            config,
+            "Host vps1\n    HostName 203.0.113.7\n    User root\n    Port 2222\n    IdentityFile ~/.ssh/vps1_ed25519\n    IdentitiesOnly yes\n"
+        );
+
+        // The same alias again is refused before any file is written.
+        assert_eq!(
+            install_local(&ssh, "other", &pair.private_key, None, Some(&host), |_| ())
+                .err()
+                .unwrap(),
+            HOST_EXISTS
+        );
+        assert!(!ssh.join("other").exists());
+        // An existing key file is never replaced; an existing config is added to, not rewritten.
+        assert_eq!(
+            install_local(&ssh, "vps1_ed25519", &pair.private_key, None, None, |_| ())
+                .err()
+                .unwrap(),
+            FILE_EXISTS
+        );
+        let second = LocalHost {
+            alias: "vps2".into(),
+            port: None,
+            ..host.clone()
+        };
+        install_local(&ssh, "vps2", &pair.private_key, None, Some(&second), |_| ()).unwrap();
+        let config = std::fs::read_to_string(ssh.join("config")).unwrap();
+        assert!(
+            config.starts_with("Host vps1\n")
+                && config.contains("\n\nHost vps2\n")
+                && !config.contains("Port 22\n")
+        );
+    }
+
+    #[test]
+    fn local_install_refuses_names_and_hosts_that_are_not_plain() {
+        let dir = tempfile::tempdir().unwrap();
+        for name in [
+            "",
+            "config",
+            "known_hosts",
+            "../up",
+            "a b",
+            ".hidden",
+            "key.pub",
+            "a/b",
+        ] {
+            assert_eq!(
+                install_local(dir.path(), name, "x", None, None, |_| ())
+                    .err()
+                    .unwrap(),
+                NAME,
+                "{name}"
+            );
+        }
+        let bad = LocalHost {
+            alias: "a b".into(),
+            host: "h".into(),
+            user: "u".into(),
+            port: None,
+        };
+        assert_eq!(
+            install_local(dir.path(), "k", "x", None, Some(&bad), |_| ())
+                .err()
+                .unwrap(),
+            HOST
+        );
+        let bad = LocalHost {
+            alias: "a".into(),
+            host: "h\nProxyCommand x".into(),
+            user: "u".into(),
+            port: None,
+        };
+        assert_eq!(
+            install_local(dir.path(), "k", "x", None, Some(&bad), |_| ())
+                .err()
+                .unwrap(),
+            HOST
+        );
+        assert!(std::fs::read_dir(dir.path()).unwrap().next().is_none());
     }
 
     #[test]

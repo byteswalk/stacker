@@ -6,6 +6,7 @@ import { EntryDetail } from "./EntryDetail";
 import { EntryEditor } from "./EntryEditor";
 import { EntryList } from "./EntryList";
 import { VaultMenu } from "./VaultMenu";
+import { SshKeyGenerator } from "./SshKeys";
 import { filterEntries, platformsOf, soonCount } from "./vaultView";
 
 export function VaultWorkspace({ onLocked }: { onLocked: () => void }) {
@@ -15,6 +16,7 @@ export function VaultWorkspace({ onLocked }: { onLocked: () => void }) {
   const [viewingId, setViewingId] = useState<string | null>(null);
   const [filter, setFilter] = useState({ query: "", platform: "", soonOnly: false });
   const [editing, setEditing] = useState<EntryView | null | "new">(null);
+  const [generating, setGenerating] = useState(false);
   const today = useMemo(() => new Date(), []);
 
   // Kept in a ref so `load` (and the effect below) never re-run just because the parent re-rendered.
@@ -47,6 +49,7 @@ export function VaultWorkspace({ onLocked }: { onLocked: () => void }) {
           <button className={tab === "discover" ? "on" : ""} onClick={() => setTab("discover")}>发现</button>
         </div>
         <span className="grow" />
+        {tab === "entries" && <button className="gh sm" title="在保管库里生成一把新的 SSH 密钥，公钥交给服务器" onClick={() => setGenerating(true)}><i className="ti ti-key" /> 生成 SSH 密钥</button>}
         {tab === "entries" && <button className="pr sm" onClick={() => setEditing("new")}><i className="ti ti-plus" /> 新建</button>}
         <button className="gh sm" onClick={() => void lock()}><i className="ti ti-lock" /> 锁定</button>
         <VaultMenu onChanged={() => void load()} />
@@ -77,6 +80,7 @@ export function VaultWorkspace({ onLocked }: { onLocked: () => void }) {
         <EntryDetail key={viewing.id} entry={viewing} today={today} onClose={() => setViewingId(null)}
           onEdit={() => setEditing(viewing)} onChanged={() => void load()} />
       )}
+      {generating && <SshKeyGenerator onClose={() => setGenerating(false)} onSaved={() => void load()} />}
       {editing && (
         <EntryEditor entry={editing === "new" ? null : editing} onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); void load(); }} />

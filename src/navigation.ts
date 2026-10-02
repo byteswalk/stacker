@@ -38,12 +38,12 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { id: "proxy", icon: "ti-world-bolt", labelKey: "nav.proxy" },
       { id: "cleanup", icon: "ti-eraser", labelKey: "nav.cleanup" },
+      { id: "vault", icon: "ti-shield-lock", labelKey: "nav.vault" },
     ],
   },
 ];
 
 export const NAV_FOOT: NavItem[] = [
-  { id: "vault", icon: "ti-shield-lock", labelKey: "nav.vault" },
   { id: "history", icon: "ti-history", labelKey: "nav.history" },
   { id: "settings", icon: "ti-settings", labelKey: "nav.settings" },
 ];

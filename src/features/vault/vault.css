@@ -69,3 +69,12 @@
 .a .vault-tags{ display:flex; gap:6px; flex-wrap:wrap; }
 .a .vault-empty{ color:var(--mut); font-size:12.5px; padding:24px 0; text-align:center; }
 .a .vault-note{ margin-bottom:12px; } .a .pxcard + .vault-note{ margin-top:12px; }
+.a .vault-ssh-actions{ display:flex; gap:8px; flex-wrap:wrap; }
+.a .vault-ssh-host{ display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.4fr) minmax(0,1fr) 84px; gap:10px; }
+.a .vault-keygen{ display:flex; flex-direction:column; gap:12px; }
+.a .vault-pubkey{ display:block; padding:10px 12px; border:.5px solid var(--bd); border-radius:8px; background:var(--field); font-family:ui-monospace,Consolas,monospace; font-size:12px; line-height:1.6; word-break:break-all; user-select:all; }
+.a .modal.wide:has(.vault-keygen){ max-width:min(700px, calc(100vw - 48px)); }
+.a .vault-servers{ align-items:start; }
+.a .vault-servers-add{ display:flex; gap:8px; margin-top:6px; } .a .vault-servers-add .ip{ flex:1; min-width:0; width:auto; }
+.a .vault-servers .vault-tags{ margin-bottom:2px; } .a .vault-servers .vault-badge{ display:inline-flex; align-items:center; gap:4px; color:var(--tx); padding:2px 4px 2px 8px; }
+.a .vault-servers .vault-badge button{ display:inline-flex; background:none; border:0; padding:0 2px; color:var(--mut); cursor:pointer; } .a .vault-servers .vault-badge button:hover{ color:var(--red); }

@@ -22,6 +22,8 @@ export type Finding = {
   id: number; source: "ssh" | "config" | "env" | "dotenv"; location: string; name: string; preview: string; platform: string; kind: Kind; risks: string[]; status: FindingStatus;
 };
 export type DiscoverStatus = { running: boolean; cancelled: boolean; truncated: boolean; files: number; findings: Finding[] };
+export type SshKeyPair = { privateKey: string; publicKey: string };
+export type SshLocalHost = { alias: string; host: string; user: string; port: number };
 export type RetiredVault = { path: string; modifiedMs: number; bytes: number };
 export type ImportItem = { id: number; platform: string; kind: Kind; origin?: string };
 export type VaultSettings = { vault_auto_lock_minutes: number; vault_scan_dirs: string[] };
@@ -50,6 +52,8 @@ export const vaultApi = {
   restore: (id: string) => invoke<void>("vault_restore", { id }),
   purge: (id: string) => invoke<void>("vault_purge", { id }),
   sshExport: (id: string, dest: string) => invoke<void>("vault_ssh_export", { id, dest }),
+  sshGenerate: (algorithm: string, comment: string, passphrase: string) => invoke<SshKeyPair>("vault_ssh_generate", { algorithm, comment, passphrase }),
+  sshInstallLocal: (id: string, name: string, host: SshLocalHost | null) => invoke<string>("vault_ssh_install_local", { id, name, host }),
   exportBackup: (password: string, dest: string) => invoke<void>("vault_export", { password, dest }),
   importPreview: (src: string, credential: Credential) => invoke<MergeStats>("vault_import_preview", { src, credential }),
   importApply: (src: string, credential: Credential) => invoke<MergeStats>("vault_import_apply", { src, credential }),
@@ -84,6 +88,9 @@ const ERRORS: Record<string, string> = {
   E_VAULT_FILE_EXISTS: "目标位置已有同名文件，请选择其他位置。",
   E_VAULT_INVALID: "请填写标题。",
   E_VAULT_BUSY: "正在扫描，请等待完成或取消。",
+  E_VAULT_NAME: "文件名只能用字母、数字、点、短横线和下划线，且不能是 config、known_hosts 这类 ssh 自己的文件。",
+  E_VAULT_HOST: "别名、主机和用户只能用字母、数字、点、短横线和下划线。",
+  E_VAULT_HOST_EXISTS: "~/.ssh/config 里已经有这个别名，请换一个。",
   E_VAULT_IO: "读写文件失败，请检查磁盘空间与权限后重试。",
 };
 

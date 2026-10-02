@@ -34,8 +34,10 @@ describe("sidebar navigation", () => {
     expect(sectionKeyOf("overview")).toBeNull();
   });
 
-  it("puts 密钥保管 at the foot, above 配置备份 and 偏好设置", () => {
-    expect(NAV_FOOT.map((item) => item.id)).toEqual(["vault", "history", "settings"]);
+  it("puts 密钥保管 third under 网络与存储, and keeps 配置备份 and 偏好设置 at the foot", () => {
+    expect(NAV_FOOT.map((item) => item.id)).toEqual(["history", "settings"]);
+    expect(NAV_SECTIONS.find((section) => section.labelKey === "nav.section.system")!.items.map((item) => item.id)).toEqual(["proxy", "cleanup", "vault"]);
+    expect(sectionKeyOf("vault")).toBe("nav.section.system");
     expect(t("nav.vault", "zh-CN")).toBe("密钥保管");
     expect(t("nav.vault", "en-US")).toBe("Key Vault");
   });

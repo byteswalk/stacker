@@ -175,6 +175,42 @@ pub async fn vault_ssh_export(id: String, dest: String) -> Result<(), String> {
     blocking(move || ssh::export_private(&vault().ssh_private(&id)?, &PathBuf::from(dest))).await
 }
 
+/// A fresh key pair for the page to save as an entry; nothing is stored here.
+#[tauri::command]
+pub async fn vault_ssh_generate(
+    algorithm: String,
+    comment: String,
+    passphrase: String,
+) -> Result<ssh::KeyPair, String> {
+    let passphrase = Zeroizing::new(passphrase);
+    blocking(move || ssh::generate(&algorithm, &comment, &passphrase)).await
+}
+
+/// The one place the vault writes to `~/.ssh`, and only when the user asks for it.
+#[tauri::command]
+pub async fn vault_ssh_install_local(
+    id: String,
+    name: String,
+    host: Option<ssh::LocalHost>,
+) -> Result<String, String> {
+    blocking(move || {
+        let dir = dirs::home_dir().ok_or(NOT_FOUND)?.join(".ssh");
+        let private = vault().ssh_private(&id)?;
+        let public = ssh::inspect(&private).and_then(|info| info.public_key);
+        ssh::install_local(
+            &dir,
+            &name,
+            &private,
+            public.as_deref(),
+            host.as_ref(),
+            |config| {
+                crate::backup::backup_file(config);
+            },
+        )
+    })
+    .await
+}
+
 #[tauri::command]
 pub async fn vault_export(password: String, dest: String) -> Result<(), String> {
     let password = Zeroizing::new(password);
