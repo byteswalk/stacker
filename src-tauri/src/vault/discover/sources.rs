@@ -428,6 +428,31 @@ fn env_scopes() -> Vec<(&'static str, Vec<(String, String)>)> {
     Vec::new()
 }
 
+/// The environment variables, user ones first, whose value is exactly `value`: where a
+/// program on this computer can already read a secret the vault also holds.
+pub(crate) fn env_names_holding(value: &str) -> Vec<(&'static str, String)> {
+    holders_in(env_scopes(), value)
+}
+
+fn holders_in(
+    scopes: Vec<(&'static str, Vec<(String, String)>)>,
+    value: &str,
+) -> Vec<(&'static str, String)> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Vec::new();
+    }
+    scopes
+        .into_iter()
+        .flat_map(|(scope, pairs)| {
+            pairs
+                .into_iter()
+                .filter(|(_, held)| held.trim() == value)
+                .map(move |(name, _)| (scope, name))
+        })
+        .collect()
+}
+
 pub(crate) fn env_vars() -> Vec<Raw> {
     let mut out = Vec::new();
     for (scope, pairs) in env_scopes() {
@@ -483,6 +508,32 @@ pub(crate) fn dotenv_files(dirs: &[PathBuf], walk: &Walk) -> Vec<Raw> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_secret_is_found_in_the_variables_that_hold_exactly_it() {
+        let scopes = vec![
+            (
+                "user",
+                vec![
+                    ("API_TOKEN".to_string(), " abc123 ".to_string()),
+                    ("OTHER".to_string(), "abc1234".to_string()),
+                ],
+            ),
+            (
+                "system",
+                vec![("SHARED_TOKEN".to_string(), "abc123".to_string())],
+            ),
+        ];
+        assert_eq!(
+            holders_in(scopes.clone(), "abc123"),
+            vec![
+                ("user", "API_TOKEN".to_string()),
+                ("system", "SHARED_TOKEN".to_string())
+            ]
+        );
+        assert!(holders_in(scopes.clone(), "abc").is_empty());
+        assert!(holders_in(scopes, "  ").is_empty());
+    }
     use std::fs;
 
     fn sample() -> String {

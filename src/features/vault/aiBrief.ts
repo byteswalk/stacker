@@ -1,4 +1,4 @@
-import type { EntryView, SshLocal } from "./api";
+import type { EntryView, EnvHolder, SshLocal } from "./api";
 import { KIND_LABELS } from "./labels";
 import { parseTarget, publicKeyOf, serversOf, SERVERS_FIELD } from "./SshKeys";
 
@@ -15,7 +15,7 @@ function sshTarget(entry: EntryView): { target: string; port: string } {
  * What an AI agent needs to act with an entry, as text to paste into it. Secrets never go in:
  * an SSH key is named by the file ssh already uses, anything else by where to copy it from.
  */
-export function aiBrief(entry: EntryView, local: SshLocal | null, tr: Tr): string {
+export function aiBrief(entry: EntryView, local: SshLocal | null, tr: Tr, holders: EnvHolder[] = []): string {
   const lines = [`${tr("名称")}: ${entry.title}`, `${tr("类型")}: ${tr(KIND_LABELS[entry.kind])}`];
   if (entry.platform) lines.push(`${tr("平台")}: ${entry.platform}`);
 
@@ -34,9 +34,12 @@ export function aiBrief(entry: EntryView, local: SshLocal | null, tr: Tr): strin
   } else {
     for (const field of entry.fields) {
       if (!field.filled) continue;
-      lines.push(field.secret
-        ? `${tr(field.name)}: ${tr("（保密，未包含；需要时我从 Stacker 复制给你）")}`
-        : `${tr(field.name)}: ${field.value ?? ""}`);
+      if (!field.secret) { lines.push(`${tr(field.name)}: ${field.value ?? ""}`); continue; }
+      // The value stays on this computer: the agent is told which variable to read it from.
+      const holder = holders.find((item) => item.field === field.name);
+      lines.push(holder
+        ? `${tr(field.name)}: ${tr(holder.scope === "user" ? "在本机的用户环境变量里" : "在本机的系统环境变量里")} ${holder.name}（PowerShell: $env:${holder.name} · cmd: %${holder.name}% · bash: $${holder.name}）`
+        : `${tr(field.name)}: ${tr("（保密，未包含：这个值只在 Stacker 保管库里，本机没有环境变量保存它）")}`);
     }
   }
   if (entry.kind === "ssh_key") {
@@ -50,6 +53,8 @@ export function aiBrief(entry: EntryView, local: SshLocal | null, tr: Tr): strin
   if (entry.note.trim()) lines.push(`${tr("备注")}: ${entry.note.trim()}`);
   lines.push(tr(entry.kind === "ssh_key"
     ? "说明：这是我本机的 SSH 密钥信息，私钥和口令不在这里。请用上面的连接命令操作服务器，不要要求我贴出私钥。"
-    : "说明：这是我保管的一条凭据的信息，保密的值不在这里。"));
+    : holders.length
+      ? "说明：这是我保管的一条凭据的信息，值不在这里。请在命令里直接引用上面的环境变量，不要把它的值打印或写进文件。"
+      : "说明：这是我保管的一条凭据的信息，保密的值不在这里，也不要要求我贴出来。"));
   return lines.join("\n");
 }

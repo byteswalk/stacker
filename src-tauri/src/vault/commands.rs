@@ -271,6 +271,47 @@ pub async fn vault_ssh_set_passphrase(
     .await
 }
 
+/// An environment variable that already holds one of an entry's secrets.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EnvHolder {
+    field: String,
+    name: String,
+    scope: &'static str,
+}
+
+/// Which of an entry's secrets a program on this computer can already read from the
+/// environment, so an AI agent is told the variable's name and never the value. Read-only.
+#[tauri::command]
+pub async fn vault_env_holders(id: String) -> Result<Vec<EnvHolder>, String> {
+    blocking(move || {
+        let view = vault()
+            .list(false)?
+            .into_iter()
+            .find(|entry| entry.id == id)
+            .ok_or(NOT_FOUND)?;
+        let mut out = Vec::new();
+        for field in view
+            .fields
+            .iter()
+            .filter(|field| field.secret && field.filled)
+        {
+            let value = vault().reveal(&id, &field.name)?;
+            out.extend(
+                discover::sources::env_names_holding(&value)
+                    .into_iter()
+                    .map(|(scope, name)| EnvHolder {
+                        field: field.name.clone(),
+                        name,
+                        scope,
+                    }),
+            );
+        }
+        Ok(out)
+    })
+    .await
+}
+
 /// Whether the local ssh already has an entry's key, and under which alias: read-only.
 #[tauri::command]
 pub async fn vault_ssh_local(id: String) -> Result<ssh::LocalKey, String> {

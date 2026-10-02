@@ -40,11 +40,14 @@ export function EntryList({ entries, today, onView, onEdit, onChanged }: {
   // The text for an AI agent: how to use the entry, without its secrets.
   async function copyBrief(entry: EntryView) {
     try {
-      const local = entry.kind === "ssh_key" ? await vaultApi.sshLocal(entry.id).catch(() => null) : null;
-      await navigator.clipboard.writeText(aiBrief(entry, local, tr));
-      toast(entry.kind === "ssh_key" && !local?.path
-        ? "已复制给 AI 的信息。私钥还没放到本机 ~/.ssh，AI 暂时连不上：先在详情里点「放到本机 ~/.ssh」。"
-        : "已复制给 AI 的信息，不含保密内容。", entry.kind === "ssh_key" && !local?.path ? "info" : "ok");
+      const ssh = entry.kind === "ssh_key";
+      const local = ssh ? await vaultApi.sshLocal(entry.id).catch(() => null) : null;
+      const holders = ssh ? [] : await vaultApi.envHolders(entry.id).catch(() => []) ?? [];
+      await navigator.clipboard.writeText(aiBrief(entry, local, tr, holders));
+      const secrets = entry.fields.filter((field) => field.secret && field.filled);
+      if (ssh && !local?.path) toast("已复制给 AI 的信息。私钥还没放到本机 ~/.ssh，AI 暂时连不上：先在详情里点「放到本机 ~/.ssh」。", "info");
+      else if (!ssh && secrets.some((field) => !holders.some((item) => item.field === field.name))) toast("已复制给 AI 的信息。密钥值只在保管库里、本机没有环境变量保存它，所以 AI 拿不到值。", "info");
+      else toast(ssh ? "已复制给 AI 的信息，不含保密内容。" : "已复制给 AI 的信息：告诉了它用哪个环境变量，不含密钥值。", "ok");
     } catch (error) { toast(vaultError(error), "err"); }
   }
   async function remove(entry: EntryView) {
@@ -76,7 +79,7 @@ export function EntryList({ entries, today, onView, onEdit, onChanged }: {
               {publicKey
                 ? <button className="gh xs" title="复制公钥：交给服务器的那一行" onClick={() => void copyPublic(entry)}><i className="ti ti-copy" /> 复制</button>
                 : <button className="gh xs" disabled={!field} title={field ? `复制 ${field}` : undefined} onClick={() => field && void copy(entry, field)}><i className="ti ti-copy" /> 复制</button>}
-              <button className="gh xs ai-btn" title="复制一段可以直接贴给 AI 的信息：怎么用这一条，不含私钥、口令等保密内容" onClick={() => void copyBrief(entry)}><i className="ti ti-sparkles" /> 给 AI</button>
+              <button className="gh xs ai-btn" title="复制一段可以直接贴给 AI 的信息：怎么在这台电脑上用这一条（连接命令、环境变量名），不含私钥、口令、密钥值" onClick={() => void copyBrief(entry)}><i className="ti ti-sparkles" /> 给 AI</button>
               <button className="gh xs" onClick={() => onEdit(entry)}><i className="ti ti-edit" /> 编辑</button>
               <button className="gh xs" title="删除条目" aria-label="删除条目" onClick={() => setDeleting(entry)}><i className="ti ti-trash" /></button>
             </span>

@@ -39,7 +39,10 @@ describe("the text handed to an AI", () => {
       note: " 绑定 work 邮箱 ",
     };
     const text = aiBrief(token, null, same);
-    expect(text).toContain("Key: （保密，未包含");
+    expect(text).toContain("Key: （保密，未包含：这个值只在 Stacker 保管库里");
+    const held = aiBrief(token, null, same, [{ field: "Key", name: "ARK_API_KEY", scope: "user" }]);
+    expect(held).toContain("Key: 在本机的用户环境变量里 ARK_API_KEY（PowerShell: $env:ARK_API_KEY · cmd: %ARK_API_KEY% · bash: $ARK_API_KEY）");
+    expect(held).toContain("请在命令里直接引用上面的环境变量");
     expect(text).toContain("Base URL: https://ark.example/v1");
     expect(text).toContain("备注: 绑定 work 邮箱");
     expect(text).not.toContain("套餐");
