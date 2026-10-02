@@ -16,6 +16,9 @@ button{ font-family:inherit; }
 .a{ --bg:#13161c;--side:#10131a;--card:#1b2029;--cardh:#20262f;--bd:rgba(255,255,255,.07);
   --bdh:rgba(255,255,255,.14);--tx:#e7e9ec;--mut:#828995;--link:#6aa3f5;--acc:#f5821f;
   --green:#6bcf86;--blue:#6aa3f5;--red:#e2625b;--amber:#e4b450;
+  /* One height per control size, so a button, a box and a dropdown in one row line up. */
+  --ctl:32px;--ctl-sm:30px;--ctl-xs:24px;--field:#232932;
+  --ov:rgba(255,255,255,.04);--ovh:rgba(255,255,255,.085);--acc-soft:rgba(245,130,31,.13);--acc-softh:rgba(245,130,31,.22);--acc-tx:#f7a65c;
   display:flex; flex-direction:column; background:var(--bg); color:var(--tx); height:100vh; overflow:hidden; }
 .a .ashell{ display:flex; flex:1; min-height:0; }
 
@@ -143,29 +146,40 @@ button{ font-family:inherit; }
 .a .bd.off{background:rgba(255,255,255,.06);color:var(--mut);}
 
 /* 控件 */
-.a select{ background:#232932; color:var(--tx); border:.5px solid var(--bd);
-  border-radius:8px; padding:7px 9px; font-size:12px; color-scheme:dark; cursor:pointer; }
+.a select{ background:var(--field); color:var(--tx); border:.5px solid var(--bd);
+  border-radius:8px; height:var(--ctl-sm); padding:0 9px; font-size:12.5px; color-scheme:dark; cursor:pointer; }
 .a select:hover{ border-color:var(--bdh); }
 /* 原型用原生 select + color-scheme:dark 让弹出项变深色、对比可读；
    实现阶段所有下拉换成自定义深色下拉组件（选项 hover/选中色统一），不用原生 select。 */
 .a select option{ background:#1b2029; color:var(--tx); }
 .a .psel{ color-scheme:dark; }
 .a .psel option{ background:#1b2029; color:var(--tx); }
-.a .pr{ background:var(--acc); color:#fff; border:none; border-radius:8px;
-  padding:7px 14px; font-size:12px; cursor:pointer; flex-shrink:0; display:inline-flex; align-items:center; gap:5px; white-space:nowrap; }
-.a .pr.sm{ padding:6px 11px; font-size:11.5px; }
+/* Buttons: the filled one for the single main action of a block, the outlined one for the rest.
+   Both share a height per size; inside a list row the filled one turns tonal, so a list of rows
+   is not a column of solid orange. */
+.a .pr,.a .gh{ height:var(--ctl); padding:0 14px; border-radius:8px; font-size:12.5px; font-weight:500; line-height:1;
+  cursor:pointer; flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; gap:6px; white-space:nowrap;
+  transition:background .12s ease,border-color .12s ease,color .12s ease,box-shadow .12s ease; }
+.a .pr.sm,.a .gh.sm{ height:var(--ctl-sm); padding:0 11px; font-size:12px; }
+.a .pr.xs,.a .gh.xs{ height:var(--ctl-xs); padding:0 9px; font-size:11.5px; border-radius:7px; gap:5px; }
+.a .pr{ background:var(--acc); color:#fff; border:.5px solid transparent; box-shadow:inset 0 1px 0 rgba(255,255,255,.16); }
+.a .pr:hover{ background:#ff9338; }
+.a .pr:active{ background:#e37512; }
 .a .pr.blue{ background:#3d7bf0; }
-.a .pr:disabled{ opacity:.4; cursor:default; }
-.a .gh{ background:transparent; color:var(--tx); border:.5px solid var(--bdh);
-  border-radius:8px; padding:7px 13px; font-size:12px; cursor:pointer; flex-shrink:0;
-  display:inline-flex; align-items:center; gap:5px; white-space:nowrap; }
-.a .gh.sm{ padding:6px 11px; }
-.a .gh.xs{ padding:4px 9px; font-size:11px; }
+.a .pr.blue:hover{ background:#5590f5; }
+.a .pr:disabled,.a .pr:disabled:hover{ background:var(--ovh) !important; color:var(--mut); box-shadow:none; cursor:default; opacity:.75; }
+.a .gh{ background:var(--ov); color:var(--tx); border:.5px solid var(--bdh); }
+.a .gh:hover{ background:var(--ovh); border-color:rgba(255,255,255,.22); }
+.a .gh:active{ background:var(--ov); }
 .a .gh.danger{ color:#e98a84; border-color:rgba(226,98,91,.4); }
-.a .gh.danger:hover{ background:rgba(226,98,91,.1); }
-.a .gh:hover{ background:rgba(255,255,255,.05); }
-.a .gh:disabled{ opacity:.4; cursor:default; }
-.a .gh:disabled:hover{ background:transparent; }
+.a .gh.danger:hover{ background:rgba(226,98,91,.12); border-color:rgba(226,98,91,.6); }
+.a .gh.on{ background:var(--acc-soft); border-color:rgba(245,130,31,.45); color:var(--acc-tx); }
+.a .gh:disabled,.a .gh:disabled:hover{ opacity:.42; cursor:default; background:var(--ov); border-color:var(--bdh); }
+.a .pr.soft:not(:disabled),.a .pr:not(:disabled):has(+ .pr),
+.a :is(.vrow,.c,.srcrow,.smrow,.fixrow,.proxy-location,.vault-row) .pr:not(:disabled){ background:var(--acc-soft); color:var(--acc-tx);
+  border-color:rgba(245,130,31,.34); box-shadow:none; }
+.a .pr.soft:not(:disabled):hover,.a .pr:not(:disabled):has(+ .pr):hover,
+.a :is(.vrow,.c,.srcrow,.smrow,.fixrow,.proxy-location,.vault-row) .pr:not(:disabled):hover{ background:var(--acc-softh); border-color:rgba(245,130,31,.55); }
 .a .spd{ width:30px; height:30px; border-radius:8px; background:transparent;
   border:.5px solid var(--bdh); color:var(--mut); cursor:pointer; flex-shrink:0;
   display:flex; align-items:center; justify-content:center; }
@@ -177,8 +191,15 @@ button{ font-family:inherit; }
 .a .ic:hover{ background:rgba(255,255,255,.06); color:var(--tx); }
 
 /* 输入 */
-.a .ip{ background:#232932; color:var(--tx); border:.5px solid var(--bd);
-  border-radius:8px; padding:7px 11px; font-size:13px; width:120px; }
+.a .ip{ background:var(--field); color:var(--tx); border:.5px solid var(--bd);
+  border-radius:8px; height:var(--ctl-sm); padding:0 11px; font-size:12.5px; font-family:inherit; width:120px;
+  transition:border-color .12s ease,box-shadow .12s ease; }
+.a textarea.ip{ height:auto; padding:8px 11px; line-height:1.55; }
+.a .ip::placeholder{ color:#6b7380; }
+.a .ip:hover{ border-color:var(--bdh); }
+.a .ip:focus,.a .ip:focus-visible{ outline:none; border-color:rgba(245,130,31,.62); box-shadow:0 0 0 3px rgba(245,130,31,.13); }
+.a .ip:disabled{ opacity:.55; }
+.a input[type=checkbox],.a input[type=radio]{ accent-color:var(--acc); }
 .a .ip.sm{ width:72px; } .a .ip.wide{ width:260px; } .a .ip.full{ width:100%; }
 .a .cl{ color:var(--mut); }
 
@@ -248,7 +269,9 @@ button{ font-family:inherit; }
 .a .seg{ display:inline-flex; background:#161b22; border:.5px solid var(--bd); border-radius:9px; padding:3px; gap:2px; }
 .a .seg button{ background:transparent; border:none; color:var(--mut); font-size:12px;
   padding:6px 13px; border-radius:7px; cursor:pointer; display:inline-flex; align-items:center; gap:6px; }
-.a .seg button.on{ background:#2a313c; color:var(--tx); }
+.a .seg button{ transition:background .12s ease,color .12s ease; }
+.a .seg button:hover:not(.on):not(:disabled){ color:var(--tx); }
+.a .seg button.on{ background:#2a313c; color:var(--tx); box-shadow:0 1px 2px rgba(0,0,0,.25); }
 
 /* 版本管理器 GUI：版本列表行 */
 .a .vrow{ display:flex; align-items:center; gap:11px; min-width:0; max-width:100%; background:var(--card);
@@ -408,11 +431,12 @@ button{ font-family:inherit; }
 .a .opt .rec{ font-size:10px; padding:0 6px; border-radius:5px; background:rgba(245,130,31,.16); color:#f5a45a; }
 
 /* ---------- 弹窗 ---------- */
-.a .modalmask{ position:fixed; inset:0; background:rgba(0,0,0,.6); display:flex;
+.a .modalmask{ position:fixed; inset:0; background:rgba(3,5,9,.62); backdrop-filter:blur(2px); display:flex;
   align-items:center; justify-content:center; z-index:50; padding:24px; }
 .a .modalmask[hidden]{ display:none; }
 .a .modal{ width:100%; max-width:520px; max-height:90%; overflow:hidden; background:#161b22;
-  border:.5px solid var(--bdh); border-radius:14px; display:flex; flex-direction:column; }
+  border:.5px solid var(--bdh); border-radius:14px; display:flex; flex-direction:column;
+  box-shadow:0 24px 64px rgba(0,0,0,.5); outline:none; }
 .a .modal.wide{ max-width:min(1060px, calc(100vw - 48px)); }
 .a .modalhd{ display:flex; align-items:center; justify-content:space-between; padding:13px 16px;
   border-bottom:.5px solid var(--bd); font-weight:600; font-size:14px; }
@@ -564,7 +588,7 @@ button{ font-family:inherit; }
 .a .agent-catalog-filters{display:flex;align-items:center;justify-content:flex-end;gap:8px;min-width:0}
 .a .agent-search{display:flex;align-items:center;gap:7px;width:min(260px,24vw);height:32px;padding:0 10px;border:.5px solid var(--bd);border-radius:7px;background:var(--card);color:var(--mut);box-sizing:border-box}
 .a .agent-search:focus-within{border-color:color-mix(in srgb,var(--acc) 68%,var(--bd));box-shadow:0 0 0 2px color-mix(in srgb,var(--acc) 12%,transparent)}
-.a .agent-search input{min-width:0;width:100%;border:0;outline:0;background:transparent;color:var(--tx);font:12px var(--font)}
+.a .agent-search input{min-width:0;width:100%;border:0;outline:0;background:transparent;color:var(--tx);font-family:inherit;font-size:12.5px}
 .a .agent-catalog-grid{display:grid;grid-template-columns:1fr;gap:9px;align-items:stretch}
 .a .agent-catalog-grid .vtool.eco{height:auto;min-width:0;margin:0}
 .a .agent-catalog-grid .vtool.eco > .vtool-surface{flex:1 0 auto}
@@ -1079,7 +1103,14 @@ button{ font-family:inherit; }
   --bg:#f5f6f8; --side:#eceef1; --card:#ffffff; --cardh:#f0f2f5;
   --bd:rgba(0,0,0,.11); --bdh:rgba(0,0,0,.20); --tx:#1c2128; --mut:#6a727c;
   --link:#2f6fdb; --acc:#e8730f; --green:#2e9e54; --blue:#2f6fdb; --red:#d2453c; --amber:#b07d0a;
+  --field:#fff; --ov:rgba(0,0,0,.025); --ovh:rgba(0,0,0,.07); --acc-soft:rgba(232,115,15,.1); --acc-softh:rgba(232,115,15,.18); --acc-tx:#c2610a;
 }
+[data-theme="light"] .a .gh:hover{ border-color:rgba(0,0,0,.3); }
+[data-theme="light"] .a .ip::placeholder{ color:#9aa1ab; }
+[data-theme="light"] .a ::-webkit-scrollbar-thumb{ background-color:rgba(0,0,0,.2); }
+[data-theme="light"] .a ::-webkit-scrollbar-thumb:hover{ background-color:rgba(0,0,0,.32); }
+[data-theme="light"] .a .modalmask{ background:rgba(30,36,46,.38); }
+[data-theme="light"] .a .modal{ box-shadow:0 24px 64px rgba(0,0,0,.2); }
 /* 侧栏交互态：白色叠加在浅底上不可见 → 改黑色叠加 */
 [data-theme="light"] .a .ni:hover{ background:rgba(0,0,0,.05); }
 [data-theme="light"] .a nav .navsep{ background:rgba(0,0,0,.1); }
@@ -1295,6 +1326,12 @@ button{ font-family:inherit; }
 .a nav .ni, .a .sidefoot .ni{ padding-top:7px; padding-bottom:7px; }
 [data-theme="light"] .a nav .navgroup-hd{ color:#4b5361; }
 [data-theme="light"] .a nav .navgroup-hd > .ti:first-child{ color:#6b7380; }
+/* Scrollbars: a slim rounded thumb with no arrow buttons, everywhere. */
+.a ::-webkit-scrollbar{ width:10px; height:10px; }
+.a ::-webkit-scrollbar-button{ display:none; width:0; height:0; }
+.a ::-webkit-scrollbar-track,.a ::-webkit-scrollbar-corner{ background:transparent; }
+.a ::-webkit-scrollbar-thumb{ background-color:rgba(255,255,255,.13); border-radius:8px; border:3px solid transparent; background-clip:content-box; }
+.a ::-webkit-scrollbar-thumb:hover{ background-color:rgba(255,255,255,.24); }
 .a nav::-webkit-scrollbar{ width:4px; }
 .a nav::-webkit-scrollbar-button{ display:none; height:0; }
 .a nav::-webkit-scrollbar-track{ background:transparent; }

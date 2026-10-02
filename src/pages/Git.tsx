@@ -692,10 +692,10 @@ export default function Git() {
       <div className="grouphd git-account-heading" style={{ marginTop: 18 }}>
         <span className="gt"><i className="ti ti-users" /> 账号执行环境 <span className="cnt">{accounts.length} 个账号</span></span>
         <div className="ghr">
-          <button className="pr sm" disabled={busy || accounts.length < 1} onClick={beginMigration}><i className="ti ti-arrows-transfer-up-down" /> 迁移仓库</button>
-          <button className="pr sm" disabled={busy || statusLoading || !github.gcm_available} onClick={() => { setAccountToken(""); setAddProvider("github"); }}><i className="ti ti-brand-github" /> 添加 GitHub</button>
-          <button className="pr sm" disabled={busy || statusLoading || !github.gcm_available} onClick={() => { setAccountToken(""); setAddProvider("gitee"); }}><i className="ti ti-letter-g" /> 添加 Gitee</button>
-          <button className="pr sm" disabled={busy || statusLoading || !github.gcm_available} onClick={() => { setAccountToken(""); setCustomServiceUrl(""); setCustomServiceName(""); setCustomUsername(""); setAddProvider("custom"); }}><i className="ti ti-server" /> 添加其他账号</button>
+          <button className="gh sm" disabled={busy || accounts.length < 1} onClick={beginMigration}><i className="ti ti-arrows-transfer-up-down" /> 迁移仓库</button>
+          <button className="pr sm soft" disabled={busy || statusLoading || !github.gcm_available} onClick={() => { setAccountToken(""); setAddProvider("github"); }}><i className="ti ti-brand-github" /> 添加 GitHub</button>
+          <button className="pr sm soft" disabled={busy || statusLoading || !github.gcm_available} onClick={() => { setAccountToken(""); setAddProvider("gitee"); }}><i className="ti ti-letter-g" /> 添加 Gitee</button>
+          <button className="pr sm soft" disabled={busy || statusLoading || !github.gcm_available} onClick={() => { setAccountToken(""); setCustomServiceUrl(""); setCustomServiceName(""); setCustomUsername(""); setAddProvider("custom"); }}><i className="ti ti-server" /> 添加其他账号</button>
         </div>
       </div>
       <div className="seclead">每个账号拥有独立的终端上下文和仓库级提交身份，不会修改其他终端正在使用的账号。</div>
@@ -732,9 +732,9 @@ export default function Git() {
             );
           })()}
           <div className="gitacc-acts">
-            <button className="pr sm" disabled={busy || !accountReady || !shells.powershell} title={!accountReady ? credentialBadge.detail : "打开该账号的 PowerShell 终端"} onClick={() => openAccountTerminal(account, "powershell")}><i className="ti ti-terminal-2" /> PS</button>
-            <button className="pr sm" disabled={busy || !accountReady || !shells.gitbash} title={!accountReady ? credentialBadge.detail : "打开该账号的 Git Bash 终端"} onClick={() => openAccountTerminal(account, "gitbash")}><i className="ti ti-brand-git" /> Bash</button>
-            <button className="pr sm" disabled={busy || !accountReady || !shells.cmd} title={!accountReady ? credentialBadge.detail : "打开该账号的 cmd 终端"} onClick={() => openAccountTerminal(account, "cmd")}><i className="ti ti-terminal" /> cmd</button>
+            <button className="pr sm soft" disabled={busy || !accountReady || !shells.powershell} title={!accountReady ? credentialBadge.detail : "打开该账号的 PowerShell 终端"} onClick={() => openAccountTerminal(account, "powershell")}><i className="ti ti-terminal-2" /> PS</button>
+            <button className="pr sm soft" disabled={busy || !accountReady || !shells.gitbash} title={!accountReady ? credentialBadge.detail : "打开该账号的 Git Bash 终端"} onClick={() => openAccountTerminal(account, "gitbash")}><i className="ti ti-brand-git" /> Bash</button>
+            <button className="pr sm soft" disabled={busy || !accountReady || !shells.cmd} title={!accountReady ? credentialBadge.detail : "打开该账号的 cmd 终端"} onClick={() => openAccountTerminal(account, "cmd")}><i className="ti ti-terminal" /> cmd</button>
             <button className="gh sm" disabled={busy || !accountReady} title={!accountReady ? credentialBadge.detail : "写入普通终端默认提交身份和该平台默认 HTTPS 账号"} onClick={() => setAccountGlobal(account)}><i className="ti ti-user-check" /> 设为全局</button>
             <button className="gh sm" disabled={busy || !accountReady} title={!accountReady ? credentialBadge.detail : undefined} onClick={() => beginInit(account)}><i className="ti ti-folder-plus" /> 初始化工程</button>
             <button className="gh sm" disabled={busy || !accountReady} title={!accountReady ? credentialBadge.detail : "复制该账号的 Git 操作摘要，方便 AI 按指定账号操作仓库"} onClick={() => copyAccountContext(account)}><i className="ti ti-copy" /> 复制摘要给 AI</button>
