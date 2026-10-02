@@ -79,3 +79,7 @@
 .a .vault-servers .vault-tags{ margin-bottom:2px; } .a .vault-servers .vault-badge{ display:inline-flex; align-items:center; gap:4px; color:var(--tx); padding:2px 4px 2px 8px; }
 .a .vault-servers .vault-badge button{ display:inline-flex; background:none; border:0; padding:0 2px; color:var(--mut); cursor:pointer; } .a .vault-servers .vault-badge button:hover{ color:var(--red); }
 .a .vault-edit-value textarea.masked{ -webkit-text-security:disc; }
+.a .vault-edit-value textarea.oneline{ height:var(--ctl-sm); min-height:0; padding:0 11px; line-height:calc(var(--ctl-sm) - 1px); resize:none; overflow:hidden; white-space:pre; }
+.a .vault-date{ position:relative; display:flex; gap:6px; }
+.a .vault-date .ip{ flex:1; min-width:0; font-family:ui-monospace,Consolas,monospace; }
+.a .vault-date-picker{ position:absolute; right:0; bottom:0; width:1px; height:1px; opacity:0; pointer-events:none; border:0; padding:0; }

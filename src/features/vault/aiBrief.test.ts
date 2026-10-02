@@ -9,8 +9,9 @@ const ssh: EntryView = {
     { name: "私钥", secret: true, value: null, filled: true },
     { name: "公钥", secret: false, value: "ssh-ed25519 AAAA songgift", filled: true },
     { name: "口令", secret: true, value: null, filled: true },
-    { name: "用途/主机", secret: false, value: "root@203.0.113.7:2222", filled: true },
-    { name: "已装服务器", secret: false, value: "root@203.0.113.7", filled: true },
+    // An older entry's single host field; the servers list comes first.
+    { name: "用途/主机", secret: false, value: "root@192.0.2.1", filled: true },
+    { name: "已装服务器", secret: false, value: "root@203.0.113.7:2222\nroot@198.51.100.4", filled: true },
   ],
   expiresAt: "2026-11-02", tags: [], note: "", favorite: false, createdAt: 1, updatedAt: 2, deletedAt: null, historyCount: 0,
   ssh: { algorithm: "ssh-ed25519", bits: null, encrypted: true, fingerprint: "SHA256:abc", publicKey: "ssh-ed25519 AAAA", risks: [] },

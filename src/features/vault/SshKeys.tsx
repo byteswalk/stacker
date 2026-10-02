@@ -4,6 +4,7 @@ import { vaultApi, vaultError, type EntryInput, type EntryView } from "./api";
 
 /** The field of an SSH entry that lists the servers its public key was put on, one per line. */
 export const SERVERS_FIELD = "已装服务器";
+/** Where earlier versions kept one host; read when an entry still has it. */
 const HOST_FIELD = "用途/主机";
 const PASSPHRASE_FIELD = "口令";
 
@@ -18,6 +19,11 @@ export function publicKeyOf(entry: EntryView): string {
 export function serversOf(entry: EntryView): string[] {
   const text = entry.fields.find((field) => field.name === SERVERS_FIELD)?.value ?? "";
   return text.split("\n").map((line) => line.trim()).filter(Boolean);
+}
+
+/** The server to suggest when one is needed: the first on the list, or the host an older entry named. */
+export function firstServer(entry: EntryView): string {
+  return serversOf(entry)[0] ?? entry.fields.find((field) => field.name === HOST_FIELD)?.value?.trim() ?? "";
 }
 
 /** One line to run on the server: adds the key to `authorized_keys` and sets the modes sshd insists on. */
@@ -130,7 +136,7 @@ export function SshPassphrase({ entry, onClose, onDone }: { entry: EntryView; on
 /** Writes the private key to `~/.ssh` and, when asked, a `Host` block to the config: only on this click, never over a file. */
 export function SshLocalInstall({ entry, onClose, onDone }: { entry: EntryView; onClose: () => void; onDone: () => void }) {
   const toast = useToast();
-  const target = parseTarget(entry.fields.find((field) => field.name === HOST_FIELD)?.value ?? "");
+  const target = parseTarget(firstServer(entry));
   const [name, setName] = useState(() => keyFileName(entry.title));
   const [config, setConfig] = useState(target.host !== "");
   const [alias, setAlias] = useState(() => keyFileName(entry.title));
@@ -209,7 +215,6 @@ type Algorithm = "ed25519" | "rsa";
 export function SshKeyGenerator({ onClose, onSaved }: { onClose: () => void; onSaved: (entry: EntryView) => void }) {
   const toast = useToast();
   const [title, setTitle] = useState("");
-  const [target, setTarget] = useState("");
   const [algorithm, setAlgorithm] = useState<Algorithm>("ed25519");
   const [comment, setComment] = useState("");
   const [passphrase, setPassphrase] = useState("");
@@ -228,7 +233,6 @@ export function SshKeyGenerator({ onClose, onSaved }: { onClose: () => void; onS
           { name: "私钥", previousName: null, value: pair.privateKey, secret: true },
           { name: "公钥", previousName: null, value: pair.publicKey, secret: false },
           ...(passphrase ? [{ name: "口令", previousName: null, value: passphrase, secret: true }] : []),
-          { name: HOST_FIELD, previousName: null, value: target.trim(), secret: false },
         ],
         expiresAt: null, tags: [], note: "", favorite: false,
       });
@@ -262,7 +266,7 @@ export function SshKeyGenerator({ onClose, onSaved }: { onClose: () => void; onS
     <div className="vault-form vault-keygen">
       <div className="vault-editor-pair">
         <label>名称<input className="ip full" autoFocus value={title} placeholder="例如 hostinger-vps" onChange={(e) => setTitle(e.target.value)} /></label>
-        <label>用途/主机<input className="ip full" value={target} spellCheck={false} placeholder="选填，例如 root@1.2.3.4" onChange={(e) => setTarget(e.target.value)} /></label>
+
       </div>
       <div className="vault-editor-block">
         <span className="vault-editor-label">算法</span>

@@ -16,7 +16,7 @@ export const KIND_LABELS: Record<Kind, string> = {
 const GENERAL_FIELDS = [{ name: "密钥", secret: true }];
 export const TEMPLATES: Record<Kind, { name: string; secret: boolean }[]> = {
   other: GENERAL_FIELDS, api_key: GENERAL_FIELDS, token: GENERAL_FIELDS, token_plan: GENERAL_FIELDS, ak_sk: GENERAL_FIELDS,
-  ssh_key: [{ name: "私钥", secret: true }, { name: "公钥", secret: false }, { name: "口令", secret: true }, { name: "用途/主机", secret: false }],
+  ssh_key: [{ name: "私钥", secret: true }, { name: "公钥", secret: false }, { name: "口令", secret: true }],
 };
 
 /** `ssh_key` as it is; any other kind is the general credential. */

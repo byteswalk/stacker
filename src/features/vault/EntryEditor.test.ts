@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EntryView } from "./api";
-import { draftFrom, oversizedField, toEntryInput } from "./EntryEditor";
+import { draftFrom, normalizeDate, oversizedField, toEntryInput } from "./EntryEditor";
 
 const saved: EntryView = {
   id: "e1", title: "Coding Plan", platform: "火山方舟", kind: "token_plan",
@@ -11,6 +11,20 @@ const saved: EntryView = {
   expiresAt: "2026-10-31", tags: ["work", "ai"], note: "n", favorite: true,
   createdAt: 1, updatedAt: 2, deletedAt: null, historyCount: 0, ssh: null,
 };
+
+describe("expiry dates", () => {
+  it("are kept as yyyy-MM-dd whatever separator was typed, and refuse what is not a date", () => {
+    expect(normalizeDate("")).toBe("");
+    expect(normalizeDate(" 2026-11-02 ")).toBe("2026-11-02");
+    expect(normalizeDate("2026/11/2")).toBe("2026-11-02");
+    expect(normalizeDate("2026.1.5")).toBe("2026-01-05");
+    expect(normalizeDate("20261102")).toBe("2026-11-02");
+    expect(normalizeDate("2026年11月2日")).toBe("2026-11-02");
+    expect(normalizeDate("2026-02-30")).toBeNull();
+    expect(normalizeDate("11/02/2026")).toBeNull();
+    expect(normalizeDate("明天")).toBeNull();
+  });
+});
 
 describe("entry editor drafts", () => {
   it("starts a new entry as a general credential with one secret field", () => {

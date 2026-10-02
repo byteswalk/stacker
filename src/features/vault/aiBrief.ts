@@ -1,6 +1,6 @@
 import type { CredentialTarget, EntryView, EnvHolder, SshLocal } from "./api";
 import { KIND_LABELS } from "./labels";
-import { parseTarget, publicKeyOf, serversOf, SERVERS_FIELD } from "./SshKeys";
+import { firstServer, parseTarget, publicKeyOf, serversOf, SERVERS_FIELD } from "./SshKeys";
 
 type Tr = (text: string) => string;
 
@@ -16,8 +16,7 @@ export function credentialCommand(target: string): string {
 
 /** `user@host` and its port, for a command line; empty when the entry does not say. */
 function sshTarget(entry: EntryView): { target: string; port: string } {
-  const text = entry.fields.find((field) => field.name === "用途/主机")?.value ?? serversOf(entry)[0] ?? "";
-  const { user, host, port } = parseTarget(text);
+  const { user, host, port } = parseTarget(firstServer(entry));
   return { target: host ? `${user || "root"}@${host}` : "", port };
 }
 
