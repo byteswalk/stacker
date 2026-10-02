@@ -54,7 +54,7 @@ export function VaultWorkspace({ onLocked }: { onLocked: () => void }) {
 
       {tab === "discover" ? <DiscoverPanel onImported={() => void load()} /> : (
         <>
-          {soon > 0 && <div className="callout"><i className="ti ti-calendar-exclamation" /><div>{soon} 项凭据将在 14 天内到期。</div></div>}
+          {soon > 0 && <div className="callout vault-note"><i className="ti ti-calendar-exclamation" /><div>{soon} 项凭据将在 14 天内到期。</div></div>}
           <div className="vault-bar">
             <input className="ip grow" placeholder="搜索标题、平台、标签、备注" value={filter.query} onChange={(e) => setFilter({ ...filter, query: e.target.value })} />
             <select className="ip" value={filter.platform} onChange={(e) => setFilter({ ...filter, platform: e.target.value })}>

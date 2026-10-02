@@ -153,9 +153,9 @@ export function DiscoverPanel({ onImported }: { onImported: () => void }) {
         </div>
       </div>
 
-      {running && <div className="callout"><i className="ti ti-loader spin" /><div>正在扫描… 已检查 {status?.files ?? 0} 个文件</div></div>}
-      {status?.truncated && <div className="callout"><i className="ti ti-alert-triangle" /><div>已达到单次 5 万个文件上限，结果可能不完整。</div></div>}
-      {status?.cancelled && <div className="callout"><i className="ti ti-info-circle" /><div>扫描已取消，以下为已找到的结果。</div></div>}
+      {running && <div className="callout vault-note"><i className="ti ti-loader spin" /><div>正在扫描… 已检查 {status?.files ?? 0} 个文件</div></div>}
+      {status?.truncated && <div className="callout vault-note"><i className="ti ti-alert-triangle" /><div>已达到单次 5 万个文件上限，结果可能不完整。</div></div>}
+      {status?.cancelled && <div className="callout vault-note"><i className="ti ti-info-circle" /><div>扫描已取消，以下为已找到的结果。</div></div>}
 
       {hasResult && !running && (
         <div className="pxcard">
