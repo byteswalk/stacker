@@ -236,6 +236,28 @@ pub async fn cleanup_delete_safe() -> Result<u64, String> {
     .map_err(|error| error.to_string())?
 }
 
+/// Clears one whole category the checkup names (temporary folders, old IDE versions) from
+/// where it was reported, without a visit to the cleanup page: the candidates are scanned
+/// again and each path is verified before anything is deleted, as for the safe caches.
+#[tauri::command]
+pub async fn cleanup_delete_category(category: String) -> Result<u64, String> {
+    if !matches!(category.as_str(), "temp" | "history") {
+        return Err(format!("不支持直接清理的类别：{category}"));
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let paths = scan_known_candidates(&CancellationToken::default(), |_| {})
+            .map_err(|error| error.to_string())?
+            .items
+            .into_iter()
+            .filter(|item| legacy_category(item) == category)
+            .map(|item| item.path)
+            .collect();
+        delete_known_paths(paths)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
 fn is_known(path: &str) -> Result<bool, String> {
     Ok(fresh_known_paths()?.contains_key(path))
 }

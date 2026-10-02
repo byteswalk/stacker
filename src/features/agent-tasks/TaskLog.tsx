@@ -6,6 +6,19 @@ import { ACTION_TEXT } from "./useTaskToasts";
 
 const POLL_MS = 1000;
 
+/** Why a task failed, asked of the AI with the task's log; `lines` when the log is already on screen. */
+export function TaskFailureAsk({ task, lines, onClose, onSetup }: {
+  task: AgentTask; lines?: string[]; onClose: () => void; onSetup?: () => void;
+}) {
+  return <AiAskModal title="为什么失败" sub={`${task.surfaceLabel} · ${ACTION_TEXT[task.action]}`}
+    note="只把这次任务的日志（最多最后 8000 字）和产品名发给 AI；AI 只给建议，不会替你执行任何操作。"
+    run={async () => askAi("install_failure", {
+      product: task.productName, surface: task.surfaceLabel, action: ACTION_TEXT[task.action],
+      message: task.message ?? task.lastLine ?? "", log: (lines ?? await agentTaskLog(task.id)).join("\n"),
+    })}
+    onClose={onClose} onSetup={onSetup} />;
+}
+
 /**
  * A task's log that keeps up while the task runs: it re-reads the log every second, and
  * once more when the task finishes, following the newest line unless the reader has
@@ -49,15 +62,10 @@ export function TaskLogModal({ task, onClose }: { task: AgentTask; onClose: () =
   const failed = task.state === "failed";
   return (
     <Modal title={`${task.surfaceLabel} · 任务日志${running ? "（实时）" : ""}`} icon="ti-file-text" wide onClose={onClose}
-      footer={failed ? <AiButton label="问问 AI 为什么失败" disabled={!lines?.length} onClick={() => setAsking(true)} /> : undefined}>
+      footer={failed ? <AiButton label="AI 诊断" title="把这次任务的日志交给 AI，看是哪里出的错、怎么处理" disabled={!lines?.length} onClick={() => setAsking(true)} /> : undefined}>
       <pre ref={pre} className="task-log mono" onScroll={onScroll}>{text}</pre>
-      {asking && <AiAskModal title="为什么失败" sub={`${task.surfaceLabel} · ${ACTION_TEXT[task.action]}`}
-        note="只把这次任务的日志（最多最后 8000 字）和产品名发给 AI；AI 只给建议，不会替你执行任何操作。"
-        run={() => askAi("install_failure", {
-          product: task.productName, surface: task.surfaceLabel, action: ACTION_TEXT[task.action],
-          message: task.message ?? task.lastLine ?? "", log: (lines ?? []).join("\n"),
-        })}
-        onClose={() => setAsking(false)} />}
+      {asking && <TaskFailureAsk task={task} lines={lines ?? []} onClose={() => setAsking(false)}
+        onSetup={() => { setAsking(false); onClose(); }} />}
     </Modal>
   );
 }

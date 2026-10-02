@@ -15,7 +15,7 @@ export function useTaskToasts() {
     void initAgentTasks((task) => {
       const action = ACTION_TEXT[task.action];
       if (task.state === "succeeded") toast(`${task.surfaceLabel} ${action}完成`, "ok");
-      else if (task.state === "failed") toast(`${task.surfaceLabel} ${action}失败：${task.message ?? ""}（可在任务面板查看日志）`, "err");
+      else if (task.state === "failed") toast(`${task.surfaceLabel} ${action}失败：${task.message ?? ""}（任务面板里可以看日志，或点「AI 诊断」）`, "err");
       else toast(`已取消${task.surfaceLabel}${action}`, "info");
       // A shared CLI shows on several cards; refresh all of them.
       const siblings = task.cliId

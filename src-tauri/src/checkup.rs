@@ -1287,7 +1287,7 @@ fn cleanup_check_items() -> Vec<CheckItem> {
                 history_total as f64 / GB as f64
             ),
             page: "cleanup".into(),
-            action: "去清理".into(),
+            action: "清理历史版本".into(),
         });
     }
     if temp_total > 0 {
@@ -1296,11 +1296,11 @@ fn cleanup_check_items() -> Vec<CheckItem> {
             sev: "info".into(),
             title: "Windows 临时目录占用偏高".into(),
             desc: format!(
-                "检测到临时目录占用约 {:.1} GB。可进入磁盘清理按需处理；正在被系统占用的文件会自动跳过。",
+                "检测到临时目录占用约 {:.1} GB。可以直接在这里清理；正在被系统占用的文件会自动跳过。",
                 temp_total as f64 / GB as f64
             ),
             page: "cleanup".into(),
-            action: "去清理".into(),
+            action: "清理临时文件".into(),
         });
     }
     out

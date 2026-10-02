@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "../invoke";
 import type { Page } from "../pageState";
-import { useBusy, useBusyRead, useToast } from "../ui";
+import { ConfirmModal, useBusy, useToast } from "../ui";
 import { useNotifications } from "../notifications";
 import { WorkstationGroups } from "../features/overview/WorkstationGroups";
 import { AiAskModal, AiButton, askAi } from "../features/ai/AiAsk";
@@ -82,6 +82,10 @@ function extraFixer(id: string): null | (() => Promise<string>) {
       return async () => { const count = await invoke<number>("proxy_clear_stale"); return `已清除 ${count} 处 Stacker 写入的失效代理`; };
     case "cache_safe_high":
       return async () => { const freed = await invoke<number>("cleanup_delete_safe"); return `已清理安全缓存，释放 ${(freed / 1073741824).toFixed(1)} GB`; };
+    case "windows_temp_high":
+      return async () => { const freed = await invoke<number>("cleanup_delete_category", { category: "temp" }); return `已清理临时文件，释放 ${(freed / 1073741824).toFixed(1)} GB`; };
+    case "jetbrains_history":
+      return async () => { const freed = await invoke<number>("cleanup_delete_category", { category: "history" }); return `已清理历史版本，释放 ${(freed / 1073741824).toFixed(1)} GB`; };
     default:
       return null;
   }
@@ -89,6 +93,11 @@ function extraFixer(id: string): null | (() => Promise<string>) {
 // 纳入「一键优化全部」的 extra 项：仅安全、可还原、免提权的（fnm 集成）；
 // 缓存清理（删除）、关代理这些副作用项只给各自的行内按钮，不卷进批量。
 const BATCH_EXTRA = new Set(["fnm_no_integration"]);
+// Deleting from the overview is asked about first: what goes, and that it does not come back.
+const CONFIRM_EXTRA: Record<string, string> = {
+  windows_temp_high: "清空 Windows 和当前用户的临时目录。正在被程序占用的文件会自动跳过；删除后不能恢复。",
+  jetbrains_history: "删除旧版 JetBrains IDE / Android Studio 的数据目录，每个产品保留最新的一个版本；删除后不能恢复。",
+};
 
 const PENDING_CHECKS = [
   {
@@ -168,7 +177,6 @@ function runOverviewCheck() {
 export default function Overview({ goto }: { goto: (p: Page) => void }) {
   const toast = useToast();
   const runBusy = useBusy();
-  const read = useBusyRead();
   const notices = useNotifications();
   const [tools, setTools] = useState<ToolState[] | null>(overviewCache.tools);
   const [extra, setExtra] = useState<CheckItem[]>(overviewCache.extra);
@@ -179,6 +187,7 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
   const [sourceBusy, setSourceBusy] = useState(false);
   const [rowBusy, setRowBusy] = useState<Record<string, boolean>>({});
   const [diagnosing, setDiagnosing] = useState(false);
+  const [confirming, setConfirming] = useState<CheckItem | null>(null);
 
   useEffect(() => subscribeOverview((s) => {
     setTools(s.tools);
@@ -194,7 +203,9 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
   async function reloadAll() {
     const wasChecked = hasChecked;
     try {
-      await read("正在体检开发环境", load, "检测运行时、包管理器、构建工具、代理与缓存状态。");
+      // No dialog over the page: the card at the top shows the check running, and it keeps
+      // running when another page is opened.
+      await load();
       toast(wasChecked ? "开发环境体检已完成" : "开发环境体检完成", "ok");
     } catch (e) {
       toast("体检失败：" + e, "err");
@@ -219,7 +230,7 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
   const ecosystemScore = ecosystem ? Math.max(0, 100 - ecosystem.ecosystems.reduce((sum, item) => sum + (item.status === "missing" ? 15 : item.status === "warn" ? 8 : 0), 0)) : 0;
   const overallScore = emptySetup ? 0 : Math.round(ecosystemScore * 0.85 + envScore * 0.15);
   const overallClass = !hasChecked ? "" : emptySetup || !ecosystem?.ready || overallScore < 60 ? " bad" : overallScore >= 90 ? " ok" : "";
-  const overallTitle = !hasChecked ? "未开始"
+  const overallTitle = !hasChecked ? (checkingAll ? "体检中" : "未开始")
     : emptySetup ? "需要初始化"
     : ecosystem?.title || "需要处理";
   const overallSummary = (() => {
@@ -248,10 +259,8 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
     const page = overviewCache.extra.find((item) => item.id === key)?.page;
     await runRowTask(`extra:${key}`, async () => {
       try {
-        const [msg, refreshed] = await runBusy({ title: "正在处理" }, async () => {
-          const result = await fixer();
-          return [result, page ? await invoke<CheckItem[]>("checkup_page", { page }) : []] as const;
-        });
+        const msg = await fixer();
+        const refreshed = page ? await invoke<CheckItem[]>("checkup_page", { page }) : [];
         if (page) {
           publishOverview({
             extra: [
@@ -384,20 +393,26 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
               <button className="gh sm" disabled={checkingAll} onClick={reloadAll}>
                 <i className={"ti " + (checkingAll ? "ti-loader spin" : hasChecked ? "ti-refresh" : "ti-player-play")} /> {checkingAll ? "体检中…" : hasChecked ? "再次体检" : "开始体检"}
               </button>
-              {hasChecked && !allOk && !emptySetup && <AiButton small={false} label="AI 诊断" title="把没通过的项目交给 AI，排出先修哪个、怎么修"
-                disabled={checkingAll} onClick={() => setDiagnosing(true)} />}
+              {!(hasChecked && (allOk || emptySetup)) && <AiButton label="AI 诊断" title="把没通过的项目交给 AI，排出先修哪个、怎么修；还没体检的话会先体检"
+                onClick={() => setDiagnosing(true)} />}
               {optimizeCount > 0 && <button className="pr" disabled={busy || checkingAll} onClick={optimizeAll}><i className="ti ti-tool" /> {busy ? "修复中…" : `一键修复（${optimizeCount}）`}</button>}
             </div>
           </div>
-          {diagnosing && <AiAskModal title="体检诊断" sub={`编程生态体检 · ${overallTitle}`}
+          {diagnosing && <AiAskModal title="体检诊断" sub="编程生态体检"
+            waiting="正在体检并请 AI 分析…"
             note="只把没通过的检测项（名称、状态、说明）发给 AI；AI 只给建议，修复仍由你来点。"
-            run={() => askAi("checkup", {
-              items: [
-                ...(ecosystem?.ecosystems ?? []).filter((item) => item.status !== "ok")
+            run={async () => {
+              // Not checked yet, or a check is under way: the diagnosis waits for its result.
+              if (overviewRun) await overviewRun.catch(() => undefined);
+              if (!overviewCache.checked) await runOverviewCheck();
+              const items = [
+                ...(overviewCache.ecosystem?.ecosystems ?? []).filter((item) => item.status !== "ok")
                   .map((item) => ({ name: item.label, status: item.status, summary: item.summary, detail: item.detail })),
-                ...extra.map((item) => ({ name: item.title, status: item.sev, detail: item.desc })),
-              ],
-            })}
+                ...overviewCache.extra.map((item) => ({ name: item.title, status: item.sev, detail: item.desc })),
+              ];
+              if (!items.length) return "体检全部通过，没有需要诊断的项目。";
+              return askAi("checkup", { items });
+            }}
             onClose={() => setDiagnosing(false)} />}
           {!hasChecked && (
             <>
@@ -433,12 +448,17 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
               <div className="fs">{e.desc}</div>
             </div>
             <button className={e.sev === "info" ? "gh sm" : "pr sm"} disabled={directBusy}
-              onClick={fixer ? () => runExtra(e.id, fixer) : () => goto(e.page)}>
-              {fixer && <i className={"ti " + (directBusy ? "ti-loader spin" : "ti-broom")} />} {directBusy ? "处理中…" : e.action}
+              onClick={!fixer ? () => goto(e.page) : CONFIRM_EXTRA[e.id] ? () => setConfirming(e) : () => runExtra(e.id, fixer)}>
+              <i className={"ti " + (directBusy ? "ti-loader spin" : fixer ? "ti-broom" : "ti-arrow-right")} /> {directBusy ? "处理中…" : e.action}
             </button>
           </div>
         );
       })}
+
+      {confirming && <ConfirmModal title={confirming.action} icon="ti-broom" danger confirmLabel={confirming.action}
+        message={CONFIRM_EXTRA[confirming.id]}
+        onClose={() => setConfirming(null)}
+        onConfirm={() => { const item = confirming; setConfirming(null); const fixer = extraFixer(item.id); if (fixer) void runExtra(item.id, fixer); }} />}
 
       {hasChecked && <div className="grouphd" style={{ marginTop: 18 }}>
         <span className="gt"><i className="ti ti-stack-2" /> 编程生态</span>
@@ -460,15 +480,15 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
           : sourceTool ? selectedSourceLabel(sourceTool) : "—";
         const pageIssue = extra.find((e) => e.page === eco && e.sev !== "info");
         const statusText = pageIssue || item.status === "warn" ? "需处理" : item.status === "missing" ? "未配置" : "正常";
-        const statusColor = pageIssue || item.status === "warn" ? "#ef6f6f" : item.status === "missing" ? "#828995" : "#6bcf86";
+        const tone = pageIssue || item.status === "warn" ? "bad" : item.status === "missing" ? "idle" : "ok";
         return (
-          <button type="button" className="ecocard" key={eco} onClick={() => goto(eco)}>
+          <button type="button" className={"ecocard " + tone} key={eco} onClick={() => goto(eco)}>
             <span className="ecocard-head">
               <span className={"av " + meta.av}><i className={"ti " + meta.icon} /></span>
               <b>{meta.label}</b>
-              <em style={{ color: statusColor }}>{statusText}</em>
+              <em>{statusText}</em>
             </span>
-            <span className="ecocard-line" title={item.detail}>{item.summary}</span>
+            <span className="ecocard-line" title={item.detail || item.summary}>{item.summary}</span>
             <span className="ecocard-line dim" title={sourceLabel}>{sourceLabel}</span>
           </button>
         );

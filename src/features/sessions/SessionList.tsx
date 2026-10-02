@@ -3,6 +3,7 @@ import { invoke } from "../../invoke";
 import { useI18n } from "../../i18n";
 import { useToast } from "../../ui";
 import { aiError } from "../ai/AiSettings";
+import { AiSetupPrompt, needsAiSetup } from "../ai/AiAsk";
 import { Select } from "../../Select";
 import { formatSpaceBytes as bytes } from "../space-analysis/components/SpaceOverview";
 import { AGENT_LABEL, CLIENT_LABEL, STATUS_LABEL, formatAge, toggleSelection } from "./sessionsView";
@@ -39,6 +40,7 @@ export function SessionList({ page, query, projects, loading, selected, onSelect
   const [now] = useState(() => Math.floor(Date.now() / 1000));
   const toast = useToast();
   const [finding, setFinding] = useState(false);
+  const [aiSetup, setAiSetup] = useState<unknown>(null);
 
   // The words in the search box become filters; nothing is hidden: the result sits in the
   // filter bar, where it can be read and undone.
@@ -56,7 +58,7 @@ export function SessionList({ page, query, projects, loading, selected, onSelect
         agent: filter.agent, project: filter.project, search: filter.search,
         updatedAfter: filter.days ? now - filter.days * 86400 : 0, favoritesOnly: filter.favoritesOnly,
       });
-    } catch (e) { toast(t(aiError(e)), "err"); }
+    } catch (e) { if (needsAiSetup(e)) setAiSetup(e); else toast(t(aiError(e)), "err"); }
     finally { setFinding(false); }
   }
   const allPage = page.items.length > 0 && page.items.every((s) => selected.includes(s.id));
@@ -81,6 +83,7 @@ export function SessionList({ page, query, projects, loading, selected, onSelect
     : Array.from(new Set([...selected, ...page.items.map((s) => s.id)])));
 
   return <>
+    {aiSetup !== null && <AiSetupPrompt error={aiSetup} onClose={() => setAiSetup(null)} />}
     <div className="session-filters">
       <label className="session-search"><i className="ti ti-search" /><input value={query.search} aria-label={t("搜索会话")} placeholder={t("搜索标题、项目或摘要")} onChange={(e) => onFilter({ search: e.target.value })} /></label>
       <button className="gh sm ai-btn" disabled={finding} title={t("把搜索框里的一句话交给 AI，换成下面这些筛选条件")} onClick={() => void findWithAi()}>

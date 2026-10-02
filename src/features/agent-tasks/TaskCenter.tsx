@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useToast } from "../../ui";
 import { formatAge } from "../sessions/sessionsView";
 import { parseProgress } from "./progress";
-import { TaskLogModal } from "./TaskLog";
+import { TaskFailureAsk, TaskLogModal } from "./TaskLog";
+import { AiButton } from "../ai/AiAsk";
 import { ACTION_TEXT } from "./useTaskToasts";
 import {
   cancelAgentTask, clearFinishedTasks, dismissTask, isOpenTask, retryAgentTask, subscribeTasks,
@@ -54,6 +55,7 @@ export function TaskCenter() {
   const [tasks, setTasks] = useState(taskSnapshot());
   const [open, setOpen] = useState(false);
   const [logId, setLogId] = useState<string | null>(null);
+  const [askId, setAskId] = useState<string | null>(null);
   const root = useRef<HTMLDivElement>(null);
   useEffect(() => subscribeTasks(setTasks), []);
   const { open: active, done } = useMemo(() => splitTasks(Object.values(tasks)), [tasks]);
@@ -130,6 +132,7 @@ export function TaskCenter() {
           </div>
         </div>
         <div className="task-actions">
+          {task.state === "failed" && <AiButton label="AI 诊断" title="把这次任务的日志交给 AI，看是哪里出的错、怎么处理" onClick={() => setAskId(task.id)} />}
           {(task.state === "failed" || task.state === "cancelled") && (
             <button className="gh sm" onClick={() => void retryAgentTask(task.id).catch(fail)}>重试</button>
           )}
@@ -172,6 +175,7 @@ export function TaskCenter() {
         </div>
       )}
       {logTask && <TaskLogModal task={logTask} onClose={() => setLogId(null)} />}
+      {askId && tasks[askId] && <TaskFailureAsk task={tasks[askId]} onClose={() => setAskId(null)} />}
     </div>
   );
 }

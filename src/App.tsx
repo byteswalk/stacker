@@ -9,13 +9,14 @@ import { ToastProvider, ToastHost, useToast, Modal, ConfirmModal, BusyProvider, 
 import { Select } from "./Select";
 import { useI18n } from "./i18n";
 import { NotificationProvider, useNotifications, formatBytes } from "./notifications";
-import { readLastPage, saveLastPage, type Page } from "./pageState";
+import { PAGE_IDS, readLastPage, saveLastPage, type Page } from "./pageState";
 import { resetMainWindowSize } from "./windowSize";
 import { TOOLCHAIN_PAGES, ToolchainAsk } from "./features/ai/ToolchainAsk";
 import { ToolRelocation } from "./features/relocation/ToolRelocation";
 import { ALL_NAV_ITEMS, NAV_FOOT, NAV_SECTIONS, initialCollapsedSections, sectionKeyOf, toggleSection, type NavItem, type NavSection } from "./navigation";
 import { TaskCenter } from "./features/agent-tasks/TaskCenter";
 import { useTaskToasts } from "./features/agent-tasks/useTaskToasts";
+import { GOTO_EVENT } from "./features/ai/AiAsk";
 import "./features/agent-tasks/agentTasks.css";
 import { useVaultActivity } from "./features/vault/useVaultActivity";
 import { useVaultLockNotice } from "./features/vault/useVaultLockNotice";
@@ -224,6 +225,15 @@ function Shell() {
   const toast = useToast();
   const notices = useNotifications();
   const [page, setPage] = useState<Page>(readLastPage);
+  // A dialog anywhere can ask for a page ("go and set the AI up") without holding `setPage`.
+  useEffect(() => {
+    const open = (event: Event) => {
+      const target = (event as CustomEvent<string>).detail;
+      if ((PAGE_IDS as readonly string[]).includes(target)) setPage(target as Page);
+    };
+    window.addEventListener(GOTO_EVENT, open);
+    return () => window.removeEventListener(GOTO_EVENT, open);
+  }, []);
   // Opening a page inside a collapsed section expands that section.
   useEffect(() => {
     const key = sectionKeyOf(page);

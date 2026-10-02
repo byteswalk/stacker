@@ -365,6 +365,7 @@ pub fn run() {
             cleanup::cleanup_scan,
             cleanup::cleanup_delete,
             cleanup::cleanup_delete_safe,
+            cleanup::cleanup_delete_category,
             cleanup::cleanup_aged_stats,
             cleanup::cleanup_delete_aged,
             space_analysis::space_fixed_volumes,
