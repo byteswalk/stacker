@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { useToast } from "../../ui";
 import { vaultApi, vaultError, type EntryView } from "./api";
 import { DiscoverPanel } from "./DiscoverPanel";
@@ -31,6 +32,13 @@ export function VaultWorkspace({ onLocked }: { onLocked: () => void }) {
     }
   }, [toast]);
   useEffect(() => { void load(); }, [load]);
+  // Logins from the browser extension arrive while the page is open.
+  useEffect(() => {
+    let stop: (() => void) | undefined;
+    let disposed = false;
+    void listen("vault-inbox", () => { void load(); }).then((unlisten) => { if (disposed) unlisten(); else stop = unlisten; });
+    return () => { disposed = true; stop?.(); };
+  }, [load]);
 
   const visible = filterEntries(entries, filter, today);
   const viewing = entries.find((entry) => entry.id === viewingId) ?? null;

@@ -8,11 +8,13 @@ const manifest = JSON.parse(readFileSync(new URL("../public/manifest.json", impo
 const SITE_MATCHES = ["https://chatgpt.com/*", "https://claude.ai/*", "https://gemini.google.com/*", "https://grok.com/*", "https://chat.deepseek.com/*"];
 
 describe("manifest", () => {
-  it("asks only for the five supported sites and never for all URLs", () => {
+  it("asks only for the five supported sites, and for every site only when logins are switched on", () => {
     expect(manifest.host_permissions).toEqual(SITE_MATCHES);
     expect(manifest.content_scripts).toEqual([{ matches: SITE_MATCHES, js: ["content.js"], run_at: "document_idle" }]);
     expect(JSON.stringify(manifest)).not.toContain("<all_urls>");
-    expect(manifest.permissions).toEqual(["storage", "downloads", "nativeMessaging"]);
+    expect(manifest.permissions).toEqual(["storage", "downloads", "nativeMessaging", "scripting"]);
+    // Asked for at runtime by the logins switch, never at install.
+    expect(manifest.optional_host_permissions).toEqual(["https://*/*", "http://*/*"]);
   });
   it("covers exactly the sites in the registry", () => {
     expect(Object.values(SITES).map((s) => s.match)).toEqual(SITE_MATCHES);

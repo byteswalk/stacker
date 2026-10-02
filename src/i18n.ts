@@ -1344,6 +1344,7 @@ Object.assign(CURATED_EN, {
   "现有保管库不会删除，只是改名留在原文件夹里，然后让你新建一个空保管库。重置后的页面会列出这个旧文件：想起主密码或恢复密钥时，可以把它恢复使用，或导入到新保管库。": "The current vault is not deleted: it is renamed and stays in the same folder, and you then create a new empty vault. The next page lists the old file; once you remember the master password or recovery key, use it again or import it into the new vault.",
   "凭据内容": "Credential",
   "生成 SSH 密钥": "Generate SSH key",
+  "已从浏览器收进 {count} 条登录。": "Took in {count} login(s) from the browser.",
   "已把 {count} 条放进 Windows 凭据管理器。": "Put {count} entries into Windows Credential Manager.",
   "已把 {count} 条移出 Windows 凭据管理器。": "Took {count} entries out of Windows Credential Manager.",
   "已选 {count} 条": "{count} selected",

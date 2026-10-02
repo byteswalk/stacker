@@ -11,7 +11,7 @@
     "typecheck": "tsc -b --pretty false",
     "check:release-metadata": "node scripts/check-release-metadata.mjs",
     "check:i18n": "node scripts/check-i18n.mjs",
-    "ext:build": "vite build -c extension/vite.config.ts && vite build -c extension/vite.content.config.ts",
+    "ext:build": "vite build -c extension/vite.config.ts && vite build -c extension/vite.content.config.ts && vite build -c extension/vite.logins.config.ts",
     "ext:preview": "vite -c extension/vite.config.ts",
     "ext:zip": "npm run ext:build && node extension/scripts/zip.mjs",
     "clean:rust-cache": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/clean-rust-dev-cache.ps1",

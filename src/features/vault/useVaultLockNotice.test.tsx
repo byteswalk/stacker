@@ -15,15 +15,17 @@ function Notice() { useVaultLockNotice(); return null; }
 let host: HTMLDivElement;
 let root: Root;
 let fire: (reason: string) => Promise<void>;
+let fireEvent: (name: string, payload: unknown) => Promise<void>;
 let unlisten: ReturnType<typeof vi.fn>;
 
 beforeEach(async () => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   vi.clearAllMocks();
   unlisten = vi.fn();
-  let handler: (event: { payload: string }) => unknown = () => undefined;
-  vi.mocked(listen).mockImplementation((async (_name: string, callback: typeof handler) => { handler = callback; return unlisten; }) as never);
-  fire = (reason) => act(async () => { await handler({ payload: reason }); });
+  const handlers = new Map<string, (event: { payload: unknown }) => unknown>();
+  vi.mocked(listen).mockImplementation((async (name: string, callback: (event: { payload: unknown }) => unknown) => { handlers.set(name, callback); return unlisten; }) as never);
+  fireEvent = (name, payload) => act(async () => { await handlers.get(name)?.({ payload }); });
+  fire = (reason) => fireEvent("vault-locked", reason);
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -46,5 +48,10 @@ describe("useVaultLockNotice", () => {
     expect(host.textContent).toContain("系统曾进入睡眠，保管库已锁定。");
     await fire("idle");
     expect(host.textContent).toContain("空闲 10 分钟，保管库已锁定。");
+  });
+
+  it("says how many logins came in from the browser", async () => {
+    await fireEvent("vault-inbox", 2);
+    expect(host.textContent).toContain("已从浏览器收进 2 条登录。");
   });
 });

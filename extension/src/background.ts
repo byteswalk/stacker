@@ -5,6 +5,8 @@ import { LAST_TAB_KEY, shouldRemember, siteTabOf } from "./lib/lastTab";
 import { isValidSaveExcerpt } from "./lib/saveExcerpt";
 import { flush } from "./lib/sync";
 import { isTrustedSender } from "./lib/trustedSender";
+import { createLoginHandler, syncLoginScript } from "./logins/background";
+import { isLoginMessage } from "./logins/messages";
 
 export type { SaveExcerpt } from "./lib/saveExcerpt";
 
@@ -109,3 +111,26 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, reply) => {
   void handleBridge(message).then(reply);
   return true;
 });
+
+// --- Website logins: only once the user grants every site, from the switch in settings. ---
+const sessionStore = {
+  get: async (key: string) => (await chrome.storage.session.get(key))[key],
+  set: (key: string, value: unknown) => chrome.storage.session.set({ [key]: value }),
+  remove: (key: string) => chrome.storage.session.remove(key),
+};
+const localStore = {
+  get: async (key: string) => (await chrome.storage.local.get(key))[key],
+  set: (key: string, value: unknown) => chrome.storage.local.set({ [key]: value }),
+  remove: (key: string) => chrome.storage.local.remove(key),
+};
+const handleLogins = createLoginHandler({ call: (type, payload) => bridge.call(type, payload), session: sessionStore, local: localStore, now: Date.now }, chrome.runtime.id);
+chrome.runtime.onMessage.addListener((message: unknown, sender, reply) => {
+  if (!isLoginMessage(message)) return false;
+  void handleLogins(message, sender).then(reply, () => reply({ ok: false }));
+  return true;
+});
+chrome.tabs.onRemoved.addListener((tabId) => { void chrome.storage.session.remove(`loginPending:${tabId}`); });
+const keepLoginScript = () => { void syncLoginScript().catch((e) => console.warn("Stacker logins: content script", e)); };
+chrome.permissions.onAdded.addListener(keepLoginScript);
+chrome.permissions.onRemoved.addListener(keepLoginScript);
+keepLoginScript();

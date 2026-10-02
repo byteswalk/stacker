@@ -2,6 +2,20 @@
 export const EN: Record<string, string> = {
   "Stacker 网页对话": "Stacker Web Chats",
 
+  // logins
+  "保存到 Stacker 密钥保管？": "Save to Stacker Key Vault?",
+  "保存": "Save",
+  "保存并允许填充": "Save and allow filling",
+  "不保存": "Not now",
+  "此网站不再询问": "Never for this site",
+  "已交给 Stacker，解锁保管库后收进去。": "Handed to Stacker; it goes into the vault when the vault is unlocked.",
+  "没能交给 Stacker：请确认 Stacker 已连接这个浏览器。": "Could not hand it to Stacker: check that Stacker is connected to this browser.",
+  "「允许填充」的登录会放进 Windows 凭据管理器，以后在这个网站点一下就能填。": "Logins allowed to fill go into Windows Credential Manager, to be filled on this site with one click.",
+  "用 Stacker 填入": "Fill with Stacker",
+  "网站密码": "Website passwords",
+  "登录网站时提示保存到 Stacker 密钥保管，并在登录页提供填充。需要授权插件访问所有网站。": "Offers to save logins to Stacker Key Vault when you sign in, and to fill them on sign-in pages. Needs access to every site.",
+  "已开启：只在你点按钮时保存或填充，从不自动填入。": "On: saves or fills only when you click; never fills by itself.",
+
   // manage/App.tsx
   "打开": "Open",
   "正在刷新列表": "Refreshing list",

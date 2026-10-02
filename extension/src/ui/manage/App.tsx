@@ -1,3 +1,4 @@
+import { LoginsSwitch } from "./LoginsSwitch";
 import {
   DeleteOutlined, DownOutlined, EditOutlined, ExportOutlined, FolderOpenOutlined, PlusOutlined,
   ReloadOutlined, SettingOutlined, StarOutlined, TagOutlined,
@@ -230,7 +231,8 @@ export function App() {
     })),
   ];
 
-  const settings = <Flex vertical gap={12} style={{ width: 214 }}>
+  const settings = <Flex vertical gap={12} style={{ width: 244 }}>
+    <LoginsSwitch />
     <div>
       <Typography.Text type="secondary">{t("外观")}</Typography.Text>
       <Segmented

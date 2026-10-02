@@ -5,8 +5,9 @@
   "description": "整理、搜索、导出和清理 ChatGPT、Claude、Gemini、Grok 与 DeepSeek 网页对话。数据只存在本机。",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAjBeOfhl0QRVsrgA9loGeaphCb6/iMY9M2+EDkNZ8RS+Hxgx+RW76D9CM5A/gRpaUZ5q4hMut4rgGmuf61jPJZgqLouIpO2DggnYsE15ooRc+fNJxIHxDgV6tkLiJPtoPQEt70JuZBUTE5ylpR6KpP1PGcQOY5UTPg5bvd4HtA/sK/qoWxb19AWDGojDWmZtzp1bkJRo4reqNhzWplgumymVo+h9OGJamRoRSaOqb//JW+X3zavdNnN9HMcGu5e0QM0RDOvHwJ8bL1/+nwEC4uxkS8DW/U1fPES9G8GBf+XYY6oZXdcPJYzTLuwQ1CMP8aUZZlOW0rc2/wRJP0JLB4QIDAQAB",
   "icons": { "16": "icons/16.png", "32": "icons/32.png", "48": "icons/48.png", "128": "icons/128.png" },
-  "permissions": ["storage", "downloads", "nativeMessaging"],
+  "permissions": ["storage", "downloads", "nativeMessaging", "scripting"],
   "host_permissions": ["https://chatgpt.com/*", "https://claude.ai/*", "https://gemini.google.com/*", "https://grok.com/*", "https://chat.deepseek.com/*"],
+  "optional_host_permissions": ["https://*/*", "http://*/*"],
   "background": { "service_worker": "background.js", "type": "module" },
   "action": {
     "default_title": "Stacker 网页对话",
