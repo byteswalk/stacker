@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Modal, useToast } from "../../ui";
 import { vaultApi, vaultError, type EntryInput, type EntryView, type Kind } from "./api";
-import { KIND_LABELS, KIND_ORDER, TEMPLATES } from "./labels";
+import { generalKind, KIND_LABELS, KIND_ORDER, TEMPLATES } from "./labels";
 
 type DraftField = {
   key: number; name: string; previousName: string | null; value: string; secret: boolean; saved: boolean;
@@ -27,10 +27,10 @@ function templateFields(kind: Kind): DraftField[] {
 
 export function draftFrom(entry: EntryView | null): Draft {
   if (!entry) {
-    return { id: null, title: "", platform: "", kind: "api_key", fields: templateFields("api_key"), expiresAt: "", tags: "", note: "", favorite: false, touched: false };
+    return { id: null, title: "", platform: "", kind: "other", fields: templateFields("other"), expiresAt: "", tags: "", note: "", favorite: false, touched: false };
   }
   return {
-    id: entry.id, title: entry.title, platform: entry.platform, kind: entry.kind,
+    id: entry.id, title: entry.title, platform: entry.platform, kind: generalKind(entry.kind),
     fields: entry.fields.map((field) => ({
       ...newField(field.name, field.secret), previousName: field.name,
       value: field.secret ? "" : field.value ?? "", saved: field.secret && field.filled,

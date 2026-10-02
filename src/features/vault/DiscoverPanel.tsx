@@ -3,7 +3,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { useI18n } from "../../i18n";
 import { useToast } from "../../ui";
 import { vaultApi, vaultError, type DiscoverStatus, type Finding, type Kind } from "./api";
-import { ENV_SCOPE_LABELS, KIND_LABELS, KIND_ORDER, RISK_LABELS, SOURCE_LABELS, STATUS_LABELS } from "./labels";
+import { ENV_SCOPE_LABELS, RISK_LABELS, SOURCE_LABELS, STATUS_LABELS } from "./labels";
 
 const SOURCE_ORDER: Finding["source"][] = ["ssh", "config", "env", "dotenv"];
 const POLL_MS = 800;
@@ -182,9 +182,6 @@ export function DiscoverPanel({ onImported }: { onImported: () => void }) {
                           {choice && (
                             <div className="vault-bar" style={{ marginTop: 6, marginBottom: 0 }}>
                               <input className="ip" placeholder="平台" value={choice.platform} disabled={busy} onChange={(e) => edit(finding.id, { platform: e.target.value })} />
-                              <select className="ip" value={choice.kind} disabled={busy} onChange={(e) => edit(finding.id, { kind: e.target.value as Kind })}>
-                                {KIND_ORDER.map((kind) => <option key={kind} value={kind}>{KIND_LABELS[kind]}</option>)}
-                              </select>
                             </div>
                           )}
                         </div>

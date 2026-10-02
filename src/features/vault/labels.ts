@@ -1,19 +1,26 @@
 import type { FindingStatus, Kind } from "./api";
 
-export const KIND_ORDER: Kind[] = ["api_key", "token", "token_plan", "ak_sk", "ssh_key", "other"];
+/**
+ * Two kinds: an SSH key, which the vault can generate and hand to ssh, and a general
+ * credential for everything else, whose fields the user names. Older kinds still read from
+ * earlier vaults are shown as the general one.
+ */
+export const KIND_ORDER: Kind[] = ["other", "ssh_key"];
 
+const GENERAL = "通用凭据";
 export const KIND_LABELS: Record<Kind, string> = {
-  api_key: "API Key", token: "令牌", token_plan: "Token 计划", ak_sk: "AK/SK", ssh_key: "SSH 密钥", other: "其他",
+  other: GENERAL, api_key: GENERAL, token: GENERAL, token_plan: GENERAL, ak_sk: GENERAL, ssh_key: "SSH 密钥",
 };
 
+/** The field a general credential starts with; the user renames it or adds more. */
+const GENERAL_FIELDS = [{ name: "密钥", secret: true }];
 export const TEMPLATES: Record<Kind, { name: string; secret: boolean }[]> = {
-  api_key: [{ name: "Key", secret: true }, { name: "Base URL", secret: false }],
-  token: [{ name: "Token", secret: true }, { name: "账号", secret: false }, { name: "权限范围", secret: false }],
-  token_plan: [{ name: "Key", secret: true }, { name: "Base URL", secret: false }, { name: "套餐", secret: false }, { name: "额度/周期", secret: false }],
-  ak_sk: [{ name: "Access Key ID", secret: false }, { name: "Secret Access Key", secret: true }],
+  other: GENERAL_FIELDS, api_key: GENERAL_FIELDS, token: GENERAL_FIELDS, token_plan: GENERAL_FIELDS, ak_sk: GENERAL_FIELDS,
   ssh_key: [{ name: "私钥", secret: true }, { name: "公钥", secret: false }, { name: "口令", secret: true }, { name: "用途/主机", secret: false }],
-  other: [],
 };
+
+/** `ssh_key` as it is; any other kind is the general credential. */
+export const generalKind = (kind: Kind): Kind => kind === "ssh_key" ? "ssh_key" : "other";
 
 export const RISK_LABELS: Record<string, string> = {
   unencrypted: "私钥未加密", dsa: "算法过旧（DSA）", rsa_short: "RSA 长度不足 2048 位",

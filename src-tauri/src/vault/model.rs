@@ -11,6 +11,9 @@ pub(crate) const HISTORY_PER_FIELD: usize = 10;
 pub(crate) const TRASH_DAYS: i64 = 30;
 const DAY_MS: i64 = 86_400_000;
 
+/// Only two kinds behave differently: an SSH key, and everything else. The other names
+/// remain so that vaults written by earlier versions still read; they are shown and saved
+/// as `Other` (see [`Kind::general`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Kind {
@@ -20,6 +23,17 @@ pub(crate) enum Kind {
     AkSk,
     SshKey,
     Other,
+}
+
+impl Kind {
+    /// `SshKey` as it is; any other kind is a general credential.
+    pub(crate) fn general(self) -> Kind {
+        if self == Kind::SshKey {
+            Kind::SshKey
+        } else {
+            Kind::Other
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Zeroize)]
@@ -228,7 +242,7 @@ pub(crate) fn apply_input(body: &mut Body, input: EntryInput, now: i64) -> Resul
             replaced.zeroize();
             entry.title = title;
             entry.platform = platform;
-            entry.kind = input.kind;
+            entry.kind = input.kind.general();
             entry.expires_at = expires_at;
             entry.tags = tags;
             entry.note = input.note;
@@ -242,7 +256,7 @@ pub(crate) fn apply_input(body: &mut Body, input: EntryInput, now: i64) -> Resul
                 id: id.clone(),
                 title,
                 platform,
-                kind: input.kind,
+                kind: input.kind.general(),
                 fields,
                 expires_at,
                 tags,
@@ -274,7 +288,7 @@ fn view(entry: &Entry) -> EntryView {
         id: entry.id.clone(),
         title: entry.title.clone(),
         platform: entry.platform.clone(),
-        kind: entry.kind,
+        kind: entry.kind.general(),
         fields: entry
             .fields
             .iter()

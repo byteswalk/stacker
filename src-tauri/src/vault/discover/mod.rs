@@ -139,7 +139,7 @@ pub(crate) fn views(findings: &[Raw], digests: &Digests) -> Vec<FindingView> {
             name: raw.name.clone(),
             preview: preview(raw),
             platform: raw.platform.clone(),
-            kind: raw.kind,
+            kind: raw.kind.general(),
             risks: raw.risks.clone(),
             status: status_of(raw, digests),
         })

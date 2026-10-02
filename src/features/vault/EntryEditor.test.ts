@@ -13,10 +13,15 @@ const saved: EntryView = {
 };
 
 describe("entry editor drafts", () => {
-  it("starts a new entry from the API Key template", () => {
+  it("starts a new entry as a general credential with one secret field", () => {
     const draft = draftFrom(null);
-    expect(draft.kind).toBe("api_key");
-    expect(draft.fields.map((field) => [field.name, field.secret])).toEqual([["Key", true], ["Base URL", false]]);
+    expect(draft.kind).toBe("other");
+    expect(draft.fields.map((field) => [field.name, field.secret])).toEqual([["密钥", true]]);
+  });
+
+  it("opens an entry of an older kind as a general credential", () => {
+    expect(draftFrom(saved).kind).toBe("other");
+    expect(draftFrom({ ...saved, kind: "ssh_key" }).kind).toBe("ssh_key");
   });
 
   it("keeps saved secrets unless a new value is typed", () => {
@@ -67,9 +72,9 @@ describe("entry editor drafts", () => {
     draft.fields[0].value = "a".repeat(16 * 1024);
     expect(oversizedField(draft)).toBeNull();
     draft.fields[0].value = "a".repeat(16 * 1024 + 1);
-    expect(oversizedField(draft)).toBe("Key");
+    expect(oversizedField(draft)).toBe("密钥");
     // 6000 CJK characters are 18000 bytes: under 16K characters but over 16 KB.
     draft.fields[0].value = "密".repeat(6000);
-    expect(oversizedField(draft)).toBe("Key");
+    expect(oversizedField(draft)).toBe("密钥");
   });
 });

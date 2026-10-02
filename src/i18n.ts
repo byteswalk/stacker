@@ -1344,6 +1344,8 @@ Object.assign(CURATED_EN, {
   "现有保管库不会删除，只是改名留在原文件夹里，然后让你新建一个空保管库。重置后的页面会列出这个旧文件：想起主密码或恢复密钥时，可以把它恢复使用，或导入到新保管库。": "The current vault is not deleted: it is renamed and stays in the same folder, and you then create a new empty vault. The next page lists the old file; once you remember the master password or recovery key, use it again or import it into the new vault.",
   "凭据内容": "Credential",
   "生成 SSH 密钥": "Generate SSH key",
+  "通用凭据": "Credential",
+  "密钥": "Secret",
   "给 AI": "For AI",
   "复制公钥：交给服务器的那一行": "Copy the public key: the line a server takes",
   "复制一段可以直接贴给 AI 的信息：怎么在这台电脑上用这一条（连接命令、Windows 凭据名和取值命令），不含私钥、口令、密钥值": "Copy a text to paste into an AI: how to use this entry on this computer (the command to connect with, the Windows credential's name and the command that reads it), without the private key, passphrase or key value",
