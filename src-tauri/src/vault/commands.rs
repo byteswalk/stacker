@@ -271,6 +271,16 @@ pub async fn vault_ssh_set_passphrase(
     .await
 }
 
+/// Whether the local ssh already has an entry's key, and under which alias: read-only.
+#[tauri::command]
+pub async fn vault_ssh_local(id: String) -> Result<ssh::LocalKey, String> {
+    blocking(move || {
+        let dir = dirs::home_dir().ok_or(NOT_FOUND)?.join(".ssh");
+        Ok(ssh::find_local(&dir, &vault().ssh_private(&id)?))
+    })
+    .await
+}
+
 /// The one place the vault writes to `~/.ssh`, and only when the user asks for it.
 #[tauri::command]
 pub async fn vault_ssh_install_local(

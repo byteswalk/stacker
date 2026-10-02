@@ -311,6 +311,82 @@ pub(crate) fn install_local(
     Ok(dest.display().to_string())
 }
 
+/// Where the local ssh already has this key: the file in `dir` that holds the same key, and
+/// the `Host` alias in `dir/config` that names that file, when there is one.
+#[derive(Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LocalKey {
+    pub path: Option<String>,
+    pub alias: Option<String>,
+}
+
+/// The key itself in a public key line, without its type's comment.
+fn key_body(public: &str) -> Option<&str> {
+    public.split_whitespace().nth(1)
+}
+
+pub(crate) fn find_local(dir: &Path, private: &str) -> LocalKey {
+    const LARGEST_KEY_FILE: u64 = 32 * 1024;
+    let Some(wanted) = inspect(private).and_then(|info| info.public_key) else {
+        return LocalKey::default();
+    };
+    let Some(wanted) = key_body(&wanted) else {
+        return LocalKey::default();
+    };
+    let found = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|entry| {
+            entry
+                .metadata()
+                .is_ok_and(|meta| meta.is_file() && meta.len() <= LARGEST_KEY_FILE)
+        })
+        .map(|entry| entry.path())
+        .filter(|path| !path.extension().is_some_and(|ext| ext == "pub"))
+        .find(|path| {
+            std::fs::read_to_string(path)
+                .ok()
+                .filter(|text| text.contains("PRIVATE KEY-----"))
+                .and_then(|text| inspect(&text))
+                .and_then(|info| info.public_key)
+                .is_some_and(|public| key_body(&public) == Some(wanted))
+        });
+    let Some(path) = found else {
+        return LocalKey::default();
+    };
+    let name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string());
+    let config = std::fs::read_to_string(dir.join("config")).unwrap_or_default();
+    let mut hosts: Vec<String> = Vec::new();
+    let mut alias = None;
+    for line in config.lines() {
+        let mut words = line.split_whitespace();
+        match words.next().map(str::to_ascii_lowercase).as_deref() {
+            Some("host") => hosts = words.map(str::to_string).collect(),
+            Some("identityfile") => {
+                let file = words.next().unwrap_or_default().trim_matches('"');
+                let file_name = file.rsplit(['/', '\\']).next().map(str::to_string);
+                if file_name.is_some() && file_name == name {
+                    alias = hosts
+                        .iter()
+                        .find(|host| !host.contains(['*', '?', '!']))
+                        .cloned();
+                    if alias.is_some() {
+                        break;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    LocalKey {
+        path: Some(path.display().to_string()),
+        alias,
+    }
+}
+
 /// Never overwrites. OpenSSH refuses a private key others can read, so the empty file is
 /// locked down to the current user before any secret goes into it; if anything fails after
 /// the file was created, it is removed again so a retry starts clean.
@@ -522,6 +598,17 @@ mod tests {
             config,
             "Host vps1\n    HostName 203.0.113.7\n    User root\n    Port 2222\n    IdentityFile ~/.ssh/vps1_ed25519\n    IdentitiesOnly yes\n"
         );
+
+        // The key is found again where it was put, with the alias that names it.
+        assert_eq!(
+            find_local(&ssh, &pair.private_key),
+            LocalKey {
+                path: Some(path.clone()),
+                alias: Some("vps1".into())
+            }
+        );
+        let other = generate("ed25519", "other", "").unwrap();
+        assert_eq!(find_local(&ssh, &other.private_key), LocalKey::default());
 
         // The same alias again is refused before any file is written.
         assert_eq!(

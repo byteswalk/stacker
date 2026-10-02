@@ -55,7 +55,7 @@
 .a .vault-row.head:hover{ background:none; }
 .a .vault-row .title{ font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .a .vault-row .mut{ color:var(--mut); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.a .vault-row .ops{ display:flex; gap:6px; justify-content:flex-end; width:232px; cursor:default; }
+.a .vault-row .ops{ display:flex; gap:6px; justify-content:flex-end; width:300px; cursor:default; }
 .a .vault-row.head .ops{ justify-content:flex-start; }
 .a .modal.wide:has(.vault-detail){ max-width:min(700px, calc(100vw - 48px)); }
 .a .vault-detail .vault-field:last-child{ border-bottom:0; }

@@ -23,6 +23,7 @@ export type Finding = {
 };
 export type DiscoverStatus = { running: boolean; cancelled: boolean; truncated: boolean; files: number; findings: Finding[] };
 export type SshKeyPair = { privateKey: string; publicKey: string };
+export type SshLocal = { path: string | null; alias: string | null };
 export type SshLocalHost = { alias: string; host: string; user: string; port: number };
 export type RetiredVault = { path: string; modifiedMs: number; bytes: number };
 export type ImportItem = { id: number; platform: string; kind: Kind; origin?: string };
@@ -55,6 +56,7 @@ export const vaultApi = {
   sshGenerate: (algorithm: string, comment: string, passphrase: string) => invoke<SshKeyPair>("vault_ssh_generate", { algorithm, comment, passphrase }),
   sshSetPassphrase: (id: string, old: string, next: string, passphraseField: string) =>
     invoke<EntryView>("vault_ssh_set_passphrase", { id, old, new: next, passphraseField }),
+  sshLocal: (id: string) => invoke<SshLocal>("vault_ssh_local", { id }),
   sshInstallLocal: (id: string, name: string, host: SshLocalHost | null) => invoke<string>("vault_ssh_install_local", { id, name, host }),
   exportBackup: (password: string, dest: string) => invoke<void>("vault_export", { password, dest }),
   importPreview: (src: string, credential: Credential) => invoke<MergeStats>("vault_import_preview", { src, credential }),
