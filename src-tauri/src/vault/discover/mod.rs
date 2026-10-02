@@ -20,6 +20,9 @@ pub(crate) struct Scope {
     pub ssh: bool,
     pub configs: bool,
     pub env: bool,
+    /// What Git keeps in Windows Credential Manager.
+    #[serde(default)]
+    pub credentials: bool,
     pub project_dirs: Vec<String>,
 }
 
@@ -86,6 +89,11 @@ pub(crate) fn scan(
     }
     if scope.env && live() {
         found.extend(sources::env_vars());
+    }
+    if scope.credentials && live() {
+        found.extend(sources::git_saved_credentials(
+            crate::vault::wincred::git_saved(),
+        ));
     }
     let dirs: Vec<PathBuf> = scope.project_dirs.iter().map(PathBuf::from).collect();
     if !dirs.is_empty() && live() {
@@ -373,6 +381,7 @@ mod tests {
             ssh: true,
             configs: true,
             env: false,
+            credentials: false,
             project_dirs: vec![home.path().join("code").display().to_string()],
         };
         let outcome = scan(
@@ -393,6 +402,7 @@ mod tests {
             ssh: false,
             configs: true,
             env: false,
+            credentials: false,
             project_dirs: vec![],
         };
         let findings = scan(
@@ -434,6 +444,7 @@ mod tests {
             ssh: false,
             configs: true,
             env: false,
+            credentials: false,
             project_dirs: vec![],
         };
         let mut findings = scan(
@@ -500,6 +511,7 @@ mod tests {
             ssh: false,
             configs: true,
             env: false,
+            credentials: false,
             project_dirs: vec![home.path().join("code").display().to_string()],
         };
         let findings = scan(
@@ -551,6 +563,7 @@ mod tests {
             ssh: false,
             configs: true,
             env: false,
+            credentials: false,
             project_dirs: vec![home.path().join("code").display().to_string()],
         };
         start(vault, scope, home.path().to_path_buf()).unwrap();
@@ -606,6 +619,7 @@ mod tests {
             ssh: false,
             configs: true,
             env: false,
+            credentials: false,
             project_dirs: vec![],
         };
         // Deterministic core: a finished scan whose generation was superseded is discarded.

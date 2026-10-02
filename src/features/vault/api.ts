@@ -16,10 +16,10 @@ export type EntryInput = {
 export type HistoryView = { index: number; field: string; at: number };
 export type MergeStats = { added: number; updated: number; same: number };
 export type Credential = { kind: "password" | "recovery"; value: string };
-export type DiscoverScope = { ssh: boolean; configs: boolean; env: boolean; projectDirs: string[] };
+export type DiscoverScope = { ssh: boolean; configs: boolean; env: boolean; credentials: boolean; projectDirs: string[] };
 export type FindingStatus = "new" | "in_vault" | "in_vault_old" | "ignored";
 export type Finding = {
-  id: number; source: "ssh" | "config" | "env" | "dotenv"; location: string; name: string; preview: string; platform: string; kind: Kind; risks: string[]; status: FindingStatus;
+  id: number; source: "ssh" | "config" | "env" | "credential" | "dotenv"; location: string; name: string; preview: string; platform: string; kind: Kind; risks: string[]; status: FindingStatus;
 };
 export type DiscoverStatus = { running: boolean; cancelled: boolean; truncated: boolean; files: number; findings: Finding[] };
 export type SshKeyPair = { privateKey: string; publicKey: string };

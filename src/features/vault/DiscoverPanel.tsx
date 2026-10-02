@@ -5,7 +5,7 @@ import { useToast } from "../../ui";
 import { vaultApi, vaultError, type DiscoverStatus, type Finding, type Kind } from "./api";
 import { ENV_SCOPE_LABELS, RISK_LABELS, SOURCE_LABELS, STATUS_LABELS } from "./labels";
 
-const SOURCE_ORDER: Finding["source"][] = ["ssh", "config", "env", "dotenv"];
+const SOURCE_ORDER: Finding["source"][] = ["ssh", "config", "env", "credential", "dotenv"];
 const POLL_MS = 800;
 
 export function groupFindings(findings: Finding[]): [string, Finding[]][] {
@@ -22,7 +22,7 @@ type Choice = { platform: string; kind: Kind };
 export function DiscoverPanel({ onImported }: { onImported: () => void }) {
   const toast = useToast();
   const { tr } = useI18n();
-  const [scope, setScope] = useState({ ssh: true, configs: true, env: true });
+  const [scope, setScope] = useState({ ssh: true, configs: true, env: true, credentials: true });
   const [dirs, setDirs] = useState<string[]>([]);
   const [dirsReady, setDirsReady] = useState(false);
   const [dirsBusy, setDirsBusy] = useState(false);
@@ -135,6 +135,7 @@ export function DiscoverPanel({ onImported }: { onImported: () => void }) {
           <label style={{ flexDirection: "row", gap: 8 }}><input type="checkbox" checked={scope.ssh} onChange={(e) => setScope({ ...scope, ssh: e.target.checked })} /> SSH 密钥（~/.ssh）</label>
           <label style={{ flexDirection: "row", gap: 8 }}><input type="checkbox" checked={scope.configs} onChange={(e) => setScope({ ...scope, configs: e.target.checked })} /> 云与包管理配置（.aws、.npmrc、.git-credentials、.pypirc、.cargo）</label>
           <label style={{ flexDirection: "row", gap: 8 }}><input type="checkbox" checked={scope.env} onChange={(e) => setScope({ ...scope, env: e.target.checked })} /> 环境变量（用户与系统）</label>
+          <label style={{ flexDirection: "row", gap: 8 }}><input type="checkbox" checked={scope.credentials} onChange={(e) => setScope({ ...scope, credentials: e.target.checked })} /> Windows 凭据管理器里 Git 保存的令牌（Git 页添加的 GitHub、Gitee 等账号）</label>
           <div>
             <div className="vault-sub" style={{ marginBottom: 6 }}>项目 .env（最多 4 层，跳过 node_modules、.git、target 等目录）</div>
             {dirs.map((dir) => (
@@ -149,7 +150,7 @@ export function DiscoverPanel({ onImported }: { onImported: () => void }) {
         <div className="vault-actions">
           {running
             ? <button className="gh sm" onClick={() => void cancel()}>取消扫描</button>
-            : <button className="pr sm" disabled={!dirsReady || (!scope.ssh && !scope.configs && !scope.env && dirs.length === 0)} onClick={() => void start()}><i className="ti ti-radar" /> 开始扫描</button>}
+            : <button className="pr sm" disabled={!dirsReady || (!scope.ssh && !scope.configs && !scope.env && !scope.credentials && dirs.length === 0)} onClick={() => void start()}><i className="ti ti-radar" /> 开始扫描</button>}
         </div>
       </div>
 

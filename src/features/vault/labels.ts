@@ -27,7 +27,7 @@ export const RISK_LABELS: Record<string, string> = {
 };
 
 export const SOURCE_LABELS: Record<string, string> = {
-  ssh: "SSH 密钥", config: "云与包管理配置", env: "环境变量", dotenv: "项目 .env",
+  ssh: "SSH 密钥", config: "云与包管理配置", env: "环境变量", credential: "Windows 凭据管理器（Git）", dotenv: "项目 .env",
 };
 
 export const ENV_SCOPE_LABELS: Record<string, string> = { user: "用户环境变量", system: "系统环境变量" };

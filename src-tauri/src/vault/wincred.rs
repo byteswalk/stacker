@@ -120,6 +120,19 @@ pub(crate) fn targets_of(body: &Body, id: &str) -> Vec<Wanted> {
 
 pub(crate) use platform::System as SystemStore;
 
+/// A credential someone else saved: its name, the account in it, and the secret.
+pub(crate) struct Saved {
+    pub target: String,
+    pub user: String,
+    pub secret: Zeroizing<String>,
+}
+
+/// The credentials Git (through Git Credential Manager) keeps for each server, named
+/// `git:https://github.com` and the like. Read-only.
+pub(crate) fn git_saved() -> Vec<Saved> {
+    platform::saved("git:*")
+}
+
 #[cfg(windows)]
 mod platform {
     use super::{CredStore, PREFIX};
@@ -142,6 +155,47 @@ mod platform {
             len += 1;
         }
         String::from_utf16_lossy(std::slice::from_raw_parts(text, len))
+    }
+
+    /// Every generic credential whose name matches `filter`, with its account and secret.
+    pub(super) fn saved(filter: &str) -> Vec<super::Saved> {
+        let filter = wide(filter);
+        let mut count = 0u32;
+        let mut found: *mut *mut CREDENTIALW = std::ptr::null_mut();
+        // SAFETY: as in `list`; each blob is `CredentialBlobSize` bytes, read before CredFree.
+        unsafe {
+            if CredEnumerateW(filter.as_ptr(), 0, &mut count, &mut found) == 0 {
+                return Vec::new();
+            }
+            let out = std::slice::from_raw_parts(found, count as usize)
+                .iter()
+                .filter(|item| (***item).Type == CRED_TYPE_GENERIC)
+                .map(|item| {
+                    let credential = &**item;
+                    let bytes = std::slice::from_raw_parts(
+                        credential.CredentialBlob,
+                        credential.CredentialBlobSize as usize,
+                    );
+                    let mut units: Vec<u16> = bytes
+                        .chunks_exact(2)
+                        .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+                        .collect();
+                    let secret = Zeroizing::new(String::from_utf16_lossy(&units));
+                    units.zeroize();
+                    super::Saved {
+                        target: from_wide(credential.TargetName),
+                        user: if credential.UserName.is_null() {
+                            String::new()
+                        } else {
+                            from_wide(credential.UserName)
+                        },
+                        secret,
+                    }
+                })
+                .collect();
+            CredFree(found as _);
+            out
+        }
     }
 
     impl CredStore for System {
@@ -225,6 +279,10 @@ mod platform {
     use zeroize::Zeroizing;
 
     pub(crate) struct System;
+
+    pub(super) fn saved(_: &str) -> Vec<super::Saved> {
+        Vec::new()
+    }
 
     impl CredStore for System {
         fn list(&self) -> Vec<String> {
@@ -416,6 +474,20 @@ pub(crate) mod tests {
                 ("Stacker:github:Token".to_string(), "old".to_string()),
             ]
         );
+    }
+
+    #[test]
+    #[ignore = "reads the real Windows Credential Manager; run by hand with --ignored"]
+    fn git_saved_reads_what_git_keeps() {
+        // Names and lengths only: the secrets themselves are never printed.
+        for item in git_saved() {
+            eprintln!(
+                "{} user={} secret_len={}",
+                item.target,
+                !item.user.is_empty(),
+                item.secret.len()
+            );
+        }
     }
 
     #[test]

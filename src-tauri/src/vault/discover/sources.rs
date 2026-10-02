@@ -1,4 +1,4 @@
-//! 发现的四类来源：~/.ssh、云与包管理配置文件、环境变量、项目 .env。只读。
+//! 发现的五类来源：~/.ssh、云与包管理配置文件、环境变量、Windows 凭据管理器里 Git 保存的凭据、项目 .env。只读。
 
 use super::rules;
 use crate::vault::model::Kind;
@@ -31,6 +31,7 @@ pub(crate) enum Source {
     Config,
     Env,
     Dotenv,
+    Credential,
 }
 
 #[derive(Clone)]
@@ -453,6 +454,61 @@ fn holders_in(
         .collect()
 }
 
+/// Platform names for the hosts most Git accounts live on; any other host is its own name.
+fn git_platform(host: &str) -> String {
+    match host.trim_start_matches("www.") {
+        "github.com" => "GitHub".into(),
+        "gitee.com" => "Gitee".into(),
+        "gitlab.com" => "GitLab".into(),
+        "codeup.aliyun.com" => "阿里云 Codeup".into(),
+        "bitbucket.org" => "Bitbucket".into(),
+        other => other.into(),
+    }
+}
+
+/// What Git Credential Manager keeps under `git:<url>`: the account and its token or
+/// password for one server. The account may also sit in the name (`git:https://me@host`).
+pub(crate) fn git_saved_credentials(saved: Vec<crate::vault::wincred::Saved>) -> Vec<Raw> {
+    saved
+        .into_iter()
+        .filter_map(|item| {
+            let url = url::Url::parse(item.target.strip_prefix("git:")?).ok()?;
+            if !usable(&item.secret) {
+                return None;
+            }
+            let host = url.host_str()?.to_string();
+            let host = match url.port() {
+                Some(port) => format!("{host}:{port}"),
+                None => host,
+            };
+            let user = if item.user.is_empty() {
+                decoded(url.username())
+            } else {
+                item.user.clone()
+            };
+            let name = if user.is_empty() {
+                host.clone()
+            } else {
+                format!("{user}@{host}")
+            };
+            let mut fields = Vec::new();
+            if !user.is_empty() {
+                fields.push(field("账号", user, false));
+            }
+            fields.push(field("Token", item.secret.to_string(), true));
+            Some(Raw {
+                source: Source::Credential,
+                location: item.target.clone(),
+                name,
+                platform: git_platform(url.host_str().unwrap_or_default()),
+                kind: Kind::Token,
+                fields,
+                risks: Vec::new(),
+            })
+        })
+        .collect()
+}
+
 pub(crate) fn env_vars() -> Vec<Raw> {
     let mut out = Vec::new();
     for (scope, pairs) in env_scopes() {
@@ -508,6 +564,64 @@ pub(crate) fn dotenv_files(dirs: &[PathBuf], walk: &Walk) -> Vec<Raw> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn git_credentials_in_the_credential_store_become_tokens_with_their_account() {
+        use crate::vault::wincred::Saved;
+        let saved = |target: &str, user: &str, secret: &str| Saved {
+            target: target.into(),
+            user: user.into(),
+            secret: Zeroizing::new(secret.into()),
+        };
+        let found = git_saved_credentials(vec![
+            saved(
+                "git:https://github.com",
+                "byteswalk",
+                "ghp_abcdefghijklmnopqrstuvwxyz0123456789",
+            ),
+            saved("git:https://someone@gitee.com", "", "gitee-token-123456"),
+            saved("git:http://code.example.net:13000", "dev", "secret-pass-1"),
+            saved("git:https://gitlab.com", "x", ""),
+            saved("not-a-git-one", "x", "value-123456"),
+        ]);
+        let summary: Vec<_> = found
+            .iter()
+            .map(|raw| {
+                (
+                    raw.name.as_str(),
+                    raw.platform.as_str(),
+                    raw.location.as_str(),
+                    raw.primary().to_string(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            summary,
+            vec![
+                (
+                    "byteswalk@github.com",
+                    "GitHub",
+                    "git:https://github.com",
+                    "ghp_abcdefghijklmnopqrstuvwxyz0123456789".to_string()
+                ),
+                (
+                    "someone@gitee.com",
+                    "Gitee",
+                    "git:https://someone@gitee.com",
+                    "gitee-token-123456".to_string()
+                ),
+                (
+                    "dev@code.example.net:13000",
+                    "code.example.net",
+                    "git:http://code.example.net:13000",
+                    "secret-pass-1".to_string()
+                ),
+            ]
+        );
+        assert!(found.iter().all(|raw| raw.source == Source::Credential));
+        assert_eq!(found[0].fields[0].name, "账号");
+        assert!(!found[0].fields[0].secret && found[0].fields[1].secret);
+    }
 
     #[test]
     fn a_secret_is_found_in_the_variables_that_hold_exactly_it() {
