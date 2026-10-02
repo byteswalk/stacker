@@ -48,11 +48,17 @@
 .a .vault-form label.vault-edit-secret{ flex-direction:row; align-items:center; gap:6px; height:33px; cursor:pointer; white-space:nowrap; }
 .a .vault-bar{ display:flex; gap:8px; align-items:center; margin-bottom:12px; flex-wrap:wrap; }
 .a .vault-bar .grow{ flex:1; }
-.a .vault-grid{ display:grid; grid-template-columns:minmax(0,1.15fr) minmax(0,1fr); gap:12px; align-items:start; }
 .a .vault-rows{ display:flex; flex-direction:column; }
-.a .vault-row{ display:grid; grid-template-columns:18px minmax(0,1.4fr) minmax(0,1fr) 92px 92px; gap:8px; align-items:center; padding:9px 8px; border-radius:8px; cursor:pointer; font-size:12.5px; background:none; border:0; color:var(--tx); text-align:left; }
-.a .vault-row:hover{ background:rgba(255,255,255,.05); } .a .vault-row.on{ background:rgba(245,130,31,.12); }
+.a .vault-row{ display:grid; grid-template-columns:18px minmax(0,1.6fr) minmax(0,1fr) 90px 100px 92px auto; gap:10px; align-items:center; padding:8px 8px; border-radius:8px; cursor:pointer; font-size:12.5px; }
+.a .vault-row:hover{ background:rgba(255,255,255,.05); }
+.a .vault-row.head{ cursor:default; color:var(--mut); font-size:11.5px; padding-block:4px 8px; border-bottom:.5px solid var(--bd); border-radius:0; margin-bottom:4px; }
+.a .vault-row.head:hover{ background:none; }
+.a .vault-row .title{ font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .a .vault-row .mut{ color:var(--mut); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.a .vault-row .ops{ display:flex; gap:6px; justify-content:flex-end; width:232px; cursor:default; }
+.a .vault-row.head .ops{ justify-content:flex-start; }
+.a .modal.wide:has(.vault-detail){ max-width:min(700px, calc(100vw - 48px)); }
+.a .vault-detail .vault-field:last-child{ border-bottom:0; }
 .a .vault-badge{ font-size:11px; padding:1px 6px; border-radius:6px; border:.5px solid var(--bd); color:var(--mut); white-space:nowrap; }
 .a .vault-badge.soon{ color:var(--acc); border-color:var(--acc); } .a .vault-badge.expired{ color:#d6463d; border-color:#d6463d; }
 .a .vault-field{ display:grid; grid-template-columns:96px minmax(0,1fr) auto; gap:8px; align-items:center; padding:6px 0; border-bottom:.5px solid var(--bd); font-size:12.5px; }

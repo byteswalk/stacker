@@ -12,7 +12,7 @@ export function VaultWorkspace({ onLocked }: { onLocked: () => void }) {
   const toast = useToast();
   const [tab, setTab] = useState<"entries" | "discover">("entries");
   const [entries, setEntries] = useState<EntryView[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [viewingId, setViewingId] = useState<string | null>(null);
   const [filter, setFilter] = useState({ query: "", platform: "", soonOnly: false });
   const [editing, setEditing] = useState<EntryView | null | "new">(null);
   const today = useMemo(() => new Date(), []);
@@ -31,7 +31,7 @@ export function VaultWorkspace({ onLocked }: { onLocked: () => void }) {
   useEffect(() => { void load(); }, [load]);
 
   const visible = filterEntries(entries, filter, today);
-  const selected = entries.find((entry) => entry.id === selectedId) ?? visible[0] ?? null;
+  const viewing = entries.find((entry) => entry.id === viewingId) ?? null;
   const soon = soonCount(entries, today);
 
   async function lock() {
@@ -66,17 +66,20 @@ export function VaultWorkspace({ onLocked }: { onLocked: () => void }) {
           {entries.length === 0 ? (
             <div className="pxcard vault-empty">暂无条目。添加 API Key、令牌或 SSH 密钥，数据加密后仅保存在本机。</div>
           ) : (
-            <div className="vault-grid">
-              <div className="pxcard"><EntryList entries={visible} selectedId={selected?.id ?? null} today={today} onSelect={setSelectedId} /></div>
-              {selected && <EntryDetail key={selected.id} entry={selected} today={today} onEdit={() => setEditing(selected)} onChanged={() => void load()} />}
+            <div className="pxcard">
+              <EntryList entries={visible} today={today} onView={(entry) => setViewingId(entry.id)} onEdit={setEditing} onChanged={() => void load()} />
             </div>
           )}
         </>
       )}
 
+      {viewing && !editing && (
+        <EntryDetail key={viewing.id} entry={viewing} today={today} onClose={() => setViewingId(null)}
+          onEdit={() => setEditing(viewing)} onChanged={() => void load()} />
+      )}
       {editing && (
         <EntryEditor entry={editing === "new" ? null : editing} onClose={() => setEditing(null)}
-          onSaved={(view) => { setEditing(null); setSelectedId(view.id); void load(); }} />
+          onSaved={() => { setEditing(null); void load(); }} />
       )}
     </>
   );
