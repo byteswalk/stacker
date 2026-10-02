@@ -13,8 +13,12 @@ pub(crate) const PREFIX: &str = "Stacker:";
 const MAX_BLOB_BYTES: usize = 5 * 512;
 
 pub(crate) trait CredStore: Send + Sync {
+    /// The names of the generic credentials that start with `prefix`.
+    fn list_prefix(&self, prefix: &str) -> Vec<String>;
     /// The names of the credentials under [`PREFIX`].
-    fn list(&self) -> Vec<String>;
+    fn list(&self) -> Vec<String> {
+        self.list_prefix(PREFIX)
+    }
     fn read(&self, target: &str) -> Option<Zeroizing<String>>;
     fn write(&self, target: &str, value: &str) -> bool;
     fn delete(&self, target: &str);
@@ -176,7 +180,7 @@ pub(crate) fn git_saved() -> Vec<Saved> {
 
 #[cfg(windows)]
 mod platform {
-    use super::{CredStore, PREFIX};
+    use super::CredStore;
     use windows_sys::Win32::Security::Credentials::{
         CredDeleteW, CredEnumerateW, CredFree, CredReadW, CredWriteW, CREDENTIALW,
         CRED_PERSIST_LOCAL_MACHINE, CRED_TYPE_GENERIC,
@@ -240,8 +244,8 @@ mod platform {
     }
 
     impl CredStore for System {
-        fn list(&self) -> Vec<String> {
-            let filter = wide(&format!("{PREFIX}*"));
+        fn list_prefix(&self, prefix: &str) -> Vec<String> {
+            let filter = wide(&format!("{prefix}*"));
             let mut count = 0u32;
             let mut found: *mut *mut CREDENTIALW = std::ptr::null_mut();
             // SAFETY: on success `found` is an array of `count` credential pointers that
@@ -326,7 +330,7 @@ mod platform {
     }
 
     impl CredStore for System {
-        fn list(&self) -> Vec<String> {
+        fn list_prefix(&self, _: &str) -> Vec<String> {
             Vec::new()
         }
         fn read(&self, _: &str) -> Option<Zeroizing<String>> {
@@ -351,8 +355,14 @@ pub(crate) mod tests {
     pub(crate) struct Memory(pub Mutex<BTreeMap<String, String>>);
 
     impl CredStore for Memory {
-        fn list(&self) -> Vec<String> {
-            self.0.lock().unwrap().keys().cloned().collect()
+        fn list_prefix(&self, prefix: &str) -> Vec<String> {
+            self.0
+                .lock()
+                .unwrap()
+                .keys()
+                .filter(|name| name.starts_with(prefix))
+                .cloned()
+                .collect()
         }
         fn read(&self, target: &str) -> Option<Zeroizing<String>> {
             self.0

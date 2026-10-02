@@ -56,6 +56,8 @@ pub async fn vault_unlock(password: String) -> Result<(), String> {
     blocking(move || {
         vault().unlock(&password)?;
         discover::clear();
+        // Logins the browser extension saved while the vault was locked.
+        let _ = vault().import_inbox();
         Ok(())
     })
     .await

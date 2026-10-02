@@ -78,6 +78,22 @@ pub struct Context {
     written: HashSet<PathBuf>,
 }
 
+/// Where the vault keeps the index of logins that can be filled.
+fn logins_index() -> PathBuf {
+    crate::vault::logins::index_path(&crate::vault::default_path())
+}
+
+#[derive(serde::Deserialize)]
+struct LoginPage {
+    url: String,
+}
+
+#[derive(serde::Deserialize)]
+struct LoginPick {
+    url: String,
+    user: String,
+}
+
 fn parse<T: DeserializeOwned>(payload: Value) -> Result<T, String> {
     serde_json::from_value(payload).map_err(|_| "E_REQUEST".to_string())
 }
@@ -195,6 +211,39 @@ impl Context {
                 let key = format!("web:{}:{}", lookup.site, lookup.id);
                 let items = crate::distill::store::for_source(&self.conn, &key)?;
                 Ok(json!({ "items": crate::distill::bridge_items(items) }))
+            }
+            // 网站登录：只经过 Windows 凭据管理器和本机加密的索引，不碰保管库本身。
+            "loginsFor" => {
+                let request: LoginPage = parse(payload)?;
+                let index = crate::vault::logins::read_index(&logins_index());
+                let found = crate::vault::logins::matches(&index, &request.url);
+                Ok(json!({
+                    "logins": found.iter().map(|item| json!({ "user": item.user, "title": item.title, "host": item.host })).collect::<Vec<_>>(),
+                }))
+            }
+            "loginPassword" => {
+                let request: LoginPick = parse(payload)?;
+                let index = crate::vault::logins::read_index(&logins_index());
+                let password = crate::vault::logins::password_for(
+                    &crate::vault::wincred::SystemStore,
+                    &index,
+                    &request.url,
+                    &request.user,
+                )
+                .ok_or("E_NOT_FOUND")?;
+                Ok(json!({ "password": password.as_str() }))
+            }
+            "loginSave" => {
+                let captured: crate::vault::logins::Captured = parse(payload)?;
+                if captured.url.len() > 2048
+                    || captured.user.len() > 256
+                    || captured.password.len() > 512
+                    || captured.title.len() > 200
+                {
+                    return Err("E_REQUEST".into());
+                }
+                crate::vault::logins::put_inbox(&crate::vault::wincred::SystemStore, &captured)?;
+                Ok(json!({ "saved": true }))
             }
             _ => Err("E_UNKNOWN_TYPE".into()),
         }

@@ -9,6 +9,7 @@ pub(crate) mod discover;
 pub(crate) mod errors;
 pub(crate) mod format;
 pub(crate) mod guard;
+pub(crate) mod logins;
 pub(crate) mod model;
 pub(crate) mod session;
 pub(crate) mod ssh;

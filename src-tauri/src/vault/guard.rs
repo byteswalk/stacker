@@ -86,6 +86,11 @@ pub(crate) fn start(app: tauri::AppHandle) {
             if let Some(reason) = decide(vault.idle_for(), limit(), session_locked(), gap) {
                 lock_everything();
                 let _ = app.emit("vault-locked", reason.as_str());
+            } else if let Ok(taken) = vault.import_inbox() {
+                // Logins the browser extension saved while the vault was open.
+                if taken > 0 {
+                    let _ = app.emit("vault-inbox", taken);
+                }
             }
         }
     });

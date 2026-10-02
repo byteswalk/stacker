@@ -231,11 +231,37 @@ impl Vault {
         self
     }
 
-    /// Called with the body whenever it is opened or has changed on disk.
+    /// Called with the body whenever it is opened or has changed on disk: Credential Manager
+    /// and the index of fillable logins follow it.
     fn mirror(&self, body: &Body) {
         if let Some(store) = &self.creds {
             wincred::sync(store.as_ref(), body);
+            super::logins::write_index(&super::logins::index_path(&self.path), body);
         }
+    }
+
+    /// Takes in the logins the browser extension left in Credential Manager, and removes
+    /// them from there once the vault holds them. Nothing happens while locked.
+    pub(crate) fn import_inbox(&self) -> Result<usize, String> {
+        let Some(store) = self.creds.clone() else {
+            return Ok(0);
+        };
+        if !matches!(self.inner().phase, Phase::Unlocked(_)) {
+            return Ok(0);
+        }
+        let items = super::logins::inbox(store.as_ref());
+        if items.is_empty() {
+            return Ok(0);
+        }
+        let captured: Vec<_> = items.iter().map(|(_, item)| item.clone()).collect();
+        self.mutate(|body| {
+            let found = super::logins::changes(body, &captured);
+            super::logins::apply(body, found, now_ms())
+        })?;
+        for (target, _) in &items {
+            store.delete(target);
+        }
+        Ok(items.len())
     }
 
     /// What a browser's password export would add; with `apply`, adds it.
@@ -1476,6 +1502,52 @@ mod entry_tests {
             .unwrap();
         vault.reset().unwrap();
         assert!(held().is_empty());
+    }
+
+    #[test]
+    fn logins_left_by_the_extension_are_taken_in_while_open_and_then_removed() {
+        use crate::vault::logins::{put_inbox, Captured};
+        use crate::vault::wincred::tests::Memory;
+        let dir = tempfile::tempdir().unwrap();
+        let store = std::sync::Arc::new(Memory::default());
+        let vault = fresh(&dir).mirrored_to(store.clone());
+        vault.create_begin(PW).unwrap();
+        let key = vault.pending_recovery().unwrap();
+        vault.confirm_recovery(&key[key.len() - 4..]).unwrap();
+        let login = |password: &str, fill| Captured {
+            url: "https://github.com/login".into(),
+            user: "me".into(),
+            password: password.into(),
+            title: String::new(),
+            fill,
+        };
+
+        put_inbox(store.as_ref(), &login("p1", true)).unwrap();
+        vault.lock();
+        assert_eq!(vault.import_inbox().unwrap(), 0, "nothing while locked");
+        vault.unlock(PW).unwrap();
+        assert_eq!(vault.import_inbox().unwrap(), 1);
+        assert!(crate::vault::logins::inbox(store.as_ref()).is_empty());
+        let entries = vault.list(false).unwrap();
+        assert_eq!((entries.len(), entries[0].windows), (1, true));
+        // Filled from Credential Manager by the index written beside the vault.
+        let index =
+            crate::vault::logins::read_index(&crate::vault::logins::index_path(&vault.path));
+        assert_eq!(
+            crate::vault::logins::password_for(store.as_ref(), &index, "https://github.com/", "me")
+                .unwrap()
+                .as_str(),
+            "p1"
+        );
+
+        put_inbox(store.as_ref(), &login("p2", false)).unwrap();
+        assert_eq!(vault.import_inbox().unwrap(), 1);
+        assert_eq!(
+            vault.list(false).unwrap().len(),
+            1,
+            "a changed password updates the entry"
+        );
+        assert_eq!(vault.history(&entries[0].id).unwrap().len(), 1);
     }
 
     fn input(title: &str, secret: &str) -> EntryInput {

@@ -83,7 +83,7 @@ pub(crate) struct Body {
     pub ignored: Vec<String>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct FieldInput {
     pub name: String,
@@ -93,7 +93,7 @@ pub(crate) struct FieldInput {
     pub secret: bool,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct EntryInput {
     pub id: Option<String>,
