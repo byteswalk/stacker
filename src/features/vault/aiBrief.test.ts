@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EntryView } from "./api";
-import { aiBrief } from "./aiBrief";
+import { aiBrief, credentialCommand } from "./aiBrief";
 
 const same = (text: string) => text;
 const ssh: EntryView = {
@@ -43,6 +43,13 @@ describe("the text handed to an AI", () => {
     const held = aiBrief(token, null, same, [{ field: "Key", name: "ARK_API_KEY", scope: "user" }]);
     expect(held).toContain("Key: 在本机的用户环境变量里 ARK_API_KEY（PowerShell: $env:ARK_API_KEY · cmd: %ARK_API_KEY% · bash: $ARK_API_KEY）");
     expect(held).toContain("请在命令里直接引用上面的环境变量");
+    const stored = aiBrief(token, null, same, [], [{ field: "Key", target: "Stacker:Ark:Key" }]);
+    expect(stored).toContain("Key: 在 Windows 凭据管理器里（普通凭据），凭据名 Stacker:Ark:Key");
+    expect(stored).toContain("CredReadW('Stacker:Ark:Key',1,0,[ref]$p)");
+    expect(stored).toContain("不要把值打印出来");
+    expect(stored).not.toContain("未包含");
+    // A quote in a name cannot end the quoted PowerShell string.
+    expect(credentialCommand("Stacker:it's:Key")).toContain("CredReadW('Stacker:it''s:Key',1,0");
     expect(text).toContain("Base URL: https://ark.example/v1");
     expect(text).toContain("备注: 绑定 work 邮箱");
     expect(text).not.toContain("套餐");

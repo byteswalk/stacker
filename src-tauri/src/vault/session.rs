@@ -6,6 +6,7 @@ use super::crypto::{self, KdfParams, SecretKey};
 use super::errors::*;
 use super::format::{self, Header, Snapshot, Wrap};
 use super::model::{self, Body, Digests, EntryInput, EntryView, HistoryView, MergeStats};
+use super::wincred::{self, CredStore};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
@@ -104,6 +105,8 @@ pub(crate) struct Vault {
     pub(crate) path: PathBuf,
     kdf: KdfParams,
     inner: Mutex<Inner>,
+    /// Where the secrets are mirrored for other programs to read; none in tests by default.
+    creds: Option<std::sync::Arc<dyn CredStore>>,
 }
 
 pub(crate) fn now_ms() -> i64 {
@@ -218,7 +221,26 @@ impl Vault {
                 wait_until: None,
                 last_activity: Instant::now(),
             }),
+            creds: None,
         }
+    }
+
+    /// Keeps `store` agreeing with the vault from the next unlock on.
+    pub(crate) fn mirrored_to(mut self, store: std::sync::Arc<dyn CredStore>) -> Vault {
+        self.creds = Some(store);
+        self
+    }
+
+    /// Called with the body whenever it is opened or has changed on disk.
+    fn mirror(&self, body: &Body) {
+        if let Some(store) = &self.creds {
+            wincred::sync(store.as_ref(), body);
+        }
+    }
+
+    /// The Credential Manager names of an entry's secrets, for the page to show.
+    pub(crate) fn credential_targets(&self, id: &str) -> Result<Vec<wincred::Wanted>, String> {
+        self.with_unlocked(|open| Ok(wincred::targets_of(&open.body, id)))
     }
 
     fn inner(&self) -> MutexGuard<'_, Inner> {
@@ -354,6 +376,7 @@ impl Vault {
                 self.shelve_orphan_backup()?;
                 let body = Body::default();
                 let snapshot = self.write_body_rekeyed(&header, &dek, &body, None)?;
+                self.mirror(&body);
                 inner.phase = Phase::Unlocked(Open {
                     dek,
                     header,
@@ -371,6 +394,7 @@ impl Vault {
                 let snapshot =
                     self.write_body_rekeyed(&header, &dek, &open.body, Some(&open.snapshot))?;
                 let body = std::mem::take(&mut open.body);
+                self.mirror(&body);
                 inner.phase = Phase::Unlocked(Open {
                     dek,
                     header,
@@ -417,6 +441,7 @@ impl Vault {
         } else {
             purged.zeroize();
         }
+        self.mirror(&open.body);
         inner.phase = Phase::Unlocked(open);
         inner.last_activity = Instant::now();
         Ok(())
@@ -610,6 +635,8 @@ impl Vault {
         if backup.exists() {
             std::fs::rename(&backup, &backup_target).map_err(|_| IO.to_string())?;
         }
+        // The vault that was set aside no longer speaks for what other programs may read.
+        self.mirror(&Body::default());
         Ok(target.display().to_string())
     }
 
@@ -640,6 +667,7 @@ impl Vault {
             match self.write_body(&open.header, &open.dek, &next, Some(&open.snapshot)) {
                 Ok(snapshot) => {
                     open.snapshot = snapshot;
+                    self.mirror(&next);
                     replace_body(open, next);
                     Ok(out)
                 }
@@ -660,8 +688,19 @@ impl Vault {
         self.with_unlocked(|open| model::view_of(&open.body, &id))
     }
 
+    /// A mirrored secret is read back from Credential Manager, the copy other programs
+    /// use, so what the page shows is what they get; anything else comes from the vault.
     pub(crate) fn reveal(&self, id: &str, field: &str) -> Result<Zeroizing<String>, String> {
-        self.with_unlocked(|open| model::field_value(&open.body, id, field))
+        self.with_unlocked(|open| {
+            let value = model::field_value(&open.body, id, field)?;
+            let mirrored = self.creds.as_ref().and_then(|store| {
+                wincred::targets_of(&open.body, id)
+                    .into_iter()
+                    .find(|item| item.field == field)
+                    .and_then(|item| store.read(&item.target))
+            });
+            Ok(mirrored.unwrap_or(value))
+        })
     }
 
     pub(crate) fn history(&self, id: &str) -> Result<Vec<HistoryView>, String> {
@@ -1327,6 +1366,55 @@ mod entry_tests {
     use super::tests::{created, fresh, PW};
     use super::*;
     use crate::vault::model::{FieldInput, Kind};
+
+    #[test]
+    fn secrets_follow_the_vault_into_the_credential_store_and_stay_while_locked() {
+        use crate::vault::wincred::tests::Memory;
+        let dir = tempfile::tempdir().unwrap();
+        let store = std::sync::Arc::new(Memory::default());
+        let vault = fresh(&dir).mirrored_to(store.clone());
+        vault.create_begin(PW).unwrap();
+        let key = vault.pending_recovery().unwrap();
+        vault.confirm_recovery(&key[key.len() - 4..]).unwrap();
+        let held = || store.0.lock().unwrap().clone();
+
+        let saved = vault.save(input("GitHub", "ghp_one")).unwrap();
+        assert_eq!(
+            held().get("Stacker:GitHub:Token").map(String::as_str),
+            Some("ghp_one")
+        );
+        assert_eq!(
+            vault.credential_targets(&saved.id).unwrap()[0].target,
+            "Stacker:GitHub:Token"
+        );
+
+        // What the page shows is what other programs read.
+        store
+            .0
+            .lock()
+            .unwrap()
+            .insert("Stacker:GitHub:Token".into(), "edited-in-windows".into());
+        assert_eq!(
+            vault.reveal(&saved.id, "Token").unwrap().as_str(),
+            "edited-in-windows"
+        );
+
+        // Locking does not take the mirrored copy away: that is what it is for.
+        vault.lock();
+        assert_eq!(held().len(), 1);
+        vault.unlock(PW).unwrap();
+        assert_eq!(
+            held().get("Stacker:GitHub:Token").map(String::as_str),
+            Some("ghp_one")
+        );
+
+        vault.delete(&saved.id).unwrap();
+        assert!(held().is_empty());
+        vault.restore(&saved.id).unwrap();
+        assert_eq!(held().len(), 1);
+        vault.reset().unwrap();
+        assert!(held().is_empty());
+    }
 
     fn input(title: &str, secret: &str) -> EntryInput {
         EntryInput {

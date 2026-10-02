@@ -24,6 +24,7 @@ export type Finding = {
 export type DiscoverStatus = { running: boolean; cancelled: boolean; truncated: boolean; files: number; findings: Finding[] };
 export type SshKeyPair = { privateKey: string; publicKey: string };
 export type SshLocal = { path: string | null; alias: string | null };
+export type CredentialTarget = { field: string; target: string };
 export type EnvHolder = { field: string; name: string; scope: "user" | "system" };
 export type SshLocalHost = { alias: string; host: string; user: string; port: number };
 export type RetiredVault = { path: string; modifiedMs: number; bytes: number };
@@ -57,6 +58,7 @@ export const vaultApi = {
   sshGenerate: (algorithm: string, comment: string, passphrase: string) => invoke<SshKeyPair>("vault_ssh_generate", { algorithm, comment, passphrase }),
   sshSetPassphrase: (id: string, old: string, next: string, passphraseField: string) =>
     invoke<EntryView>("vault_ssh_set_passphrase", { id, old, new: next, passphraseField }),
+  credentialTargets: (id: string) => invoke<CredentialTarget[]>("vault_credential_targets", { id }),
   envHolders: (id: string) => invoke<EnvHolder[]>("vault_env_holders", { id }),
   sshLocal: (id: string) => invoke<SshLocal>("vault_ssh_local", { id }),
   sshInstallLocal: (id: string, name: string, host: SshLocalHost | null) => invoke<string>("vault_ssh_install_local", { id, name, host }),

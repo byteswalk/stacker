@@ -271,6 +271,30 @@ pub async fn vault_ssh_set_passphrase(
     .await
 }
 
+/// A secret field and the name it has in Windows Credential Manager.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CredentialTarget {
+    field: String,
+    target: String,
+}
+
+/// Under which names an entry's secrets can be read from Credential Manager.
+#[tauri::command]
+pub async fn vault_credential_targets(id: String) -> Result<Vec<CredentialTarget>, String> {
+    blocking(move || {
+        Ok(vault()
+            .credential_targets(&id)?
+            .into_iter()
+            .map(|item| CredentialTarget {
+                field: item.field,
+                target: item.target,
+            })
+            .collect())
+    })
+    .await
+}
+
 /// An environment variable that already holds one of an entry's secrets.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]

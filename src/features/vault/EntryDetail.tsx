@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
 import { useI18n } from "../../i18n";
 import { ConfirmModal, Modal, useToast } from "../../ui";
-import { vaultApi, vaultError, type EntryView } from "./api";
+import { vaultApi, vaultError, type CredentialTarget, type EntryView } from "./api";
 import { KIND_LABELS, RISK_LABELS } from "./labels";
 import { ExpiryBadge } from "./EntryList";
 import { HistoryDialog } from "./HistoryDialog";
@@ -21,6 +21,13 @@ export function EntryDetail({ entry, today, onEdit, onChanged, onClose }: {
   const [busy, setBusy] = useState(false);
   const [exportPath, setExportPath] = useState<string | null>(null);
   const currentId = useRef(entry.id);
+  const [credentials, setCredentials] = useState<CredentialTarget[]>([]);
+  // Under which names Windows Credential Manager holds this entry's secrets.
+  useEffect(() => {
+    let alive = true;
+    vaultApi.credentialTargets(entry.id).then((list) => { if (alive) setCredentials(list ?? []); }).catch(() => { if (alive) setCredentials([]); });
+    return () => { alive = false; };
+  }, [entry.id, entry.updatedAt]);
 
   // Revealed values belong to one saved version of one entry.
   useEffect(() => { currentId.current = entry.id; clear(); }, [entry.id, entry.updatedAt, clear]);
@@ -87,6 +94,11 @@ export function EntryDetail({ entry, today, onEdit, onChanged, onClose }: {
         {publicKeyOf(entry) !== "" && <div className="vault-field"><span className="name">交给服务器</span><SshKeyActions entry={entry} onChanged={onChanged} /><span /></div>}
         <SshServers entry={entry} onChanged={onChanged} />
       </>}
+      {credentials.length > 0 && <div className="vault-field" title="保密值同步了一份到 Windows 凭据管理器，本机的其他程序（比如 AI）可以按这个名字取用；这里显示的值也是从那里读出来的">
+        <span className="name">Windows 凭据</span>
+        <code translate="no">{credentials.map((item) => item.target).join("\n")}</code>
+        <span />
+      </div>}
       <div className="vault-field"><span className="name">到期</span><span><ExpiryBadge expiresAt={entry.expiresAt} today={today} /></span><span /></div>
       {entry.tags.length > 0 && <div className="vault-field"><span className="name">标签</span><span className="vault-tags">{entry.tags.map((tag) => <span key={tag} className="vault-badge">{tag}</span>)}</span><span /></div>}
       {entry.note && <div className="vault-field"><span className="name">备注</span><code translate="no">{entry.note}</code><span /></div>}
