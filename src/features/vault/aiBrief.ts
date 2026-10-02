@@ -50,7 +50,9 @@ export function aiBrief(entry: EntryView, local: SshLocal | null, tr: Tr, holder
       const holder = holders.find((item) => item.field === field.name);
       if (credential) lines.push(`${tr(field.name)}: ${tr("在 Windows 凭据管理器里（普通凭据），凭据名")} ${credential.target}`);
       if (holder) lines.push(`${tr(field.name)}: ${tr(holder.scope === "user" ? "在本机的用户环境变量里" : "在本机的系统环境变量里")} ${holder.name}（PowerShell: $env:${holder.name} · cmd: %${holder.name}% · bash: $${holder.name}）`);
-      if (!credential && !holder) lines.push(`${tr(field.name)}: ${tr("（保密，未包含：这个值只在 Stacker 保管库里，本机没有别的地方保存它）")}`);
+      if (!credential && !holder) lines.push(`${tr(field.name)}: ${tr(entry.windows
+        ? "（保密，未包含：这个值太长，放不进 Windows 凭据管理器）"
+        : "（保密，未包含：这一条只在 Stacker 保管库里，没有放进 Windows 凭据管理器）")}`);
     }
   }
   if (entry.kind === "ssh_key") {

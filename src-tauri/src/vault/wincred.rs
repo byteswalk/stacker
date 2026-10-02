@@ -49,11 +49,26 @@ fn part(text: &str) -> String {
     }
 }
 
-/// What should be in Credential Manager for this vault: every filled secret field of every
-/// live entry, except SSH keys (ssh reads those from `~/.ssh`, and an RSA key does not fit).
-/// The name is `Stacker:<title>:<field>`; a second entry with the same title and field gets
-/// its id appended, the older one keeping the plain name.
+/// What should be in Credential Manager for this vault: every filled secret field of the live
+/// entries the user put there, never SSH keys (ssh reads those from `~/.ssh`, and an RSA key
+/// does not fit). The name is `Stacker:<title>:<field>`; a second entry with the same title
+/// and field gets its id appended, the older one keeping the plain name. Names are given
+/// over every entry that could go there, so putting one in or out never renames another.
 pub(crate) fn wanted(body: &Body) -> Vec<(Wanted, &str)> {
+    let shared: HashSet<&str> = body
+        .entries
+        .iter()
+        .filter(|entry| entry.windows == Some(true))
+        .map(|entry| entry.id.as_str())
+        .collect();
+    named(body)
+        .into_iter()
+        .filter(|(item, _)| shared.contains(item.entry_id.as_str()))
+        .collect()
+}
+
+/// Every name an entry could have in Credential Manager, whether it is there or not.
+pub(crate) fn named(body: &Body) -> Vec<(Wanted, &str)> {
     let mut entries: Vec<_> = body
         .entries
         .iter()
@@ -107,6 +122,32 @@ pub(crate) fn sync(store: &dyn CredStore, body: &Body) {
             store.write(&item.target, value);
         }
     }
+}
+
+/// Settles the choice for entries from before it existed: on when Credential Manager
+/// already holds one of their secrets (they were mirrored then), off otherwise. True when
+/// anything changed.
+pub(crate) fn settle_legacy(store: &dyn CredStore, body: &mut Body) -> bool {
+    let present: HashSet<String> = store
+        .list()
+        .into_iter()
+        .map(|name| name.to_lowercase())
+        .collect();
+    let held: HashSet<String> = named(body)
+        .into_iter()
+        .filter(|(item, _)| present.contains(&item.target.to_lowercase()))
+        .map(|(item, _)| item.entry_id)
+        .collect();
+    let mut changed = false;
+    for entry in body
+        .entries
+        .iter_mut()
+        .filter(|entry| entry.windows.is_none())
+    {
+        entry.windows = Some(held.contains(&entry.id));
+        changed = true;
+    }
+    changed
 }
 
 /// The names for one entry's fields, for the page and for the text handed to an AI.
@@ -358,6 +399,7 @@ pub(crate) mod tests {
             updated_at: created_at,
             deleted_at: None,
             history: Vec::new(),
+            windows: Some(true),
         }
     }
 
@@ -474,6 +516,60 @@ pub(crate) mod tests {
                 ("Stacker:github:Token".to_string(), "old".to_string()),
             ]
         );
+    }
+
+    #[test]
+    fn only_entries_put_there_are_mirrored_and_names_do_not_move() {
+        let mut body = Body {
+            entries: vec![
+                entry(
+                    "aaaaaaaa-1",
+                    "GitHub",
+                    Kind::Token,
+                    1,
+                    &[("Token", "old", true)],
+                ),
+                entry(
+                    "bbbbbbbb-2",
+                    "GitHub",
+                    Kind::Token,
+                    2,
+                    &[("Token", "new", true)],
+                ),
+            ],
+            ignored: Vec::new(),
+        };
+        body.entries[0].windows = Some(false);
+        let store = Memory::default();
+        sync(&store, &body);
+        // The second keeps its suffix although the first is not there.
+        assert_eq!(
+            names(&store),
+            vec![("Stacker:GitHub:Token#bbbbbb".to_string(), "new".to_string())]
+        );
+    }
+
+    #[test]
+    fn entries_from_before_the_choice_keep_what_credential_manager_already_holds() {
+        let mut body = Body {
+            entries: vec![
+                entry("e1", "Ark", Kind::ApiKey, 1, &[("Key", "k", true)]),
+                entry("e2", "Site", Kind::Other, 2, &[("密码", "p", true)]),
+                entry("e3", "Set", Kind::Other, 3, &[("密码", "q", true)]),
+            ],
+            ignored: Vec::new(),
+        };
+        body.entries[0].windows = None;
+        body.entries[1].windows = None;
+        body.entries[2].windows = Some(true);
+        let store = Memory::default();
+        store.write("Stacker:Ark:Key", "k");
+        assert!(settle_legacy(&store, &mut body));
+        assert_eq!(
+            body.entries.iter().map(|e| e.windows).collect::<Vec<_>>(),
+            vec![Some(true), Some(false), Some(true)]
+        );
+        assert!(!settle_legacy(&store, &mut body));
     }
 
     #[test]

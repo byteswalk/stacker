@@ -28,6 +28,23 @@ export function EntryList({ entries, today, onView, onEdit, onChanged }: {
   const { tr } = useI18n();
   const [deleting, setDeleting] = useState<EntryView | null>(null);
   const [busy, setBusy] = useState(false);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  // SSH keys go to ~/.ssh and never into Credential Manager, so they are not picked.
+  const pickable = entries.filter((entry) => entry.kind !== "ssh_key");
+  const chosen = pickable.filter((entry) => picked.has(entry.id));
+  const allPicked = pickable.length > 0 && chosen.length === pickable.length;
+  const toggle = (id: string) => setPicked((old) => { const next = new Set(old); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+
+  async function setWindows(on: boolean) {
+    setBusy(true);
+    try {
+      const count = await vaultApi.setWindows(chosen.map((entry) => entry.id), on);
+      toast(tr(on ? "已把 {count} 条放进 Windows 凭据管理器。" : "已把 {count} 条移出 Windows 凭据管理器。").replace("{count}", String(count)), "ok");
+      setPicked(new Set());
+      onChanged();
+    } catch (error) { toast(vaultError(error), "err"); }
+    finally { setBusy(false); }
+  }
 
   async function copy(entry: EntryView, field: string) {
     try { await vaultApi.copy(entry.id, field); toast("已复制，30 秒后自动清除剪贴板。", "ok"); } catch (error) { toast(vaultError(error), "err"); }
@@ -48,7 +65,7 @@ export function EntryList({ entries, today, onView, onEdit, onChanged }: {
       const secrets = entry.fields.filter((field) => field.secret && field.filled);
       const reachable = (name: string) => credentials.some((item) => item.field === name) || holders.some((item) => item.field === name);
       if (ssh && !local?.path) toast("已复制给 AI 的信息。私钥还没放到本机 ~/.ssh，AI 暂时连不上：先在详情里点「放到本机 ~/.ssh」。", "info");
-      else if (!ssh && secrets.some((field) => !reachable(field.name))) toast("已复制给 AI 的信息。有的值太长，放不进 Windows 凭据管理器，AI 拿不到那一项。", "info");
+      else if (!ssh && secrets.some((field) => !reachable(field.name))) toast(entry.windows ? "已复制给 AI 的信息。有的值太长，放不进 Windows 凭据管理器，AI 拿不到那一项。" : "已复制给 AI 的信息。这一条没有放进 Windows 凭据管理器，AI 拿不到值：需要的话勾选它，点「放进 Windows 凭据」。", "info");
       else toast(ssh ? "已复制给 AI 的信息，不含保密内容。" : "已复制给 AI 的信息：告诉了它凭据名和取值命令，不含密钥值。", "ok");
     } catch (error) { toast(vaultError(error), "err"); }
   }
@@ -62,16 +79,32 @@ export function EntryList({ entries, today, onView, onEdit, onChanged }: {
   if (entries.length === 0) return <div className="vault-empty">没有符合条件的条目。</div>;
   return (
     <div className="vault-rows" role="list">
-      <div className="vault-row head" aria-hidden="true">
-        <span /><span>标题</span><span>平台</span><span>类型</span><span>到期</span><span>更新于</span><span className="ops">操作</span>
+      {chosen.length > 0 && <div className="vault-batch">
+        <span>{tr("已选 {count} 条").replace("{count}", String(chosen.length))}</span>
+        <button className="gh sm" disabled={busy} title="本机的其他程序（比如 AI）可以按名字从 Windows 凭据管理器取用这些值" onClick={() => void setWindows(true)}><i className="ti ti-brand-windows" /> 放进 Windows 凭据</button>
+        <button className="gh sm" disabled={busy} onClick={() => void setWindows(false)}><i className="ti ti-lock" /> 移出，只留在保管库</button>
+        <button className="gh sm" disabled={busy} onClick={() => setPicked(new Set())}>清空选择</button>
+      </div>}
+      <div className="vault-row head">
+        <input type="checkbox" className="vault-pick" aria-label="全选" checked={allPicked} disabled={pickable.length === 0}
+          onChange={() => setPicked(allPicked ? new Set() : new Set(pickable.map((entry) => entry.id)))} />
+        <span />
+        <span>标题</span><span>平台</span><span>类型</span><span>到期</span><span>更新于</span><span className="ops">操作</span>
       </div>
       {entries.map((entry) => {
         const field = mainField(entry);
         const publicKey = entry.kind === "ssh_key" ? publicKeyOf(entry) : "";
         return (
-          <div key={entry.id} role="listitem" className="vault-row" onClick={() => onView(entry)}>
+          <div key={entry.id} role="listitem" className={"vault-row" + (picked.has(entry.id) ? " picked" : "")} onClick={() => onView(entry)}>
+            <span onClick={(event) => event.stopPropagation()}>
+              {entry.kind === "ssh_key"
+                ? <input type="checkbox" className="vault-pick" disabled aria-label="SSH 密钥不进 Windows 凭据" title="SSH 密钥放在 ~/.ssh 给 ssh 用，不进 Windows 凭据管理器" />
+                : <input type="checkbox" className="vault-pick" aria-label="选择" checked={picked.has(entry.id)} onChange={() => toggle(entry.id)} />}
+            </span>
             <i className="ti ti-key" aria-hidden="true" />
-            <span className="title" translate="no" title={entry.title}>{entry.title}</span>
+            <span className="title" translate="no" title={entry.title}>{entry.title}
+              {entry.windows && <i className="ti ti-brand-windows vault-win" title="已放进 Windows 凭据管理器，本机的其他程序可以按名字取用" />}
+            </span>
             <span className="mut" translate="no">{entry.platform || "—"}</span>
             <span className="mut">{KIND_LABELS[entry.kind]}</span>
             <ExpiryBadge expiresAt={entry.expiresAt} today={today} />

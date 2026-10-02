@@ -271,6 +271,25 @@ pub async fn vault_ssh_set_passphrase(
     .await
 }
 
+/// Reads a browser's password export: what it would add, or (with `apply`) adds it.
+#[tauri::command]
+pub async fn vault_import_browser(
+    src: String,
+    apply: bool,
+) -> Result<super::browser::BrowserStats, String> {
+    blocking(move || {
+        let text = super::browser::read(&PathBuf::from(src))?;
+        vault().import_browser(&text, apply)
+    })
+    .await
+}
+
+/// Puts the secrets of `ids` into Windows Credential Manager, or takes them out.
+#[tauri::command]
+pub async fn vault_set_windows(ids: Vec<String>, on: bool) -> Result<usize, String> {
+    blocking(move || vault().set_windows(&ids, on)).await
+}
+
 /// A secret field and the name it has in Windows Credential Manager.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]

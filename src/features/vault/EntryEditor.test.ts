@@ -9,7 +9,7 @@ const saved: EntryView = {
     { name: "Base URL", secret: false, value: "https://ark", filled: true },
   ],
   expiresAt: "2026-10-31", tags: ["work", "ai"], note: "n", favorite: true,
-  createdAt: 1, updatedAt: 2, deletedAt: null, historyCount: 0, ssh: null,
+  createdAt: 1, updatedAt: 2, deletedAt: null, historyCount: 0, windows: false, ssh: null,
 };
 
 describe("expiry dates", () => {

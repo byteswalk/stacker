@@ -13,7 +13,7 @@ const ssh: EntryView = {
     { name: "用途/主机", secret: false, value: "root@192.0.2.1", filled: true },
     { name: "已装服务器", secret: false, value: "root@203.0.113.7:2222\nroot@198.51.100.4", filled: true },
   ],
-  expiresAt: "2026-11-02", tags: [], note: "", favorite: false, createdAt: 1, updatedAt: 2, deletedAt: null, historyCount: 0,
+  expiresAt: "2026-11-02", tags: [], note: "", favorite: false, createdAt: 1, updatedAt: 2, deletedAt: null, historyCount: 0, windows: false,
   ssh: { algorithm: "ssh-ed25519", bits: null, encrypted: true, fingerprint: "SHA256:abc", publicKey: "ssh-ed25519 AAAA", risks: [] },
 };
 
@@ -40,7 +40,7 @@ describe("the text handed to an AI", () => {
       note: " 绑定 work 邮箱 ",
     };
     const text = aiBrief(token, null, same);
-    expect(text).toContain("Key: （保密，未包含：这个值只在 Stacker 保管库里");
+    expect(text).toContain("Key: （保密，未包含：这一条只在 Stacker 保管库里");
     const held = aiBrief(token, null, same, [{ field: "Key", name: "ARK_API_KEY", scope: "user" }]);
     expect(held).toContain("Key: 在本机的用户环境变量里 ARK_API_KEY（PowerShell: $env:ARK_API_KEY · cmd: %ARK_API_KEY% · bash: $ARK_API_KEY）");
     expect(held).toContain("请在命令里直接引用上面的环境变量");

@@ -49,10 +49,18 @@
 .a .vault-bar{ display:flex; gap:8px; align-items:center; margin-bottom:12px; flex-wrap:wrap; }
 .a .vault-bar .grow{ flex:1; }
 .a .vault-rows{ display:flex; flex-direction:column; }
-.a .vault-row{ display:grid; grid-template-columns:18px minmax(0,1.6fr) minmax(0,1fr) 90px 100px 92px auto; gap:10px; align-items:center; padding:8px 8px; border-radius:8px; cursor:pointer; font-size:12.5px; }
+.a .vault-row{ display:grid; grid-template-columns:16px 18px minmax(0,1.6fr) minmax(0,1fr) 90px 100px 92px auto; gap:10px; align-items:center; padding:8px 8px; border-radius:8px; cursor:pointer; font-size:12.5px; }
 .a .vault-row:hover{ background:rgba(255,255,255,.05); }
 .a .vault-row.head{ cursor:default; color:var(--mut); font-size:11.5px; padding-block:4px 8px; border-bottom:.5px solid var(--bd); border-radius:0; margin-bottom:4px; }
 .a .vault-row.head:hover{ background:none; }
+.a .vault-row.picked{ background:var(--acc-soft); }
+.a .vault-pick{ width:15px; height:15px; margin:0; cursor:pointer; display:block; }
+.a .vault-pick:disabled{ cursor:default; opacity:.35; }
+.a .vault-win{ margin-left:7px; color:var(--blue); font-size:13px; font-weight:400; vertical-align:-1px; }
+.a .vault-batch{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:8px 10px; margin-bottom:8px; border:.5px solid rgba(245,130,31,.35); border-radius:9px; background:var(--acc-soft); font-size:12.5px; }
+.a .vault-batch > span{ margin-right:auto; font-weight:600; }
+.a .vault-import-steps{ display:flex; flex-direction:column; gap:6px; padding:10px 12px; border:.5px solid var(--bd); border-radius:9px; font-size:12px; }
+.a .vault-import-steps > div{ display:grid; grid-template-columns:64px minmax(0,1fr); gap:8px; } .a .vault-import-steps span{ color:var(--mut); }
 .a .vault-row .title{ font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .a .vault-row .mut{ color:var(--mut); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .a .vault-row .ops{ display:flex; gap:6px; justify-content:flex-end; width:300px; cursor:default; }
@@ -83,3 +91,5 @@
 .a .vault-date{ position:relative; display:flex; gap:6px; }
 .a .vault-date .ip{ flex:1; min-width:0; font-family:ui-monospace,Consolas,monospace; }
 .a .vault-date-picker{ position:absolute; right:0; bottom:0; width:1px; height:1px; opacity:0; pointer-events:none; border:0; padding:0; }
+.a .vault-win-switch{ display:inline-flex; align-items:center; gap:8px; cursor:pointer; }
+.a .vault-win-names{ display:block; margin-top:6px; white-space:pre-wrap; color:var(--mut); font-size:11.5px; }

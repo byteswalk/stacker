@@ -94,9 +94,19 @@ export function EntryDetail({ entry, today, onEdit, onChanged, onClose }: {
         {publicKeyOf(entry) !== "" && <div className="vault-field"><span className="name">交给服务器</span><SshKeyActions entry={entry} onChanged={onChanged} /><span /></div>}
         <SshServers entry={entry} onChanged={onChanged} />
       </>}
-      {credentials.length > 0 && <div className="vault-field" title="保密值同步了一份到 Windows 凭据管理器，本机的其他程序（比如 AI）可以按这个名字取用；这里显示的值也是从那里读出来的">
+      {entry.kind !== "ssh_key" && <div className="vault-field">
         <span className="name">Windows 凭据</span>
-        <code translate="no">{credentials.map((item) => item.target).join("\n")}</code>
+        <div>
+          <label className="vault-win-switch">
+            <span className="sw sm2"><input type="checkbox" checked={entry.windows} disabled={busy}
+              onChange={(e) => void run(() => vaultApi.setWindows([entry.id], e.target.checked), e.target.checked ? "已放进 Windows 凭据管理器。" : "已移出 Windows 凭据管理器。")} /><span className="tk" /></span>
+            <span>{entry.windows ? "已放进 Windows 凭据管理器" : "只在保管库里"}</span>
+          </label>
+          {entry.windows && credentials.length > 0 && <code className="vault-win-names" translate="no">{credentials.map((item) => item.target).join("\n")}</code>}
+          <div className="vault-sub" style={{ margin: "4px 0 0" }}>{entry.windows
+            ? "本机的其他程序（比如 AI）可以按上面的名字取用，保管库锁定后也能；这里显示的值也是从那里读出来的。"
+            : "打开后，本机的其他程序（比如 AI）可以按名字从 Windows 凭据管理器取用这里的保密值。"}</div>
+        </div>
         <span />
       </div>}
       <div className="vault-field"><span className="name">到期</span><span><ExpiryBadge expiresAt={entry.expiresAt} today={today} /></span><span /></div>

@@ -5,7 +5,7 @@
 use super::crypto::{self, KdfParams, SecretKey};
 use super::errors::*;
 use super::format::{self, Header, Snapshot, Wrap};
-use super::model::{self, Body, Digests, EntryInput, EntryView, HistoryView, MergeStats};
+use super::model::{self, Body, Digests, EntryInput, EntryView, HistoryView, Kind, MergeStats};
 use super::wincred::{self, CredStore};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -238,6 +238,38 @@ impl Vault {
         }
     }
 
+    /// What a browser's password export would add; with `apply`, adds it.
+    pub(crate) fn import_browser(
+        &self,
+        text: &str,
+        apply: bool,
+    ) -> Result<super::browser::BrowserStats, String> {
+        let (logins, empty) = super::browser::logins(text)?;
+        let (inputs, same) =
+            self.with_unlocked(|open| Ok(super::browser::new_logins(&open.body, logins)))?;
+        let added = inputs.len();
+        if apply && added > 0 {
+            self.add_entries(inputs)?;
+        }
+        Ok(super::browser::BrowserStats { added, same, empty })
+    }
+
+    /// Puts entries' secrets into Credential Manager, or takes them out. SSH keys never go.
+    pub(crate) fn set_windows(&self, ids: &[String], on: bool) -> Result<usize, String> {
+        self.mutate(|body| {
+            let mut count = 0;
+            for entry in body
+                .entries
+                .iter_mut()
+                .filter(|entry| entry.kind != Kind::SshKey && ids.contains(&entry.id))
+            {
+                entry.windows = Some(on);
+                count += 1;
+            }
+            Ok(count)
+        })
+    }
+
     /// The Credential Manager names of an entry's secrets, for the page to show.
     pub(crate) fn credential_targets(&self, id: &str) -> Result<Vec<wincred::Wanted>, String> {
         self.with_unlocked(|open| Ok(wincred::targets_of(&open.body, id)))
@@ -440,6 +472,21 @@ impl Vault {
             }
         } else {
             purged.zeroize();
+        }
+        // Entries from before the Windows choice existed are settled once, and saved.
+        if let Some(store) = &self.creds {
+            let mut settled = open.body.clone();
+            if wincred::settle_legacy(store.as_ref(), &mut settled) {
+                match self.write_body(&open.header, &open.dek, &settled, Some(&open.snapshot)) {
+                    Ok(snapshot) => {
+                        open.snapshot = snapshot;
+                        replace_body(&mut open, settled);
+                    }
+                    Err(_) => settled.zeroize(),
+                }
+            } else {
+                settled.zeroize();
+            }
         }
         self.mirror(&open.body);
         inner.phase = Phase::Unlocked(open);
@@ -1379,6 +1426,14 @@ mod entry_tests {
         let held = || store.0.lock().unwrap().clone();
 
         let saved = vault.save(input("GitHub", "ghp_one")).unwrap();
+        // A new entry stays out until it is put in.
+        assert!(held().is_empty() && !saved.windows);
+        assert_eq!(
+            vault
+                .set_windows(std::slice::from_ref(&saved.id), true)
+                .unwrap(),
+            1
+        );
         assert_eq!(
             held().get("Stacker:GitHub:Token").map(String::as_str),
             Some("ghp_one")
@@ -1412,6 +1467,13 @@ mod entry_tests {
         assert!(held().is_empty());
         vault.restore(&saved.id).unwrap();
         assert_eq!(held().len(), 1);
+        vault
+            .set_windows(std::slice::from_ref(&saved.id), false)
+            .unwrap();
+        assert!(held().is_empty());
+        vault
+            .set_windows(std::slice::from_ref(&saved.id), true)
+            .unwrap();
         vault.reset().unwrap();
         assert!(held().is_empty());
     }

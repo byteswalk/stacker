@@ -8,6 +8,8 @@ export type FieldView = { name: string; secret: boolean; value: string | null; f
 export type EntryView = {
   id: string; title: string; platform: string; kind: Kind; fields: FieldView[]; expiresAt: string | null; tags: string[]; note: string;
   favorite: boolean; createdAt: number; updatedAt: number; deletedAt: number | null; historyCount: number; ssh: SshInfo | null;
+  /** Whether the secrets are also kept in Windows Credential Manager. */
+  windows: boolean;
 };
 export type FieldInput = { name: string; previousName: string | null; value: string | null; secret: boolean };
 export type EntryInput = {
@@ -24,6 +26,7 @@ export type Finding = {
 export type DiscoverStatus = { running: boolean; cancelled: boolean; truncated: boolean; files: number; findings: Finding[] };
 export type SshKeyPair = { privateKey: string; publicKey: string };
 export type SshLocal = { path: string | null; alias: string | null };
+export type BrowserStats = { added: number; same: number; empty: number };
 export type CredentialTarget = { field: string; target: string };
 export type EnvHolder = { field: string; name: string; scope: "user" | "system" };
 export type SshLocalHost = { alias: string; host: string; user: string; port: number };
@@ -58,6 +61,8 @@ export const vaultApi = {
   sshGenerate: (algorithm: string, comment: string, passphrase: string) => invoke<SshKeyPair>("vault_ssh_generate", { algorithm, comment, passphrase }),
   sshSetPassphrase: (id: string, old: string, next: string, passphraseField: string) =>
     invoke<EntryView>("vault_ssh_set_passphrase", { id, old, new: next, passphraseField }),
+  setWindows: (ids: string[], on: boolean) => invoke<number>("vault_set_windows", { ids, on }),
+  importBrowser: (src: string, apply: boolean) => invoke<BrowserStats>("vault_import_browser", { src, apply }),
   credentialTargets: (id: string) => invoke<CredentialTarget[]>("vault_credential_targets", { id }),
   envHolders: (id: string) => invoke<EnvHolder[]>("vault_env_holders", { id }),
   sshLocal: (id: string) => invoke<SshLocal>("vault_ssh_local", { id }),

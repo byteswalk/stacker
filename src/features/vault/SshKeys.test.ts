@@ -10,7 +10,7 @@ const entry: EntryView = {
     { name: "用途/主机", secret: false, value: "root@1.2.3.4", filled: true },
   ],
   expiresAt: null, tags: ["vps"], note: "n", favorite: false,
-  createdAt: 1, updatedAt: 2, deletedAt: null, historyCount: 0, ssh: null,
+  createdAt: 1, updatedAt: 2, deletedAt: null, historyCount: 0, windows: false, ssh: null,
 };
 
 describe("ssh key helpers", () => {

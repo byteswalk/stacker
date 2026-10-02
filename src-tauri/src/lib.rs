@@ -578,6 +578,8 @@ pub fn run() {
             vault::commands::vault_ssh_local,
             vault::commands::vault_env_holders,
             vault::commands::vault_credential_targets,
+            vault::commands::vault_set_windows,
+            vault::commands::vault_import_browser,
             vault::commands::vault_ssh_set_passphrase,
             vault::commands::vault_retired,
             vault::commands::vault_clipboard_text,

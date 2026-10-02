@@ -9,11 +9,12 @@ import { emptyKey, keyComplete, keyText, RecoveryKeyInput } from "./RecoveryKeyI
 import { RecoveryKeyStep } from "./RecoveryKeyStep";
 import { RetiredVaults, useRetiredVaults } from "./RetiredVaults";
 import { TrashDialog } from "./TrashDialog";
+import { BrowserImport } from "./BrowserImport";
 
 const backupFilters = (tr: (text: string) => string) => [{ name: tr("Stacker 保管库"), extensions: ["skv"] }];
 // A vault a reset set aside ends in `.skv.old`, and is imported like any backup.
 const importFilters = (tr: (text: string) => string) => [{ name: tr("Stacker 保管库"), extensions: ["skv", "old"] }];
-type Dialog = "password" | "recovery" | "export" | "import" | "trash" | "autolock" | null;
+type Dialog = "password" | "recovery" | "export" | "import" | "browser" | "trash" | "autolock" | null;
 
 function today(): string {
   const now = new Date();
@@ -30,6 +31,7 @@ export function VaultMenu({ onChanged }: { onChanged: () => void }) {
     ["recovery", "ti-lifebuoy", "重置恢复密钥"],
     ["export", "ti-file-export", "导出加密备份"],
     ["import", "ti-file-import", "导入备份"],
+    ["browser", "ti-world-download", "导入浏览器密码"],
     ["trash", "ti-trash", "回收站"],
     ["autolock", "ti-clock-lock", "自动锁定"],
   ];
@@ -49,6 +51,7 @@ export function VaultMenu({ onChanged }: { onChanged: () => void }) {
       {dialog === "recovery" && <ResetRecoveryDialog onClose={close} />}
       {dialog === "export" && <ExportDialog onClose={close} />}
       {dialog === "import" && <ImportDialog onClose={close} onChanged={onChanged} />}
+      {dialog === "browser" && <BrowserImport onClose={close} onChanged={onChanged} />}
       {dialog === "trash" && <TrashDialog onClose={close} onChanged={onChanged} />}
       {dialog === "autolock" && <AutoLockDialog onClose={close} />}
     </span>

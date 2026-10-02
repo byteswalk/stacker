@@ -67,6 +67,12 @@ pub(crate) struct Entry {
     pub deleted_at: Option<i64>,
     #[serde(default)]
     pub history: Vec<HistoryItem>,
+    /// Whether the secrets are also kept in Windows Credential Manager for other programs.
+    /// Off for a new entry; `None` only in vaults from before the choice existed, settled
+    /// at the next unlock by whether Credential Manager already holds the entry.
+    #[serde(default)]
+    #[zeroize(skip)]
+    pub windows: Option<bool>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, Zeroize)]
@@ -128,6 +134,7 @@ pub(crate) struct EntryView {
     pub deleted_at: Option<i64>,
     pub history_count: usize,
     pub ssh: Option<SshInfo>,
+    pub windows: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -266,6 +273,7 @@ pub(crate) fn apply_input(body: &mut Body, input: EntryInput, now: i64) -> Resul
                 updated_at: now,
                 deleted_at: None,
                 history: Vec::new(),
+                windows: Some(false),
             });
             Ok(id)
         }
@@ -308,6 +316,7 @@ fn view(entry: &Entry) -> EntryView {
         deleted_at: entry.deleted_at,
         history_count: entry.history.len(),
         ssh: private_key(entry).and_then(ssh::inspect),
+        windows: entry.windows == Some(true) && entry.kind != Kind::SshKey,
     }
 }
 
@@ -741,6 +750,7 @@ mod tests {
             updated_at,
             deleted_at: None,
             history: vec![],
+            windows: None,
         }
     }
 

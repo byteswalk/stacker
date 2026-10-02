@@ -7,7 +7,7 @@ const today = new Date(2026, 9, 1);
 function entry(partial: Partial<EntryView>): EntryView {
   return {
     id: partial.title ?? "id", title: "t", platform: "", kind: "api_key", fields: [], expiresAt: null, tags: [], note: "",
-    favorite: false, createdAt: 0, updatedAt: 0, deletedAt: null, historyCount: 0, ssh: null, ...partial,
+    favorite: false, createdAt: 0, updatedAt: 0, deletedAt: null, historyCount: 0, windows: false, ssh: null, ...partial,
   };
 }
 
