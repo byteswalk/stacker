@@ -7,6 +7,7 @@ use std::time::Duration;
 
 pub(crate) const CLEAR_AFTER: Duration = Duration::from_secs(30);
 const RETRY_AFTER: Duration = Duration::from_millis(500);
+const READ_LIMIT: usize = 200;
 static LAST_SEQUENCE: AtomicU32 = AtomicU32::new(0);
 
 pub(crate) fn copy_secret(text: &str) -> Result<(), String> {
@@ -17,6 +18,11 @@ pub(crate) fn copy_secret(text: &str) -> Result<(), String> {
         clear_if_ours(sequence);
     });
     Ok(())
+}
+
+/// The clipboard's text, cut to a length no recovery key reaches; empty when there is none.
+pub(crate) fn read_text() -> String {
+    platform::read().chars().take(READ_LIMIT).collect()
 }
 
 pub(crate) fn clear_now() {
@@ -43,11 +49,11 @@ mod platform {
     use std::time::Duration;
     use windows_sys::Win32::Foundation::GlobalFree;
     use windows_sys::Win32::System::DataExchange::{
-        CloseClipboard, EmptyClipboard, GetClipboardSequenceNumber, OpenClipboard,
-        RegisterClipboardFormatW, SetClipboardData,
+        CloseClipboard, EmptyClipboard, GetClipboardData, GetClipboardSequenceNumber,
+        OpenClipboard, RegisterClipboardFormatW, SetClipboardData,
     };
     use windows_sys::Win32::System::Memory::{
-        GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE,
+        GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock, GMEM_MOVEABLE,
     };
     use zeroize::Zeroize;
 
@@ -155,6 +161,29 @@ mod platform {
         Ok(sequence)
     }
 
+    pub(super) fn read() -> String {
+        if !open() {
+            return String::new();
+        }
+        // SAFETY: the clipboard is held open, so the handle stays valid until CloseClipboard;
+        // the block is read within its own size and up to its terminator.
+        unsafe {
+            let handle = GetClipboardData(CF_UNICODETEXT);
+            let mut text = String::new();
+            if !handle.is_null() {
+                let units = GlobalLock(handle as _) as *const u16;
+                if !units.is_null() {
+                    let all = std::slice::from_raw_parts(units, GlobalSize(handle as _) / 2);
+                    let end = all.iter().position(|&unit| unit == 0).unwrap_or(all.len());
+                    text = String::from_utf16_lossy(&all[..end]);
+                    GlobalUnlock(handle as _);
+                }
+            }
+            CloseClipboard();
+            text
+        }
+    }
+
     fn all_exclusions_present() -> bool {
         use windows_sys::Win32::System::DataExchange::IsClipboardFormatAvailable;
         EXCLUSIONS.iter().all(|name| unsafe {
@@ -217,6 +246,9 @@ mod platform {
 mod platform {
     pub(super) fn write(_: &str) -> Result<u32, String> {
         Err(super::IO.into())
+    }
+    pub(super) fn read() -> String {
+        String::new()
     }
     #[cfg(test)]
     pub(super) fn sequence() -> u32 {

@@ -29,11 +29,11 @@ async function fill(password: string, confirm: string) {
 }
 
 describe("PasswordForm", () => {
-  it("rejects a password shorter than 12 characters", async () => {
+  it("rejects a password shorter than 9 characters", async () => {
     const onSubmit = vi.fn();
     await act(async () => root.render(<PasswordForm submitLabel="创建" busy={false} onSubmit={onSubmit} />));
     await fill("short-pw", "short-pw");
-    expect(host.textContent).toContain("主密码至少需要 12 个字符。");
+    expect(host.textContent).toContain("主密码至少需要 9 个字符。");
     expect(onSubmit).not.toHaveBeenCalled();
   });
 

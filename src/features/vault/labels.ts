@@ -15,10 +15,6 @@ export const TEMPLATES: Record<Kind, { name: string; secret: boolean }[]> = {
   other: [],
 };
 
-export const PLATFORM_PRESETS = [
-  "火山方舟", "火山引擎", "智谱", "Kimi", "MiniMax", "DeepSeek", "阿里云", "腾讯云", "OpenAI", "Anthropic", "GitHub", "GitLab", "AWS", "npm", "PyPI",
-];
-
 export const RISK_LABELS: Record<string, string> = {
   unencrypted: "私钥未加密", dsa: "算法过旧（DSA）", rsa_short: "RSA 长度不足 2048 位",
 };

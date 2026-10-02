@@ -1,7 +1,7 @@
 import type { EntryView } from "./api";
 
 export const EXPIRY_WARN_DAYS = 14;
-export const MIN_PASSWORD_CHARS = 12;
+export const MIN_PASSWORD_CHARS = 9;
 const DAY_MS = 86_400_000;
 
 export type ExpiryState = "none" | "ok" | "soon" | "expired";
@@ -38,21 +38,20 @@ export function filterEntries(entries: EntryView[], filter: ListFilter, today: D
     .filter((entry) => !query || searchable(entry).includes(query))
     .filter((entry) => !filter.platform || entry.platform === filter.platform)
     .filter((entry) => !filter.soonOnly || ["soon", "expired"].includes(expiryState(entry.expiresAt, today)))
-    .sort((a, b) => Number(b.favorite) - Number(a.favorite) || b.updatedAt - a.updatedAt);
+    .sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
 export function platformsOf(entries: EntryView[]): string[] {
   return [...new Set(entries.map((entry) => entry.platform).filter(Boolean))].sort((a, b) => a.localeCompare(b));
 }
 
-/** 0 below the minimum length; then one point each for length ≥ 12, digits, mixed case or symbols, length ≥ 16. */
+/** 0 when empty, 1 below the minimum length, then 2 to 4: one more for three kinds of character, one more for 14 characters or longer. */
 export function passwordStrength(password: string): 0 | 1 | 2 | 3 | 4 {
-  if ([...password].length < MIN_PASSWORD_CHARS) return 0;
-  let score = 1;
-  if (/\d/.test(password)) score += 1;
-  if (/[A-Z]/.test(password) && /[a-z]/.test(password) && /[^A-Za-z0-9]/.test(password)) score += 1;
-  if ([...password].length >= 16) score += 1;
-  return Math.min(score, 4) as 0 | 1 | 2 | 3 | 4;
+  const length = [...password].length;
+  if (length === 0) return 0;
+  if (length < MIN_PASSWORD_CHARS) return 1;
+  const kinds = [/[a-z]/, /[A-Z]/, /\d/, /[^A-Za-z0-9]/].filter((kind) => kind.test(password)).length;
+  return (2 + Number(kinds >= 3) + Number(length >= 14)) as 2 | 3 | 4;
 }
 
 export function formatTime(ms: number): string {

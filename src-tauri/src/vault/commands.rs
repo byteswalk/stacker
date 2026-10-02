@@ -5,7 +5,7 @@
 use super::discover::{self, ImportItem, JobStatus, Scope};
 use super::errors::{IO, NOT_FOUND};
 use super::model::{EntryInput, EntryView, HistoryView, MergeStats};
-use super::session::{Credential, Status};
+use super::session::{Credential, Retired, Status};
 use super::{clipboard, guard, ssh, vault};
 use std::path::PathBuf;
 use zeroize::Zeroizing;
@@ -206,6 +206,18 @@ pub async fn vault_reset() -> Result<String, String> {
         vault().reset()
     })
     .await
+}
+
+#[tauri::command]
+pub async fn vault_retired() -> Result<Vec<Retired>, String> {
+    blocking(|| Ok(vault().retired())).await
+}
+
+/// What the clipboard holds as text, for the recovery key's paste button. Capped well above a
+/// key's length so a large copy is never carried across.
+#[tauri::command]
+pub async fn vault_clipboard_text() -> Result<String, String> {
+    blocking(|| Ok(clipboard::read_text())).await
 }
 
 #[tauri::command]

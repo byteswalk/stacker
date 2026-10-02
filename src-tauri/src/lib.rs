@@ -572,6 +572,8 @@ pub fn run() {
             vault::commands::vault_import_apply,
             vault::commands::vault_restore_backup,
             vault::commands::vault_reset,
+            vault::commands::vault_retired,
+            vault::commands::vault_clipboard_text,
             vault::commands::vault_discover_start,
             vault::commands::vault_discover_status,
             vault::commands::vault_discover_cancel,

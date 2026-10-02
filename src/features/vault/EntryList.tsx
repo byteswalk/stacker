@@ -18,7 +18,7 @@ export function EntryList({ entries, selectedId, today, onSelect }: {
     <div className="vault-rows" role="list">
       {entries.map((entry) => (
         <button key={entry.id} role="listitem" className={"vault-row" + (entry.id === selectedId ? " on" : "")} onClick={() => onSelect(entry.id)}>
-          <i className={"ti " + (entry.favorite ? "ti-star-filled" : "ti-key")} aria-hidden="true" />
+          <i className="ti ti-key" aria-hidden="true" />
           <span translate="no">{entry.title}</span>
           <span className="mut">{entry.platform ? `${entry.platform} · ${KIND_LABELS[entry.kind]}` : KIND_LABELS[entry.kind]}</span>
           <ExpiryBadge expiresAt={entry.expiresAt} today={today} />

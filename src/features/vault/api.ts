@@ -22,7 +22,8 @@ export type Finding = {
   id: number; source: "ssh" | "config" | "env" | "dotenv"; location: string; name: string; preview: string; platform: string; kind: Kind; risks: string[]; status: FindingStatus;
 };
 export type DiscoverStatus = { running: boolean; cancelled: boolean; truncated: boolean; files: number; findings: Finding[] };
-export type ImportItem = { id: number; platform: string; kind: Kind };
+export type RetiredVault = { path: string; modifiedMs: number; bytes: number };
+export type ImportItem = { id: number; platform: string; kind: Kind; origin?: string };
 export type VaultSettings = { vault_auto_lock_minutes: number; vault_scan_dirs: string[] };
 
 export const vaultApi = {
@@ -48,13 +49,14 @@ export const vaultApi = {
   remove: (id: string) => invoke<void>("vault_delete", { id }),
   restore: (id: string) => invoke<void>("vault_restore", { id }),
   purge: (id: string) => invoke<void>("vault_purge", { id }),
-  favorite: (id: string, favorite: boolean) => invoke<void>("vault_favorite", { id, favorite }),
   sshExport: (id: string, dest: string) => invoke<void>("vault_ssh_export", { id, dest }),
   exportBackup: (password: string, dest: string) => invoke<void>("vault_export", { password, dest }),
   importPreview: (src: string, credential: Credential) => invoke<MergeStats>("vault_import_preview", { src, credential }),
   importApply: (src: string, credential: Credential) => invoke<MergeStats>("vault_import_apply", { src, credential }),
   restoreBackup: (src: string) => invoke<void>("vault_restore_backup", { src }),
   reset: () => invoke<string>("vault_reset"),
+  retired: () => invoke<RetiredVault[]>("vault_retired"),
+  clipboardText: () => invoke<string>("vault_clipboard_text"),
   discoverStart: (scope: DiscoverScope) => invoke<void>("vault_discover_start", { scope }),
   discoverStatus: () => invoke<DiscoverStatus>("vault_discover_status"),
   discoverCancel: () => invoke<void>("vault_discover_cancel"),
@@ -71,7 +73,7 @@ const ERRORS: Record<string, string> = {
   E_VAULT_LOCKED: "保管库已锁定，请先解锁。",
   E_VAULT_PASSWORD: "主密码不正确。",
   E_VAULT_RECOVERY: "恢复密钥不正确。",
-  E_VAULT_WEAK: "主密码至少需要 12 个字符。",
+  E_VAULT_WEAK: "主密码至少需要 9 个字符。",
   E_VAULT_WAIT: "尝试次数过多，请 30 秒后再试。",
   E_VAULT_CORRUPT: "文件已损坏，或不是有效的保管库文件。",
   E_VAULT_NEWER: "此保管库由更新版本的 Stacker 创建，请先升级。",

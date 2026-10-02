@@ -12,7 +12,7 @@ use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 use zeroize::{Zeroize, Zeroizing};
 
-pub(crate) const MIN_PASSWORD_CHARS: usize = 12;
+pub(crate) const MIN_PASSWORD_CHARS: usize = 9;
 const MAX_FAILURES: u32 = 5;
 const FAILURE_WAIT: Duration = Duration::from_secs(30);
 
@@ -71,6 +71,15 @@ pub(crate) struct Status {
     pub state: &'static str,
     pub wait_seconds: u64,
     pub pending: bool,
+}
+
+/// A vault a reset set aside: still encrypted, readable again with its own password or key.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Retired {
+    pub path: String,
+    pub modified_ms: i64,
+    pub bytes: u64,
 }
 
 #[derive(Deserialize)]
@@ -555,6 +564,37 @@ impl Vault {
         std::fs::write(&self.path, &bytes).map_err(|_| IO.to_string())
     }
 
+    /// The vaults earlier resets set aside next to this one, newest first.
+    pub(crate) fn retired(&self) -> Vec<Retired> {
+        let Some(dir) = self.path.parent() else {
+            return Vec::new();
+        };
+        let mut found: Vec<Retired> = std::fs::read_dir(dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|entry| {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if !name.ends_with(".skv.old") {
+                    return None;
+                }
+                let meta = entry.metadata().ok()?;
+                let modified_ms = meta
+                    .modified()
+                    .ok()
+                    .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map_or(0, |since| since.as_millis() as i64);
+                Some(Retired {
+                    path: entry.path().display().to_string(),
+                    modified_ms,
+                    bytes: meta.len(),
+                })
+            })
+            .collect();
+        found.sort_by(|a, b| b.path.cmp(&a.path));
+        found
+    }
+
     /// Both credentials lost: the file is renamed, never deleted, so it can be imported later.
     pub(crate) fn reset(&self) -> Result<String, String> {
         let mut inner = self.inner();
@@ -941,6 +981,20 @@ mod tests {
         vault.lock();
         std::fs::write(&vault.path, b"not a vault at all").unwrap();
         vault.unlock(PW).unwrap();
+    }
+
+    #[test]
+    fn retired_lists_what_resets_set_aside_and_nothing_else() {
+        let dir = tempfile::tempdir().unwrap();
+        let (vault, _) = created(&dir);
+        assert!(vault.retired().is_empty());
+        let kept = vault.reset().unwrap();
+        // A backup set aside with it (`.skv.bak.old`) is not a second vault to offer.
+        std::fs::write(kept.replace(".skv.old", ".skv.bak.old"), b"x").unwrap();
+        let listed = vault.retired();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].path, kept);
+        assert!(listed[0].bytes > 0);
     }
 
     #[test]

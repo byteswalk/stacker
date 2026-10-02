@@ -51,6 +51,16 @@ describe("entry editor drafts", () => {
     expect(input.fields[0]).toEqual({ name: "Key", previousName: "Key", value: null, secret: false });
   });
 
+  it("keeps a saved secret that was read into its box and left as it was, and sends it once changed", () => {
+    const draft = draftFrom(saved);
+    Object.assign(draft.fields[0], { value: "sk-old", original: "sk-old", shown: true });
+    expect(toEntryInput(draft).fields[0].value).toBeNull();
+    draft.fields[0].value = "sk-new";
+    expect(toEntryInput(draft).fields[0].value).toBe("sk-new");
+    draft.fields[0].value = "";
+    expect(toEntryInput(draft).fields[0].value).toBe("");
+  });
+
   it("names the first field whose value is over 16 KB in bytes", () => {
     const draft = draftFrom(null);
     expect(oversizedField(draft)).toBeNull();

@@ -100,7 +100,11 @@ export function DiscoverPanel({ onImported }: { onImported: () => void }) {
   async function importChosen() {
     setBusy(true);
     try {
-      const items = Object.entries(chosen).map(([id, choice]) => ({ id: Number(id), ...choice }));
+      // An environment variable's location is only its scope's id; the note gets the words the list shows.
+      const env = new Map((status?.findings ?? []).filter((finding) => finding.source === "env").map((finding) => [finding.id, tr(locationText(finding))]));
+      const items = Object.entries(chosen).map(([id, choice]) => ({
+        id: Number(id), ...choice, ...(env.has(Number(id)) ? { origin: env.get(Number(id)) } : {}),
+      }));
       const count = await vaultApi.discoverImport(items, tr("来源："));
       toast(`已导入 ${count} 项。原文件未做任何改动。`, "ok");
       setChosen({});

@@ -5,10 +5,14 @@ import { Modal, useToast } from "../../ui";
 import { vaultApi, vaultError, type Credential, type MergeStats } from "./api";
 import { AUTO_LOCK_CHOICES } from "./labels";
 import { PasswordForm } from "./PasswordForm";
+import { emptyKey, keyComplete, keyText, RecoveryKeyInput } from "./RecoveryKeyInput";
 import { RecoveryKeyStep } from "./RecoveryKeyStep";
+import { RetiredVaults, useRetiredVaults } from "./RetiredVaults";
 import { TrashDialog } from "./TrashDialog";
 
 const backupFilters = (tr: (text: string) => string) => [{ name: tr("Stacker 保管库"), extensions: ["skv"] }];
+// A vault a reset set aside ends in `.skv.old`, and is imported like any backup.
+const importFilters = (tr: (text: string) => string) => [{ name: tr("Stacker 保管库"), extensions: ["skv", "old"] }];
 type Dialog = "password" | "recovery" | "export" | "import" | "trash" | "autolock" | null;
 
 function today(): string {
@@ -139,14 +143,17 @@ function ImportDialog({ onClose, onChanged }: { onClose: () => void; onChanged: 
   const [src, setSrc] = useState("");
   const [kind, setKind] = useState<Credential["kind"]>("password");
   const [value, setValue] = useState("");
+  const [groups, setGroups] = useState(emptyKey);
   const [preview, setPreview] = useState<MergeStats | null>(null);
   const [busy, setBusy] = useState(false);
-  const credential: Credential = { kind, value };
+  const retired = useRetiredVaults();
+  const credential: Credential = { kind, value: kind === "password" ? value : keyText(groups) };
+  const ready = kind === "password" ? value !== "" : keyComplete(groups);
 
   async function choose() {
     setBusy(true);
     try {
-      const picked = await open({ title: tr("选择备份文件"), multiple: false, directory: false, filters: backupFilters(tr) });
+      const picked = await open({ title: tr("选择备份文件"), multiple: false, directory: false, filters: importFilters(tr) });
       if (typeof picked === "string") { setSrc(picked); setPreview(null); }
     } catch (error) { toast(vaultError(error), "err"); }
     finally { setBusy(false); }
@@ -161,21 +168,24 @@ function ImportDialog({ onClose, onChanged }: { onClose: () => void; onChanged: 
     finally { setBusy(false); }
   }
   return (
-    <Modal title="导入备份" icon="ti-file-import" onClose={busy ? undefined : onClose}
+    <Modal wide title="导入备份" icon="ti-file-import" onClose={busy ? undefined : onClose}
       footer={<>
         <button className="gh sm" disabled={busy} onClick={onClose}>取消</button>
         {preview
           ? <button className="pr sm" disabled={busy} onClick={() => void run(true)}>确认导入</button>
-          : <button className="pr sm" disabled={busy || !src || !value} onClick={() => void run(false)}>预览</button>}
+          : <button className="pr sm" disabled={busy || !src || !ready} onClick={() => void run(false)}>预览</button>}
       </>}>
-      <div className="vault-form">
+      <div className="vault-form vault-import">
         <div className="vault-sub">导入仅新增和更新条目，不会删除现有条目；同一条目保留较新的版本。</div>
-        <div className="vault-bar"><button className="gh sm" disabled={busy} onClick={() => void choose()}><i className="ti ti-folder-open" /> 选择备份文件</button><span className="mut grow">{src}</span></div>
+        <div className="vault-bar"><button className="gh sm" disabled={busy} onClick={() => void choose()}><i className="ti ti-folder-open" /> 选择备份文件</button><span className="mut grow" translate="no">{src}</span></div>
+        <RetiredVaults retired={retired} pickLabel="选这个" pickIcon="ti-check" picked={src} onPick={(path) => { setSrc(path); setPreview(null); }} />
         <div className="seg">
           <button className={kind === "password" ? "on" : ""} disabled={busy} onClick={() => { setKind("password"); setPreview(null); }}>备份的主密码</button>
           <button className={kind === "recovery" ? "on" : ""} disabled={busy} onClick={() => { setKind("recovery"); setPreview(null); }}>备份的恢复密钥</button>
         </div>
-        <input className="ip full" type="password" autoComplete="off" disabled={busy} value={value} onChange={(e) => { setValue(e.target.value); setPreview(null); }} />
+        {kind === "password"
+          ? <input className="ip full" type="password" autoComplete="off" disabled={busy} value={value} onChange={(e) => { setValue(e.target.value); setPreview(null); }} />
+          : <RecoveryKeyInput groups={groups} disabled={busy} onChange={(next) => { setGroups(next); setPreview(null); }} />}
         {preview && <div className="callout"><i className="ti ti-info-circle" /><div>新增 {preview.added} / 更新 {preview.updated} / 相同 {preview.same}</div></div>}
       </div>
     </Modal>

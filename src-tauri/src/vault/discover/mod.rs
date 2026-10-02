@@ -53,6 +53,10 @@ pub(crate) struct ImportItem {
     pub id: usize,
     pub platform: String,
     pub kind: Kind,
+    /// Where the finding came from, in the words the list showed ("用户环境变量" for an
+    /// environment variable, whose own location is only the scope's id).
+    #[serde(default)]
+    pub origin: Option<String>,
 }
 
 pub(crate) struct Outcome {
@@ -182,7 +186,14 @@ pub(crate) fn entries_for(
                     .collect(),
                 expires_at: None,
                 tags: Vec::new(),
-                note: format!("{note_prefix}{}", raw.location),
+                note: format!(
+                    "{note_prefix}{}",
+                    item.origin
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|origin| !origin.is_empty())
+                        .unwrap_or(&raw.location)
+                ),
                 favorite: false,
             })
         })
@@ -403,6 +414,7 @@ mod tests {
             id: 0,
             platform: " npm registry ".into(),
             kind: Kind::Token,
+            origin: None,
         }];
         assert!(
             entries_for(&findings, &items, &digests, "来源：").is_empty(),
@@ -435,6 +447,7 @@ mod tests {
             id: 0,
             platform: "p".into(),
             kind: Kind::Token,
+            origin: None,
         }];
         assert_eq!(entries_for(&findings, &items, &no_digests(), "").len(), 1);
         findings[0].fields[0].value = zeroize::Zeroizing::new("x".repeat(MAX_FIELD_BYTES + 1));
@@ -476,6 +489,7 @@ mod tests {
             id,
             platform: "npm".into(),
             kind: Kind::Token,
+            origin: None,
         }
     }
 

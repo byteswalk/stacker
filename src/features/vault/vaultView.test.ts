@@ -22,7 +22,7 @@ describe("vault view helpers", () => {
     expect(soonCount([entry({ expiresAt: "2026-10-02" }), entry({ expiresAt: "2027-01-01" }), entry({ expiresAt: "2026-09-01" })], today)).toBe(2);
   });
 
-  it("searches visible text only and keeps favorites first", () => {
+  it("searches visible text only and lists the latest change first", () => {
     const entries = [
       entry({ title: "Old", updatedAt: 1, note: "绑定 work 邮箱" }),
       entry({ title: "New", updatedAt: 2, platform: "GitHub" }),
@@ -30,7 +30,7 @@ describe("vault view helpers", () => {
       entry({ title: "Masked", updatedAt: 3, fields: [{ name: "Key", secret: true, value: null, filled: true }, { name: "Base URL", secret: false, value: "https://ark.example", filled: true }] }),
     ];
     const all = { query: "", platform: "", soonOnly: false };
-    expect(filterEntries(entries, all, today).map((e) => e.title)).toEqual(["Fav", "Masked", "New", "Old"]);
+    expect(filterEntries(entries, all, today).map((e) => e.title)).toEqual(["Masked", "New", "Old", "Fav"]);
     expect(filterEntries(entries, { ...all, query: "WORK" }, today).map((e) => e.title)).toEqual(["Old"]);
     expect(filterEntries(entries, { ...all, query: "ark.example" }, today).map((e) => e.title)).toEqual(["Masked"]);
     expect(filterEntries(entries, { ...all, query: "ci" }, today).map((e) => e.title)).toEqual(["Fav"]);
@@ -45,10 +45,12 @@ describe("vault view helpers", () => {
 
   it("rates passwords by length and character classes", () => {
     expect(passwordStrength("")).toBe(0);
-    expect(passwordStrength("short")).toBe(0);
-    expect(passwordStrength("abcdefghijkl")).toBe(1);
-    expect(passwordStrength("abcdefghijk1")).toBe(2);
-    expect(passwordStrength("Abcdefghij1!")).toBe(3);
-    expect(passwordStrength("Abcdefghij1!xyzw")).toBe(4);
+    expect(passwordStrength("short")).toBe(1);
+    expect(passwordStrength("12345678")).toBe(1);
+    expect(passwordStrength("abcdefghi")).toBe(2);
+    expect(passwordStrength("abcdefgh1")).toBe(2);
+    expect(passwordStrength("Abcdefg1!")).toBe(3);
+    expect(passwordStrength("abcdefghijklmn")).toBe(3);
+    expect(passwordStrength("Abcdefghij1!xy")).toBe(4);
   });
 });

@@ -49,7 +49,7 @@ export function EntryDetail({ entry, today, onEdit, onChanged }: {
 
   return (
     <div className="pxcard">
-      <div className="pxsec"><i className={"ti " + (entry.favorite ? "ti-star-filled" : "ti-key")} /> <span translate="no">{entry.title}</span>
+      <div className="pxsec"><i className="ti ti-key" /> <span translate="no">{entry.title}</span>
         <span className="pxhint">{entry.platform ? `${entry.platform} · ` : ""}{KIND_LABELS[entry.kind]}</span>
       </div>
       {entry.fields.map((field) => {
@@ -80,9 +80,6 @@ export function EntryDetail({ entry, today, onEdit, onChanged }: {
       {entry.tags.length > 0 && <div className="vault-field"><span className="name">标签</span><span className="vault-tags">{entry.tags.map((tag) => <span key={tag} className="vault-badge">{tag}</span>)}</span><span /></div>}
       {entry.note && <div className="vault-field"><span className="name">备注</span><code translate="no">{entry.note}</code><span /></div>}
       <div className="vault-actions">
-        <button className="gh sm" disabled={busy} onClick={() => void run(() => vaultApi.favorite(entry.id, !entry.favorite))}>
-          <i className={"ti " + (entry.favorite ? "ti-star-off" : "ti-star")} /> {entry.favorite ? "取消收藏" : "收藏"}
-        </button>
         {entry.historyCount > 0 && <button className="gh sm" onClick={() => setHistoryOpen(true)}><i className="ti ti-history" /> 历史</button>}
         {entry.kind === "ssh_key" && entry.ssh && <button className="gh sm" disabled={busy} onClick={() => void exportKey()}><i className="ti ti-file-export" /> 导出私钥</button>}
         <button className="gh sm" disabled={busy} onClick={() => setConfirmDelete(true)}><i className="ti ti-trash" /> 删除条目</button>
