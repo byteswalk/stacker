@@ -399,32 +399,30 @@ mod tests {
     #[test]
     fn openssh_itself_accepts_a_generated_key() {
         let dir = tempfile::tempdir().unwrap();
-        for algorithm in ["ed25519"] {
-            let pair = generate(algorithm, "check", "").unwrap();
-            let path = dir.path().join(algorithm);
-            export_private(&pair.private_key, &path).unwrap();
-            let Ok(out) = std::process::Command::new("ssh-keygen")
-                .arg("-y")
-                .arg("-f")
-                .arg(&path)
-                .output()
-            else {
-                eprintln!("ssh-keygen not found; skipped");
-                return;
-            };
-            assert!(
-                out.status.success(),
-                "{}",
-                String::from_utf8_lossy(&out.stderr)
-            );
-            let derived = String::from_utf8_lossy(&out.stdout);
-            let mut words = pair.public_key.split(' ');
-            let (kind, body) = (words.next().unwrap(), words.next().unwrap());
-            assert!(
-                derived.trim().starts_with(&format!("{kind} {body}")),
-                "{derived}"
-            );
-        }
+        let pair = generate("ed25519", "check", "").unwrap();
+        let path = dir.path().join("ed25519");
+        export_private(&pair.private_key, &path).unwrap();
+        let Ok(out) = std::process::Command::new("ssh-keygen")
+            .arg("-y")
+            .arg("-f")
+            .arg(&path)
+            .output()
+        else {
+            eprintln!("ssh-keygen not found; skipped");
+            return;
+        };
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let derived = String::from_utf8_lossy(&out.stdout);
+        let mut words = pair.public_key.split(' ');
+        let (kind, body) = (words.next().unwrap(), words.next().unwrap());
+        assert!(
+            derived.trim().starts_with(&format!("{kind} {body}")),
+            "{derived}"
+        );
     }
 
     #[test]
