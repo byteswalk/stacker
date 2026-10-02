@@ -4,9 +4,39 @@ use std::path::{Path, PathBuf};
 
 use crate::winenv;
 
+#[cfg(not(test))]
 pub fn backup_root() -> PathBuf {
     let base = dirs::data_dir().unwrap_or_else(|| PathBuf::from("."));
     base.join("stacker").join("backups")
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEST_ROOT: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Tests never touch the user's real backup folder: a test that reaches a backup must
+/// run inside `with_test_root`, otherwise this panics and names the offender.
+#[cfg(test)]
+pub fn backup_root() -> PathBuf {
+    TEST_ROOT
+        .with(|slot| slot.borrow().clone())
+        .expect("test reached backup_root() outside backup::with_test_root")
+}
+
+/// Runs `work` with backups redirected to `root` on the current thread.
+#[cfg(test)]
+pub fn with_test_root<R>(root: &Path, work: impl FnOnce() -> R) -> R {
+    struct Restore(Option<PathBuf>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            let previous = self.0.take();
+            TEST_ROOT.with(|slot| *slot.borrow_mut() = previous);
+        }
+    }
+    let previous = TEST_ROOT.with(|slot| slot.borrow_mut().replace(root.to_path_buf()));
+    let _restore = Restore(previous);
+    work()
 }
 
 fn stamp() -> String {
@@ -506,4 +536,35 @@ pub fn restore(backup_path: &str, origin: &str) -> Result<(), String> {
     }
     std::fs::copy(backup_path, origin).map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_backups_stay_inside_the_test_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("backups");
+        let file = dir.path().join(".npmrc");
+        std::fs::write(&file, "registry=https://r.example/\n").unwrap();
+
+        let real = dirs::data_dir().unwrap().join("stacker").join("backups");
+        with_test_root(&root, || {
+            assert_eq!(backup_root(), root);
+            let saved = backup_file(&file).unwrap();
+            assert!(saved.starts_with(&root));
+            assert!(!saved.starts_with(&real));
+            assert_eq!(list_backups().len(), 1);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "outside backup::with_test_root")]
+    fn a_test_without_a_root_cannot_reach_the_real_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("pip.ini");
+        std::fs::write(&file, "[global]\n").unwrap();
+        backup_file(&file);
+    }
 }

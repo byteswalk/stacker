@@ -2081,7 +2081,13 @@ mod proxy_location_tests {
     #[test]
     fn npm_and_yarn_lines_keep_everything_else() {
         let dir = tempfile::tempdir().unwrap();
-        let npmrc = dir.path().join(".npmrc");
+        backup::with_test_root(&dir.path().join("backups"), || {
+            npm_and_yarn_lines(dir.path())
+        });
+    }
+
+    fn npm_and_yarn_lines(dir: &Path) {
+        let npmrc = dir.join(".npmrc");
         std::fs::write(&npmrc, "registry=https://r.example/\nproxy=http://old:1\n").unwrap();
         assert_eq!(line_proxy(&npmrc, false).as_deref(), Some("http://old:1"));
         set_line_proxy(&npmrc, false, Some("http://127.0.0.1:7890")).unwrap();
@@ -2098,10 +2104,10 @@ mod proxy_location_tests {
             .unwrap()
             .contains("registry="));
 
-        let yarnrc = dir.path().join(".yarnrc");
+        let yarnrc = dir.join(".yarnrc");
         set_line_proxy(&yarnrc, true, Some("http://h:2")).unwrap();
         assert_eq!(line_proxy(&yarnrc, true).as_deref(), Some("http://h:2"));
-        let missing = dir.path().join("none");
+        let missing = dir.join("none");
         set_line_proxy(&missing, false, None).unwrap();
         assert!(!missing.exists());
     }

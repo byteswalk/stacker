@@ -1020,7 +1020,9 @@ mod tests {
         let path = root.path().join(".npmrc");
         fs::write(&path, "registry=https://registry.example/\ncache=old\n").unwrap();
 
-        write_flat_key(&path, "cache", Some("D:\\npm-cache")).unwrap();
+        backup::with_test_root(&root.path().join("backups"), || {
+            write_flat_key(&path, "cache", Some("D:\\npm-cache")).unwrap();
+        });
         let content = fs::read_to_string(path).unwrap();
         assert!(content.contains("registry=https://registry.example/"));
         assert!(content.contains("cache=D:\\npm-cache"));
@@ -1036,7 +1038,9 @@ mod tests {
         )
         .unwrap();
 
-        write_pip_cache(&path, Some("D:\\pip-cache")).unwrap();
+        backup::with_test_root(&root.path().join("backups"), || {
+            write_pip_cache(&path, Some("D:\\pip-cache")).unwrap();
+        });
         let content = fs::read_to_string(path).unwrap();
         assert!(content.contains("index-url = https://pypi.example/simple"));
         assert!(content.contains("cache-dir = D:\\pip-cache"));
