@@ -3077,6 +3077,7 @@ export const GENERATED_EN: Record<string, string> = {
   "把选中的 {count} 个文件（{size}）移到回收站。在回收站里还能还原；清空回收站后才真正释放空间。": "Move the {count} selected files ({size}) to the Recycle Bin. They can be restored from there; the space frees up only when the Recycle Bin is emptied.",
   "直接彻底删除（不进回收站，立即释放空间）": "Delete permanently (skip the Recycle Bin and free the space now)",
   "全选已加载的": "Select all loaded",
+  "程序启动时文件被其他进程占用（常见于安全软件正在检查），稍后再刷新": "A file the program needs was held by another process when it started (often security software inspecting it); refresh again shortly",
   "该会话存在应用自己的数据库里，Stacker 只读不写，请在应用内删除。": "This conversation lives in the app's own database. Stacker reads it but never writes to it, so delete it inside the app.",
   "该会话仍在 Claude 桌面端侧栏中，请先在桌面端删除。": "This session is still in the Claude desktop sidebar. Delete it in the desktop app first.",
   "该会话最近 2 分钟内仍有写入，可能正在使用。": "This session was written in the last 2 minutes and may be in use.",

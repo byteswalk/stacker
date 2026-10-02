@@ -695,6 +695,9 @@ pub(crate) fn apply_fresh_path(c: &mut Command) {
     }
 }
 
+/// The exit code of a process that could not load because a file it needs was held open.
+const STATUS_SHARING_VIOLATION: i32 = 0xC000_0043_u32 as i32;
+
 pub(crate) fn run_program_probe(
     display_name: &str,
     program: &Path,
@@ -708,7 +711,23 @@ pub(crate) fn run_program_probe(
         cmd.creation_flags(0x08000000);
     }
     apply_fresh_path(&mut cmd);
-    let out = command_output_timeout_named(cmd, display_name, timeout)?;
+    let mut out = command_output_timeout_named(cmd, display_name, timeout)?;
+    // 0xC0000043, a file the program needs held by another process: a security suite looking
+    // over a new program's children does this for a moment. One more try, a little later.
+    if out.status.code() == Some(STATUS_SHARING_VIOLATION) {
+        std::thread::sleep(Duration::from_millis(800));
+        let mut again = command_for_path(program, args);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            again.creation_flags(0x08000000);
+        }
+        apply_fresh_path(&mut again);
+        out = command_output_timeout_named(again, display_name, timeout)?;
+    }
+    if out.status.code() == Some(STATUS_SHARING_VIOLATION) {
+        return Err("程序启动时文件被其他进程占用（常见于安全软件正在检查），稍后再刷新".into());
+    }
     let version_text = output_text(&out);
     if !out.status.success() {
         return Err(first_output_line(&version_text).unwrap_or_else(|| "命令返回失败状态".into()));

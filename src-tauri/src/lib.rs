@@ -92,7 +92,24 @@ fn hold_minimum_size(window: &tauri::Window, size: tauri::PhysicalSize<u32>) {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// A program Stacker starts that cannot load (a file another process holds, for one: a
+/// security suite inspecting a new program's children does that) would put up a system
+/// "Application Error" box of its own. Child processes inherit this error mode, so the
+/// failure comes back to Stacker as an exit code, which it reports, instead of a box on the
+/// user's screen.
+#[cfg(windows)]
+fn quiet_child_failures() {
+    use winapi::um::errhandlingapi::SetErrorMode;
+    use winapi::um::winbase::{SEM_FAILCRITICALERRORS, SEM_NOOPENFILEERRORBOX};
+    // SAFETY: changes only this process's error mode, which its children start from.
+    unsafe {
+        SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX);
+    }
+}
+
 pub fn run() {
+    #[cfg(windows)]
+    quiet_child_failures();
     // 浏览器插件的本地消息桥：Chrome / Edge 以插件来源为第一个参数启动本程序。
     // 只走标准输入输出；在单实例插件和界面之前退出，因此不会打开任何窗口。
     let args: Vec<String> = std::env::args().collect();
