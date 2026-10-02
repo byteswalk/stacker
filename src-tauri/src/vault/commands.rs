@@ -4,7 +4,7 @@
 
 use super::discover::{self, ImportItem, JobStatus, Scope};
 use super::errors::{IO, NOT_FOUND};
-use super::model::{EntryInput, EntryView, HistoryView, MergeStats};
+use super::model::{EntryInput, EntryView, FieldInput, HistoryView, MergeStats};
 use super::session::{Credential, Retired, Status};
 use super::{clipboard, guard, ssh, vault};
 use std::path::PathBuf;
@@ -184,6 +184,91 @@ pub async fn vault_ssh_generate(
 ) -> Result<ssh::KeyPair, String> {
     let passphrase = Zeroizing::new(passphrase);
     blocking(move || ssh::generate(&algorithm, &comment, &passphrase)).await
+}
+
+/// Sets, changes or removes the passphrase of an entry's private key, and records the new
+/// passphrase in the entry's `passphrase_field` beside it. With `old` left empty, the
+/// passphrase the entry already records is tried.
+#[tauri::command]
+pub async fn vault_ssh_set_passphrase(
+    id: String,
+    old: String,
+    new: String,
+    passphrase_field: String,
+) -> Result<EntryView, String> {
+    let (old, new) = (Zeroizing::new(old), Zeroizing::new(new));
+    blocking(move || {
+        let private = vault().ssh_private(&id)?;
+        let view = vault()
+            .list(false)?
+            .into_iter()
+            .find(|entry| entry.id == id)
+            .ok_or(NOT_FOUND)?;
+        let recorded = |name: &str| {
+            view.fields
+                .iter()
+                .any(|field| field.name == name && field.secret && field.filled)
+                .then(|| vault().reveal(&id, name).ok())
+                .flatten()
+        };
+        let old = if old.is_empty() {
+            recorded(&passphrase_field).unwrap_or(old)
+        } else {
+            old
+        };
+        let rewritten = ssh::set_passphrase(&private, &old, &new)?;
+        let key_field = view
+            .fields
+            .iter()
+            .filter(|field| field.secret && field.filled)
+            .find(|field| recorded(&field.name).is_some_and(|value| *value == *private))
+            .map(|field| field.name.clone())
+            .ok_or(NOT_FOUND)?;
+        let mut fields: Vec<FieldInput> = view
+            .fields
+            .iter()
+            .filter(|field| field.name != passphrase_field)
+            .map(|field| FieldInput {
+                name: field.name.clone(),
+                previous_name: Some(field.name.clone()),
+                value: if field.name == key_field {
+                    Some(rewritten.to_string())
+                } else if field.secret {
+                    None
+                } else {
+                    Some(field.value.clone().unwrap_or_default())
+                },
+                secret: field.secret,
+            })
+            .collect();
+        if !new.is_empty() {
+            let at = fields
+                .iter()
+                .position(|field| field.name == key_field)
+                .map_or(fields.len(), |index| index + 1);
+            fields.insert(
+                at,
+                FieldInput {
+                    name: passphrase_field.clone(),
+                    previous_name: None,
+                    value: Some(new.to_string()),
+                    secret: true,
+                },
+            );
+        }
+        vault().save(EntryInput {
+            id: Some(id.clone()),
+            title: view.title.clone(),
+            platform: view.platform.clone(),
+            kind: view.kind,
+            fields,
+            expires_at: view.expires_at.clone(),
+            tags: view.tags.clone(),
+            note: view.note.clone(),
+            favorite: view.favorite,
+        })
+    })
+    .await
 }
 
 /// The one place the vault writes to `~/.ssh`, and only when the user asks for it.

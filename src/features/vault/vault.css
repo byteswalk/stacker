@@ -78,3 +78,4 @@
 .a .vault-servers-add{ display:flex; gap:8px; margin-top:6px; } .a .vault-servers-add .ip{ flex:1; min-width:0; width:auto; }
 .a .vault-servers .vault-tags{ margin-bottom:2px; } .a .vault-servers .vault-badge{ display:inline-flex; align-items:center; gap:4px; color:var(--tx); padding:2px 4px 2px 8px; }
 .a .vault-servers .vault-badge button{ display:inline-flex; background:none; border:0; padding:0 2px; color:var(--mut); cursor:pointer; } .a .vault-servers .vault-badge button:hover{ color:var(--red); }
+.a .vault-edit-value textarea.masked{ -webkit-text-security:disc; }

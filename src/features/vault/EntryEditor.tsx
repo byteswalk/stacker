@@ -122,9 +122,9 @@ export function EntryEditor({ entry, onSaved, onClose }: { entry: EntryView | nu
                   <input className="ip" value={field.name} aria-label="字段名" placeholder="字段名" onChange={(e) => updateField(field.key, { name: e.target.value })} />
                   <div className="vault-edit-value">
                     {multiline
-                      ? <textarea className="ip" spellCheck={false} value={field.value} placeholder={placeholder} onChange={(e) => updateField(field.key, { value: e.target.value })} />
+                      ? <textarea className={"ip" + (field.secret && !field.shown ? " masked" : "")} spellCheck={false} value={field.value} placeholder={placeholder} onChange={(e) => updateField(field.key, { value: e.target.value })} />
                       : <input className="ip" type={field.secret && !field.shown ? "password" : "text"} autoComplete="off" spellCheck={false} value={field.value} placeholder={placeholder} onChange={(e) => updateField(field.key, { value: e.target.value })} />}
-                    {field.secret && (!multiline || unread) && <button type="button" className="gh sm" title={eye} aria-label={eye} onClick={() => void toggleShown(field)}>
+                    {field.secret && <button type="button" className="gh sm" title={eye} aria-label={eye} onClick={() => void toggleShown(field)}>
                       <i className={"ti " + (field.shown ? "ti-eye-off" : "ti-eye")} />
                     </button>}
                   </div>

@@ -5,9 +5,14 @@ import { vaultApi, vaultError, type EntryInput, type EntryView } from "./api";
 /** The field of an SSH entry that lists the servers its public key was put on, one per line. */
 export const SERVERS_FIELD = "已装服务器";
 const HOST_FIELD = "用途/主机";
+const PASSPHRASE_FIELD = "口令";
 
 export function publicKeyOf(entry: EntryView): string {
-  return (entry.ssh?.publicKey ?? entry.fields.find((field) => field.name === "公钥")?.value ?? "").trim();
+  // The key read from the private key is the one to trust; the stored line is used when it is
+  // that same key with its comment, which an encrypted private key does not give away.
+  const read = (entry.ssh?.publicKey ?? "").trim();
+  const stored = (entry.fields.find((field) => field.name === "公钥")?.value ?? "").trim();
+  return read && !stored.startsWith(read) ? read : stored || read;
 }
 
 export function serversOf(entry: EntryView): string[] {
@@ -55,9 +60,15 @@ async function copyPlain(text: string, done: string, toast: ReturnType<typeof us
 }
 
 /** What a public key is for: hand it to a server, or put the pair where the local ssh finds it. */
-export function SshKeyActions({ entry, onInstalled }: { entry: EntryView; onInstalled?: () => void }) {
+export function SshKeyActions({ entry, onInstalled, onChanged }: {
+  entry: EntryView; onInstalled?: () => void;
+  /** The entry as saved after its passphrase changed. */
+  onChanged?: (entry: EntryView) => void;
+}) {
   const toast = useToast();
   const [installing, setInstalling] = useState(false);
+  const [locking, setLocking] = useState(false);
+  const encrypted = entry.ssh?.encrypted === true;
   const publicKey = publicKeyOf(entry);
   return <div className="vault-ssh-actions">
     <button className="gh sm" disabled={!publicKey} title="一行公钥，粘到 VPS 面板的 SSH Key 里" onClick={() => void copyPlain(publicKey, "已复制公钥。", toast)}>
@@ -69,8 +80,51 @@ export function SshKeyActions({ entry, onInstalled }: { entry: EntryView; onInst
     <button className="gh sm" title="把私钥写到本机 ~/.ssh，可同时写好 ssh config" onClick={() => setInstalling(true)}>
       <i className="ti ti-device-desktop-down" /> 放到本机 ~/.ssh
     </button>
+    {entry.ssh && <button className="gh sm" title="给私钥加一层口令：文件被拿走也用不了，连接时要输入口令" onClick={() => setLocking(true)}>
+      <i className={"ti " + (encrypted ? "ti-lock-cog" : "ti-lock-plus")} /> {encrypted ? "修改口令" : "设置口令"}
+    </button>}
+    {locking && <SshPassphrase entry={entry} onClose={() => setLocking(false)} onDone={(saved) => { setLocking(false); onChanged?.(saved); }} />}
     {installing && <SshLocalInstall entry={entry} onClose={() => setInstalling(false)} onDone={() => { setInstalling(false); onInstalled?.(); }} />}
   </div>;
+}
+
+/** The private key's own passphrase: set on a key without one, changed, or taken off. */
+export function SshPassphrase({ entry, onClose, onDone }: { entry: EntryView; onClose: () => void; onDone: (entry: EntryView) => void }) {
+  const toast = useToast();
+  const encrypted = entry.ssh?.encrypted === true;
+  const recorded = entry.fields.some((field) => field.name === PASSPHRASE_FIELD && field.secret && field.filled);
+  const [old, setOld] = useState("");
+  const [next, setNext] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const removing = encrypted && next === "" && confirm === "";
+  const ready = next === confirm && (encrypted || next !== "") && (!encrypted || recorded || old !== "");
+
+  async function submit() {
+    setBusy(true);
+    try {
+      const saved = await vaultApi.sshSetPassphrase(entry.id, old, next, PASSPHRASE_FIELD);
+      toast(next ? "口令已设置，新口令记在条目的「口令」里。" : "口令已移除。", "ok");
+      onDone(saved);
+    } catch (error) { toast(vaultError(error), "err"); }
+    finally { setBusy(false); }
+  }
+
+  return <Modal title={encrypted ? "修改口令" : "设置口令"} icon="ti-lock" onClose={busy ? undefined : onClose}
+    sub="口令加密的是私钥本身：放到本机或导出的私钥文件被拿走也用不了，连接时 ssh 会让你输入口令。"
+    footer={<><button className="gh sm" disabled={busy} onClick={onClose}>取消</button>
+      <button className={"pr sm"} style={removing ? { background: "#d6463d" } : undefined} disabled={busy || !ready} onClick={() => void submit()}>{removing ? "移除口令" : "保存"}</button></>}>
+    <form className="vault-form" onSubmit={(event) => { event.preventDefault(); if (ready && !busy) void submit(); }}>
+      {encrypted && <label>当前口令<input className="ip full" type="password" autoComplete="off" autoFocus value={old}
+        placeholder={recorded ? "留空则使用条目里记录的口令" : ""} onChange={(e) => setOld(e.target.value)} /></label>}
+      <label>新口令<input className="ip full" type="password" autoComplete="new-password" autoFocus={!encrypted} value={next}
+        placeholder={encrypted ? "留空则移除口令" : ""} onChange={(e) => setNext(e.target.value)} /></label>
+      <label>再输一次<input className="ip full" type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} /></label>
+      {next !== confirm && confirm !== "" && <div className="vault-warn">两次输入的口令不一致。</div>}
+      {removing && <div className="vault-warn">不设口令时，拿到私钥文件的人可以直接用它登录。</div>}
+      <div className="vault-sub" style={{ margin: 0 }}>已经放到本机 ~/.ssh 的私钥文件不会跟着变，需要的话删掉旧文件再放一次。</div>
+    </form>
+  </Modal>;
 }
 
 /** Writes the private key to `~/.ssh` and, when asked, a `Host` block to the config: only on this click, never over a file. */
@@ -159,6 +213,7 @@ export function SshKeyGenerator({ onClose, onSaved }: { onClose: () => void; onS
   const [algorithm, setAlgorithm] = useState<Algorithm>("ed25519");
   const [comment, setComment] = useState("");
   const [passphrase, setPassphrase] = useState("");
+  const [again, setAgain] = useState("");
   const [busy, setBusy] = useState(false);
   const [entry, setEntry] = useState<EntryView | null>(null);
 
@@ -190,7 +245,7 @@ export function SshKeyGenerator({ onClose, onSaved }: { onClose: () => void; onS
       <div className="vault-keygen">
         <div className="vault-editor-label">公钥</div>
         <code className="vault-pubkey" translate="no">{publicKeyOf(entry)}</code>
-        <SshKeyActions entry={entry} />
+        <SshKeyActions entry={entry} onChanged={setEntry} />
         <div className="vault-sub" style={{ margin: 0 }}>VPS 面板里有“SSH Key”就粘公钥；没有面板就登录服务器执行安装命令。以后在条目详情里还能再复制。</div>
       </div>
     </Modal>;
@@ -200,7 +255,7 @@ export function SshKeyGenerator({ onClose, onSaved }: { onClose: () => void; onS
     sub="一把密钥对应一台或一组服务器：公钥给服务器，私钥留在保管库。"
     footer={<>
       <button className="gh sm" disabled={busy} onClick={onClose}>取消</button>
-      <button className="pr sm" disabled={busy || !title.trim()} onClick={() => void generate()}>
+      <button className="pr sm" disabled={busy || !title.trim() || (passphrase !== "" && passphrase !== again)} onClick={() => void generate()}>
         <i className={"ti " + (busy ? "ti-loader spin" : "ti-key")} /> {busy ? "正在生成…" : "生成并保存"}
       </button>
     </>}>
@@ -221,6 +276,11 @@ export function SshKeyGenerator({ onClose, onSaved }: { onClose: () => void; onS
         <label>公钥备注<input className="ip full" value={comment} spellCheck={false} placeholder="选填，默认用名称" onChange={(e) => setComment(e.target.value)} /></label>
         <label>私钥口令<input className="ip full" type="password" autoComplete="new-password" value={passphrase} placeholder="选填，留空则不设" onChange={(e) => setPassphrase(e.target.value)} /></label>
       </div>
+      {passphrase !== "" && <div className="vault-editor-pair">
+        <span />
+        <label>再输一次口令<input className="ip full" type="password" autoComplete="new-password" value={again} onChange={(e) => setAgain(e.target.value)} /></label>
+      </div>}
+      <div className="vault-sub" style={{ margin: 0 }}>口令加密私钥本身：私钥文件被拿走也用不了，但每次连接要输入口令。不设也可以，之后随时能在条目详情里设置。</div>
     </div>
   </Modal>;
 }

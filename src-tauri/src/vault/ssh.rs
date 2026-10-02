@@ -1,6 +1,6 @@
 //! SSH 私钥：识别算法、是否加密、指纹与公钥，标出弱密钥；导出时把权限收紧为仅当前用户。
 
-use super::errors::{FILE_EXISTS, HOST, HOST_EXISTS, IO, NAME};
+use super::errors::{FILE_EXISTS, HOST, HOST_EXISTS, IO, KEY_FORMAT, NAME, PASSPHRASE};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use zeroize::Zeroizing;
@@ -191,6 +191,30 @@ pub(crate) fn generate(
         private_key: private_key.to_string(),
         public_key,
     })
+}
+
+/// The same key under another passphrase: `old` opens it when it is encrypted, an empty
+/// `new` leaves it unencrypted. Only keys in OpenSSH's own format can be rewritten.
+pub(crate) fn set_passphrase(
+    text: &str,
+    old: &str,
+    new: &str,
+) -> Result<Zeroizing<String>, String> {
+    use ssh_key::rand_core::OsRng;
+    use ssh_key::{LineEnding, PrivateKey};
+
+    let key = PrivateKey::from_openssh(text.trim()).map_err(|_| KEY_FORMAT.to_string())?;
+    let key = if key.is_encrypted() {
+        key.decrypt(old).map_err(|_| PASSPHRASE.to_string())?
+    } else {
+        key
+    };
+    let key = if new.is_empty() {
+        key
+    } else {
+        key.encrypt(&mut OsRng, new).map_err(|_| IO.to_string())?
+    };
+    key.to_openssh(LineEnding::LF).map_err(|_| IO.to_string())
 }
 
 /// The `Host` block to add to `~/.ssh/config`, so `ssh <alias>` uses the key.
@@ -393,6 +417,45 @@ mod tests {
         let locked = generate("ed25519", "", "a passphrase").unwrap();
         assert!(inspect(&locked.private_key).unwrap().encrypted);
         assert!(generate("dsa", "", "").is_err());
+    }
+
+    #[test]
+    fn a_passphrase_is_set_changed_and_removed_without_changing_the_key() {
+        let pair = generate("ed25519", "check", "").unwrap();
+        // An encrypted key keeps its comment inside the encrypted part, so what is compared
+        // is the key itself.
+        let same_key = |text: &str| {
+            let public = inspect(text).unwrap().public_key.unwrap();
+            pair.public_key.starts_with(public.trim())
+        };
+        let locked = set_passphrase(&pair.private_key, "", "first").unwrap();
+        assert!(inspect(&locked).unwrap().encrypted);
+        assert!(same_key(&locked));
+
+        assert_eq!(
+            set_passphrase(&locked, "wrong", "second").err().unwrap(),
+            PASSPHRASE
+        );
+        let relocked = set_passphrase(&locked, "first", "second").unwrap();
+        assert_eq!(
+            set_passphrase(&relocked, "first", "").err().unwrap(),
+            PASSPHRASE
+        );
+        let open = set_passphrase(&relocked, "second", "").unwrap();
+        assert!(!inspect(&open).unwrap().encrypted);
+        assert!(same_key(&open));
+        assert_eq!(inspect(&open).unwrap().public_key.unwrap(), pair.public_key);
+
+        assert_eq!(
+            set_passphrase(
+                "-----BEGIN RSA PRIVATE KEY-----\nAAAA\n-----END RSA PRIVATE KEY-----",
+                "",
+                "x"
+            )
+            .err()
+            .unwrap(),
+            KEY_FORMAT
+        );
     }
 
     /// The system's own ssh-keygen reads the key we made and derives the same public key.

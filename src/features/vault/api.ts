@@ -53,6 +53,8 @@ export const vaultApi = {
   purge: (id: string) => invoke<void>("vault_purge", { id }),
   sshExport: (id: string, dest: string) => invoke<void>("vault_ssh_export", { id, dest }),
   sshGenerate: (algorithm: string, comment: string, passphrase: string) => invoke<SshKeyPair>("vault_ssh_generate", { algorithm, comment, passphrase }),
+  sshSetPassphrase: (id: string, old: string, next: string, passphraseField: string) =>
+    invoke<EntryView>("vault_ssh_set_passphrase", { id, old, new: next, passphraseField }),
   sshInstallLocal: (id: string, name: string, host: SshLocalHost | null) => invoke<string>("vault_ssh_install_local", { id, name, host }),
   exportBackup: (password: string, dest: string) => invoke<void>("vault_export", { password, dest }),
   importPreview: (src: string, credential: Credential) => invoke<MergeStats>("vault_import_preview", { src, credential }),
@@ -88,6 +90,8 @@ const ERRORS: Record<string, string> = {
   E_VAULT_FILE_EXISTS: "目标位置已有同名文件，请选择其他位置。",
   E_VAULT_INVALID: "请填写标题。",
   E_VAULT_BUSY: "正在扫描，请等待完成或取消。",
+  E_VAULT_PASSPHRASE: "当前口令不正确。",
+  E_VAULT_KEY_FORMAT: "这把私钥不是 OpenSSH 格式，Stacker 改不了它的口令。",
   E_VAULT_NAME: "文件名只能用字母、数字、点、短横线和下划线，且不能是 config、known_hosts 这类 ssh 自己的文件。",
   E_VAULT_HOST: "别名、主机和用户只能用字母、数字、点、短横线和下划线。",
   E_VAULT_HOST_EXISTS: "~/.ssh/config 里已经有这个别名，请换一个。",

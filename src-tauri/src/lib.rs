@@ -575,6 +575,7 @@ pub fn run() {
             vault::commands::vault_reset,
             vault::commands::vault_ssh_generate,
             vault::commands::vault_ssh_install_local,
+            vault::commands::vault_ssh_set_passphrase,
             vault::commands::vault_retired,
             vault::commands::vault_clipboard_text,
             vault::commands::vault_discover_start,

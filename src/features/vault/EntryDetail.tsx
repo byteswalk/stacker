@@ -84,7 +84,7 @@ export function EntryDetail({ entry, today, onEdit, onChanged, onClose }: {
         </div>
       )}
       {entry.kind === "ssh_key" && <>
-        {publicKeyOf(entry) !== "" && <div className="vault-field"><span className="name">交给服务器</span><SshKeyActions entry={entry} /><span /></div>}
+        {publicKeyOf(entry) !== "" && <div className="vault-field"><span className="name">交给服务器</span><SshKeyActions entry={entry} onChanged={onChanged} /><span /></div>}
         <SshServers entry={entry} onChanged={onChanged} />
       </>}
       <div className="vault-field"><span className="name">到期</span><span><ExpiryBadge expiresAt={entry.expiresAt} today={today} /></span><span /></div>
