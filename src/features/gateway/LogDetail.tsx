@@ -45,12 +45,12 @@ export function LogDetail({ row, onClose, onDiagnose }: { row: LogRow; onClose: 
     ["耗时", `${(row.elapsedMs / 1000).toFixed(1)}s`],
     ["调用方", detail.client],
     ["客户端", detail.userAgent],
-    ["流式", detail.stream === undefined ? undefined : t(detail.stream ? "是" : "否")],
+    ["返回方式", detail.stream === undefined ? undefined : t(detail.stream ? "流式返回" : "一次返回")],
     ["推理强度", detail.effort],
     ["消息轮数", detail.turns?.toString()],
     ["附件", detail.attachments ? String(detail.attachments) : undefined],
-    ["输入长度", detail.inputChars === undefined ? undefined : `${detail.inputChars} ${t("字")}`],
-    ["输出长度", detail.outputChars === undefined ? undefined : `${detail.outputChars} ${t("字")}`],
+    ["输入字符数", detail.inputChars?.toString()],
+    ["输出字符数", detail.outputChars?.toString()],
   ];
   return <Modal wide title={t("请求详情")} icon="ti-list-details" onClose={onClose}
     footer={<>
