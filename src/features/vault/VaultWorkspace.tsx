@@ -8,14 +8,14 @@ import { EntryEditor } from "./EntryEditor";
 import { EntryList } from "./EntryList";
 import { VaultMenu } from "./VaultMenu";
 import { SshKeyGenerator } from "./SshKeys";
-import { filterEntries, platformsOf, soonCount } from "./vaultView";
+import { filterEntries, soonCount, type ListFilter } from "./vaultView";
 
 export function VaultWorkspace({ onLocked }: { onLocked: () => void }) {
   const toast = useToast();
   const [tab, setTab] = useState<"entries" | "discover">("entries");
   const [entries, setEntries] = useState<EntryView[]>([]);
   const [viewingId, setViewingId] = useState<string | null>(null);
-  const [filter, setFilter] = useState({ query: "", platform: "", soonOnly: false });
+  const [filter, setFilter] = useState<ListFilter>({ query: "", platform: "", soonOnly: false, kind: "", source: "", windows: "" });
   const [editing, setEditing] = useState<EntryView | null | "new">(null);
   const [generating, setGenerating] = useState(false);
   const today = useMemo(() => new Date(), []);
@@ -67,10 +67,21 @@ export function VaultWorkspace({ onLocked }: { onLocked: () => void }) {
         <>
           {soon > 0 && <div className="callout vault-note"><i className="ti ti-calendar-exclamation" /><div>{soon} 项凭据将在 14 天内到期。</div></div>}
           <div className="vault-bar">
-            <input className="ip grow" placeholder="搜索标题、平台、标签、备注" value={filter.query} onChange={(e) => setFilter({ ...filter, query: e.target.value })} />
-            <select className="ip" value={filter.platform} onChange={(e) => setFilter({ ...filter, platform: e.target.value })}>
-              <option value="">全部平台</option>
-              {platformsOf(entries).map((platform) => <option key={platform} value={platform}>{platform}</option>)}
+            <input className="ip grow" placeholder="搜索标题、网站、账号、标签、备注" value={filter.query} onChange={(e) => setFilter({ ...filter, query: e.target.value })} />
+            <select className="ip" value={filter.kind ?? ""} onChange={(e) => setFilter({ ...filter, kind: e.target.value as ListFilter["kind"] })}>
+              <option value="">全部类型</option>
+              <option value="other">通用凭据</option>
+              <option value="ssh_key">SSH 密钥</option>
+            </select>
+            <select className="ip" value={filter.source ?? ""} onChange={(e) => setFilter({ ...filter, source: e.target.value as ListFilter["source"] })}>
+              <option value="">全部来源</option>
+              <option value="browser">浏览器导入</option>
+              <option value="own">其他</option>
+            </select>
+            <select className="ip" style={{ width: 170 }} value={filter.windows ?? ""} onChange={(e) => setFilter({ ...filter, windows: e.target.value as ListFilter["windows"] })}>
+              <option value="">Windows 凭据：全部</option>
+              <option value="on">已放进</option>
+              <option value="off">未放进</option>
             </select>
             <button className={"gh sm" + (filter.soonOnly ? " on" : "")} onClick={() => setFilter({ ...filter, soonOnly: !filter.soonOnly })}>即将到期</button>
           </div>

@@ -153,6 +153,11 @@ pub async fn vault_history_copy(id: String, index: usize) -> Result<(), String> 
 }
 
 #[tauri::command]
+pub async fn vault_merge(keep: String, others: Vec<String>) -> Result<usize, String> {
+    blocking(move || vault().merge(&keep, &others)).await
+}
+
+#[tauri::command]
 pub async fn vault_delete(id: String) -> Result<(), String> {
     blocking(move || vault().delete(&id)).await
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EntryView } from "./api";
-import { daysUntil, expiryState, filterEntries, passwordStrength, platformsOf, soonCount } from "./vaultView";
+import { daysUntil, expiryState, filterEntries, groupEntries, passwordStrength, platformsOf, siteKey, soonCount } from "./vaultView";
 
 const today = new Date(2026, 9, 1);
 
@@ -41,6 +41,39 @@ describe("vault view helpers", () => {
   it("filters to entries due soon", () => {
     const entries = [entry({ title: "a", expiresAt: "2026-10-05" }), entry({ title: "b" })];
     expect(filterEntries(entries, { query: "", platform: "", soonOnly: true }, today).map((e) => e.title)).toEqual(["a"]);
+  });
+
+  it("groups one site's logins and finds an account kept more than once", () => {
+    const login = (id: string, url: string, user: string, updatedAt: number) => entry({
+      title: id, updatedAt, tags: ["浏览器"],
+      fields: [{ name: "网址", secret: false, value: url, filled: true }, { name: "账号", secret: false, value: user, filled: true }, { name: "密码", secret: true, value: null, filled: true }],
+    });
+    expect(siteKey(login("a", "https://accounts.google.com/x", "me", 1))).toBe("google.com");
+    expect(siteKey(login("a", "https://www.taobao.com.cn/", "me", 1))).toBe("taobao.com.cn");
+    expect(siteKey(login("a", "http://192.168.2.1:8080/", "me", 1))).toBe("192.168.2.1");
+    expect(siteKey(entry({ title: "My Token", platform: "GitHub" }))).toBe("github");
+
+    const groups = groupEntries([
+      login("g1", "https://mail.google.com/", "me", 5),
+      login("x", "https://example.com/", "ann", 4),
+      login("g2", "https://accounts.google.com/", "me", 3),
+      login("g3", "https://google.com/", "you", 2),
+    ]);
+    expect(groups.map((group) => [group.key, group.entries.map((e) => e.title)])).toEqual([["google.com", ["g1", "g2", "g3"]], ["example.com", ["x"]]]);
+    expect(groups[0].duplicates.map((set) => set.map((e) => e.title))).toEqual([["g1", "g2"]]);
+  });
+
+  it("filters by kind, source and Windows credentials", () => {
+    const entries = [
+      entry({ title: "ssh", kind: "ssh_key" }),
+      entry({ title: "web", tags: ["浏览器"] }),
+      entry({ title: "token", windows: true }),
+    ];
+    const all = { query: "", platform: "", soonOnly: false };
+    expect(filterEntries(entries, { ...all, kind: "ssh_key" }, today).map((e) => e.title)).toEqual(["ssh"]);
+    expect(filterEntries(entries, { ...all, source: "browser" }, today).map((e) => e.title)).toEqual(["web"]);
+    expect(filterEntries(entries, { ...all, source: "own" }, today).map((e) => e.title)).toEqual(["ssh", "token"]);
+    expect(filterEntries(entries, { ...all, windows: "on" }, today).map((e) => e.title)).toEqual(["token"]);
   });
 
   it("rates passwords by length and character classes", () => {

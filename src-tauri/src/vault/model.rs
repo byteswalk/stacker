@@ -392,6 +392,72 @@ pub(crate) fn history_value(
         .ok_or_else(|| NOT_FOUND.to_string())
 }
 
+/// Folds `others` into `keep`: a secret of theirs that differs from keep's goes into keep's
+/// history, their tags join keep's, and they go to the trash, where they can still be restored.
+pub(crate) fn merge_entries(
+    body: &mut Body,
+    keep: &str,
+    others: &[String],
+    now: i64,
+) -> Result<usize, String> {
+    let keep_index = body
+        .entries
+        .iter()
+        .position(|entry| entry.id == keep && entry.deleted_at.is_none())
+        .ok_or(NOT_FOUND)?;
+    let mut merged = 0;
+    for other in others.iter().filter(|other| other.as_str() != keep) {
+        let Some(index) = body
+            .entries
+            .iter()
+            .position(|entry| &entry.id == other && entry.deleted_at.is_none())
+        else {
+            continue;
+        };
+        let (secrets, tags) = {
+            let entry = &body.entries[index];
+            (
+                entry
+                    .fields
+                    .iter()
+                    .filter(|field| field.secret && !field.value.is_empty())
+                    .map(|field| (field.name.clone(), field.value.clone()))
+                    .collect::<Vec<_>>(),
+                entry.tags.clone(),
+            )
+        };
+        let target = &mut body.entries[keep_index];
+        for (name, value) in secrets {
+            let current = target
+                .fields
+                .iter()
+                .find(|field| field.name == name)
+                .map(|field| field.value.as_str());
+            let known = target
+                .history
+                .iter()
+                .any(|item| item.field == name && item.value == value);
+            if current != Some(value.as_str()) && !known {
+                target.history.push(HistoryItem {
+                    field: name,
+                    value,
+                    at: now,
+                });
+            }
+        }
+        trim_history(&mut target.history);
+        for tag in tags {
+            if !target.tags.contains(&tag) {
+                target.tags.push(tag);
+            }
+        }
+        target.updated_at = now;
+        body.entries[index].deleted_at = Some(now);
+        merged += 1;
+    }
+    Ok(merged)
+}
+
 pub(crate) fn soft_delete(body: &mut Body, id: &str, now: i64) -> Result<(), String> {
     let entry = find_mut(body, id)?;
     if entry.deleted_at.is_none() {
@@ -654,6 +720,59 @@ mod tests {
         apply_input(&mut body, input(Some(&id), "t", vec![renamed]), 2).unwrap();
         assert_eq!(*field_value(&body, &id, "API Key").unwrap(), "v1");
         assert!(history_views(&body, &id).unwrap().is_empty());
+    }
+
+    #[test]
+    fn merging_keeps_one_entry_and_the_other_passwords_in_its_history() {
+        let mut body = Body::default();
+        let login = |password: &str, tag: &str| EntryInput {
+            id: None,
+            title: "github.com".into(),
+            platform: "github.com".into(),
+            kind: Kind::Other,
+            fields: vec![
+                field("账号", Some("me"), false),
+                field("密码", Some(password), true),
+            ],
+            expires_at: None,
+            tags: vec![tag.into()],
+            note: String::new(),
+            favorite: false,
+        };
+        let keep = apply_input(&mut body, login("new", "浏览器"), 3).unwrap();
+        let older = apply_input(&mut body, login("old", "edge"), 1).unwrap();
+        let same = apply_input(&mut body, login("new", "firefox"), 2).unwrap();
+        assert_eq!(
+            merge_entries(
+                &mut body,
+                &keep,
+                &[older.clone(), same.clone(), keep.clone()],
+                9
+            )
+            .unwrap(),
+            2
+        );
+        let kept = body.entries.iter().find(|entry| entry.id == keep).unwrap();
+        assert_eq!(
+            kept.history
+                .iter()
+                .map(|item| item.value.as_str())
+                .collect::<Vec<_>>(),
+            vec!["old"],
+            "an equal password adds nothing"
+        );
+        assert_eq!(kept.tags, vec!["浏览器", "edge", "firefox"]);
+        assert!(body
+            .entries
+            .iter()
+            .filter(|entry| entry.id != keep)
+            .all(|entry| entry.deleted_at == Some(9)));
+        assert_eq!(
+            merge_entries(&mut body, "missing", &[older], 9)
+                .err()
+                .unwrap(),
+            NOT_FOUND
+        );
     }
 
     #[test]

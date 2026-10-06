@@ -61,6 +61,7 @@ export const vaultApi = {
   sshGenerate: (algorithm: string, comment: string, passphrase: string) => invoke<SshKeyPair>("vault_ssh_generate", { algorithm, comment, passphrase }),
   sshSetPassphrase: (id: string, old: string, next: string, passphraseField: string) =>
     invoke<EntryView>("vault_ssh_set_passphrase", { id, old, new: next, passphraseField }),
+  merge: (keep: string, others: string[]) => invoke<number>("vault_merge", { keep, others }),
   setWindows: (ids: string[], on: boolean) => invoke<number>("vault_set_windows", { ids, on }),
   importBrowser: (src: string, apply: boolean) => invoke<BrowserStats>("vault_import_browser", { src, apply }),
   credentialTargets: (id: string) => invoke<CredentialTarget[]>("vault_credential_targets", { id }),

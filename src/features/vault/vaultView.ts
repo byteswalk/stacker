@@ -5,7 +5,17 @@ export const MIN_PASSWORD_CHARS = 9;
 const DAY_MS = 86_400_000;
 
 export type ExpiryState = "none" | "ok" | "soon" | "expired";
-export type ListFilter = { query: string; platform: string; soonOnly: boolean };
+export type ListFilter = {
+  query: string; platform: string; soonOnly: boolean;
+  /** "" any kind, or one kind. */
+  kind?: "" | "other" | "ssh_key";
+  /** "" anywhere, "browser" imported from a browser (tagged 浏览器), "own" everything else. */
+  source?: "" | "browser" | "own";
+  /** "" either way, "on" in Windows credentials, "off" not. */
+  windows?: "" | "on" | "off";
+};
+
+export const BROWSER_TAG = "浏览器";
 
 function startOfDay(date: Date): number {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
@@ -37,8 +47,53 @@ export function filterEntries(entries: EntryView[], filter: ListFilter, today: D
   return entries
     .filter((entry) => !query || searchable(entry).includes(query))
     .filter((entry) => !filter.platform || entry.platform === filter.platform)
+    .filter((entry) => !filter.kind || (filter.kind === "ssh_key") === (entry.kind === "ssh_key"))
+    .filter((entry) => !filter.source || (filter.source === "browser") === entry.tags.includes(BROWSER_TAG))
+    .filter((entry) => !filter.windows || (filter.windows === "on") === entry.windows)
     .filter((entry) => !filter.soonOnly || ["soon", "expired"].includes(expiryState(entry.expiresAt, today)))
     .sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+/** Second-level names that belong to a country, where the site is one label further in. */
+const COUNTRY_SECOND = new Set(["com.cn", "net.cn", "org.cn", "gov.cn", "edu.cn", "co.uk", "org.uk", "co.jp", "com.hk", "com.tw", "com.au", "co.kr", "com.sg"]);
+
+/** The site an entry belongs to, for grouping: its registrable domain, an IP as it is, or else its platform or title. */
+export function siteKey(entry: EntryView): string {
+  const url = entry.fields.find((field) => field.name === "网址")?.value ?? "";
+  let fromUrl = "";
+  try { fromUrl = url ? new URL(url).hostname : ""; } catch { /* not a URL: the platform or title stands in */ }
+  const host = (fromUrl || entry.platform || entry.title).trim().toLowerCase().replace(/:\d+$/, "").replace(/^www\./, "");
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || !host.includes(".")) return host;
+  const labels = host.split(".");
+  const two = labels.slice(-2).join(".");
+  return COUNTRY_SECOND.has(two) ? labels.slice(-3).join(".") : two;
+}
+
+export function accountOf(entry: EntryView): string {
+  return entry.fields.find((field) => field.name === "账号")?.value?.trim() ?? "";
+}
+
+export type EntryGroup = { key: string; entries: EntryView[]; duplicates: EntryView[][] };
+
+/**
+ * Entries of one site together, in the order the list already has (the newest change first).
+ * `duplicates` are the sets of one account kept more than once, newest first in each.
+ */
+export function groupEntries(entries: EntryView[]): EntryGroup[] {
+  const groups = new Map<string, EntryView[]>();
+  for (const entry of entries) {
+    const key = siteKey(entry) || entry.id;
+    groups.set(key, [...(groups.get(key) ?? []), entry]);
+  }
+  return [...groups].map(([key, members]) => {
+    const byAccount = new Map<string, EntryView[]>();
+    for (const entry of members) {
+      const account = accountOf(entry);
+      if (account && entry.kind !== "ssh_key") byAccount.set(account, [...(byAccount.get(account) ?? []), entry]);
+    }
+    const duplicates = [...byAccount.values()].filter((set) => set.length > 1).map((set) => [...set].sort((a, b) => b.updatedAt - a.updatedAt));
+    return { key, entries: members, duplicates };
+  });
 }
 
 export function platformsOf(entries: EntryView[]): string[] {

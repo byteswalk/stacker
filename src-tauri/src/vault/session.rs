@@ -788,6 +788,10 @@ impl Vault {
         self.with_unlocked(|open| model::history_value(&open.body, id, index))
     }
 
+    pub(crate) fn merge(&self, keep: &str, others: &[String]) -> Result<usize, String> {
+        self.mutate(|body| model::merge_entries(body, keep, others, now_ms()))
+    }
+
     pub(crate) fn delete(&self, id: &str) -> Result<(), String> {
         self.mutate(|body| model::soft_delete(body, id, now_ms()))
     }
