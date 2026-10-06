@@ -203,7 +203,7 @@ pub fn run_request(
             .as_ref()
             .map(|output| output.text.clone())
             .map_err(Clone::clone);
-        crate::gateway::requests::record_internal(&label, &logged, started);
+        crate::gateway::requests::record_internal(&label, &req.prompt, &logged, started);
         return result;
     }
     if cancel.is_cancelled() {
@@ -211,7 +211,12 @@ pub fn run_request(
     }
     let config = load();
     let result = complete_external(&config, &req.prompt, req.timeout);
-    crate::gateway::requests::record_internal(&external_label(&config), &result, started);
+    crate::gateway::requests::record_internal(
+        &external_label(&config),
+        &req.prompt,
+        &result,
+        started,
+    );
     result.map(|text| crate::runner::RunOutput { text })
 }
 
@@ -234,7 +239,7 @@ fn complete_with(config: &AiConfig, prompt: &str) -> Result<String, String> {
         _ => return Err("E_AI_NONE".into()),
     };
     // Stacker's own questions show in the request log beside the service's, marked as its own.
-    crate::gateway::requests::record_internal(&label, &result, started);
+    crate::gateway::requests::record_internal(&label, prompt, &result, started);
     result
 }
 

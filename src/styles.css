@@ -1414,6 +1414,12 @@ button{ font-family:inherit; }
 .a .gw-log>div{display:grid;grid-template-columns:24px 140px minmax(150px,1fr) minmax(130px,1fr) 50px 60px 60px;gap:10px;align-items:center;padding:6px 0;border-top:1px solid var(--bd)}
 .a .gw-log>div.head{color:var(--mut);font-size:11px;border-top:0}
 .a .gw-log>div.on{background:var(--cardh)}
+.a .gw-log>div.row{cursor:pointer}.a .gw-log>div.row:hover{background:var(--ov)}
+.a .gw-detail{display:flex;flex-direction:column;border:.5px solid var(--bd);border-radius:10px;overflow:hidden}
+.a .gw-detail>div{display:grid;grid-template-columns:110px minmax(0,1fr);gap:12px;padding:8px 12px;border-top:.5px solid var(--bd);font-size:12.5px}
+.a .gw-detail>div:first-child{border-top:0}.a .gw-detail span{color:var(--mut)}
+.a .gw-detail code{white-space:pre-wrap;word-break:break-all;font-family:var(--font-mono);font-size:12px}
+.a .gw-detail>div.bad code{color:var(--red)}
 .a .gw-log .ck{margin:0}
 .a .gw-log-acts{display:flex;gap:4px;justify-content:flex-end}
 .a .gw-log input[type=checkbox]{width:14px;height:14px;accent-color:var(--acc)}

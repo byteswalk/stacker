@@ -29,6 +29,13 @@ pub struct LogEntry {
     pub model: String,
     pub status: u16,
     pub elapsed_ms: u64,
+    #[serde(skip)]
+    pub detail: String,
+}
+
+thread_local! {
+    /// The message of the last error response built on this thread, for the request's log.
+    static LAST_ERROR: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
 }
 
 pub struct Shared {
@@ -84,6 +91,7 @@ impl Shared {
             &entry.model,
             entry.status,
             entry.elapsed_ms,
+            &entry.detail,
         );
         if let Ok(mut recent) = self.recent.lock() {
             recent.push_front(entry);
@@ -165,6 +173,7 @@ enum Style {
 }
 
 fn error(style: Style, e: &ApiError) -> Response<std::io::Cursor<Vec<u8>>> {
+    LAST_ERROR.with(|last| *last.borrow_mut() = Some(e.message.clone()));
     let body = match style {
         Style::OpenAi => e.openai_body(),
         Style::Anthropic => e.anthropic_body(),
@@ -252,13 +261,30 @@ fn handle(mut req: Request, shared: &Shared) {
     } else {
         Style::OpenAi
     };
+    LAST_ERROR.with(|last| *last.borrow_mut() = None);
+    let detail = std::cell::RefCell::new(super::requests::Detail {
+        client: req.remote_addr().map(|addr| {
+            if addr.ip().is_loopback() {
+                "本机".to_string()
+            } else {
+                addr.ip().to_string()
+            }
+        }),
+        user_agent: header(&req, "user-agent").map(|agent| agent.chars().take(160).collect()),
+        ..Default::default()
+    });
     let log = |status: u16, model: &str| {
+        let mut facts = detail.borrow().clone();
+        if status >= 400 {
+            facts.error = LAST_ERROR.with(|last| last.borrow_mut().take());
+        }
         shared.log(LogEntry {
             at: now(),
             endpoint: path.clone(),
             model: model.to_string(),
             status,
             elapsed_ms: started.elapsed().as_millis() as u64,
+            detail: facts.to_json(),
         });
     };
     let respond = |req: Request, resp: Response<std::io::Cursor<Vec<u8>>>, model: &str| {
@@ -329,6 +355,21 @@ fn handle(mut req: Request, shared: &Shared) {
                 Err(e) => return respond(req, error(style, &e), ""),
             };
             let model = chat.model_name.clone();
+            {
+                let mut facts = detail.borrow_mut();
+                facts.stream = Some(chat.stream);
+                facts.effort = chat.effort.clone();
+                facts.turns = Some(chat.turns.len());
+                facts.attachments = Some(chat.attachments.len());
+                facts.input_chars = Some(
+                    chat.system.chars().count()
+                        + chat
+                            .turns
+                            .iter()
+                            .map(|(_, text)| text.chars().count())
+                            .sum::<usize>(),
+                );
+            }
             let allowed = shared
                 .enabled
                 .lock()
@@ -378,7 +419,10 @@ fn handle(mut req: Request, shared: &Shared) {
             shared.release();
             shared.in_flight.fetch_sub(1, Ordering::SeqCst);
             let resp = match result {
-                Ok((text, prompt)) => success(style, &chat, &text, &prompt),
+                Ok((text, prompt)) => {
+                    detail.borrow_mut().output_chars = Some(text.chars().count());
+                    success(style, &chat, &text, &prompt)
+                }
                 Err(code) => error(style, &runner_error(&code, &chat.model.backend)),
             };
             respond(req, resp, &model)
@@ -722,6 +766,57 @@ mod tests {
         );
         assert_eq!(status, 400, "{body}");
         assert!(body.contains("Supported values are"), "{body}");
+    }
+
+    #[test]
+    fn the_log_keeps_who_called_how_and_why_it_failed_but_no_content() {
+        let shared = fake();
+        let server = start(0, false, shared.clone()).unwrap();
+        let chat = r#"{"model":"claude","messages":[{"role":"user","content":"secret words"}]}"#;
+        post(
+            server.port,
+            "/v1/chat/completions",
+            "Authorization: Bearer wrong\r\n",
+            "",
+            chat,
+        );
+        post(
+            server.port,
+            "/v1/chat/completions",
+            "Authorization: Bearer sk-test\r\nUser-Agent: probe/1\r\n",
+            "",
+            chat,
+        );
+        // The log is written after the answer goes out.
+        for _ in 0..100 {
+            if shared.recent.lock().unwrap().len() >= 2 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let recent = shared.recent.lock().unwrap();
+        let failed = recent.iter().find(|entry| entry.status == 401).unwrap();
+        assert!(
+            failed.detail.contains("Invalid or missing API key"),
+            "{}",
+            failed.detail
+        );
+        assert!(failed.detail.contains("本机"), "{}", failed.detail);
+        let answered = recent.iter().find(|entry| entry.status == 200).unwrap();
+        assert!(
+            answered.detail.contains("\"turns\":1") && answered.detail.contains("probe/1"),
+            "{}",
+            answered.detail
+        );
+        assert!(
+            answered.detail.contains("outputChars") && !answered.detail.contains("error"),
+            "{}",
+            answered.detail
+        );
+        assert!(
+            !answered.detail.contains("secret words"),
+            "no message content is kept"
+        );
     }
 
     #[test]

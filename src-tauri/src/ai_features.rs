@@ -79,9 +79,9 @@ pub fn prompt(kind: &str, payload: &Value) -> Result<String, String> {
         ),
         "gateway_error" => format!(
             "你是一个本机 AI 接口服务的排错助手。这个服务把本机已登录的 Codex / Claude 等命令行包装成 \
-             OpenAI / Anthropic 风格的接口。记录里只有状态码，没有报错原文；这个服务的状态码含义如下：\n\
+             OpenAI / Anthropic 风格的接口。记录里有状态码，常常还有服务给出的报错原文（error 字段）和调用方式（是否流式、推理强度、客户端），但没有请求内容；这个服务的状态码含义如下：\n\
              {GATEWAY_STATUSES}\n\n下面是一条失败的请求记录（JSON）：\n{entry}\n\n\
-             请根据状态码、接口和模型说明最可能的原因，以及调用方或用户应该怎么改。{STYLE}",
+             请根据报错原文、状态码、接口和模型说明最可能的原因，以及调用方或用户应该怎么改。{STYLE}",
             entry = json(payload.get("entry").unwrap_or(&Value::Null)),
         ),
         "proxy" => format!(

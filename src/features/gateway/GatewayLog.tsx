@@ -4,8 +4,8 @@ import { useI18n } from "../../i18n";
 import { ConfirmModal, useToast } from "../../ui";
 import { Select } from "../../Select";
 import { AiAskModal, askAi } from "../ai/AiAsk";
+import { INTERNAL, LogDetail, parseDetail, statusMeaning, type LogRow } from "./LogDetail";
 
-type LogRow = { id: number; at: number; endpoint: string; model: string; status: number; elapsedMs: number };
 type LogPage = { items: LogRow[]; total: number; kept: number; agents: string[] };
 type Query = { search: string; outcome: string; agent: string; since: number; offset: number; limit: number };
 
@@ -27,8 +27,6 @@ const RANGES: { value: number; label: string }[] = [
 ];
 
 /** What the API service was asked to do, with the filters and clean-up it needs to stay useful. */
-/** The endpoint of a row Stacker's own AI features wrote. */
-const INTERNAL = "stacker://internal";
 
 export function GatewayLog({ enabled, retentionDays, onSettings }: {
   enabled: boolean;
@@ -40,6 +38,7 @@ export function GatewayLog({ enabled, retentionDays, onSettings }: {
   const [query, setQuery] = useState<Query>(EMPTY);
   const [range, setRange] = useState(0);
   const [explain, setExplain] = useState<LogRow | null>(null);
+  const [opened, setOpened] = useState<LogRow | null>(null);
   const [page, setPage] = useState<LogPage | null>(null);
   const [picked, setPicked] = useState<number[]>([]);
   const [clearing, setClearing] = useState(false);
@@ -114,17 +113,17 @@ export function GatewayLog({ enabled, retentionDays, onSettings }: {
           <label className="ck"><input type="checkbox" checked={allPicked} onChange={(e) => setPicked(e.target.checked ? rows.map((r) => r.id) : [])} /></label>
           <span>{t("时间")}</span><span>{t("接口")}</span><span>{t("模型")}</span><span>{t("状态")}</span><span>{t("耗时")}</span><span />
         </div>
-        {rows.map((r) => <div key={r.id} className={picked.includes(r.id) ? "on" : ""}>
-          <label className="ck"><input type="checkbox" checked={picked.includes(r.id)} aria-label={String(r.at)}
+        {rows.map((r) => <div key={r.id} className={"row" + (picked.includes(r.id) ? " on" : "")} onClick={() => setOpened(r)} title={t("查看这条请求的详情")}>
+          <label className="ck" onClick={(event) => event.stopPropagation()}><input type="checkbox" checked={picked.includes(r.id)} aria-label={String(r.at)}
             onChange={(e) => setPicked((old) => e.target.checked ? [...old, r.id] : old.filter((id) => id !== r.id))} /></label>
           <span>{new Date(r.at * 1000).toLocaleString()}</span>
           {r.endpoint === INTERNAL
             ? <span className="gw-log-internal" title={t("Stacker 自己的 AI 功能发起的调用，不经过接口服务")}><i className="ti ti-sparkles" /> {t("Stacker 内部")}</span>
             : <code>{r.endpoint}</code>}
           <span>{r.model || "—"}</span>
-          <b className={r.status < 400 ? "ok" : "bad"}>{r.status}</b>
+          <b className={r.status < 400 ? "ok" : "bad"} title={t(statusMeaning(r.status))}>{r.status}</b>
           <span>{(r.elapsedMs / 1000).toFixed(1)}s</span>
-          <span className="gw-log-acts">
+          <span className="gw-log-acts" onClick={(event) => event.stopPropagation()}>
             {r.status >= 400 && <button className="gh xs ai-btn" title={t("问问 AI 这条为什么失败")} onClick={() => setExplain(r)}><i className="ti ti-sparkles" /></button>}
             <button className="gh xs" title={t("删除这条记录")} onClick={() => void removeRows([r.id])}><i className="ti ti-trash" /></button>
           </span>
@@ -161,9 +160,13 @@ export function GatewayLog({ enabled, retentionDays, onSettings }: {
       confirmLabel={t("删除")}
       onConfirm={() => void clearMatching()}
       onClose={() => setClearing(false)} />}
+    {opened && !explain && <LogDetail row={opened} onClose={() => setOpened(null)} onDiagnose={() => setExplain(opened)} />}
     {explain && <AiAskModal title={t("这条请求为什么失败")} sub={`${explain.endpoint} · ${explain.model || "—"} · ${explain.status}`}
-      note={t("只把这条记录（接口、模型、状态码、耗时）发给 AI，不含请求内容。")}
-      run={() => askAi("gateway_error", { entry: { endpoint: explain.endpoint, model: explain.model, status: explain.status, elapsedMs: explain.elapsedMs } })}
+      note={t("只把这条记录（接口、模型、状态码、耗时、调用方式和错误信息）发给 AI，不含请求内容。")}
+      run={() => {
+        const detail = parseDetail(explain.detail);
+        return askAi("gateway_error", { entry: { endpoint: explain.endpoint, model: explain.model, status: explain.status, elapsedMs: explain.elapsedMs, error: detail.error, stream: detail.stream, effort: detail.effort, client: detail.userAgent } });
+      }}
       onClose={() => setExplain(null)} />}
   </div>;
 }

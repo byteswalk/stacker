@@ -14,6 +14,39 @@ pub struct LogRow {
     pub model: String,
     pub status: u16,
     pub elapsed_ms: u64,
+    /// What else is known about the call, as JSON: who called, how, sizes, the error. Never
+    /// the content of a message.
+    pub detail: String,
+}
+
+/// The facts about one call that are not its content, for the request's details.
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Detail {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_agent: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stream: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub turns: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attachments: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_chars: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_chars: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl Detail {
+    pub fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -55,7 +88,18 @@ fn ensure(conn: &Connection) -> Result<(), String> {
             elapsed_ms INTEGER NOT NULL);
          CREATE INDEX IF NOT EXISTS gateway_requests_at ON gateway_requests(at);",
     )
-    .map_err(crate::sessions::err)
+    .map_err(crate::sessions::err)?;
+    // Logs from before details were kept get the column, empty.
+    let has_detail = conn
+        .prepare("SELECT detail FROM gateway_requests LIMIT 0")
+        .is_ok();
+    if !has_detail {
+        conn.execute_batch(
+            "ALTER TABLE gateway_requests ADD COLUMN detail TEXT NOT NULL DEFAULT ''",
+        )
+        .map_err(crate::sessions::err)?;
+    }
+    Ok(())
 }
 
 fn connect() -> Result<Connection, String> {
@@ -89,17 +133,30 @@ pub fn internal_status(result: &Result<String, String>) -> u16 {
 }
 
 /// Logs one call made by Stacker's own AI features, whichever model answered it.
-pub fn record_internal(model: &str, result: &Result<String, String>, started: std::time::Instant) {
+pub fn record_internal(
+    model: &str,
+    prompt: &str,
+    result: &Result<String, String>,
+    started: std::time::Instant,
+) {
+    let detail = Detail {
+        client: Some("Stacker".into()),
+        input_chars: Some(prompt.chars().count()),
+        output_chars: result.as_ref().ok().map(|text| text.chars().count()),
+        error: result.as_ref().err().cloned(),
+        ..Detail::default()
+    };
     record(
         INTERNAL,
         model,
         internal_status(result),
         started.elapsed().as_millis() as u64,
+        &detail.to_json(),
     );
 }
 
 /// Writes one request, then drops anything older than the retention the user set.
-pub fn record(endpoint: &str, model: &str, status: u16, elapsed_ms: u64) {
+pub fn record(endpoint: &str, model: &str, status: u16, elapsed_ms: u64, detail: &str) {
     let config = super::load();
     if !config.log_enabled {
         return;
@@ -108,8 +165,8 @@ pub fn record(endpoint: &str, model: &str, status: u16, elapsed_ms: u64) {
         return;
     };
     let _ = conn.execute(
-        "INSERT INTO gateway_requests (at, endpoint, model, status, elapsed_ms) VALUES (?1,?2,?3,?4,?5)",
-        rusqlite::params![now() as i64, endpoint, model, status as i64, elapsed_ms as i64],
+        "INSERT INTO gateway_requests (at, endpoint, model, status, elapsed_ms, detail) VALUES (?1,?2,?3,?4,?5,?6)",
+        rusqlite::params![now() as i64, endpoint, model, status as i64, elapsed_ms as i64, detail],
     );
     prune(&conn, config.log_retention_days);
 }
@@ -180,7 +237,7 @@ pub fn list(query: &LogQuery) -> Result<LogPage, String> {
         .map_err(crate::sessions::err)? as usize;
     let limit = if query.limit == 0 { PAGE } else { query.limit };
     let sql = format!(
-        "SELECT id, at, endpoint, model, status, elapsed_ms FROM gateway_requests{where_sql}
+        "SELECT id, at, endpoint, model, status, elapsed_ms, detail FROM gateway_requests{where_sql}
          ORDER BY at DESC, id DESC LIMIT {limit} OFFSET {}",
         query.offset
     );
@@ -194,6 +251,7 @@ pub fn list(query: &LogQuery) -> Result<LogPage, String> {
                 model: r.get(3)?,
                 status: r.get::<_, i64>(4)?.clamp(0, 599) as u16,
                 elapsed_ms: r.get::<_, i64>(5)?.max(0) as u64,
+                detail: r.get(6)?,
             })
         })
         .map_err(crate::sessions::err)?
