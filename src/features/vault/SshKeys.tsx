@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Modal, useToast } from "../../ui";
-import { vaultApi, vaultError, type EntryInput, type EntryView } from "./api";
+import { vaultApi, vaultError, type EntryInput, type EntryView, type SshLocal } from "./api";
 
 /** The field of an SSH entry that lists the servers its public key was put on, one per line. */
 export const SERVERS_FIELD = "已装服务器";
@@ -65,16 +65,9 @@ async function copyPlain(text: string, done: string, toast: ReturnType<typeof us
   catch { toast("复制失败，请手动选中复制。", "err"); }
 }
 
-/** What a public key is for: hand it to a server, or put the pair where the local ssh finds it. */
-export function SshKeyActions({ entry, onInstalled, onChanged }: {
-  entry: EntryView; onInstalled?: () => void;
-  /** The entry as saved after its passphrase changed. */
-  onChanged?: (entry: EntryView) => void;
-}) {
+/** Handing the public key to a server: the line itself, or a command that installs it. */
+export function SshServerActions({ entry }: { entry: EntryView }) {
   const toast = useToast();
-  const [installing, setInstalling] = useState(false);
-  const [locking, setLocking] = useState(false);
-  const encrypted = entry.ssh?.encrypted === true;
   const publicKey = publicKeyOf(entry);
   return <div className="vault-ssh-actions">
     <button className="gh sm" disabled={!publicKey} title="一行公钥，粘到 VPS 面板的 SSH Key 里" onClick={() => void copyPlain(publicKey, "已复制公钥。", toast)}>
@@ -83,14 +76,39 @@ export function SshKeyActions({ entry, onInstalled, onChanged }: {
     <button className="gh sm" disabled={!publicKey} title="在服务器上执行这条命令，公钥就加进 authorized_keys 了" onClick={() => void copyPlain(installCommand(publicKey), "已复制安装命令，到服务器上粘贴执行。", toast)}>
       <i className="ti ti-terminal-2" /> 复制安装命令
     </button>
-    <button className="gh sm" title="把私钥写到本机 ~/.ssh，可同时写好 ssh config" onClick={() => setInstalling(true)}>
-      <i className="ti ti-device-desktop-down" /> 放到本机 ~/.ssh
-    </button>
-    {entry.ssh && <button className="gh sm" title="给私钥加一层口令：文件被拿走也用不了，连接时要输入口令" onClick={() => setLocking(true)}>
-      <i className={"ti " + (encrypted ? "ti-lock-cog" : "ti-lock-plus")} /> {encrypted ? "修改口令" : "设置口令"}
-    </button>}
+  </div>;
+}
+
+/** The key on this computer: whether ~/.ssh has it and under which alias, putting it there or replacing it, its passphrase. */
+export function SshLocalActions({ entry, onChanged }: {
+  entry: EntryView;
+  /** The entry as saved after its passphrase changed. */
+  onChanged?: (entry: EntryView) => void;
+}) {
+  const [installing, setInstalling] = useState(false);
+  const [locking, setLocking] = useState(false);
+  const [local, setLocal] = useState<SshLocal | null>(null);
+  const [round, setRound] = useState(0);
+  const encrypted = entry.ssh?.encrypted === true;
+  useEffect(() => {
+    let alive = true;
+    vaultApi.sshLocal(entry.id).then((found) => { if (alive) setLocal(found); }).catch(() => { if (alive) setLocal(null); });
+    return () => { alive = false; };
+  }, [entry.id, entry.updatedAt, round]);
+  return <div>
+    <div className="vault-local-state" translate="no">{local?.path
+      ? <><i className="ti ti-circle-check" /> {local.path}{local.alias ? ` · ssh ${local.alias}` : ""}</>
+      : <span className="mut">还没有放到本机 ~/.ssh，本机的 ssh 和 AI 用不了它。</span>}</div>
+    <div className="vault-ssh-actions">
+      <button className={local?.path ? "gh sm" : "pr sm"} title="把私钥写到本机 ~/.ssh，可同时写好 ssh config；同名文件可以选择覆盖（原文件先备份）" onClick={() => setInstalling(true)}>
+        <i className="ti ti-device-desktop-down" /> {local?.path ? "重新放到本机 / 覆盖" : "放到本机 ~/.ssh"}
+      </button>
+      {entry.ssh && <button className="gh sm" title="给私钥加一层口令：文件被拿走也用不了，连接时要输入口令" onClick={() => setLocking(true)}>
+        <i className={"ti " + (encrypted ? "ti-lock-cog" : "ti-lock-plus")} /> {encrypted ? "修改口令" : "设置口令"}
+      </button>}
+    </div>
     {locking && <SshPassphrase entry={entry} onClose={() => setLocking(false)} onDone={(saved) => { setLocking(false); onChanged?.(saved); }} />}
-    {installing && <SshLocalInstall entry={entry} onClose={() => setInstalling(false)} onDone={() => { setInstalling(false); onInstalled?.(); }} />}
+    {installing && <SshLocalInstall entry={entry} local={local} onClose={() => setInstalling(false)} onDone={() => { setInstalling(false); setRound((n) => n + 1); }} />}
   </div>;
 }
 
@@ -128,16 +146,19 @@ export function SshPassphrase({ entry, onClose, onDone }: { entry: EntryView; on
       <label>再输一次<input className="ip full" type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} /></label>
       {next !== confirm && confirm !== "" && <div className="vault-warn">两次输入的口令不一致。</div>}
       {removing && <div className="vault-warn">不设口令时，拿到私钥文件的人可以直接用它登录。</div>}
-      <div className="vault-sub" style={{ margin: 0 }}>已经放到本机 ~/.ssh 的私钥文件不会跟着变，需要的话删掉旧文件再放一次。</div>
+      <div className="vault-sub" style={{ margin: 0 }}>已经放到本机 ~/.ssh 的私钥文件不会跟着变：改完后点「重新放到本机 / 覆盖」，原文件会先备份。</div>
     </form>
   </Modal>;
 }
 
 /** Writes the private key to `~/.ssh` and, when asked, a `Host` block to the config: only on this click, never over a file. */
-export function SshLocalInstall({ entry, onClose, onDone }: { entry: EntryView; onClose: () => void; onDone: () => void }) {
+export function SshLocalInstall({ entry, local, onClose, onDone }: { entry: EntryView; local?: SshLocal | null; onClose: () => void; onDone: () => void }) {
   const toast = useToast();
   const target = parseTarget(firstServer(entry));
-  const [name, setName] = useState(() => keyFileName(entry.title));
+  // The file it already sits in, when there is one: writing again replaces that one.
+  const [name, setName] = useState(() => local?.path?.replace(/^.*[\\/]/, "") || keyFileName(entry.title));
+  const [overwrite, setOverwrite] = useState(Boolean(local?.path));
+  const [taken, setTaken] = useState(false);
   const [config, setConfig] = useState(target.host !== "");
   const [alias, setAlias] = useState(() => keyFileName(entry.title));
   const [host, setHost] = useState(target.host);
@@ -150,10 +171,14 @@ export function SshLocalInstall({ entry, onClose, onDone }: { entry: EntryView; 
   async function submit() {
     setBusy(true);
     try {
-      const path = await vaultApi.sshInstallLocal(entry.id, name.trim(), config ? { alias: alias.trim(), host: host.trim(), user: user.trim(), port: portNumber } : null);
+      const path = await vaultApi.sshInstallLocal(entry.id, name.trim(), config ? { alias: alias.trim(), host: host.trim(), user: user.trim(), port: portNumber } : null, overwrite);
       toast(config ? `私钥已写到 ${path}。连接命令：ssh ${alias.trim()}` : `私钥已写到 ${path}`, "ok");
       onDone();
-    } catch (error) { toast(vaultError(error), "err"); }
+    } catch (error) {
+      // A file of that name holds another key: say so here, and offer to replace it.
+      if (String(error) === "E_VAULT_FILE_EXISTS") { setTaken(true); setOverwrite(true); }
+      else toast(vaultError(error), "err");
+    }
     finally { setBusy(false); }
   }
 
@@ -163,6 +188,10 @@ export function SshLocalInstall({ entry, onClose, onDone }: { entry: EntryView; 
     <div className="vault-form">
       <label>私钥文件名<input className="ip full" value={name} spellCheck={false} onChange={(e) => setName(e.target.value)} /></label>
       <div className="vault-sub" style={{ margin: 0 }} translate="no">~/.ssh/{name || "…"}</div>
+      <label style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <input type="checkbox" checked={overwrite} onChange={(e) => setOverwrite(e.target.checked)} /> 已有同名文件时覆盖（原文件先备份到「配置备份」）
+      </label>
+      {taken && <div className="vault-warn">~/.ssh 里已有同名文件，存的是另一把密钥。确认要替换就保持勾选「覆盖」再点写入，或者换个文件名。</div>}
       <label style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         <input type="checkbox" checked={config} onChange={(e) => setConfig(e.target.checked)} /> 同时写入 ~/.ssh/config，之后用别名直接连接
       </label>
@@ -249,7 +278,9 @@ export function SshKeyGenerator({ onClose, onSaved }: { onClose: () => void; onS
       <div className="vault-keygen">
         <div className="vault-editor-label">公钥</div>
         <code className="vault-pubkey" translate="no">{publicKeyOf(entry)}</code>
-        <SshKeyActions entry={entry} onChanged={setEntry} />
+        <SshServerActions entry={entry} />
+        <div className="vault-editor-label">本机使用</div>
+        <SshLocalActions entry={entry} onChanged={setEntry} />
         <div className="vault-sub" style={{ margin: 0 }}>VPS 面板里有“SSH Key”就粘公钥；没有面板就登录服务器执行安装命令。以后在条目详情里还能再复制。</div>
       </div>
     </Modal>;

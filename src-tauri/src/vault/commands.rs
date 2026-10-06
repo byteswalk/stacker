@@ -357,6 +357,13 @@ pub async fn vault_env_holders(id: String) -> Result<Vec<EnvHolder>, String> {
     .await
 }
 
+/// The public key line of a private key pasted into the editor; nothing is stored.
+#[tauri::command]
+pub async fn vault_ssh_public_of(private: String) -> Result<Option<String>, String> {
+    let private = Zeroizing::new(private);
+    blocking(move || Ok(ssh::public_of(&private))).await
+}
+
 /// Whether the local ssh already has an entry's key, and under which alias: read-only.
 #[tauri::command]
 pub async fn vault_ssh_local(id: String) -> Result<ssh::LocalKey, String> {
@@ -373,6 +380,7 @@ pub async fn vault_ssh_install_local(
     id: String,
     name: String,
     host: Option<ssh::LocalHost>,
+    overwrite: bool,
 ) -> Result<String, String> {
     blocking(move || {
         let dir = dirs::home_dir().ok_or(NOT_FOUND)?.join(".ssh");
@@ -384,6 +392,7 @@ pub async fn vault_ssh_install_local(
             &private,
             public.as_deref(),
             host.as_ref(),
+            overwrite,
             |config| {
                 crate::backup::backup_file(config);
             },

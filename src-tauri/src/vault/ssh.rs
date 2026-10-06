@@ -217,6 +217,11 @@ pub(crate) fn set_passphrase(
     key.to_openssh(LineEnding::LF).map_err(|_| IO.to_string())
 }
 
+/// The public key line a pasted private key carries, for the editor to fill in.
+pub(crate) fn public_of(private: &str) -> Option<String> {
+    inspect(private).and_then(|info| info.public_key)
+}
+
 /// The `Host` block to add to `~/.ssh/config`, so `ssh <alias>` uses the key.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -263,7 +268,8 @@ pub(crate) fn install_local(
     private: &str,
     public: Option<&str>,
     host: Option<&LocalHost>,
-    backup: impl FnOnce(&Path),
+    overwrite: bool,
+    backup: impl Fn(&Path),
 ) -> Result<String, String> {
     if !key_file_name(name) {
         return Err(NAME.into());
@@ -280,11 +286,23 @@ pub(crate) fn install_local(
     }
     std::fs::create_dir_all(dir).map_err(|_| IO.to_string())?;
     let dest = dir.join(name);
-    export_private(private, &dest)?;
+    let beside = dir.join(format!("{name}.pub"));
+    // Replacing a key file the user asked to replace: it is backed up first, then written anew.
+    let same = std::fs::read_to_string(&dest)
+        .is_ok_and(|old| old.replace("\r\n", "\n").trim() == private.replace("\r\n", "\n").trim());
+    if dest.exists() && overwrite && !same {
+        backup(&dest);
+        if beside.exists() {
+            backup(&beside);
+        }
+        std::fs::remove_file(&dest).map_err(|_| IO.to_string())?;
+    }
+    if !same {
+        export_private(private, &dest)?;
+    }
     if let Some(public) = public.map(str::trim).filter(|text| !text.is_empty()) {
-        let beside = dir.join(format!("{name}.pub"));
-        if !beside.exists() {
-            let _ = std::fs::write(beside, format!("{public}\n"));
+        if !beside.exists() || overwrite {
+            let _ = std::fs::write(&beside, format!("{public}\n"));
         }
     }
     if let Some(host) = host {
@@ -582,6 +600,7 @@ mod tests {
             &pair.private_key,
             Some(&pair.public_key),
             Some(&host),
+            false,
             |_| backed_up.set(true),
         )
         .unwrap();
@@ -612,25 +631,91 @@ mod tests {
 
         // The same alias again is refused before any file is written.
         assert_eq!(
-            install_local(&ssh, "other", &pair.private_key, None, Some(&host), |_| ())
-                .err()
-                .unwrap(),
+            install_local(
+                &ssh,
+                "other",
+                &pair.private_key,
+                None,
+                Some(&host),
+                false,
+                |_| ()
+            )
+            .err()
+            .unwrap(),
             HOST_EXISTS
         );
         assert!(!ssh.join("other").exists());
-        // An existing key file is never replaced; an existing config is added to, not rewritten.
+        // Unless asked to, an existing key file is never replaced by another key; an existing
+        // config is added to, not rewritten.
         assert_eq!(
-            install_local(&ssh, "vps1_ed25519", &pair.private_key, None, None, |_| ())
-                .err()
-                .unwrap(),
+            install_local(
+                &ssh,
+                "vps1_ed25519",
+                &other.private_key,
+                None,
+                None,
+                false,
+                |_| ()
+            )
+            .err()
+            .unwrap(),
             FILE_EXISTS
         );
+        // Asked to, a different key replaces the file after the old one is backed up.
+        let saved = std::cell::RefCell::new(Vec::new());
+        install_local(
+            &ssh,
+            "vps1_ed25519",
+            &other.private_key,
+            Some(&other.public_key),
+            None,
+            true,
+            |path| saved.borrow_mut().push(path.to_path_buf()),
+        )
+        .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(ssh.join("vps1_ed25519")).unwrap(),
+            other.private_key
+        );
+        assert_eq!(
+            std::fs::read_to_string(ssh.join("vps1_ed25519.pub"))
+                .unwrap()
+                .trim(),
+            other.public_key
+        );
+        assert_eq!(
+            saved.borrow().len(),
+            2,
+            "the key and its .pub are backed up first"
+        );
+        // The same key again is left as it is, with nothing backed up.
+        saved.borrow_mut().clear();
+        install_local(
+            &ssh,
+            "vps1_ed25519",
+            &other.private_key,
+            None,
+            None,
+            true,
+            |path| saved.borrow_mut().push(path.to_path_buf()),
+        )
+        .unwrap();
+        assert!(saved.borrow().is_empty());
         let second = LocalHost {
             alias: "vps2".into(),
             port: None,
             ..host.clone()
         };
-        install_local(&ssh, "vps2", &pair.private_key, None, Some(&second), |_| ()).unwrap();
+        install_local(
+            &ssh,
+            "vps2",
+            &pair.private_key,
+            None,
+            Some(&second),
+            false,
+            |_| (),
+        )
+        .unwrap();
         let config = std::fs::read_to_string(ssh.join("config")).unwrap();
         assert!(
             config.starts_with("Host vps1\n")
@@ -653,7 +738,7 @@ mod tests {
             "a/b",
         ] {
             assert_eq!(
-                install_local(dir.path(), name, "x", None, None, |_| ())
+                install_local(dir.path(), name, "x", None, None, false, |_| ())
                     .err()
                     .unwrap(),
                 NAME,
@@ -667,7 +752,7 @@ mod tests {
             port: None,
         };
         assert_eq!(
-            install_local(dir.path(), "k", "x", None, Some(&bad), |_| ())
+            install_local(dir.path(), "k", "x", None, Some(&bad), false, |_| ())
                 .err()
                 .unwrap(),
             HOST
@@ -679,7 +764,7 @@ mod tests {
             port: None,
         };
         assert_eq!(
-            install_local(dir.path(), "k", "x", None, Some(&bad), |_| ())
+            install_local(dir.path(), "k", "x", None, Some(&bad), false, |_| ())
                 .err()
                 .unwrap(),
             HOST

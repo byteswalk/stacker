@@ -7,7 +7,7 @@ import { KIND_LABELS, RISK_LABELS } from "./labels";
 import { ExpiryBadge } from "./EntryList";
 import { HistoryDialog } from "./HistoryDialog";
 import { useRevealed } from "./useRevealed";
-import { publicKeyOf, SERVERS_FIELD, SshKeyActions, SshServers } from "./SshKeys";
+import { publicKeyOf, SERVERS_FIELD, SshLocalActions, SshServerActions, SshServers } from "./SshKeys";
 
 /** One entry in a dialog: its fields to show and copy, and what can be done with it. */
 export function EntryDetail({ entry, today, onEdit, onChanged, onClose }: {
@@ -91,7 +91,8 @@ export function EntryDetail({ entry, today, onEdit, onChanged, onClose }: {
         </div>
       )}
       {entry.kind === "ssh_key" && <>
-        {publicKeyOf(entry) !== "" && <div className="vault-field"><span className="name">交给服务器</span><SshKeyActions entry={entry} onChanged={onChanged} /><span /></div>}
+        {publicKeyOf(entry) !== "" && <div className="vault-field"><span className="name">交给服务器</span><SshServerActions entry={entry} /><span /></div>}
+        {entry.ssh && <div className="vault-field vault-local"><span className="name">本机使用</span><SshLocalActions entry={entry} onChanged={onChanged} /><span /></div>}
         <SshServers entry={entry} onChanged={onChanged} />
       </>}
       {entry.kind !== "ssh_key" && <div className="vault-field">

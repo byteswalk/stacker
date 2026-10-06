@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Modal, useToast } from "../../ui";
 import { vaultApi, vaultError, type EntryInput, type EntryView, type Kind } from "./api";
 import { generalKind, KIND_LABELS, KIND_ORDER, TEMPLATES } from "./labels";
@@ -80,6 +80,30 @@ export function EntryEditor({ entry, onSaved, onClose }: { entry: EntryView | nu
   const [draft, setDraft] = useState<Draft>(() => draftFrom(entry));
   const [busy, setBusy] = useState(false);
   const picker = useRef<HTMLInputElement>(null);
+  // A pasted private key fills in its public key: the public key is part of the private one.
+  const privateField = draft.kind === "ssh_key" ? draft.fields.find((field) => field.secret && field.name.includes("私钥")) : undefined;
+  const privateText = privateField?.value ?? "";
+  const filledPublic = useRef<string | null>(null);
+  useEffect(() => {
+    if (!privateText.includes("PRIVATE KEY-----")) return;
+    let alive = true;
+    const timer = window.setTimeout(() => {
+      void vaultApi.sshPublicOf(privateText).then((line) => {
+        if (!alive || !line) return;
+        setDraft((current) => {
+          const existing = current.fields.find((field) => field.name === "公钥");
+          // Only an empty box, or one this filled in before, is written: never what the user typed.
+          if (existing && existing.value !== "" && existing.value !== filledPublic.current) return current;
+          filledPublic.current = line;
+          const fields = existing
+            ? current.fields.map((field) => field.key === existing.key ? { ...field, value: line, secret: false } : field)
+            : [...current.fields, { ...newField("公钥", false), value: line }];
+          return { ...current, fields, touched: true };
+        });
+      }).catch(() => undefined);
+    }, 300);
+    return () => { alive = false; window.clearTimeout(timer); };
+  }, [privateText]);
   const update = (patch: Partial<Draft>) => setDraft((current) => ({ ...current, ...patch, touched: true }));
   const updateField = (key: number, patch: Partial<DraftField>) =>
     setDraft((current) => ({ ...current, touched: true, fields: current.fields.map((field) => field.key === key ? { ...field, ...patch } : field) }));
