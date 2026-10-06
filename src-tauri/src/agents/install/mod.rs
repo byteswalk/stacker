@@ -1,3 +1,4 @@
+mod delivery;
 pub(crate) mod direct;
 pub(crate) mod npm;
 pub(crate) mod vendor;

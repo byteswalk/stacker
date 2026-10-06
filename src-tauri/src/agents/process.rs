@@ -271,6 +271,8 @@ pub(crate) fn run_command_console(
     timeout: Duration,
     stall_timeout: Duration,
     window: &Option<tauri::Window>,
+    // Bytes of a download the program does not show itself (WinGet through Delivery Optimization).
+    downloads: Option<std::sync::mpsc::Receiver<(u64, u64)>>,
 ) -> Result<String, String> {
     use super::pty::{bar_percent, download_line, download_sizes, run_in_pty, strip_vt, Stop};
     use std::sync::mpsc;
@@ -360,6 +362,8 @@ pub(crate) fn run_command_console(
         progressed
     };
     let mut stall_noted = false;
+    let mut download: Option<(f64, f64)> = None;
+    const MB: f64 = 1024.0 * 1024.0;
 
     let result = run_in_pty(
         program,
@@ -375,23 +379,45 @@ pub(crate) fn run_command_console(
                     stall_noted = false;
                 }
             }
+            while let Some((done, total)) =
+                downloads.as_ref().and_then(|bytes| bytes.try_recv().ok())
+            {
+                // New bytes arrived: the download is alive, however quiet the program is.
+                download = Some((done as f64 / MB, total as f64 / MB));
+                last_activity = elapsed;
+                stall_noted = false;
+                emit_progress(
+                    window,
+                    download_line(done as f64 / MB, total as f64 / MB, elapsed),
+                );
+                last_heartbeat = Instant::now();
+            }
             if crate::installer::op_cancelled() {
                 return Some(Stop::Cancelled);
             }
-            if elapsed >= timeout {
+            let inactive = elapsed.saturating_sub(last_activity);
+            // The time limit stops a program that has gone quiet, not one still downloading
+            // slowly: past it, two quiet minutes are enough; three times it, nothing more waits.
+            if elapsed >= timeout
+                && (inactive >= Duration::from_secs(120) || elapsed >= timeout * 3)
+            {
                 return Some(Stop::TimedOut);
             }
-            let inactive = elapsed.saturating_sub(last_activity);
             if !stall_timeout.is_zero() && inactive >= stall_timeout {
                 return Some(Stop::TimedOut);
             }
             if last_heartbeat.elapsed() >= Duration::from_secs(1)
                 && inactive >= Duration::from_secs(1)
             {
-                emit_progress(
-                    window,
-                    format!("{display_name} 正在处理 · 已 {} 秒", elapsed.as_secs()),
-                );
+                match download {
+                    Some((done, total)) => {
+                        emit_progress(window, download_line(done, total, elapsed))
+                    }
+                    None => emit_progress(
+                        window,
+                        format!("{display_name} 正在处理 · 已 {} 秒", elapsed.as_secs()),
+                    ),
+                }
                 last_heartbeat = Instant::now();
             }
             // Say once, plainly, that nothing is moving: a download server it cannot reach

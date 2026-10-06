@@ -95,9 +95,27 @@ pub(crate) fn run_winget_owned(
     let winget = winget_command().ok_or_else(|| "未检测到 WinGet。".to_string())?;
     let refs: Vec<&str> = args.iter().map(String::as_str).collect();
     // In a pseudo console WinGet draws its download bar, which becomes a percentage; through
-    // a pipe it prints no progress at all.
+    // a pipe it prints no progress at all. A download it hands to Delivery Optimization draws
+    // nothing either, so that one is followed through the service.
     #[cfg(windows)]
-    let result = run_command_console(&winget, &refs, "WinGet", timeout, Duration::ZERO, window);
+    let result = {
+        let (sender, downloads) = std::sync::mpsc::channel();
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        if matches!(refs.first(), Some(&"install") | Some(&"upgrade")) {
+            super::delivery::watch(std::time::SystemTime::now(), stop.clone(), sender);
+        }
+        let result = run_command_console(
+            &winget,
+            &refs,
+            "WinGet",
+            timeout,
+            Duration::ZERO,
+            window,
+            Some(downloads),
+        );
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        result
+    };
     #[cfg(not(windows))]
     let result = run_command_streamed(&winget, &refs, "WinGet", timeout, Duration::ZERO, window);
     // `upgrade` of something already current exits non-zero; it is not a failure.
