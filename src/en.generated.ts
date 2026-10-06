@@ -2894,7 +2894,7 @@ export const GENERATED_EN: Record<string, string> = {
   "本机": "local",
   "会话正文会发送给上面这个 AI，用的是它的账号额度。运行时不开放任何工具，也不会在智能体里留下新会话。": "The conversation is sent to the AI above, on its account. No tools are opened while it runs, and no new conversation is left in any agent.",
   "生成摘要，消耗它的账号额度。更换 AI 在「偏好设置 → AI 能力」。": "to summarise, on its account. Change the AI under Preferences → AI.",
-  "AI 找": "Find with AI",
+  "AI 查找": "Find with AI",
   "AI 正在看…": "The AI is looking…",
   "AI 解读最大的目录": "Explain the biggest folders",
   "AI 解释当前状态": "Explain the current state",

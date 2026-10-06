@@ -51,7 +51,7 @@ describe("modal keyboard behavior", () => {
     expect(reportFrontendWarning).toHaveBeenCalled();
     await act(async () => { await expect(run({ title: "Next" }, async () => "next")).resolves.toBe("next"); });
   });
-  it("shows a read only when it is slow, and lets reads overlap an action", async () => {
+  it("notes a read only when it is slow, never in a dialog, and lets reads overlap an action", async () => {
     let run!: ReturnType<typeof useBusy>;
     let read!: ReturnType<typeof useBusyRead>;
     function Action() { run = useBusy(); read = useBusyRead(); return <BusyHost />; }
@@ -61,11 +61,13 @@ describe("modal keyboard behavior", () => {
     act(() => { pending = read("Reading sessions", () => new Promise<void>((resolve) => { finishRead = resolve; })); });
     expect(container.querySelector("[role='dialog']")).toBeNull();
     act(() => { vi.advanceTimersByTime(BUSY_READ_DELAY + 10); });
-    expect(container.querySelector("[role='dialog']")?.textContent).toContain("Reading sessions");
+    expect(container.querySelector("[role='dialog']")).toBeNull();
+    expect(container.querySelector(".busy-note")?.textContent).toContain("Reading sessions");
     await act(async () => { await expect(run({ title: "Deleting" }, async () => "ok")).resolves.toBe("ok"); });
     await act(async () => { await expect(read("Second read", async () => 2)).resolves.toBe(2); });
     await act(async () => { finishRead(); await pending; });
     expect(container.querySelector("[role='dialog']")).toBeNull();
+    expect(container.querySelector(".busy-note")).toBeNull();
   });
 
   it("does not expose a close action while a confirmation is busy", () => {

@@ -310,3 +310,4 @@
 .a .ext-counts{display:flex;align-items:center;gap:14px;margin-top:10px;font-size:11.5px;color:var(--mut)}
 .a .ext-counts span{display:inline-flex;align-items:center;gap:4px}
 .a .ext-counts em{margin-left:auto;font-style:normal}
+.a .session-reading{display:inline-flex;align-items:center;gap:6px;margin-left:auto;color:var(--mut);font-size:12px}.a .session-reading i{color:var(--acc)}.a .session-reading + .session-total{margin-left:12px}

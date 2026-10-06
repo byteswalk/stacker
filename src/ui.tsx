@@ -173,7 +173,17 @@ export function useBusyRead() {
 export function BusyHost() {
   const { state, requestCancel } = useContext(BusyCtx);
   if (!state) return null;
+  // A read never covers the window: a small note says it is going on, and the user can go on
+  // to another page; the page shows the result when it comes.
+  if (state.shared && !state.cancel && !state.progressEvent) {
+    return <BusyNote title={state.title} />;
+  }
   return <BusyDialog state={state} requestCancel={requestCancel} />;
+}
+
+function BusyNote({ title }: { title: string }) {
+  const { tr } = useI18n();
+  return <div className="busy-note" role="status" aria-live="polite"><i className="ti ti-loader spin" /> {tr(title)}…</div>;
 }
 
 function BusyDialog({ state, requestCancel }: { state: NonNullable<BusyState>; requestCancel: () => void }) {

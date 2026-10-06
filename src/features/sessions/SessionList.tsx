@@ -87,7 +87,7 @@ export function SessionList({ page, query, projects, loading, selected, onSelect
     <div className="session-filters">
       <label className="session-search"><i className="ti ti-search" /><input value={query.search} aria-label={t("搜索会话")} placeholder={t("搜索标题、项目或摘要")} onChange={(e) => onFilter({ search: e.target.value })} /></label>
       <button className="gh sm ai-btn" disabled={finding} title={t("把搜索框里的一句话交给 AI，换成下面这些筛选条件")} onClick={() => void findWithAi()}>
-        <i className={"ti " + (finding ? "ti-loader spin" : "ti-sparkles")} /> {t("AI 找")}
+        <i className={"ti " + (finding ? "ti-loader spin" : "ti-sparkles")} /> {t("AI 查找")}
       </button>
       <label className="session-check"><input type="checkbox" checked={query.fullText} onChange={(e) => onFilter({ fullText: e.target.checked })} />{t("搜索原文")}</label>
       <Select value={query.agent} onChange={pickAgent} width={170} options={[
@@ -105,6 +105,7 @@ export function SessionList({ page, query, projects, loading, selected, onSelect
     <div className="session-bulk">
       <label className="session-check"><input type="checkbox" checked={allPage} onChange={togglePage} />{t("本页")}</label>
       <button className="gh sm" disabled={loading || !page.total} onClick={() => onSelect([...page.ids])}>{t("选择全部结果")} ({page.total})</button>
+      {loading && <span className="session-reading"><i className="ti ti-loader spin" />{t("正在读取…")}</span>}
       <span className="session-total">{page.total} {t("个会话")} · {bytes(page.totalBytes)}</span>
     </div>
     <div className="session-list" aria-busy={loading}>

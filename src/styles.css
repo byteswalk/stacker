@@ -190,6 +190,12 @@ button{ font-family:inherit; }
   color:var(--mut); background:transparent; border:none; border-radius:8px; cursor:pointer; }
 .a .ic:hover{ background:rgba(255,255,255,.06); color:var(--tx); }
 
+/* A read in progress: a note at the top of the page, nothing covered, nothing blocked. */
+.a .busy-note{ position:fixed; top:96px; left:50%; transform:translateX(-50%); z-index:60; pointer-events:none;
+  display:inline-flex; align-items:center; gap:8px; padding:6px 14px; border-radius:999px; font-size:12px; color:var(--tx);
+  background:var(--card); border:.5px solid var(--bdh); box-shadow:0 6px 18px rgba(0,0,0,.3); }
+.a .busy-note i{ color:var(--acc); }
+
 /* 输入 */
 .a .ip{ background:var(--field); color:var(--tx); border:.5px solid var(--bd);
   border-radius:8px; height:var(--ctl-sm); padding:0 11px; font-size:12.5px; font-family:inherit; width:120px;
