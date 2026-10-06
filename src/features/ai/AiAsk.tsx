@@ -18,12 +18,35 @@ export function needsAiSetup(error: unknown): boolean {
   return /^E_(AI_(NONE|MODEL|FIELDS|KEY|KIND|PROTOCOL|EFFORT)|RUNNER_(AUTH|NO_PLAN|MISSING))$/.test(String(error));
 }
 
+const SAVED_KEY = "stacker.aiAnswers.v1";
+const SAVED_LIMIT = 40;
+type Saved = { answer: string; at: number };
+
+function savedAll(): Record<string, Saved> {
+  try { return JSON.parse(localStorage.getItem(SAVED_KEY) ?? "{}") as Record<string, Saved>; } catch { return {}; }
+}
+
+/** The answer last given for this question, kept on this computer. */
+export function savedAnswer(key: string): Saved | null {
+  const item = savedAll()[key];
+  return item && typeof item.answer === "string" ? item : null;
+}
+
+/** Keeps an answer, dropping the oldest once there are more than a few dozen. */
+export function saveAnswer(key: string, answer: string, at = Date.now()): void {
+  const all = { ...savedAll(), [key]: { answer, at } };
+  const kept = Object.entries(all).sort((a, b) => b[1].at - a[1].at).slice(0, SAVED_LIMIT);
+  try { localStorage.setItem(SAVED_KEY, JSON.stringify(Object.fromEntries(kept))); } catch { /* the answer is still on screen */ }
+}
+
 /** What every AI dialog shows: waiting, the answer, or the failure with the way to fix it. */
 export function useAiAnswer(run: () => Promise<string>, deps: unknown[]) {
   const [answer, setAnswer] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
   useEffect(() => {
     let alive = true;
+    setAnswer(null);
+    setError(null);
     run()
       .then((text) => { if (alive) setAnswer(text.trim()); })
       .catch((e) => { if (alive) setError(e ?? "E_AI_REPLY"); });
@@ -65,7 +88,7 @@ export function AiFooter({ answer, error, onClose, onSetup }: {
  * A question to the AI source and its answer. `run` does the asking, so a page can gather
  * what it needs first (a log, a probe) and still show one dialog for the whole thing.
  */
-export function AiAskModal({ title, sub, note, run, onClose, onSetup, waiting = "AI 正在看…" }: {
+export function AiAskModal({ title, sub, note, run, onClose, onSetup, waiting = "AI 正在看…", saveAs }: {
   title: string;
   sub?: ReactNode;
   /** What was sent, said plainly under the answer. */
@@ -74,11 +97,25 @@ export function AiAskModal({ title, sub, note, run, onClose, onSetup, waiting = 
   onClose: () => void;
   onSetup?: () => void;
   waiting?: string;
+  /** Keep the answer under this name: opening the dialog again shows it without asking again. */
+  saveAs?: string;
 }) {
-  // One question per dialog: asking again means opening it again.
-  const { answer, error } = useAiAnswer(run, []);
+  const { tr } = useI18n();
+  const [kept] = useState(() => (saveAs ? savedAnswer(saveAs) : null));
+  // Asking again is a new question: the counter starts one.
+  const [round, setRound] = useState(kept ? 0 : 1);
+  const { answer, error } = useAiAnswer(round === 0 ? async () => kept!.answer : async () => {
+    const text = await run();
+    if (saveAs) saveAnswer(saveAs, text.trim());
+    return text;
+  }, [round]);
+  const shownAt = round === 0 && kept ? new Date(kept.at).toLocaleString() : null;
   return <Modal wide title={title} icon="ti-sparkles" sub={sub} onClose={onClose}
-    footer={<AiFooter answer={answer} error={error} onClose={onClose} onSetup={onSetup} />}>
+    footer={<>
+      {saveAs && (answer !== null || error !== null) && <button className="gh sm" onClick={() => setRound((n) => n + 1)}><i className="ti ti-refresh" /> {tr("重新诊断")}</button>}
+      <AiFooter answer={answer} error={error} onClose={onClose} onSetup={onSetup} />
+    </>}>
+    {shownAt && <p className="s dim" style={{ margin: 0 }}>{tr("上次的诊断结果（{at}）。要按现在的情况再问一次，点「重新诊断」。").replace("{at}", shownAt)}</p>}
     <AiAnswer answer={answer} error={error} waiting={waiting} />
     <p className="s dim ai-explain-note">{note}</p>
   </Modal>;

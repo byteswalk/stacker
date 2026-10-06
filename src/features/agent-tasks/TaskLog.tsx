@@ -16,7 +16,7 @@ export function TaskFailureAsk({ task, lines, onClose, onSetup }: {
       product: task.productName, surface: task.surfaceLabel, action: ACTION_TEXT[task.action],
       message: task.message ?? task.lastLine ?? "", log: (lines ?? await agentTaskLog(task.id)).join("\n"),
     })}
-    onClose={onClose} onSetup={onSetup} />;
+    saveAs={`task:${task.id}`} onClose={onClose} onSetup={onSetup} />;
 }
 
 /**

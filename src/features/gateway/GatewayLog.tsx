@@ -167,6 +167,6 @@ export function GatewayLog({ enabled, retentionDays, onSettings }: {
         const detail = parseDetail(explain.detail);
         return askAi("gateway_error", { entry: { endpoint: explain.endpoint, model: explain.model, status: explain.status, elapsedMs: explain.elapsedMs, error: detail.error, stream: detail.stream, effort: detail.effort, client: detail.userAgent } });
       }}
-      onClose={() => setExplain(null)} />}
+      saveAs={`gateway:${explain.id}`} onClose={() => setExplain(null)} />}
   </div>;
 }
