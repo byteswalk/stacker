@@ -69,6 +69,25 @@ export function siteKey(entry: EntryView): string {
   return COUNTRY_SECOND.has(two) ? labels.slice(-3).join(".") : two;
 }
 
+/**
+ * Which system an entry's login belongs to: host, port and the first directory of the path,
+ * as the backend decides it. Another port or first directory may be another system (a
+ * router's page and a NAS on :1188), so logins there are never duplicates of each other.
+ */
+export function systemOf(entry: EntryView): string {
+  const url = entry.fields.find((field) => field.name === "网址")?.value?.trim() ?? "";
+  if (!url) return (entry.platform || entry.title).toLowerCase();
+  try {
+    const parsed = new URL(url);
+    if (!parsed.hostname) return url.toLowerCase();
+    const port = parsed.port || ({ "https:": "443", "http:": "80" } as Record<string, string>)[parsed.protocol] || "";
+    const segments = parsed.pathname.split("/").filter(Boolean);
+    return `${parsed.hostname.toLowerCase().replace(/^www\./, "")}:${port}/${segments.length > 1 ? segments[0] : ""}`;
+  } catch {
+    return url.toLowerCase();
+  }
+}
+
 export function accountOf(entry: EntryView): string {
   return entry.fields.find((field) => field.name === "账号")?.value?.trim() ?? "";
 }
@@ -89,7 +108,10 @@ export function groupEntries(entries: EntryView[]): EntryGroup[] {
     const byAccount = new Map<string, EntryView[]>();
     for (const entry of members) {
       const account = accountOf(entry);
-      if (account && entry.kind !== "ssh_key") byAccount.set(account, [...(byAccount.get(account) ?? []), entry]);
+      // One account on one system: the same name on another port is another login.
+      const key = `${systemOf(entry)}
+${account}`;
+      if (account && entry.kind !== "ssh_key") byAccount.set(key, [...(byAccount.get(key) ?? []), entry]);
     }
     const duplicates = [...byAccount.values()].filter((set) => set.length > 1).map((set) => [...set].sort((a, b) => b.updatedAt - a.updatedAt));
     return { key, entries: members, duplicates };

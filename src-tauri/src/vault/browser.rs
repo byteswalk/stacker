@@ -85,6 +85,31 @@ fn host_of(url: &str) -> String {
         .unwrap_or_default()
 }
 
+/// Which system a login belongs to: host, port and the first directory of the path. Two
+/// logins on one host but another port, or under another first directory, may be two
+/// different systems (a router's page and a NAS on :1188), so they are never taken for one.
+/// A path of a single page (`/userLogin.asp`, `/login`) names no directory. Without a
+/// parseable address, the text as it is.
+pub(crate) fn system_of(url: &str) -> String {
+    let Ok(parsed) = url::Url::parse(url.trim()) else {
+        return url.trim().to_lowercase();
+    };
+    let Some(host) = parsed.host_str() else {
+        return url.trim().to_lowercase();
+    };
+    let host = host.trim_start_matches("www.").to_ascii_lowercase();
+    let port = parsed
+        .port_or_known_default()
+        .map(|port| port.to_string())
+        .unwrap_or_default();
+    let segments: Vec<&str> = parsed
+        .path_segments()
+        .map(|parts| parts.filter(|part| !part.is_empty()).collect())
+        .unwrap_or_default();
+    let context = if segments.len() > 1 { segments[0] } else { "" };
+    format!("{host}:{port}/{context}")
+}
+
 /// The logins in a browser's export, by the columns its header names. Chrome and Edge write
 /// `name,url,username,password[,note]`; Firefox writes `url,username,password,…` without a
 /// name. A file without a `password` column is not one of these.
@@ -149,8 +174,14 @@ pub(crate) fn logins(text: &str) -> Result<(Vec<Login>, usize), String> {
 }
 
 /// The login's identity: site, account and password, so the same login is not saved twice.
-fn identity(host: &str, user: &str, password: &str) -> String {
-    super::crypto::secret_digest(&format!("{}\n{}\n{}", host.to_lowercase(), user, password))
+/// One login: its system (see `system_of`), account and password.
+fn identity(system: &str, user: &str, password: &str) -> String {
+    super::crypto::secret_digest(&format!(
+        "{}\n{}\n{}",
+        system.to_lowercase(),
+        user,
+        password
+    ))
 }
 
 fn field<'a>(fields: &'a [super::model::Field], name: &str) -> &'a str {
@@ -168,14 +199,14 @@ pub(crate) fn new_logins(body: &Body, logins: Vec<Login>) -> (Vec<EntryInput>, u
         .iter()
         .filter(|entry| entry.deleted_at.is_none())
         .map(|entry| {
-            let host = host_of(field(&entry.fields, URL_FIELD));
-            let host = if host.is_empty() {
+            let url = field(&entry.fields, URL_FIELD);
+            let system = if url.trim().is_empty() {
                 entry.platform.to_lowercase()
             } else {
-                host
+                system_of(url)
             };
             identity(
-                &host,
+                &system,
                 field(&entry.fields, USER_FIELD),
                 field(&entry.fields, PASSWORD_FIELD),
             )
@@ -184,7 +215,12 @@ pub(crate) fn new_logins(body: &Body, logins: Vec<Login>) -> (Vec<EntryInput>, u
     let mut same = 0;
     let mut inputs = Vec::new();
     for login in logins {
-        if !known.insert(identity(&login.host, &login.user, &login.password)) {
+        let system = if login.url.trim().is_empty() {
+            login.host.to_lowercase()
+        } else {
+            system_of(&login.url)
+        };
+        if !known.insert(identity(&system, &login.user, &login.password)) {
             same += 1;
             continue;
         }
@@ -331,5 +367,38 @@ mod tests {
             inputs.iter().map(|i| i.title.as_str()).collect::<Vec<_>>(),
             vec!["other.com"]
         );
+    }
+
+    #[test]
+    fn another_port_or_first_directory_is_another_system() {
+        assert_eq!(
+            system_of("https://192.168.2.1/userLogin.asp"),
+            system_of("https://192.168.2.1/")
+        );
+        assert_eq!(
+            system_of("https://www.github.com/login"),
+            system_of("https://github.com/session")
+        );
+        assert_eq!(
+            system_of("http://192.168.2.1/"),
+            system_of("http://192.168.2.1:80/index.html")
+        );
+        assert_ne!(
+            system_of("https://192.168.2.1/userLogin.asp"),
+            system_of("http://192.168.2.1:1188/")
+        );
+        assert_ne!(
+            system_of("http://192.168.2.1/"),
+            system_of("https://192.168.2.1/")
+        );
+        assert_ne!(
+            system_of("https://host/app1/login"),
+            system_of("https://host/app2/login")
+        );
+
+        // The same account and password on two ports are two logins, both imported.
+        let csv = "name,url,username,password\nr,https://192.168.2.1/userLogin.asp,admin,pw\nn,http://192.168.2.1:1188/,admin,pw\nr,https://192.168.2.1/,admin,pw\n";
+        let (inputs, same) = new_logins(&Body::default(), logins(csv).unwrap().0);
+        assert_eq!((inputs.len(), same), (2, 1));
     }
 }

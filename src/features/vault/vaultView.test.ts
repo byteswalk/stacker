@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EntryView } from "./api";
-import { daysUntil, expiryState, filterEntries, groupEntries, passwordStrength, platformsOf, siteKey, soonCount } from "./vaultView";
+import { daysUntil, expiryState, filterEntries, groupEntries, passwordStrength, platformsOf, siteKey, soonCount, systemOf } from "./vaultView";
 
 const today = new Date(2026, 9, 1);
 
@@ -56,11 +56,25 @@ describe("vault view helpers", () => {
     const groups = groupEntries([
       login("g1", "https://mail.google.com/", "me", 5),
       login("x", "https://example.com/", "ann", 4),
-      login("g2", "https://accounts.google.com/", "me", 3),
+      login("g2", "https://mail.google.com/login", "me", 3),
       login("g3", "https://google.com/", "you", 2),
     ]);
     expect(groups.map((group) => [group.key, group.entries.map((e) => e.title)])).toEqual([["google.com", ["g1", "g2", "g3"]], ["example.com", ["x"]]]);
     expect(groups[0].duplicates.map((set) => set.map((e) => e.title))).toEqual([["g1", "g2"]]);
+  });
+
+  it("never takes a login on another port or under another first directory for a duplicate", () => {
+    const login = (id: string, url: string) => entry({
+      title: id, updatedAt: 1,
+      fields: [{ name: "网址", secret: false, value: url, filled: true }, { name: "账号", secret: false, value: "admin", filled: true }],
+    });
+    const router = login("router", "https://192.168.2.1/userLogin.asp");
+    expect(systemOf(router)).toBe(systemOf(login("x", "https://192.168.2.1/")));
+    expect(systemOf(router)).not.toBe(systemOf(login("x", "http://192.168.2.1:1188/")));
+    expect(systemOf(login("x", "https://h/app1/login"))).not.toBe(systemOf(login("x", "https://h/app2/login")));
+    const groups = groupEntries([router, login("nas", "http://192.168.2.1:1188/"), login("again", "https://192.168.2.1/"), login("web", "http://192.168.2.1:6086/")]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].duplicates.map((set) => set.map((e) => e.title))).toEqual([["router", "again"]]);
   });
 
   it("filters by kind, source and Windows credentials", () => {

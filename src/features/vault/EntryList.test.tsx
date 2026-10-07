@@ -86,14 +86,14 @@ describe("vault entry list", () => {
       return null;
     }) as typeof invoke);
     const group = groupEntries([
-      login("new", "https://mail.example.com/", "me", 9),
+      login("new", "https://example.com/", "me", 9),
       login("old", "https://example.com/login", "me", 5),
       login("same", "https://www.example.com/", "me", 1),
     ])[0];
     const onDone = vi.fn();
     await act(async () => { root.render(<MergeDialog group={group} onClose={() => {}} onDone={onDone} />); });
     const text = () => document.body.textContent ?? "";
-    expect(text()).toContain("https://mail.example.com/");
+    expect(text()).toContain("https://example.com/");
     expect(text()).toContain("保留");
     expect(text()).toContain("密码不同，旧密码进历史");
     expect(text()).toContain("密码相同");

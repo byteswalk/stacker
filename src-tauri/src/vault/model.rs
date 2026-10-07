@@ -394,6 +394,20 @@ pub(crate) fn history_value(
 
 /// Folds `others` into `keep`: a secret of theirs that differs from keep's goes into keep's
 /// history, their tags join keep's, and they go to the trash, where they can still be restored.
+/// The system an entry's web address points at, or its platform when it has none.
+fn system(entry: &Entry) -> String {
+    match entry
+        .fields
+        .iter()
+        .find(|field| field.name == super::browser::URL_FIELD)
+        .map(|field| field.value.trim())
+        .filter(|url| !url.is_empty())
+    {
+        Some(url) => super::browser::system_of(url),
+        None => entry.platform.to_lowercase(),
+    }
+}
+
 pub(crate) fn merge_entries(
     body: &mut Body,
     keep: &str,
@@ -414,6 +428,11 @@ pub(crate) fn merge_entries(
         else {
             continue;
         };
+        // Only one system's logins are merged: another port or first directory may be
+        // another system, whatever the account is called.
+        if system(&body.entries[index]) != system(&body.entries[keep_index]) {
+            continue;
+        }
         let (secrets, tags) = {
             let entry = &body.entries[index];
             (
@@ -720,6 +739,37 @@ mod tests {
         apply_input(&mut body, input(Some(&id), "t", vec![renamed]), 2).unwrap();
         assert_eq!(*field_value(&body, &id, "API Key").unwrap(), "v1");
         assert!(history_views(&body, &id).unwrap().is_empty());
+    }
+
+    #[test]
+    fn logins_of_another_port_are_never_merged() {
+        let mut body = Body::default();
+        let at = |url: &str| EntryInput {
+            id: None,
+            title: "192.168.2.1".into(),
+            platform: "192.168.2.1".into(),
+            kind: Kind::Other,
+            fields: vec![
+                field("网址", Some(url), false),
+                field("账号", Some("admin"), false),
+                field("密码", Some("pw"), true),
+            ],
+            expires_at: None,
+            tags: Vec::new(),
+            note: String::new(),
+            favorite: false,
+        };
+        let router = apply_input(&mut body, at("https://192.168.2.1/userLogin.asp"), 2).unwrap();
+        let nas = apply_input(&mut body, at("http://192.168.2.1:1188/"), 1).unwrap();
+        let again = apply_input(&mut body, at("https://192.168.2.1/"), 1).unwrap();
+        assert_eq!(
+            merge_entries(&mut body, &router, &[nas.clone(), again], 9).unwrap(),
+            1
+        );
+        assert!(body
+            .entries
+            .iter()
+            .any(|entry| entry.id == nas && entry.deleted_at.is_none()));
     }
 
     #[test]
