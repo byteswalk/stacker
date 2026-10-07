@@ -11,7 +11,14 @@ use std::time::Duration;
 
 /// Enough of a page for its `<head>`.
 const READ_AT_MOST: u64 = 512 * 1024;
-const WORKERS: usize = 8;
+const WORKERS: usize = 10;
+/// A page that has not answered by now is not going to: many saved logins point at sites
+/// long gone, and each one waited for is a wait for the user.
+const CONNECT_WAIT: Duration = Duration::from_secs(3);
+const PAGE_WAIT: Duration = Duration::from_secs(6);
+/// Looking up a name is not covered by the waits above, and a dead domain can take Windows
+/// well over ten seconds to give up on.
+const LOOKUP_WAIT: Duration = Duration::from_secs(3);
 const LONGEST: usize = 120;
 /// Some sites turn away anything that does not look like a browser.
 const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36";
@@ -43,10 +50,32 @@ fn host_of(url: &str) -> &str {
     authority.split(':').next().unwrap_or_default()
 }
 
+/// The system's name lookup, given up on after `LOOKUP_WAIT`; the lookup thread finishes on
+/// its own and its answer is dropped.
+fn lookup(netloc: &str) -> std::io::Result<Vec<std::net::SocketAddr>> {
+    use std::net::ToSocketAddrs;
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let netloc = netloc.to_string();
+    std::thread::spawn(move || {
+        let _ = sender.send(
+            netloc
+                .to_socket_addrs()
+                .map(|addrs| addrs.collect::<Vec<_>>()),
+        );
+    });
+    receiver.recv_timeout(LOOKUP_WAIT).unwrap_or_else(|_| {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "name lookup took too long",
+        ))
+    })
+}
+
 fn agent(local: bool) -> ureq::Agent {
     let mut builder = ureq::AgentBuilder::new()
-        .timeout_connect(Duration::from_secs(4))
-        .timeout(Duration::from_secs(10))
+        .resolver(lookup)
+        .timeout_connect(CONNECT_WAIT)
+        .timeout(PAGE_WAIT)
         .redirects(5);
     if !local {
         if let Some(proxy) = crate::agents::net::stacker_proxy() {
@@ -250,6 +279,17 @@ mod tests {
         );
         println!("{found:?}");
         assert_eq!(found.len(), 2);
+    }
+
+    #[test]
+    fn a_name_that_does_not_resolve_is_given_up_on_quickly() {
+        let started = std::time::Instant::now();
+        assert_eq!(fetch("http://no-such-host.invalid/"), None);
+        assert!(
+            started.elapsed() < LOOKUP_WAIT + PAGE_WAIT,
+            "{:?}",
+            started.elapsed()
+        );
     }
 
     #[test]
