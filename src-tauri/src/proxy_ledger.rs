@@ -313,50 +313,52 @@ pub async fn proxy_service_set(address: Option<String>) -> Result<SyncReport, St
 /// no proxy the only honest thing left is to take it back out of every place that has one.
 #[tauri::command]
 pub async fn proxy_follow_system(release: bool) -> Result<SyncReport, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let system = crate::proxy_system::system();
-        let wanted = crate::proxy_system::first_endpoint(&system.server);
-        if !release && wanted.is_empty() {
-            return Err("E_PROXY_ADDR".to_string());
-        }
-        let mut failed = Vec::new();
-        for location in LOCATIONS {
-            let current = normalize(location.read().as_deref());
-            let result = if release {
-                if current.is_empty() {
-                    continue;
-                }
-                clear_location(location)
-            } else {
-                if endpoint(&current)
-                    .map(|(h, p)| format!("{h}:{p}"))
-                    .as_deref()
-                    == Some(&wanted)
-                {
-                    continue;
-                }
-                write_location(location)
-            };
-            if let Err(error) = result {
-                failed.push(format!("{}：{error}", location.id()));
+    tauri::async_runtime::spawn_blocking(move || follow_system(release))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+pub(crate) fn follow_system(release: bool) -> Result<SyncReport, String> {
+    let system = crate::proxy_system::system();
+    let wanted = crate::proxy_system::first_endpoint(&system.server);
+    if !release && wanted.is_empty() {
+        return Err("E_PROXY_ADDR".to_string());
+    }
+    let mut failed = Vec::new();
+    for location in LOCATIONS {
+        let current = normalize(location.read().as_deref());
+        let result = if release {
+            if current.is_empty() {
+                continue;
             }
-        }
-        // The service proxy is Windows' own, so it takes the elevated path and one prompt.
-        let service = crate::proxy_system::service();
-        let service_wanted = if release { None } else { Some(wanted.as_str()) };
-        if service.known && service.server != service_wanted.unwrap_or_default() {
-            if let Err(error) = crate::winadmin::set_service_proxy(service_wanted) {
-                failed.push(format!("winhttp：{error}"));
-            }
-        }
-        if failed.is_empty() {
-            Ok(sync_report())
+            clear_location(location)
         } else {
-            Err(failed.join("；"))
+            if endpoint(&current)
+                .map(|(h, p)| format!("{h}:{p}"))
+                .as_deref()
+                == Some(&wanted)
+            {
+                continue;
+            }
+            write_location(location)
+        };
+        if let Err(error) = result {
+            failed.push(format!("{}：{error}", location.id()));
         }
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    }
+    // The service proxy is Windows' own, so it takes the elevated path and one prompt.
+    let service = crate::proxy_system::service();
+    let service_wanted = if release { None } else { Some(wanted.as_str()) };
+    if service.known && service.server != service_wanted.unwrap_or_default() {
+        if let Err(error) = crate::winadmin::set_service_proxy(service_wanted) {
+            failed.push(format!("winhttp：{error}"));
+        }
+    }
+    if failed.is_empty() {
+        Ok(sync_report())
+    } else {
+        Err(failed.join("；"))
+    }
 }
 
 #[tauri::command]

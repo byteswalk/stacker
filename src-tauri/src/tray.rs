@@ -1,6 +1,11 @@
-//! The tray icon: a left click shows the window; the right-click menu holds what is switched
-//! on and off most often (terminal proxy, API service, locking the vault) and jumps to pages.
-//! The menu is rebuilt each time the pointer reaches the icon, so it shows the current state.
+//! The tray icon: a left click shows the window; the right-click menu holds what is done most
+//! often (making every place follow the system proxy, the API service, locking the vault) and
+//! jumps to pages. The menu is rebuilt each time the pointer reaches the icon, so it shows the
+//! current state.
+
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -19,34 +24,31 @@ const PAGES: &[(&str, &str, &str)] = &[
 ];
 
 const GOTO: &str = "goto:";
+const PROXY_PAGE: &str = "goto:proxy";
 
-/// What the menu shows, read fresh before it opens.
+/// What the menu shows, read before it opens.
 #[derive(Debug, Clone, PartialEq)]
 struct Shown {
-    proxy_on: bool,
-    /// Where the terminal proxy points, or `None` when there is no address to write.
-    proxy_at: Option<String>,
+    /// The Windows proxy, `host:port`, when one is in use.
+    system: Option<String>,
+    /// Places that do not follow the system, once counted.
+    differ: Option<usize>,
     gateway_on: bool,
     gateway_port: u16,
     vault_open: bool,
 }
 
-fn read_state() -> Shown {
-    let proxy = crate::proxy::status();
-    let gateway = crate::gateway::status();
-    Shown {
-        proxy_on: proxy.enabled,
-        proxy_at: proxy
-            .endpoint_available
-            .then(|| format!("{}:{}", proxy.host, proxy.port)),
-        gateway_on: gateway.running,
-        gateway_port: gateway.port,
-        vault_open: crate::vault::vault().is_unlocked(),
-    }
+/// One menu line: its id, text and whether it can be clicked.
+type Line = (&'static str, String, bool);
+
+struct Lines {
+    system: Line,
+    follow: Option<Line>,
+    gateway: Line,
+    vault: Line,
 }
 
-/// The label of each switch, and whether it can be clicked.
-fn labels(shown: &Shown, english: bool) -> [(String, bool); 3] {
+fn lines(shown: &Shown, english: bool) -> Lines {
     let pick = |zh: &str, en: &str| {
         if english {
             en.to_string()
@@ -54,22 +56,52 @@ fn labels(shown: &Shown, english: bool) -> [(String, bool); 3] {
             zh.to_string()
         }
     };
-    let proxy = match &shown.proxy_at {
+    let system = match &shown.system {
         Some(at) => (
-            format!("{}  {at}", pick("终端代理", "Terminal proxy")),
+            PROXY_PAGE,
+            format!("{}  {at}", pick("系统代理", "System proxy")),
             true,
         ),
-        // On, but the address is gone: still let it be turned off.
-        None if shown.proxy_on => (pick("终端代理", "Terminal proxy"), true),
         None => (
-            pick(
-                "终端代理（未检测到代理地址）",
-                "Terminal proxy (no proxy address found)",
-            ),
-            false,
+            PROXY_PAGE,
+            pick("系统代理未开启", "System proxy is off"),
+            true,
         ),
     };
+    let follow = match (&shown.system, shown.differ) {
+        (Some(_), None) => Some((
+            "proxy_follow",
+            pick("各处代理跟随系统", "Make every place follow it"),
+            true,
+        )),
+        (Some(_), Some(0)) => Some((
+            "proxy_follow",
+            pick("各处代理已跟随系统", "Every place follows it"),
+            false,
+        )),
+        (Some(_), Some(n)) => Some((
+            "proxy_follow",
+            if english {
+                format!("Make every place follow it ({n} differ)")
+            } else {
+                format!("各处代理跟随系统（{n} 处不同）")
+            },
+            true,
+        )),
+        // Taking proxies back out is asked for on the page, where the places are listed.
+        (None, Some(n)) if n > 0 => Some((
+            PROXY_PAGE,
+            if english {
+                format!("{n} place(s) still set to a proxy…")
+            } else {
+                format!("还有 {n} 处留着代理…")
+            },
+            true,
+        )),
+        (None, _) => None,
+    };
     let gateway = (
+        "gateway_toggle",
         format!(
             "{}  {}",
             pick("接口服务", "API service"),
@@ -82,22 +114,94 @@ fn labels(shown: &Shown, english: bool) -> [(String, bool); 3] {
         true,
     );
     let vault = if shown.vault_open {
-        (pick("锁定密钥保管", "Lock the key vault"), true)
+        (
+            "vault_lock",
+            pick("锁定密钥保管", "Lock the key vault"),
+            true,
+        )
     } else {
-        (pick("密钥保管已锁定", "Key vault is locked"), false)
+        (
+            "vault_lock",
+            pick("密钥保管已锁定", "Key vault is locked"),
+            false,
+        )
     };
-    [proxy, gateway, vault]
+    Lines {
+        system,
+        follow,
+        gateway,
+        vault,
+    }
+}
+
+/// How many places differ from the system proxy, for the system proxy it was counted
+/// against. Counting reads every place (and asks netsh), so it is done off the menu's thread
+/// and kept for a while.
+static COUNTED: Mutex<Option<(Option<String>, usize, Instant)>> = Mutex::new(None);
+static COUNTING: AtomicBool = AtomicBool::new(false);
+const COUNT_FOR: Duration = Duration::from_secs(30);
+
+fn system_proxy() -> Option<String> {
+    let system = crate::proxy_system::system();
+    (system.state == crate::proxy_system::SystemState::On)
+        .then(|| crate::proxy_system::first_endpoint(&system.server))
+        .filter(|server| !server.is_empty())
+}
+
+fn remember(system: Option<String>, differ: usize) {
+    *COUNTED.lock().unwrap_or_else(|e| e.into_inner()) = Some((system, differ, Instant::now()));
+}
+
+fn counted(system: &Option<String>) -> Option<(usize, Instant)> {
+    COUNTED
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .filter(|(against, _, _)| against == system)
+        .map(|(_, differ, at)| (*differ, *at))
+}
+
+/// Counts again in the background when the last count is old or was for another proxy.
+fn recount(app: &AppHandle) {
+    let fresh = counted(&system_proxy()).is_some_and(|(_, at)| at.elapsed() < COUNT_FOR);
+    if fresh || COUNTING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let system = system_proxy();
+        let differ = crate::proxy_ledger::sync_report().rows.len();
+        remember(system, differ);
+        COUNTING.store(false, Ordering::SeqCst);
+        let _ = refresh(&app);
+    });
+}
+
+fn read_state() -> Shown {
+    let system = system_proxy();
+    let gateway = crate::gateway::status();
+    Shown {
+        differ: counted(&system).map(|(differ, _)| differ),
+        system,
+        gateway_on: gateway.running,
+        gateway_port: gateway.port,
+        vault_open: crate::vault::vault().is_unlocked(),
+    }
 }
 
 fn english() -> bool {
     crate::settings::load().locale == "en-US"
 }
 
+fn item(app: &AppHandle, (id, text, enabled): Line) -> tauri::Result<MenuItem<Wry>> {
+    MenuItem::with_id(app, id, text, enabled, None::<&str>)
+}
+
 fn create_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let english = english();
     let pick = |zh: &'static str, en: &'static str| if english { en } else { zh };
     let shown = read_state();
-    let [proxy, gateway, vault] = labels(&shown, english);
+    let lines = lines(&shown, english);
 
     let show = MenuItem::with_id(
         app,
@@ -106,23 +210,11 @@ fn create_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         true,
         None::<&str>,
     )?;
-    let proxy = CheckMenuItem::with_id(
-        app,
-        "proxy_toggle",
-        proxy.0,
-        proxy.1,
-        shown.proxy_on,
-        None::<&str>,
-    )?;
-    let gateway = CheckMenuItem::with_id(
-        app,
-        "gateway_toggle",
-        gateway.0,
-        gateway.1,
-        shown.gateway_on,
-        None::<&str>,
-    )?;
-    let vault = MenuItem::with_id(app, "vault_lock", vault.0, vault.1, None::<&str>)?;
+    let system = item(app, lines.system)?;
+    let follow = lines.follow.map(|line| item(app, line)).transpose()?;
+    let (id, text, enabled) = lines.gateway;
+    let gateway = CheckMenuItem::with_id(app, id, text, enabled, shown.gateway_on, None::<&str>)?;
+    let vault = item(app, lines.vault)?;
     let pages = PAGES
         .iter()
         .map(|(id, zh, en)| {
@@ -147,20 +239,22 @@ fn create_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         true,
         None::<&str>,
     )?;
-    Menu::with_items(
-        app,
-        &[
-            &show,
-            &PredefinedMenuItem::separator(app)?,
-            &proxy,
-            &gateway,
-            &vault,
-            &PredefinedMenuItem::separator(app)?,
-            &goto,
-            &PredefinedMenuItem::separator(app)?,
-            &quit,
-        ],
-    )
+
+    let separator = || PredefinedMenuItem::separator(app);
+    let (one, two, three) = (separator()?, separator()?, separator()?);
+    let mut items: Vec<&dyn tauri::menu::IsMenuItem<Wry>> = vec![&show, &one, &system];
+    if let Some(follow) = &follow {
+        items.push(follow);
+    }
+    items.extend([
+        &gateway as &dyn tauri::menu::IsMenuItem<Wry>,
+        &vault,
+        &two,
+        &goto,
+        &three,
+        &quit,
+    ]);
+    Menu::with_items(app, &items)
 }
 
 pub(crate) fn refresh(app: &AppHandle) -> Result<(), String> {
@@ -180,7 +274,7 @@ fn show_main(app: &AppHandle) {
     }
 }
 
-/// A switch that failed says why; the window may be hidden, so a dialog rather than a toast.
+/// Something that failed says why; the window may be hidden, so a dialog rather than a toast.
 fn tell(app: &AppHandle, text: String) {
     use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
     app.dialog()
@@ -190,22 +284,37 @@ fn tell(app: &AppHandle, text: String) {
         .show(|_| {});
 }
 
-fn toggle_proxy(app: &AppHandle) {
-    let status = crate::proxy::status();
-    let done = if status.enabled {
-        crate::proxy::proxy_disable(false)
-    } else {
-        crate::proxy::proxy_enable(
-            status.host.clone(),
-            status.port,
-            false,
-            status.no_proxy_manual.clone(),
-        )
-    };
-    if let Err(error) = done {
-        tell(app, error);
-    }
-    let _ = app.emit("proxy-changed", ());
+/// Writes the system proxy everywhere, as the proxy page's "全部跟随系统" does. The service
+/// proxy may ask Windows for approval, so this runs off the menu's thread.
+fn follow(app: &AppHandle) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        match crate::proxy_ledger::follow_system(false) {
+            Ok(report) => remember(system_proxy(), report.rows.len()),
+            Err(error) => {
+                *COUNTED.lock().unwrap_or_else(|e| e.into_inner()) = None;
+                let english = english();
+                tell(
+                    &app,
+                    match (error.as_str(), english) {
+                        ("E_PROXY_ADDR", false) => {
+                            "Windows 没有开启系统代理，没有可写入的地址。".into()
+                        }
+                        ("E_PROXY_ADDR", true) => {
+                            "Windows has no system proxy on, so there is no address to write."
+                                .into()
+                        }
+                        (_, false) => format!("有些地方没能跟随系统代理：{error}"),
+                        (_, true) => {
+                            format!("Some places could not follow the system proxy: {error}")
+                        }
+                    },
+                );
+            }
+        }
+        let _ = app.emit("proxy-changed", ());
+        let _ = refresh(&app);
+    });
 }
 
 fn toggle_gateway(app: &AppHandle) {
@@ -231,7 +340,7 @@ fn toggle_gateway(app: &AppHandle) {
 fn on_menu(app: &AppHandle, id: &str) {
     match id {
         "show" => show_main(app),
-        "proxy_toggle" => toggle_proxy(app),
+        "proxy_follow" => follow(app),
         "gateway_toggle" => toggle_gateway(app),
         "vault_lock" => {
             crate::vault::guard::lock_everything();
@@ -269,6 +378,7 @@ pub(crate) fn build(app: &AppHandle) -> tauri::Result<()> {
                 ..
             } => {
                 let _ = refresh(tray.app_handle());
+                recount(tray.app_handle());
             }
             _ => {}
         });
@@ -285,42 +395,86 @@ mod tests {
 
     fn shown() -> Shown {
         Shown {
-            proxy_on: false,
-            proxy_at: Some("127.0.0.1:7890".into()),
+            system: Some("127.0.0.1:7890".into()),
+            differ: None,
             gateway_on: true,
             gateway_port: 8848,
             vault_open: true,
         }
     }
 
-    #[test]
-    fn the_switches_say_where_they_point() {
-        let [proxy, gateway, vault] = labels(&shown(), false);
-        assert_eq!(proxy, ("终端代理  127.0.0.1:7890".to_string(), true));
-        assert_eq!(gateway, ("接口服务  端口 8848".to_string(), true));
-        assert_eq!(vault, ("锁定密钥保管".to_string(), true));
-        let [_, gateway, _] = labels(&shown(), true);
-        assert_eq!(gateway.0, "API service  port 8848");
+    fn follow_of(shown: Shown) -> Option<(String, bool)> {
+        lines(&shown, false)
+            .follow
+            .map(|(_, text, enabled)| (text, enabled))
     }
 
     #[test]
-    fn what_cannot_be_done_is_greyed_out() {
-        let none = Shown {
-            proxy_at: None,
+    fn the_menu_says_where_the_system_proxy_points() {
+        let lines = lines(&shown(), false);
+        assert_eq!(lines.system.1, "系统代理  127.0.0.1:7890");
+        assert_eq!(lines.gateway.1, "接口服务  端口 8848");
+        assert_eq!(
+            lines.vault,
+            ("vault_lock", "锁定密钥保管".to_string(), true)
+        );
+        let off = Shown {
+            system: None,
+            ..shown()
+        };
+        assert_eq!(super::lines(&off, false).system.1, "系统代理未开启");
+        assert_eq!(
+            super::lines(&shown(), true).gateway.1,
+            "API service  port 8848"
+        );
+    }
+
+    #[test]
+    fn following_the_system_is_offered_while_something_differs() {
+        assert_eq!(
+            follow_of(shown()),
+            Some(("各处代理跟随系统".into(), true)),
+            "not counted yet"
+        );
+        assert_eq!(
+            follow_of(Shown {
+                differ: Some(3),
+                ..shown()
+            }),
+            Some(("各处代理跟随系统（3 处不同）".into(), true))
+        );
+        assert_eq!(
+            follow_of(Shown {
+                differ: Some(0),
+                ..shown()
+            }),
+            Some(("各处代理已跟随系统".into(), false))
+        );
+    }
+
+    #[test]
+    fn with_the_system_proxy_off_leftovers_lead_to_the_page() {
+        let off = |differ| Shown {
+            system: None,
+            differ,
+            ..shown()
+        };
+        assert_eq!(follow_of(off(None)), None);
+        assert_eq!(follow_of(off(Some(0))), None);
+        let lines = lines(&off(Some(2)), false);
+        assert_eq!(
+            lines.follow,
+            Some((PROXY_PAGE, "还有 2 处留着代理…".into(), true))
+        );
+    }
+
+    #[test]
+    fn a_locked_vault_is_greyed_out() {
+        let locked = Shown {
             vault_open: false,
             ..shown()
         };
-        let [proxy, _, vault] = labels(&none, false);
-        assert!(!proxy.1, "no address to write");
-        assert!(!vault.1, "already locked");
-        let stale = Shown {
-            proxy_on: true,
-            ..none
-        };
-        assert!(
-            labels(&stale, false)[0].1,
-            "a proxy that is on can always be turned off"
-        );
+        assert!(!lines(&locked, false).vault.2);
     }
 
     #[test]
