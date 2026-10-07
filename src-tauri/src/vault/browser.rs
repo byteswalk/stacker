@@ -108,6 +108,112 @@ pub(crate) fn system_of(url: &str) -> String {
     format!("{}://{host}{port}{path}", parsed.scheme())
 }
 
+/// The browsers a password file is written for; each imports its own export format.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum Browser {
+    Chrome,
+    Edge,
+    Firefox,
+}
+
+/// The logins worth handing to a browser: live entries with an address and a password.
+fn exportable<'a>(
+    body: &'a Body,
+    ids: &'a [String],
+) -> impl Iterator<Item = &'a super::model::Entry> + 'a {
+    body.entries.iter().filter(move |entry| {
+        entry.deleted_at.is_none()
+            && entry.kind != Kind::SshKey
+            && (ids.is_empty() || ids.contains(&entry.id))
+            && !field(&entry.fields, URL_FIELD).trim().is_empty()
+            && !field(&entry.fields, PASSWORD_FIELD).is_empty()
+    })
+}
+
+/// How many of these entries a browser could take (all entries when `ids` is empty).
+pub(crate) fn exportable_count(body: &Body, ids: &[String], browser: Browser) -> usize {
+    exportable(body, ids)
+        .filter(|entry| {
+            browser != Browser::Firefox || origin(field(&entry.fields, URL_FIELD)).is_some()
+        })
+        .count()
+}
+
+/// `scheme://host[:port]`: all Firefox keeps of an address. Only web addresses have one.
+fn origin(url: &str) -> Option<String> {
+    let parsed = url::Url::parse(url.trim()).ok()?;
+    matches!(parsed.scheme(), "http" | "https").then(|| parsed.origin().ascii_serialization())
+}
+
+fn csv_cell(value: &str, always: bool) -> String {
+    if always
+        || value.contains([',', '"', '\r', '\n'])
+        || value.starts_with(' ')
+        || value.ends_with(' ')
+    {
+        format!("\"{}\"", value.replace('"', "\"\""))
+    } else {
+        value.to_string()
+    }
+}
+
+/// The password file `browser` imports, as that browser writes its own export: Chrome and
+/// Edge `name,url,username,password,note`; Firefox every cell quoted, with the origin and
+/// times it keeps. Returns the text and how many logins it holds.
+pub(crate) fn export_csv(
+    body: &Body,
+    ids: &[String],
+    browser: Browser,
+) -> (Zeroizing<String>, usize) {
+    let mut out = Zeroizing::new(String::new());
+    let mut count = 0;
+    match browser {
+        Browser::Chrome | Browser::Edge => {
+            out.push_str("name,url,username,password,note\r\n");
+            for entry in exportable(body, ids) {
+                let row = [
+                    entry.title.as_str(),
+                    field(&entry.fields, URL_FIELD).trim(),
+                    field(&entry.fields, USER_FIELD),
+                    field(&entry.fields, PASSWORD_FIELD),
+                    entry.note.as_str(),
+                ]
+                .map(|cell| csv_cell(cell, false));
+                out.push_str(&row.join(","));
+                out.push_str("\r\n");
+                count += 1;
+            }
+        }
+        Browser::Firefox => {
+            out.push_str("\"url\",\"username\",\"password\",\"httpRealm\",\"formActionOrigin\",\"guid\",\"timeCreated\",\"timeLastUsed\",\"timePasswordChanged\"\r\n");
+            for entry in exportable(body, ids) {
+                let Some(origin) = origin(field(&entry.fields, URL_FIELD)) else {
+                    continue;
+                };
+                let (created, changed) =
+                    (entry.created_at.to_string(), entry.updated_at.to_string());
+                let row = [
+                    origin.as_str(),
+                    field(&entry.fields, USER_FIELD),
+                    field(&entry.fields, PASSWORD_FIELD),
+                    "",
+                    origin.as_str(),
+                    "",
+                    created.as_str(),
+                    changed.as_str(),
+                    changed.as_str(),
+                ]
+                .map(|cell| csv_cell(cell, true));
+                out.push_str(&row.join(","));
+                out.push_str("\r\n");
+                count += 1;
+            }
+        }
+    }
+    (out, count)
+}
+
 /// The logins in a browser's export, by the columns its header names. Chrome and Edge write
 /// `name,url,username,password[,note]`; Firefox writes `url,username,password,…` without a
 /// name. A file without a `password` column is not one of these.
@@ -365,6 +471,45 @@ mod tests {
             inputs.iter().map(|i| i.title.as_str()).collect::<Vec<_>>(),
             vec!["other.com"]
         );
+    }
+
+    #[test]
+    fn a_file_each_browser_imports_and_this_one_reads_back() {
+        let mut body = Body::default();
+        let (found, _) = logins(CHROME).unwrap();
+        for input in new_logins(&body, found).0 {
+            apply_input(&mut body, input, 7).unwrap();
+        }
+        // An entry with no address, and an app login Firefox cannot keep.
+        let csv = "name,url,username,password\nnone,,u,p\napp,android://hash@com.example/,u,p2\n";
+        for input in new_logins(&body, logins(csv).unwrap().0).0 {
+            apply_input(&mut body, input, 8).unwrap();
+        }
+
+        let (chrome, count) = export_csv(&body, &[], Browser::Chrome);
+        assert_eq!(count, 3);
+        assert!(chrome.starts_with("name,url,username,password,note\r\n"));
+        assert!(
+            chrome.contains("github.com,https://github.com/login,me,\"p,1\"\"x\",\"two\nlines\"")
+        );
+        assert_eq!(exportable_count(&body, &[], Browser::Edge), 3);
+        // Read back by the importer, every login comes out as it went in.
+        let (again, _) = logins(&chrome).unwrap();
+        assert_eq!(new_logins(&body, again).1, 3, "all already in the vault");
+
+        let (firefox, count) = export_csv(&body, &[], Browser::Firefox);
+        assert_eq!(
+            logins(&firefox).unwrap().0.len(),
+            2,
+            "this importer reads Firefox's format too"
+        );
+        assert_eq!(count, 2, "the app login has no web origin");
+        assert_eq!(exportable_count(&body, &[], Browser::Firefox), 2);
+        assert!(firefox.starts_with("\"url\",\"username\",\"password\",\"httpRealm\""));
+        assert!(firefox.contains("\"https://github.com\",\"me\",\"p,1\"\"x\",\"\",\"https://github.com\",\"\",\"7\",\"7\",\"7\""));
+
+        let one = body.entries[0].id.clone();
+        assert_eq!(export_csv(&body, &[one], Browser::Chrome).1, 1);
     }
 
     #[test]

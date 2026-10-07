@@ -8,6 +8,7 @@ import { useI18n } from "../../i18n";
 import { aiBrief } from "./aiBrief";
 import { publicKeyOf } from "./SshKeys";
 import { MergeDialog } from "./MergeDialog";
+import { BrowserExport } from "./BrowserExport";
 import { useTitleProgress } from "./titleProgress";
 
 /** How many sites the list draws before asking to show more. */
@@ -48,6 +49,7 @@ export function EntryList({ entries, today, onView, onEdit, onChanged }: {
   const { tr } = useI18n();
   const [deleting, setDeleting] = useState<EntryView | null>(null);
   const [merging, setMerging] = useState<EntryGroup | null>(null);
+  const [exporting, setExporting] = useState<string[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [filling, setFilling] = useState(false);
   const progress = useTitleProgress(filling);
@@ -224,6 +226,9 @@ export function EntryList({ entries, today, onView, onEdit, onChanged }: {
         <span>{tr("已选 {count} 条").replace("{count}", String(chosen.length))}</span>
         <button className="gh sm" disabled={busy} title="本机的其他程序（比如 AI）可以按名字从 Windows 凭据管理器取用这些值" onClick={() => void setWindows(true)}><i className="ti ti-brand-windows" /> 放进 Windows 凭据</button>
         <button className="gh sm" disabled={busy} onClick={() => void setWindows(false)}><i className="ti ti-lock" /> 移出，只留在保管库</button>
+        <button className="gh sm" disabled={busy} title="把选中的登录导出成 Chrome、Edge 或 Firefox 能导入的密码文件" onClick={() => setExporting(chosen.map((entry) => entry.id))}>
+          <i className="ti ti-world-upload" /> 导出给浏览器
+        </button>
         <button className="gh sm" disabled={busy || filling} title="逐个打开选中条目的网址，读出网页标题，填进还没有备注的条目；只读网页，不带任何账号信息" onClick={() => void fillTitles()}>
           <i className={"ti " + (filling ? "ti-loader spin" : "ti-world-search")} /> {filling
             ? progress ? tr("正在读取网页标题 {done}/{total}").replace("{done}", String(progress[0])).replace("{total}", String(progress[1])) : tr("正在读取网页标题…")
@@ -246,6 +251,7 @@ export function EntryList({ entries, today, onView, onEdit, onChanged }: {
         <ConfirmModal title="删除条目" danger message={`删除「${deleting.title}」？可在回收站保留 30 天。`} confirmLabel="删除条目" busy={busy}
           onClose={() => setDeleting(null)} onConfirm={() => void remove(deleting)} />
       )}
+      {exporting && <BrowserExport ids={exporting} onClose={() => setExporting(null)} />}
       {merging && <MergeDialog group={merging} onClose={() => setMerging(null)} onDone={() => { setMerging(null); onChanged(); }} />}
     </div>
   );

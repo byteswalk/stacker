@@ -584,6 +584,8 @@ pub fn run() {
             vault::commands::vault_set_windows,
             vault::commands::vault_merge,
             vault::commands::vault_merge_preview,
+            vault::commands::vault_browser_exportable,
+            vault::commands::vault_export_browser,
             vault::commands::vault_fill_titles,
             winget_settings::winget_downloader,
             winget_settings::winget_downloader_set,

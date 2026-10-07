@@ -27,6 +27,7 @@ export type DiscoverStatus = { running: boolean; cancelled: boolean; truncated: 
 export type SshKeyPair = { privateKey: string; publicKey: string };
 export type SshLocal = { path: string | null; alias: string | null };
 export type BrowserStats = { added: number; same: number; empty: number };
+export type BrowserKind = "chrome" | "edge" | "firefox";
 export type CredentialTarget = { field: string; target: string };
 export type EnvHolder = { field: string; name: string; scope: "user" | "system" };
 export type SshLocalHost = { alias: string; host: string; user: string; port: number };
@@ -73,6 +74,10 @@ export const vaultApi = {
   sshInstallLocal: (id: string, name: string, host: SshLocalHost | null, overwrite: boolean) => invoke<string>("vault_ssh_install_local", { id, name, host, overwrite }),
   sshPublicOf: (privateKey: string) => invoke<string | null>("vault_ssh_public_of", { private: privateKey }),
   exportBackup: (password: string, dest: string) => invoke<void>("vault_export", { password, dest }),
+  /** How many of these logins (all when `ids` is empty) a password file for `browser` would hold. */
+  browserExportable: (ids: string[], browser: BrowserKind) => invoke<number>("vault_browser_exportable", { ids, browser }),
+  exportBrowser: (password: string, ids: string[], browser: BrowserKind, dest: string) =>
+    invoke<number>("vault_export_browser", { password, ids, browser, dest }),
   importPreview: (src: string, credential: Credential) => invoke<MergeStats>("vault_import_preview", { src, credential }),
   importApply: (src: string, credential: Credential) => invoke<MergeStats>("vault_import_apply", { src, credential }),
   restoreBackup: (src: string) => invoke<void>("vault_restore_backup", { src }),

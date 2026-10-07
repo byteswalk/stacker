@@ -943,6 +943,50 @@ impl Vault {
         std::fs::write(dest, bytes).map_err(|_| IO.to_string())
     }
 
+    /// How many of these logins (all when `ids` is empty) a password file for `browser` holds.
+    pub(crate) fn browser_exportable(
+        &self,
+        ids: &[String],
+        browser: super::browser::Browser,
+    ) -> Result<usize, String> {
+        self.with_unlocked(|open| Ok(super::browser::exportable_count(&open.body, ids, browser)))
+    }
+
+    /// Writes these logins (all when `ids` is empty) as a password file `browser` imports.
+    /// The file holds them in plain text, so the master password is asked again, the vault's
+    /// own files are refused as a destination, and the file is readable by this user only.
+    pub(crate) fn export_browser(
+        &self,
+        password: &str,
+        ids: &[String],
+        browser: super::browser::Browser,
+        dest: &Path,
+    ) -> Result<usize, String> {
+        let mut inner = self.inner();
+        Self::verify_password(&mut inner, password)?;
+        let protected = [
+            self.path.clone(),
+            format::backup_path(&self.path),
+            self.path.with_extension("skv.tmp"),
+            self.path.with_extension("skv.bak.tmp"),
+        ];
+        let target = comparable(dest);
+        if protected.iter().any(|path| comparable(path) == target) {
+            return Err(FILE_EXISTS.into());
+        }
+        inner.last_activity = Instant::now();
+        let Phase::Unlocked(open) = &inner.phase else {
+            return Err(LOCKED.into());
+        };
+        let (text, count) = super::browser::export_csv(&open.body, ids, browser);
+        // The save dialog already asked before replacing a file there.
+        if dest.is_file() {
+            std::fs::remove_file(dest).map_err(|_| IO.to_string())?;
+        }
+        super::ssh::export_private(&text, dest)?;
+        Ok(count)
+    }
+
     fn read_backup(&self, src: &Path, credential: &Credential) -> Result<Body, String> {
         let mut opened = match credential {
             Credential::Password(password) => read_one(src, &|header| {
@@ -1157,6 +1201,44 @@ g,https://github.com/login,me,x
             vault.secrets_differ(&routers[0], &routers[..1]).unwrap(),
             vec![false]
         );
+    }
+
+    #[test]
+    fn a_browser_password_file_needs_the_master_password_and_a_place_of_its_own() {
+        use super::super::browser::Browser;
+        let dir = tempfile::tempdir().unwrap();
+        let (vault, _) = created(&dir);
+        let csv = "name,url,username,password
+g,https://github.com/login,me,pw
+r,http://192.168.2.1:1188/,admin,pw2
+";
+        vault.import_browser(csv, true, None).unwrap();
+        let dest = dir.path().join("chrome.csv");
+        assert_eq!(
+            vault
+                .export_browser("wrong password!!", &[], Browser::Chrome, &dest)
+                .err()
+                .unwrap(),
+            PASSWORD
+        );
+        assert_eq!(
+            vault
+                .export_browser(PW, &[], Browser::Chrome, &vault.path)
+                .err()
+                .unwrap(),
+            FILE_EXISTS
+        );
+        assert_eq!(vault.browser_exportable(&[], Browser::Firefox).unwrap(), 2);
+        std::fs::write(&dest, "old").unwrap();
+        assert_eq!(
+            vault
+                .export_browser(PW, &[], Browser::Chrome, &dest)
+                .unwrap(),
+            2
+        );
+        let text = std::fs::read_to_string(&dest).unwrap();
+        assert!(text.starts_with("name,url,username,password,note"));
+        assert!(text.contains("http://192.168.2.1:1188/,admin,pw2"));
     }
 
     #[test]

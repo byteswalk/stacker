@@ -440,6 +440,25 @@ pub async fn vault_ssh_install_local(
 }
 
 #[tauri::command]
+pub async fn vault_browser_exportable(
+    ids: Vec<String>,
+    browser: super::browser::Browser,
+) -> Result<usize, String> {
+    blocking(move || vault().browser_exportable(&ids, browser)).await
+}
+
+#[tauri::command]
+pub async fn vault_export_browser(
+    password: String,
+    ids: Vec<String>,
+    browser: super::browser::Browser,
+    dest: String,
+) -> Result<usize, String> {
+    let password = Zeroizing::new(password);
+    blocking(move || vault().export_browser(&password, &ids, browser, &PathBuf::from(dest))).await
+}
+
+#[tauri::command]
 pub async fn vault_export(password: String, dest: String) -> Result<(), String> {
     let password = Zeroizing::new(password);
     blocking(move || vault().export(&password, &PathBuf::from(dest))).await
