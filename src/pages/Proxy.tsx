@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { invoke } from "../invoke";
 import { useToast, useBusy, useBusyRead, Loading, ErrorState, ConfirmModal, Modal } from "../ui";
 import { Select } from "../Select";
@@ -114,6 +115,14 @@ export default function Proxy() {
     setLoadErr(false);
   }, []);
   useEffect(() => { read("正在读取代理设置", load).catch(() => setLoadErr(true)); }, [load, read]);
+  // Switched from the tray while this page is open.
+  useEffect(() => {
+    let stop: (() => void) | undefined;
+    let disposed = false;
+    void listen("proxy-changed", () => { void load().catch(() => undefined); })
+      .then((unlisten) => { if (disposed) unlisten(); else stop = unlisten; });
+    return () => { disposed = true; stop?.(); };
+  }, [load]);
 
   async function run(key: string, task: () => Promise<unknown>, ok: string) {
     setBusy(key);

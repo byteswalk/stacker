@@ -41,5 +41,6 @@ export const AUTO_LOCK_CHOICES = [5, 10, 30, 60];
 export function lockReasonText(reason: string, minutes: number): string {
   if (reason === "session") return "Windows 已锁屏，保管库已锁定。";
   if (reason === "sleep") return "系统曾进入睡眠，保管库已锁定。";
+  if (reason === "manual") return "已从托盘锁定保管库。";
   return `空闲 ${minutes} 分钟，保管库已锁定。`;
 }

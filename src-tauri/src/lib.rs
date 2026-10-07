@@ -37,6 +37,7 @@ mod sources;
 mod space_analysis;
 mod storage;
 mod tool_relocation;
+mod tray;
 pub mod update;
 mod vault;
 mod versions;
@@ -213,7 +214,7 @@ pub fn run() {
             settings::start_log_retention_worker();
             gateway::restore();
             binary::migrate_legacy_envs();
-            build_tray(app.handle())?;
+            tray::build(app.handle())?;
             Ok(())
         })
         // 主窗口按已保存策略退出、隐藏到托盘，或通知前端首次询问。
@@ -610,108 +611,13 @@ pub fn run() {
     });
 }
 
-// 系统托盘：左键单击显示窗口；右键菜单＝显示 / 开关终端代理 / 退出。
-fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
-    use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-    use tauri::Manager;
-
-    let menu = create_tray_menu(app)?;
-
-    let show_main = |app: &tauri::AppHandle| {
-        if let Some(w) = app.get_webview_window("main") {
-            let _ = w.show();
-            let _ = w.unminimize();
-            let _ = w.set_focus();
-        }
-    };
-
-    let mut builder = TrayIconBuilder::with_id("main")
-        .tooltip("Stacker")
-        .menu(&menu)
-        .show_menu_on_left_click(false)
-        .on_menu_event(move |app, event| match event.id.as_ref() {
-            "show" => show_main(app),
-            "proxy_toggle" => {
-                let st = crate::proxy::status();
-                let _ = if st.enabled {
-                    crate::proxy::disable(false)
-                } else {
-                    crate::proxy::enable(&st.host, st.port, false, st.no_proxy_manual)
-                };
-            }
-            "quit" => {
-                if running_agent_tasks(app) == 0 {
-                    app.exit(0);
-                } else {
-                    confirm_exit(app.clone());
-                }
-            }
-            _ => {}
-        })
-        .on_tray_icon_event(move |tray, event| {
-            if let TrayIconEvent::Click {
-                button: MouseButton::Left,
-                button_state: MouseButtonState::Up,
-                ..
-            } = event
-            {
-                show_main(tray.app_handle());
-            }
-        });
-    if let Some(icon) = app.default_window_icon() {
-        builder = builder.icon(icon.clone());
+/// Quits, asking first while agent installs are still running.
+pub(crate) fn quit(app: &tauri::AppHandle) {
+    if running_agent_tasks(app) == 0 {
+        app.exit(0);
+    } else {
+        confirm_exit(app.clone());
     }
-    builder.build(app)?;
-    Ok(())
-}
-
-fn create_tray_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
-    use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
-    let english = crate::settings::load().locale == "en-US";
-    let show = MenuItem::with_id(
-        app,
-        "show",
-        if english {
-            "Show Stacker"
-        } else {
-            "显示 Stacker"
-        },
-        true,
-        None::<&str>,
-    )?;
-    let proxy = MenuItem::with_id(
-        app,
-        "proxy_toggle",
-        if english {
-            "Toggle Terminal Proxy"
-        } else {
-            "开关终端代理"
-        },
-        true,
-        None::<&str>,
-    )?;
-    let sep = PredefinedMenuItem::separator(app)?;
-    let quit = MenuItem::with_id(
-        app,
-        "quit",
-        if english {
-            "Quit Stacker"
-        } else {
-            "退出 Stacker"
-        },
-        true,
-        None::<&str>,
-    )?;
-    Menu::with_items(app, &[&show, &proxy, &sep, &quit])
-}
-
-pub(crate) fn refresh_tray_menu(app: &tauri::AppHandle) -> Result<(), String> {
-    let menu = create_tray_menu(app).map_err(|error| error.to_string())?;
-    if let Some(tray) = app.tray_by_id("main") {
-        tray.set_menu(Some(menu))
-            .map_err(|error| error.to_string())?;
-    }
-    Ok(())
 }
 
 fn running_agent_tasks(app: &tauri::AppHandle) -> usize {

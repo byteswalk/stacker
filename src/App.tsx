@@ -232,7 +232,12 @@ function Shell() {
       if ((PAGE_IDS as readonly string[]).includes(target)) setPage(target as Page);
     };
     window.addEventListener(GOTO_EVENT, open);
-    return () => window.removeEventListener(GOTO_EVENT, open);
+    // The tray's "Go to" menu.
+    let stopTray: UnlistenFn | undefined;
+    let disposed = false;
+    void listen<string>("tray-goto", (event) => window.dispatchEvent(new CustomEvent(GOTO_EVENT, { detail: event.payload })))
+      .then((unlisten) => { if (disposed) unlisten(); else stopTray = unlisten; });
+    return () => { disposed = true; stopTray?.(); window.removeEventListener(GOTO_EVENT, open); };
   }, []);
   // Opening a page inside a collapsed section expands that section.
   useEffect(() => {

@@ -426,27 +426,30 @@ pub fn gateway_status() -> GatewayStatus {
 
 #[tauri::command]
 pub async fn gateway_set(enabled: bool, port: u16) -> Result<GatewayStatus, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        if port < 1024 {
-            return Err("E_PORT".to_string());
+    tauri::async_runtime::spawn_blocking(move || set(enabled, port))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Turns the service on or off on `port` and remembers it for the next start.
+pub(crate) fn set(enabled: bool, port: u16) -> Result<GatewayStatus, String> {
+    if port < 1024 {
+        return Err("E_PORT".to_string());
+    }
+    let mut config = load();
+    config.enabled = enabled;
+    config.port = port;
+    save(&config)?;
+    {
+        let mut state = STATE.lock().map_err(crate::sessions::err)?;
+        if enabled {
+            start_locked(&mut state, &config);
+        } else {
+            stop_locked(&mut state);
+            state.error.clear();
         }
-        let mut config = load();
-        config.enabled = enabled;
-        config.port = port;
-        save(&config)?;
-        {
-            let mut state = STATE.lock().map_err(crate::sessions::err)?;
-            if enabled {
-                start_locked(&mut state, &config);
-            } else {
-                stop_locked(&mut state);
-                state.error.clear();
-            }
-        }
-        Ok(status())
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    }
+    Ok(status())
 }
 
 /// Opening the service to the network restarts it on the other address; the token stays

@@ -429,7 +429,7 @@ pub fn settings_set_locale(app: tauri::AppHandle, locale: String) -> Result<Stri
     let mut settings = load();
     settings.locale = locale.clone();
     save(&settings)?;
-    crate::refresh_tray_menu(&app)?;
+    crate::tray::refresh(&app)?;
     if let Some(window) = app.get_webview_window("live-log") {
         let title = if locale == "en-US" {
             "Stacker Live Logs"
