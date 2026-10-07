@@ -71,6 +71,21 @@ fn whole(path: &str) -> Option<[u8; 32]> {
     Some(hasher.finalize().into())
 }
 
+/// Reads files in full to settle a group the scan judged by size and ends alone: the sets of
+/// them whose whole content agrees, each of two or more. A file that cannot be read is left
+/// out of every set.
+pub fn verify(paths: &[String]) -> Vec<Vec<String>> {
+    let mut by_hash: HashMap<[u8; 32], Vec<String>> = HashMap::new();
+    for path in paths {
+        if let Some(key) = whole(path) {
+            by_hash.entry(key).or_default().push(path.clone());
+        }
+    }
+    let mut sets: Vec<Vec<String>> = by_hash.into_values().filter(|set| set.len() > 1).collect();
+    sets.sort();
+    sets
+}
+
 /// Groups of identical files among the scanned files, biggest waste first.
 pub fn find(files: &[LargeFileRow], token: &CancellationToken, min_bytes: u64) -> DuplicateReport {
     let mut by_size: HashMap<u64, Vec<&LargeFileRow>> = HashMap::new();
@@ -175,6 +190,25 @@ mod tests {
         assert!(report.groups[0].verified);
         assert_eq!(report.wasted, 400 * 1024);
         assert!(report.complete);
+    }
+
+    #[test]
+    fn reading_in_full_splits_files_that_only_shared_their_ends() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut middle = vec![7u8; 300 * 1024];
+        let a = dir.path().join("a.bin");
+        let b = dir.path().join("b.bin");
+        let c = dir.path().join("c.bin");
+        write(&a, &middle);
+        write(&b, &middle);
+        middle[150 * 1024] = 8;
+        write(&c, &middle);
+        let path = |p: &std::path::Path| p.to_string_lossy().into_owned();
+        let missing = path(&dir.path().join("gone.bin"));
+        assert_eq!(
+            verify(&[path(&a), path(&c), path(&b), missing]),
+            vec![vec![path(&a), path(&b)]]
+        );
     }
 
     #[test]

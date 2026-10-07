@@ -1,10 +1,10 @@
 import { useMemo, useState } from "react";
 import { AiExplain } from "../../ai/AiExplain";
 import type { DirectoryNode } from "../types";
-import { canSelectSafety, setCleanupNodesSelected, useCleanupStore } from "../cleanupStore";
+import { canSelectSafety, prepareCleanupPlan, setCleanupNodesSelected, useCleanupStore } from "../cleanupStore";
 import { useI18n } from "../../../i18n";
 import { invoke } from "../../../invoke";
-import { useToast } from "../../../ui";
+import { useBusyRead, useToast } from "../../../ui";
 import { useDragPick } from "../../../dragPick";
 
 export function formatSpaceBytes(bytes: number) {
@@ -94,6 +94,28 @@ export function SelectionActions({ nodes }: { nodes: DirectoryNode[] }) {
   </div>;
 }
 
+/** What is picked for cleaning (artifacts and caches share it) and the button that cleans it. */
+export function CleanupAction() {
+  const { tr } = useI18n();
+  const toast = useToast();
+  const read = useBusyRead();
+  const cleanup = useCleanupStore();
+  const picked = cleanup.candidates.filter((node) => cleanup.selected.has(node.nodeId));
+  const bytes = picked.reduce((sum, node) => sum + node.allocatedBytes, 0);
+  return <div className="space-cleanup-action">
+    <span>{tr("已选择")} {picked.length} {tr("项")} · {formatSpaceBytes(bytes)}</span>
+    <button className="pr sm" type="button" disabled={cleanup.loading || cleanup.planning || picked.length === 0 || cleanup.progress?.state === "running"}
+      title={tr("核对所选项目后进入清理确认")}
+      onClick={async () => {
+        try {
+          await read("正在准备清理", prepareCleanupPlan);
+        } catch (error) {
+          toast(`${tr("无法准备清理：")}${String(error)}`, "err");
+        }
+      }}><i className={`ti ${cleanup.planning ? "ti-loader spin" : "ti-eraser"}`} /> {tr(cleanup.planning ? "正在准备…" : "清理")}</button>
+  </div>;
+}
+
 export function CleanupPathFilter({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   const { tr } = useI18n();
   return <label className="space-cleanup-filter">
@@ -122,7 +144,7 @@ export function DevelopmentArtifacts({ nodes }: { nodes: DirectoryNode[] }) {
   return <>
     <div className="space-analysis-section-heading space-cleanup-heading">
       <div><strong>{tr("开发产物")}</strong><span>{tr("仅列出已识别项目中可重新生成的依赖、构建目录和发布产物。")}</span></div>
-      <div className="space-cleanup-heading-actions"><CleanupPathFilter value={query} onChange={setQuery} /><SelectionActions nodes={filteredNodes} /></div>
+      <div className="space-cleanup-heading-actions"><CleanupPathFilter value={query} onChange={setQuery} /><SelectionActions nodes={filteredNodes} /><CleanupAction /></div>
     </div>
     {query && <div className="space-cleanup-filter-note">{tr("批量操作仅作用于当前筛选结果。")} {filteredNodes.length} / {nodes.length}</div>}
     <CandidateRows nodes={filteredNodes} emptyText={query ? tr("未找到匹配的可清理项。") : undefined} />

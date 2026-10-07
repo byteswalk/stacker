@@ -32,13 +32,36 @@ export function useProtectedPaths(paths: string[]): Set<string> {
   return protectedPaths;
 }
 
+/** The words for files, or for whole project folders. */
+const WORDS = {
+  files: {
+    recycled: "已移到回收站 {count} 个文件（{size}），清空回收站后释放空间",
+    deleted: "已彻底删除 {count} 个文件，释放 {size}",
+    picked: "已选 {count} 个 · {size}",
+    none: "勾选要删除的文件",
+    confirmDelete: "彻底删除选中的 {count} 个文件（{size}），不经过回收站，删了就找不回来。",
+    confirmRecycle: "把选中的 {count} 个文件（{size}）移到回收站。在回收站里还能还原；清空回收站后才真正释放空间。",
+  },
+  folders: {
+    recycled: "已把 {count} 个项目移到回收站（{size}），清空回收站后释放空间",
+    deleted: "已彻底删除 {count} 个项目，释放 {size}",
+    picked: "已选 {count} 个项目 · {size}",
+    none: "勾选要删除的项目",
+    confirmDelete: "彻底删除选中的 {count} 个项目的整个目录（{size}），包括源码，不经过回收站，删了就找不回来。",
+    confirmRecycle: "把选中的 {count} 个项目的整个目录（{size}）移到回收站，包括源码。在回收站里还能还原；清空回收站后才真正释放空间。",
+  },
+};
+
 /** The bar under a list: how much is picked, and the one button that moves it to the Recycle Bin. */
-export function RecycleBar({ files, extra, onDone }: {
+export function RecycleBar({ files, extra, onDone, folders = false }: {
   files: FileToRemove[];
   /** Controls of the list's own, shown before the count (select all, smart select). */
   extra?: ReactNode;
   onDone: (removed: string[]) => void;
+  /** Whole folders (projects) rather than files. */
+  folders?: boolean;
 }) {
+  const words = folders ? WORDS.folders : WORDS.files;
   const { tr } = useI18n();
   const toast = useToast();
   const [confirming, setConfirming] = useState(false);
@@ -50,12 +73,14 @@ export function RecycleBar({ files, extra, onDone }: {
   async function run() {
     setBusy(true);
     try {
-      const result = await invoke<RemovalResult>("space_recycle_files", { files, permanent });
+      const result = folders
+        ? await invoke<RemovalResult>("space_recycle_folders", { folders: files, permanent })
+        : await invoke<RemovalResult>("space_recycle_files", { files, permanent });
       const failed = new Set(result.failures.map((f) => f.path));
       onDone(files.map((f) => f.path).filter((path) => !failed.has(path)));
       window.dispatchEvent(new Event(VOLUMES_CHANGED));
       if (!result.failures.length) {
-        toast(tr(permanent ? "已彻底删除 {count} 个文件，释放 {size}" : "已移到回收站 {count} 个文件（{size}），清空回收站后释放空间")
+        toast(tr(permanent ? words.deleted : words.recycled)
           .replace("{count}", String(result.removed)).replace("{size}", formatSpaceBytes(result.releasedBytes)), "ok");
       } else {
         const first = result.failures[0];
@@ -73,17 +98,15 @@ export function RecycleBar({ files, extra, onDone }: {
   return <div className="recycle-bar">
     {extra}
     <span className="recycle-bar-count">{files.length
-      ? tr("已选 {count} 个 · {size}").replace("{count}", String(files.length)).replace("{size}", formatSpaceBytes(total))
-      : tr("勾选要删除的文件")}</span>
+      ? tr(words.picked).replace("{count}", String(files.length)).replace("{size}", formatSpaceBytes(total))
+      : tr(words.none)}</span>
     <button className="pr sm" disabled={!files.length || busy} onClick={() => setConfirming(true)}>
       <i className={"ti " + (busy ? "ti-loader spin" : "ti-trash")} /> {tr("删除所选")}{files.length ? ` (${files.length})` : ""}
     </button>
     {confirming && <ConfirmModal title={tr(permanent ? "彻底删除" : "移到回收站")} icon="ti-trash" danger busy={busy}
       confirmLabel={tr(permanent ? "彻底删除" : "移到回收站")}
       message={<>
-        <div>{tr(permanent
-          ? "彻底删除选中的 {count} 个文件（{size}），不经过回收站，删了就找不回来。"
-          : "把选中的 {count} 个文件（{size}）移到回收站。在回收站里还能还原；清空回收站后才真正释放空间。")
+        <div>{tr(permanent ? words.confirmDelete : words.confirmRecycle)
           .replace("{count}", String(files.length)).replace("{size}", formatSpaceBytes(total))}</div>
         <label className="recycle-permanent">
           <input type="checkbox" checked={permanent} onChange={(e) => setPermanent(e.target.checked)} />

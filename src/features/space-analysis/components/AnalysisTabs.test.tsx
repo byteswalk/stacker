@@ -9,7 +9,8 @@ describe("AnalysisTabs", () => {
       <div>{ANALYSIS_TABS.map((tab) => <span key={tab}>{tab}</span>)}</div>,
     );
     expect(html).toContain("overview");
-    expect(html).toContain("directories");
+    // What can be cleaned follows the projects; the directory ranking lives in the overview.
+    expect([...ANALYSIS_TABS]).toEqual(["overview", "projects", "development-artifacts", "cache-downloads", "large-files", "duplicates", "skipped-paths", "changes"]);
     expect(html).toContain("large-files");
     expect(html).toContain("development-artifacts");
     expect(html).toContain("cache-downloads");

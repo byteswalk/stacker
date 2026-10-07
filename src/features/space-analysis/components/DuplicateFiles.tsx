@@ -20,16 +20,21 @@ const SPARE = /\\(downloads?|temp|tmp|cache|backup|bak|pending)\\|\.(bak|old|tmp
 /** The user's own folders, where a second copy is the user's and not a program's. */
 const USER_CONTENT = /\\users\\[^\\]+\\(downloads|desktop|documents|pictures|videos|music|onedrive[^\\]*)\\/i;
 
+/** Where programs keep their own files, or what a program file looks like. */
+const PROGRAM = /\\(appdata|program files[^\\]*|programdata|windows|node_modules|\.git|site-packages|\.cargo|\.rustup|\.m2|\.gradle|\.nuget|go\\pkg)\\|\.(dll|exe|sys|so|dylib|jar|pyd|node|msi)$/i;
+
 /**
- * Which copies of one group to pick. Only copies that look spare or sit in the user's own
- * folders are candidates: a program's files (a CLI's binary in two installs, a DLL two apps
- * ship) are never picked for the user, however identical. One copy of every group stays:
- * a copy that is not a candidate, or else the candidate that looks least like a spare, then
- * the shortest path. Groups compared only by their ends are left alone.
+ * Which copies of one group to pick. A program's files (a CLI's binary in two installs, a DLL
+ * two apps ship) are never picked for the user, however identical: in a group with any of
+ * them, only copies that look spare or sit in the user's own folders are candidates. A group
+ * of plain files (videos, archives, documents) is all candidates. One copy of every group
+ * stays: a copy that is not a candidate, or else the one that looks least like a spare, then
+ * the shortest path. Groups compared only by their ends are left alone until read in full.
  */
 export function smartPick(group: DuplicateGroup, locked: Set<string>): string[] {
   if (!group.verified) return [];
-  const candidates = group.paths.filter((path) => !locked.has(path) && (SPARE.test(path) || USER_CONTENT.test(path)));
+  const plain = !group.paths.some((path) => PROGRAM.test(path));
+  const candidates = group.paths.filter((path) => !locked.has(path) && (plain || SPARE.test(path) || USER_CONTENT.test(path)));
   if (candidates.length < group.paths.length) return candidates;
   const keep = [...candidates].sort((a, b) =>
     Number(SPARE.test(a)) - Number(SPARE.test(b)) || a.length - b.length || a.localeCompare(b))[0];
@@ -44,6 +49,7 @@ export function DuplicateFiles({ taskId }: { taskId: string }) {
   const [report, setReport] = useState<DuplicateReport | null>(null);
   const [busy, setBusy] = useState(false);
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [verifying, setVerifying] = useState<[number, number] | null>(null);
   const locked = useProtectedPaths(report?.groups.flatMap((g) => g.paths) ?? []);
 
   async function search(min: number) {
@@ -75,8 +81,29 @@ export function DuplicateFiles({ taskId }: { taskId: string }) {
     return next;
   }));
 
-  function pickAll() {
-    setPicked(new Set((report?.groups ?? []).flatMap((group) => smartPick(group, locked))));
+  // Groups judged by their ends are read in full first; what proves identical is then picked like the rest.
+  async function pickAll() {
+    if (!report) return;
+    const pending = report.groups.filter((group) => !group.verified);
+    let groups = report.groups;
+    if (pending.length) {
+      setVerifying([0, pending.length]);
+      try {
+        const settled = new Map<DuplicateGroup, DuplicateGroup[]>();
+        for (const [index, group] of pending.entries()) {
+          const sets = await invoke<string[][]>("space_verify_duplicates", { paths: group.paths });
+          settled.set(group, sets.map((paths) => ({ bytes: group.bytes, wasted: group.bytes * (paths.length - 1), paths, verified: true })));
+          setVerifying([index + 1, pending.length]);
+        }
+        groups = report.groups.flatMap((group) => settled.get(group) ?? [group]).sort((a, b) => b.wasted - a.wasted);
+        setReport({ ...report, groups, wasted: groups.reduce((sum, group) => sum + group.wasted, 0) });
+      } catch (e) {
+        toast(String(e), "err");
+      } finally {
+        setVerifying(null);
+      }
+    }
+    setPicked(new Set(groups.flatMap((group) => smartPick(group, locked))));
   }
 
   function removed(paths: string[]) {
@@ -109,8 +136,10 @@ export function DuplicateFiles({ taskId }: { taskId: string }) {
     {report && !report.groups.length && <div className="space-analysis-state"><i className="ti ti-sparkles" /><span>{t("这次扫描范围里没有重复文件")}</span></div>}
     {!!report?.groups.length && <RecycleBar files={files} onDone={removed}
       extra={<>
-        <button className="gh sm" onClick={pickAll} title={t("每组保留一份，只勾你自己文件夹（下载、桌面、文档等）里的副本，以及临时、备份、待安装的文件；程序文件、系统目录里的副本、未逐字节比对过的组都不勾")}>
-          <i className="ti ti-wand" /> {t("智能选择")}
+        <button className="gh sm" disabled={!!verifying} onClick={() => void pickAll()} title={t("每组保留一份。只比对过首尾的大文件先逐字节核对，内容完全一致才勾；有程序文件的组（AppData、node_modules、dll、exe 等）只勾临时、备份、副本或你自己文件夹里的那份；系统目录里的不勾")}>
+          <i className={"ti " + (verifying ? "ti-loader spin" : "ti-wand")} /> {verifying
+            ? t("正在逐字节核对 {done}/{total} 组…").replace("{done}", String(verifying[0])).replace("{total}", String(verifying[1]))
+            : t("智能选择")}
         </button>
         {picked.size > 0 && <button className="gh sm" onClick={() => setPicked(new Set())}>{t("清空选择")}</button>}
       </>} />}

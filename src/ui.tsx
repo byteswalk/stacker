@@ -236,6 +236,33 @@ export function Loading({ text, title = "正在读取环境状态" }: { text: st
   );
 }
 
+/**
+ * A button that floats at the bottom-right of a long scrolling area once it is scrolled well
+ * down, and takes it back to the top. Fixed to the window, placed by the area's own edges.
+ */
+export function BackToTop({ scroller, after = 900 }: { scroller: { current: HTMLElement | null }; after?: number }) {
+  const { tr } = useI18n();
+  const [place, setPlace] = useState<{ right: number; bottom: number } | null>(null);
+  useEffect(() => {
+    const element = scroller.current;
+    if (!element) return;
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      if (element.scrollTop < after) { setPlace(null); return; }
+      const box = element.getBoundingClientRect();
+      setPlace({ right: Math.max(0, window.innerWidth - box.right) + 28, bottom: Math.max(0, window.innerHeight - box.bottom) + 24 });
+    };
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(update); };
+    element.addEventListener("scroll", schedule, { passive: true });
+    window.addEventListener("resize", schedule);
+    return () => { element.removeEventListener("scroll", schedule); window.removeEventListener("resize", schedule); if (frame) cancelAnimationFrame(frame); };
+  }, [scroller, after]);
+  if (!place) return null;
+  return <button type="button" className="back-top" style={place} title={tr("回到顶部")} aria-label={tr("回到顶部")}
+    onClick={() => scroller.current?.scrollTo({ top: 0, behavior: "smooth" })}><i className="ti ti-arrow-bar-to-up" /></button>;
+}
+
 /** A thin bar running along the top of a list that is being read again: what is shown stays usable. */
 export function ListProgress() {
   const { tr } = useI18n();

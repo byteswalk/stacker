@@ -28,6 +28,14 @@ describe("smart pick for duplicates", () => {
     ]), none)).toEqual([String.raw`C:\Users\me\AppData\Local\updater\pending\setup.exe`]);
   });
 
+  it("picks all but one copy of plain files wherever they are", () => {
+    const original = String.raw`K:\history\video\VID_070730.mp4`;
+    const copies = [String.raw`K:\history\video\VID_070730(1).mp4`, String.raw`K:\history\video\VID_070730(2).mp4`];
+    expect(smartPick(group([copies[0], original, copies[1]]), none).sort()).toEqual(copies);
+    // No copy looks spare: the shortest path stays.
+    expect(smartPick(group([String.raw`K:\a\b\movie.mkv`, String.raw`K:\movie.mkv`]), none)).toEqual([String.raw`K:\a\b\movie.mkv`]);
+  });
+
   it("leaves system files and groups compared only by their ends alone", () => {
     const paths = [String.raw`C:\Windows\Installer\a.msi`, String.raw`C:\Users\me\Downloads\a.msi`];
     expect(smartPick(group(paths), new Set([paths[0]]))).toEqual([paths[1]]);

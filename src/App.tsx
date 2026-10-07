@@ -5,7 +5,7 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { getVersion } from "@tauri-apps/api/app";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { ToastProvider, ToastHost, useToast, Modal, ConfirmModal, BusyProvider, BusyHost } from "./ui";
+import { ToastProvider, ToastHost, useToast, Modal, ConfirmModal, BusyProvider, BusyHost, BackToTop } from "./ui";
 import { Select } from "./Select";
 import { useI18n } from "./i18n";
 import { NotificationProvider, useNotifications, formatBytes } from "./notifications";
@@ -458,6 +458,7 @@ function Shell() {
         <div className="route-progress" aria-hidden="true" />
 
         <div className="content" ref={contentRef}>
+          <BackToTop scroller={contentRef} />
           <ToolRelocation />
           {osWarn && !osDismiss && (
             <div className="banner amber" style={{ marginBottom: 12, alignItems: "center" }}>

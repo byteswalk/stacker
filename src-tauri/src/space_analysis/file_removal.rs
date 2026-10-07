@@ -156,6 +156,101 @@ pub fn remove(files: &[FileToRemove], permanent: bool) -> RemovalResult {
 
 /// Moves the picked files to the Recycle Bin, or deletes them outright when asked: the bin
 /// keeps the space until it is emptied.
+/// A folder that is never removed whole from here: a drive's root, the user's own folder or
+/// one above it, or anything protected.
+fn folder_off_limits(path: &Path, roots: &[PathBuf], home: Option<&Path>) -> bool {
+    let p = normalized(path);
+    // `normalized` drops the trailing backslash, so a drive's root is just `k:`.
+    let drive_root = p.ends_with(':');
+    let above_home = home.is_some_and(|home| {
+        let home = normalized(home);
+        home == p || home.starts_with(&format!("{p}\\"))
+    });
+    drive_root || p.matches('\\').count() == 0 || above_home || is_protected_with(path, roots)
+}
+
+fn remove_folder(
+    path: &str,
+    roots: &[PathBuf],
+    home: Option<&Path>,
+    permanent: bool,
+) -> Result<(), RemovalFailure> {
+    let fail = |reason: &str| RemovalFailure {
+        path: path.to_string(),
+        reason: reason.to_string(),
+    };
+    let folder = Path::new(path);
+    if folder_off_limits(folder, roots, home) {
+        return Err(fail("protected"));
+    }
+    let meta = std::fs::symlink_metadata(folder).map_err(|_| fail("missing"))?;
+    if !meta.is_dir() {
+        return Err(fail("changed"));
+    }
+    if permanent {
+        std::fs::remove_dir_all(folder).map_err(|error| fail(&error.to_string()))
+    } else {
+        recycle(folder).map_err(|error| fail(&error))
+    }
+}
+
+/// Removes whole folders (projects), to the Recycle Bin unless `permanent`. `bytes` is what the
+/// scan counted for each, which is what the result reports as freed.
+pub fn remove_folders(folders: &[FileToRemove], permanent: bool) -> RemovalResult {
+    let roots = system_roots();
+    let home = dirs::home_dir();
+    let mut result = RemovalResult::default();
+    let mut history = Vec::new();
+    for folder in folders {
+        let outcome = remove_folder(&folder.path, &roots, home.as_deref(), permanent);
+        history.push(super::history::HistoryItem {
+            path: folder.path.clone(),
+            state: if outcome.is_ok() {
+                CleanupItemState::Completed
+            } else {
+                CleanupItemState::Skipped
+            },
+            released_bytes: if outcome.is_ok() { folder.bytes } else { 0 },
+            reason_key: Some(match &outcome {
+                Ok(()) => if permanent { "deleted" } else { "recycled" }.into(),
+                Err(failure) => failure.reason.clone(),
+            }),
+        });
+        match outcome {
+            Ok(()) => {
+                result.removed += 1;
+                result.released_bytes += folder.bytes;
+            }
+            Err(failure) => result.failures.push(failure),
+        }
+    }
+    super::history::append_record(super::history::HistoryRecord {
+        at: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0),
+        state: if result.removed == 0 && !result.failures.is_empty() {
+            CleanupTaskState::Failed
+        } else {
+            CleanupTaskState::Completed
+        },
+        released_bytes: result.released_bytes,
+        items: history,
+    });
+    result
+}
+
+#[tauri::command]
+pub async fn space_recycle_folders(
+    folders: Vec<FileToRemove>,
+    permanent: Option<bool>,
+) -> Result<RemovalResult, String> {
+    let permanent = permanent.unwrap_or(false);
+    tauri::async_runtime::spawn_blocking(move || remove_folders(&folders, permanent))
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn space_recycle_files(
     files: Vec<FileToRemove>,
@@ -198,6 +293,39 @@ mod tests {
         ] {
             assert!(!is_protected_with(Path::new(path), &roots()), "{path}");
         }
+    }
+
+    #[test]
+    fn a_whole_project_goes_but_never_a_drive_home_or_system_folder() {
+        let home = PathBuf::from(r"C:\Users\me");
+        let off = |path: &str| folder_off_limits(Path::new(path), &roots(), Some(&home));
+        assert!(off(r"K:\"));
+        assert!(off("K:"));
+        assert!(off(r"C:\Users"));
+        assert!(off(r"C:\Users\me"));
+        assert!(off(r"C:\Program Files\App"));
+        assert!(!off(r"K:\IdeaProjects\cctar-core"));
+        assert!(!off(r"C:\Users\me\code\app"));
+
+        let dir = tempfile::tempdir().unwrap();
+        let project = dir.path().join("app");
+        std::fs::create_dir_all(project.join("src")).unwrap();
+        std::fs::write(project.join("src").join("main.rs"), b"fn main() {}").unwrap();
+        let path = project.to_string_lossy().into_owned();
+        assert!(remove_folder(&path, &[], None, true).is_ok());
+        assert!(!project.exists());
+        assert_eq!(
+            remove_folder(&path, &[], None, true).unwrap_err().reason,
+            "missing"
+        );
+        let file = dir.path().join("note.txt");
+        std::fs::write(&file, b"x").unwrap();
+        assert_eq!(
+            remove_folder(&file.to_string_lossy(), &[], None, true)
+                .unwrap_err()
+                .reason,
+            "changed"
+        );
     }
 
     #[test]

@@ -1,24 +1,24 @@
 import { useEffect, useState } from "react";
 import { useI18n } from "../../../i18n";
 import { invoke } from "../../../invoke";
-import { useBusyRead, useToast } from "../../../ui";
+import { useBusyRead } from "../../../ui";
 import type { AnalysisSummary, ScanRequest, SnapshotMetadata, VolumeInfo } from "../types";
-import { loadCleanupCandidates, prepareCleanupPlan, useCleanupStore } from "../cleanupStore";
+import { loadCleanupCandidates, useCleanupStore } from "../cleanupStore";
 import { startScan } from "../store";
 import { CacheDownloads } from "./CacheDownloads";
 import { CleanupPlanModal } from "./CleanupPlanModal";
 import { CleanupResultModal } from "./CleanupResultModal";
-import { DevelopmentArtifacts, formatSpaceBytes } from "./DevelopmentArtifacts";
+import { DevelopmentArtifacts } from "./DevelopmentArtifacts";
 import { DevelopmentProjects } from "./DevelopmentProjects";
 import { DuplicateFiles } from "./DuplicateFiles";
-import { DirectoryRanking } from "./DirectoryRanking";
 import { LargeFiles } from "./LargeFiles";
 import { SkippedPaths } from "./SkippedPaths";
 import { SpaceOverview } from "./SpaceOverview";
 import { SpaceChanges } from "./SpaceChanges";
 import { SpaceMonitorModal } from "./SpaceMonitorModal";
 
-export const ANALYSIS_TABS = ["overview", "projects", "directories", "large-files", "duplicates", "development-artifacts", "cache-downloads", "skipped-paths", "changes"] as const;
+// What can be cleaned comes right after the projects it belongs to; the directory ranking is a view of the overview.
+export const ANALYSIS_TABS = ["overview", "projects", "development-artifacts", "cache-downloads", "large-files", "duplicates", "skipped-paths", "changes"] as const;
 type AnalysisTab = (typeof ANALYSIS_TABS)[number];
 
 type SpaceAnalysisSettings = { large_file_threshold_bytes: number };
@@ -39,7 +39,6 @@ export function matchedFreeBytes(request: ScanRequest, volumes: readonly VolumeI
 
 export function AnalysisTabs({ taskId, request }: { taskId: string; request: ScanRequest }) {
   const { t, tr } = useI18n();
-  const toast = useToast();
   const read = useBusyRead();
   const cleanup = useCleanupStore();
   const [activeTab, setActiveTab] = useState<AnalysisTab>("overview");
@@ -90,7 +89,7 @@ export function AnalysisTabs({ taskId, request }: { taskId: string; request: Sca
 
   const labels: Record<AnalysisTab, string> = {
     projects: t("space.projects.tab"),
-    overview: tr("空间概览"), directories: tr("目录排行"), "large-files": tr("大文件"),
+    overview: tr("空间概览"), "large-files": tr("大文件"),
     duplicates: tr("重复文件"),
     "development-artifacts": tr("开发产物"), "cache-downloads": tr("缓存与下载"),
     "skipped-paths": tr("已跳过路径"),
@@ -99,8 +98,6 @@ export function AnalysisTabs({ taskId, request }: { taskId: string; request: Sca
   const cacheImpactKeys = new Set(["spaceAnalysis.impact.nodeDependencies", "spaceAnalysis.impact.gradleProjectCache"]);
   const cacheNodes = cleanup.candidates.filter((node) => cacheImpactKeys.has(node.impactKey ?? ""));
   const artifactNodes = cleanup.candidates.filter((node) => !cacheImpactKeys.has(node.impactKey ?? ""));
-  const selectedBytes = cleanup.candidates.filter((node) => cleanup.selected.has(node.nodeId)).reduce((sum, node) => sum + node.allocatedBytes, 0);
-  const cleanupTabActive = activeTab === "projects" || activeTab === "development-artifacts" || activeTab === "cache-downloads";
 
   function rescanAffected(paths: string[]) {
     const targets = [...new Set(paths.map((path) => path.replace(/[\\/][^\\/]+[\\/]?$/, "")).filter(Boolean))];
@@ -114,23 +111,12 @@ export function AnalysisTabs({ taskId, request }: { taskId: string; request: Sca
           className={activeTab === tab ? "active" : ""} onClick={() => setActiveTab(tab)}>{labels[tab]}</button>)}
       </div>
       <div className="space-cleanup-toolbar">
-        <span>{tr("已选择")} {cleanup.selected.size} {tr("项")} · {formatSpaceBytes(selectedBytes)}</span>
         <button className="gh sm" type="button" onClick={() => setMonitorOpen(true)} title={tr("追踪选定目录的空间变化")}><i className="ti ti-activity" /> {tr("实时追踪")}</button>
-        <button className="pr sm" disabled={!cleanupTabActive || cleanup.loading || cleanup.planning || cleanup.selected.size === 0 || cleanup.progress?.state === "running"}
-          title={tr(cleanupTabActive ? "核对所选项目后进入清理确认" : "请在“开发产物”或“缓存与下载”页面选择需要清理的项目")}
-          onClick={async () => {
-            try {
-              await read("正在准备清理", prepareCleanupPlan);
-            } catch (error) {
-              toast(`${tr("无法准备清理：")}${String(error)}`, "err");
-            }
-          }}><i className={`ti ${cleanup.planning ? "ti-loader spin" : "ti-eraser"}`} /> {tr(cleanup.planning ? "正在准备…" : "清理")}</button>
       </div>
     </div>
     <div className="space-analysis-tab-panel" role="tabpanel">
       {activeTab === "overview" && <SpaceOverview taskId={taskId} summary={summary} freeBytes={freeBytes} />}
-      {activeTab === "projects" && <DevelopmentProjects projects={summary.projects} candidates={cleanup.candidates} />}
-      {activeTab === "directories" && <DirectoryRanking taskId={taskId} roots={summary.rootNodes} />}
+      {activeTab === "projects" && <DevelopmentProjects projects={summary.projects} />}
       {activeTab === "large-files" && <LargeFiles taskId={taskId} thresholdBytes={largeFileThreshold} />}
       {activeTab === "duplicates" && <DuplicateFiles taskId={taskId} />}
       {activeTab === "development-artifacts" && <DevelopmentArtifacts nodes={artifactNodes} />}

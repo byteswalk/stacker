@@ -167,6 +167,14 @@ pub async fn space_duplicates(
     .map_err(|e| e.to_string())
 }
 
+/// Settles a duplicate group checked by its ends only, by reading every file in full.
+#[tauri::command]
+pub async fn space_verify_duplicates(paths: Vec<String>) -> Result<Vec<Vec<String>>, String> {
+    tauri::async_runtime::spawn_blocking(move || duplicates::verify(&paths))
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn space_cleanup_candidates(
     task_id: String,

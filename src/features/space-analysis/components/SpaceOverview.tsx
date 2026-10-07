@@ -4,6 +4,14 @@ import { invoke } from "../../../invoke";
 import { useBusyRead, useToast } from "../../../ui";
 import { layoutTreemap } from "../treemap";
 import type { AnalysisSummary, DirectoryNode, Paged } from "../types";
+import { DirectoryRanking } from "./DirectoryRanking";
+
+/** How the overview shows the space: blocks sized by use, or the directories as a ranked tree. */
+type OverviewView = "chart" | "list";
+const VIEW_KEY = "stacker.space.overviewView";
+const readView = (): OverviewView => {
+  try { return localStorage.getItem(VIEW_KEY) === "list" ? "list" : "chart"; } catch { return "chart"; }
+};
 
 const TREEMAP_HEIGHT = 300;
 const TREEMAP_COLORS = [
@@ -52,6 +60,11 @@ export function SpaceOverview({
   const [levels, setLevels] = useState<Array<{ node: DirectoryNode; nodes: DirectoryNode[] }>>([]);
   const [loadingNodeId, setLoadingNodeId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ node: DirectoryNode; x: number; y: number } | null>(null);
+  const [view, setViewState] = useState<OverviewView>(readView);
+  const setView = (next: OverviewView) => {
+    setViewState(next);
+    try { localStorage.setItem(VIEW_KEY, next); } catch { /* a per-viewer convenience only */ }
+  };
   const rootLevel = levels.length === 0;
   const visibleNodes = levels.at(-1)?.nodes ?? sortRootNodes(summary.rootNodes);
   const nodesById = useMemo(() => rootMap(visibleNodes), [visibleNodes]);
@@ -174,12 +187,18 @@ export function SpaceOverview({
       <div className="space-analysis-section-heading">
         <div>
           <strong>{tr("扫描范围占用")}</strong>
-          <span>{tr("矩形面积按实际磁盘占用计算；单击下钻目录，右键可打开目录。")}</span>
+          <span>{tr(view === "chart" ? "矩形面积按实际磁盘占用计算；单击下钻目录，右键可打开目录。" : "按实际占用从大到小排列，展开可以看下一层。")}</span>
         </div>
-        <span>{summary.directoryCount.toLocaleString()} {tr("个目录")} · {summary.fileCount.toLocaleString()} {tr("个文件")}</span>
+        <div className="space-overview-view">
+          <span>{summary.directoryCount.toLocaleString()} {tr("个目录")} · {summary.fileCount.toLocaleString()} {tr("个文件")}</span>
+          <div className="seg sm" role="radiogroup" aria-label={tr("展示方式")}>
+            <button type="button" role="radio" aria-checked={view === "chart"} className={view === "chart" ? "on" : ""} onClick={() => setView("chart")}><i className="ti ti-layout-dashboard" /> {tr("图形")}</button>
+            <button type="button" role="radio" aria-checked={view === "list"} className={view === "list" ? "on" : ""} onClick={() => setView("list")}><i className="ti ti-list-tree" /> {tr("目录")}</button>
+          </div>
+        </div>
       </div>
 
-      {rectangles.length === 0 ? (
+      {view === "list" ? <DirectoryRanking taskId={taskId} roots={summary.rootNodes} /> : rectangles.length === 0 ? (
         <div className="space-analysis-empty">{tr("当前扫描结果没有可显示的占用数据。")}</div>
       ) : (
         <>
