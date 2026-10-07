@@ -12,19 +12,28 @@ class MemoryStorage implements Storage {
 }
 
 describe("frontend settings migration", () => {
-  it("exports and restores only Stacker preferences", () => {
+  it("carries the environment's preferences and nothing that is this computer's own", () => {
     const source = new MemoryStorage();
     source.setItem("stacker.node.downloadSource", "official");
+    source.setItem("stacker.python.install.onlyStable", "true");
+    source.setItem("stacker.maven.customSettingsXml", "D:/m2/settings.xml");
+    source.setItem("stacker.aiAnswers.v1", "{}");
+    source.setItem("stacker.vault.columns.v1", "{}");
     source.setItem("unrelated", "ignored");
 
     const exported = collectFrontendSettings(source);
-    expect(exported).toEqual({ "stacker.node.downloadSource": "official" });
+    expect(Object.keys(exported).sort()).toEqual(["stacker.maven.customSettingsXml", "stacker.node.downloadSource", "stacker.python.install.onlyStable"]);
 
     const target = new MemoryStorage();
-    target.setItem("stacker.legacy", "remove-me");
-    restoreFrontendSettings({ ...exported, unrelated: "ignored" }, target);
+    target.setItem("stacker.go.downloadSource", "goproxy");
+    target.setItem("stacker.aiAnswers.v1", "kept");
+    target.setItem("stacker.vault.columns.v1", "kept");
+    restoreFrontendSettings({ ...exported, "stacker.vibe.status.v3": "from an old profile", unrelated: "ignored" }, target);
     expect(target.getItem("stacker.node.downloadSource")).toBe("official");
-    expect(target.getItem("stacker.legacy")).toBeNull();
+    expect(target.getItem("stacker.go.downloadSource")).toBeNull();
+    expect(target.getItem("stacker.aiAnswers.v1")).toBe("kept");
+    expect(target.getItem("stacker.vault.columns.v1")).toBe("kept");
+    expect(target.getItem("stacker.vibe.status.v3")).toBeNull();
     expect(target.getItem("unrelated")).toBeNull();
   });
 });

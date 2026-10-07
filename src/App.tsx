@@ -141,10 +141,21 @@ export default function App() {
   );
 }
 
+/** What a profile sets, in a line: older ones leave proxy, mirrors and WinGet alone. */
+function profileSummary(p: SavedProfile, tr: (text: string) => string): string {
+  const proxy = p.proxy_mode === "follow" ? tr("代理跟随系统") : p.proxy_mode === "release" ? tr("代理全部撤销") : tr("代理不改");
+  const parts = [tr("{count} 个下载源").replace("{count}", String(p.sources.length)), proxy];
+  if (p.binary_mirrors) parts.push(tr("大文件镜像 {count} 个").replace("{count}", String(p.binary_mirrors.length)));
+  if (p.winget_downloader) parts.push(`WinGet ${p.winget_downloader === "wininet" ? "WinINet" : p.winget_downloader === "do" ? tr("传递优化（强制）") : tr("默认（传递优化）")}`);
+  return parts.join(" · ");
+}
+
 type SavedProfile = {
   name: string;
   sources: { tool: string; mirror: string }[];
-  proxy: boolean;
+  proxy_mode?: "follow" | "release" | null;
+  binary_mirrors?: string[] | null;
+  winget_downloader?: string | null;
   created: string;
   frontend_settings?: FrontendSettings;
 };
@@ -304,10 +315,12 @@ function Shell() {
     if (!profile) { toast("请先保存或导入配置方案", "info"); return; }
     setApplying(true);
     try {
-      const result = await invoke<{ changed: number; frontend_settings: FrontendSettings }>("profile_apply", { name: profile });
+      const result = await invoke<{ changed: number; frontend_settings: FrontendSettings; notes: string[] }>("profile_apply", { name: profile });
       restoreFrontendSettings(result.frontend_settings);
       setConfigEpoch((value) => value + 1);
-      toast(`已套用方案「${profile}」· 改动 ${result.changed} 项`, "ok");
+      const done = tr("已套用方案「{name}」· 改动 {count} 项").replace("{name}", profile).replace("{count}", String(result.changed));
+      if (result.notes.length) toast(`${done}。${result.notes.map(tr).join(" ")}`, "info");
+      else toast(done, "ok");
     } catch (e) { toast("应用失败：" + e, "err"); } finally { setApplying(false); }
   }
 
@@ -481,7 +494,7 @@ function Shell() {
 
       {saveOpen && (
         <Modal title="保存为方案" icon="ti-device-floppy"
-          sub="保存当前源选择与代理状态，便于在不同网络环境间快速切换。"
+          sub="保存当前这套网络与下载环境：各工具的下载源、各处代理是否跟随系统代理、大文件镜像、WinGet 下载器，以及各生态页的下载偏好。换网络环境时一键切换。"
           onClose={() => !saving && setSaveOpen(false)}
           footer={<>
             <button className="gh sm" disabled={saving} onClick={() => setSaveOpen(false)}>取消</button>
@@ -504,7 +517,7 @@ function Shell() {
                   <div key={p.name} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
                     <i className="ti ti-bookmark" style={{ color: "var(--mut)" }} />
                     <span style={{ flex: 1 }}>{p.name}</span>
-                    <span style={{ fontSize: 11, color: "var(--mut)" }}>{p.proxy ? "代理已开启" : "代理未开启"} · {p.created}</span>
+                    <span style={{ fontSize: 11, color: "var(--mut)" }} title={profileSummary(p, tr)}>{profileSummary(p, tr)} · {p.created}</span>
                     <button className="gh sm" disabled={saving} title="删除此方案" onClick={() => setDeleteProfile(p.name)}><i className="ti ti-trash" /></button>
                   </div>
                 ))}
