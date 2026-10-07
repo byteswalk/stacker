@@ -131,10 +131,11 @@ mod imp {
     use windows_sys::Win32::System::Threading::{
         CreateProcessW, DeleteProcThreadAttributeList, GetExitCodeProcess,
         InitializeProcThreadAttributeList, TerminateProcess, UpdateProcThreadAttribute,
-        WaitForSingleObject, CREATE_NO_WINDOW, CREATE_UNICODE_ENVIRONMENT,
-        EXTENDED_STARTUPINFO_PRESENT, PROCESS_INFORMATION, PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE,
+        WaitForSingleObject, CREATE_UNICODE_ENVIRONMENT, EXTENDED_STARTUPINFO_PRESENT,
+        PROCESS_INFORMATION, PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, STARTF_USESHOWWINDOW,
         STARTF_USESTDHANDLES, STARTUPINFOEXW,
     };
+    use windows_sys::Win32::UI::WindowsAndMessaging::SW_HIDE;
 
     /// Why a run ended early.
     pub(crate) enum Stop {
@@ -218,7 +219,7 @@ mod imp {
                 return Err(spawn_error("console"));
             }
             // The console holds its own references to these two ends.
-            let _pipe_ends = Handles(vec![in_read, out_write]);
+            let pipe_ends = Handles(vec![in_read, out_write]);
 
             let mut bytes = 0usize;
             InitializeProcThreadAttributeList(null_mut(), 1, 0, &mut bytes);
@@ -244,7 +245,11 @@ mod imp {
             startup.lpAttributeList = list;
             // With no standard handles of its own the child would inherit this process's
             // (redirected) ones and bypass the console; empty ones make it use the console.
-            startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+            startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+            // Should Windows still give the child a console window, it starts hidden. Not
+            // CREATE_NO_WINDOW: that detaches the child from the pseudo console, and not a
+            // word of its output arrives.
+            startup.StartupInfo.wShowWindow = SW_HIDE as u16;
 
             let mut command_line = std::iter::once(quote(&program.to_string_lossy()))
                 .chain(args.iter().map(|a| quote(a)))
@@ -267,7 +272,7 @@ mod imp {
                 null(),
                 null(),
                 0,
-                EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT | CREATE_NO_WINDOW,
+                EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT,
                 block.as_ptr().cast(),
                 null(),
                 &startup.StartupInfo,
@@ -280,6 +285,9 @@ mod imp {
                 return Err(spawn_error("process"));
             }
             let process = Handles(vec![info.hProcess, info.hThread]);
+            // Ours go now: while this process still holds the console's output end, closing the
+            // console never ends the output, and the reader waits out its five seconds.
+            drop(pipe_ends);
             let job = job_for(info.hProcess);
 
             // Drain the console until it closes; a full pipe would stall the program.
@@ -393,6 +401,39 @@ mod tests {
         assert_eq!(
             download_line(9.35, 62.3, Duration::from_secs(12)),
             "正在下载 15% · 9.3/62.3 MB · 已 12s"
+        );
+    }
+}
+
+#[cfg(all(test, windows))]
+mod console_tests {
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant};
+
+    /// What runs in the console reaches us, and the run ends when the program does. Both broke
+    /// once: a flag meant to hide a window cut the child off from the console, and a pipe end
+    /// left open made every run wait five more seconds.
+    #[test]
+    fn a_program_in_the_console_is_heard_and_done_when_it_exits() {
+        let out = Arc::new(Mutex::new(String::new()));
+        let sink = out.clone();
+        let env: Vec<(String, String)> = std::env::vars().collect();
+        let started = Instant::now();
+        let code = super::run_in_pty(
+            std::path::Path::new(r"C:\Windows\System32\cmd.exe"),
+            &["/c", "echo", "stacker-console-check"],
+            &env,
+            move |chunk| sink.lock().unwrap().push_str(chunk),
+            |elapsed| (elapsed > Duration::from_secs(20)).then_some(super::Stop::TimedOut),
+            |_| None,
+        );
+        assert!(matches!(code, Ok(0)));
+        let (text, _) = super::strip_vt(&out.lock().unwrap());
+        assert!(text.contains("stacker-console-check"), "{text:?}");
+        assert!(
+            started.elapsed() < Duration::from_secs(4),
+            "{:?}",
+            started.elapsed()
         );
     }
 }
