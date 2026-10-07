@@ -102,43 +102,59 @@ export function TransferExport({ ids, onClose }: { ids: string[]; onClose: () =>
           {busy ? <><i className="ti ti-loader spin" /> <ProgressLine progress={progress} /></> : <><i className="ti ti-package-export" /> {tr("选择位置并打包")}</>}
         </button>
       </>}>
-    {done ? <div className="vault-form">
-      <div className="callout" style={{ margin: 0 }}><i className="ti ti-circle-check" /><div>
-        {tr("已打包 {sessions} 个会话、{projects} 个工程目录，迁移包 {size}。").replace("{sessions}", String(done.sessions)).replace("{projects}", String(done.projects)).replace("{size}", bytes(done.bytes))}
-        {done.skipped > 0 && tr("另有 {count} 个其他智能体的会话暂不支持迁移，没有打包。").replace("{count}", String(done.skipped))}
-      </div></div>
-      <div className="transfer-steps">
-        <b>{tr("在另一台电脑上")}</b>
-        <ol>
-          <li>{tr("装好 Stacker 和对应的智能体（Codex 要打开一次并登录，然后完全退出）。")}</li>
-          <li>{tr("把这个迁移包拷过去，在“会话数据”页右上角点“导入迁移包”。")}</li>
-          <li>{tr("给每个工程指定那台电脑上的位置，导入后按提示的命令接着聊。")}</li>
-        </ol>
+    {done ? <div className="transfer">
+      <div className="transfer-done">
+        <span className="transfer-done-icon"><i className="ti ti-circle-check" /></span>
+        <div>
+          <b>{tr("迁移包已生成")}</b>
+          <span>{tr("{sessions} 个会话 · {projects} 个工程目录 · {size}").replace("{sessions}", String(done.sessions)).replace("{projects}", String(done.projects)).replace("{size}", bytes(done.bytes))}</span>
+          {done.skipped > 0 && <span>{tr("另有 {count} 个其他智能体的会话暂不支持迁移，没有打包。").replace("{count}", String(done.skipped))}</span>}
+          <code translate="no" title={done.path}>{done.path}</code>
+        </div>
+        <button className="gh sm" onClick={() => void invoke("space_open_directory", { path: done.path.replace(/[\\/][^\\/]+$/, "") }).catch((e) => toast(String(e), "err"))}><i className="ti ti-folder-open" /> {tr("打开所在位置")}</button>
       </div>
-      <div className="vault-warn">{tr("迁移包里有对话原文，带了工程目录的还有源码和其中的配置，请私下传输，不要公开上传。")}</div>
-      <div><button className="gh sm" onClick={() => void invoke("space_open_directory", { path: done.path.replace(/[\\/][^\\/]+$/, "") }).catch((e) => toast(String(e), "err"))}><i className="ti ti-folder-open" /> {tr("打开文件所在位置")}</button></div>
-    </div> : <div className="vault-form">
-      <div className="vault-sub" style={{ margin: 0 }}>{tr("把选中的会话打成一个迁移包，拷到另一台电脑导入后可以接着聊。目前支持 Codex 和 Claude Code，其他智能体的会话会被跳过。")}</div>
-      {projects === null ? <div className="vault-empty">{tr("正在读取…")}</div> : projects.length === 0
-        ? <div className="vault-warn">{tr("选中的会话里没有 Codex 或 Claude Code 的会话。")}</div>
+      <div className="transfer-section-title">{tr("在另一台电脑上")}</div>
+      <ol className="transfer-steps">
+        <li><b>{tr("准备")}</b><span>{tr("装好 Stacker 和对应的智能体；Codex 要打开一次并登录，然后完全退出。")}</span></li>
+        <li><b>{tr("导入")}</b><span>{tr("把迁移包拷过去，在“会话数据”页右上角点“导入迁移包”，给每个工程指定位置。")}</span></li>
+        <li><b>{tr("接着聊")}</b><span>{tr("导入完成后按列出的命令继续对话。")}</span></li>
+      </ol>
+      <div className="transfer-hint warn"><i className="ti ti-shield-lock" /><span>{tr("迁移包里有对话原文，带了工程目录的还有源码和其中的配置，请私下传输，不要公开上传。")}</span></div>
+    </div> : <div className="transfer">
+      <div className="transfer-intro">
+        <span className="transfer-intro-icon"><i className="ti ti-transfer" /></span>
+        <div><b>{tr("把会话带到另一台电脑接着聊")}</b><span>{tr("打成一个迁移包，拷过去在“会话数据”页导入。目前支持 Codex 和 Claude Code，其他智能体的会话会被跳过。")}</span></div>
+      </div>
+      {projects === null ? <div className="transfer-empty"><i className="ti ti-loader spin" /> {tr("正在读取…")}</div> : projects.length === 0
+        ? <div className="transfer-hint warn"><i className="ti ti-alert-triangle" /><span>{tr("选中的会话里没有 Codex 或 Claude Code 的会话。")}</span></div>
         : <>
-          <div className="transfer-head">{tr("{count} 个会话，涉及 {projects} 个工程目录").replace("{count}", String(supported)).replace("{projects}", String(projects.length))}</div>
-          <div className="transfer-projects">
+          <div className="transfer-stats">
+            <div><b>{supported}</b><span>{tr("个会话")}</span></div>
+            <div><b>{projects.length}</b><span>{tr("个工程目录")}</span></div>
+            <div><b>{include.size}</b><span>{tr("个工程一起打包")}</span></div>
+          </div>
+          <div className="transfer-section-title">{tr("工程目录")}<small>{tr("勾选的连同工程文件一起打包")}</small></div>
+          <div className="transfer-list">
             {projects.map((project) => {
               const size = sizes[project.path];
-              return <label key={project.path} className={"transfer-project" + (project.exists ? "" : " missing")}>
-                <input type="checkbox" checked={include.has(project.path)} disabled={!project.exists || busy} onChange={(e) => toggle(project.path, e.target.checked)} />
-                <span className="mt">
+              const on = include.has(project.path);
+              return <label key={project.path} className={"transfer-row" + (on ? " on" : "") + (project.exists ? "" : " missing")}>
+                <input type="checkbox" checked={on} disabled={!project.exists || busy} onChange={(e) => toggle(project.path, e.target.checked)} />
+                <span className="transfer-row-icon"><i className="ti ti-folder" /></span>
+                <span className="transfer-row-main">
                   <b translate="no">{project.name || project.path}</b>
                   <small translate="no" title={project.path}>{project.path}</small>
                 </span>
-                <span className="mut">{!project.exists ? tr("目录已不在") : include.has(project.path)
-                  ? size === "counting" || !size ? tr("正在统计…") : tr("{files} 个文件 · {size}").replace("{files}", String(size[0])).replace("{size}", bytes(size[1]))
-                  : tr("{count} 个会话").replace("{count}", String(project.sessions))}</span>
+                <span className="transfer-row-side">
+                  <span className="transfer-pill">{tr("{count} 个会话").replace("{count}", String(project.sessions))}</span>
+                  <small>{!project.exists ? tr("目录已不在") : on
+                    ? size === "counting" || !size ? tr("正在统计…") : tr("{files} 个文件 · {size}").replace("{files}", String(size[0])).replace("{size}", bytes(size[1]))
+                    : tr("只迁移会话")}</small>
+                </span>
               </label>;
             })}
           </div>
-          <div className="vault-sub" style={{ margin: 0 }}>{tr("勾选的工程目录会一起打包，包括 .git 和隐藏文件；node_modules、target、.venv 这类能重新生成的目录不打包。工程在 Git 上的，可以不勾，到那台电脑上直接拉代码。")}</div>
+          <div className="transfer-hint"><i className="ti ti-info-circle" /><span>{tr("勾选的工程目录会一起打包，包括 .git 和隐藏文件；node_modules、target、.venv 这类能重新生成的目录不打包。工程在 Git 上的，可以不勾，到那台电脑上直接拉代码。")}</span></div>
         </>}
     </div>}
   </Modal>;
@@ -198,67 +214,84 @@ export function TransferImport({ onClose }: { onClose: (changed: boolean) => voi
           {busy && preview ? <><i className="ti ti-loader spin" /> <ProgressLine progress={progress} /></> : <><i className="ti ti-package-import" /> {tr("导入 {count} 个会话").replace("{count}", String(fresh))}</>}
         </button>
       </>}>
-    {done ? <div className="vault-form">
-      <div className="callout" style={{ margin: 0 }}><i className="ti ti-circle-check" /><div>
-        {tr("已导入 {count} 个会话。").replace("{count}", String(done.imported.length))}
-        {done.present.length > 0 && tr("{count} 个这台电脑上已经有了，没有改动。").replace("{count}", String(done.present.length))}
-        {done.extracted > 0 && tr("解压了 {count} 个工程文件").replace("{count}", String(done.extracted))}
-        {done.kept > 0 && tr("（{count} 个已存在的文件保持原样）").replace("{count}", String(done.kept))}
-      </div></div>
-      {done.stripped.length > 0 && <div className="vault-sub" style={{ margin: 0 }}>
-        {tr("{agents} 在这台电脑登录的是另一个账号，已去掉只有原账号能用的加密推理和思考签名（{count} 处），对话正文完整保留。").replace("{agents}", done.stripped.map((a) => AGENT[a] ?? a).join("、")).replace("{count}", String(done.dropped))}
-      </div>}
-      {done.imported.length > 0 && <div className="transfer-resume">
-        <b>{tr("接着聊")}</b>
-        {done.imported.map((item) => <div key={item.agent + item.id}>
-          <span className="mt"><b translate="no">{item.title}</b><small>{AGENT[item.agent]} · <span translate="no">{item.cwd}</span></small></span>
-          <code translate="no">{item.resume}</code>
-          <button className="gh xs" title={tr("复制命令")} onClick={() => void copy(item.resume)}><i className="ti ti-copy" /></button>
-        </div>)}
-      </div>}
-      {done.backup && <div className="vault-sub" style={{ margin: 0 }} translate="no">{tr("导入前已备份 Codex 的会话数据库：{path}").replace("{path}", done.backup)}</div>}
-    </div> : <div className="vault-form">
-      <div className="vault-bar" style={{ margin: 0 }}>
-        <button className="gh sm" disabled={busy} onClick={() => void choose()}><i className={"ti " + (busy && !preview ? "ti-loader spin" : "ti-folder-open")} /> {tr("选择迁移包")}</button>
-        <span className="mut grow" translate="no">{path}</span>
+    {done ? <div className="transfer">
+      <div className="transfer-done">
+        <span className="transfer-done-icon"><i className="ti ti-circle-check" /></span>
+        <div>
+          <b>{tr("已导入 {count} 个会话").replace("{count}", String(done.imported.length))}</b>
+          {done.present.length > 0 && <span>{tr("{count} 个这台电脑上已经有了，没有改动。").replace("{count}", String(done.present.length))}</span>}
+          {done.extracted > 0 && <span>{tr("解压了 {count} 个工程文件").replace("{count}", String(done.extracted))}{done.kept > 0 && tr("（{count} 个已存在的文件保持原样）").replace("{count}", String(done.kept))}</span>}
+        </div>
       </div>
-      {!preview && <div className="vault-sub" style={{ margin: 0 }}>{tr("选择另一台电脑上用“迁移…”打出来的 .zip 迁移包。")}</div>}
+      {done.stripped.length > 0 && <div className="transfer-hint"><i className="ti ti-user-question" /><span>
+        {tr("{agents} 在这台电脑登录的是另一个账号，已去掉只有原账号能用的加密推理和思考签名（{count} 处），对话正文完整保留。").replace("{agents}", done.stripped.map((a) => AGENT[a] ?? a).join("、")).replace("{count}", String(done.dropped))}
+      </span></div>}
+      {done.imported.length > 0 && <>
+        <div className="transfer-section-title">{tr("接着聊")}<small>{tr("在终端里运行对应的命令")}</small></div>
+        <div className="transfer-list">
+          {done.imported.map((item) => <div key={item.agent + item.id} className="transfer-row resume">
+            <span className={"transfer-agent " + item.agent}>{AGENT[item.agent]}</span>
+            <span className="transfer-row-main">
+              <b translate="no" title={item.title}>{item.title}</b>
+              <code translate="no" title={item.resume}>{item.resume}</code>
+            </span>
+            <button className="gh xs" title={tr("复制命令")} onClick={() => void copy(item.resume)}><i className="ti ti-copy" /> {tr("复制")}</button>
+          </div>)}
+        </div>
+      </>}
+      {done.backup && <div className="transfer-hint"><i className="ti ti-database-export" /><span translate="no">{tr("导入前已备份 Codex 的会话数据库：{path}").replace("{path}", done.backup)}</span></div>}
+    </div> : <div className="transfer">
+      <div className="transfer-pick">
+        <span className="transfer-intro-icon"><i className="ti ti-file-zip" /></span>
+        <div>
+          <b>{path ? <span translate="no">{path.replace(/^.*[\\/]/, "")}</span> : tr("选择迁移包")}</b>
+          <span>{preview
+            ? tr("来自 {machine}，打包于 {time}").replace("{machine}", preview.machine || tr("另一台电脑")).replace("{time}", new Date(preview.createdAt * 1000).toLocaleString())
+            : tr("选择另一台电脑上用“迁移…”打出来的 .zip 迁移包。")}</span>
+        </div>
+        <button className="gh sm" disabled={busy} onClick={() => void choose()}><i className={"ti " + (busy && !preview ? "ti-loader spin" : "ti-folder-open")} /> {tr(path ? "换一个" : "选择文件")}</button>
+      </div>
       {preview && <>
-        <div className="vault-sub" style={{ margin: 0 }}>{tr("来自 {machine}，打包于 {time}").replace("{machine}", preview.machine || tr("另一台电脑")).replace("{time}", new Date(preview.createdAt * 1000).toLocaleString())}</div>
-        {preview.accounts.map((account) => <div key={account.agent} className={"transfer-account" + (account.same ? " same" : "")}>
-          <i className={"ti " + (account.same ? "ti-user-check" : "ti-user-question")} />
-          <span><b>{AGENT[account.agent] ?? account.agent}</b>：{account.same
-            ? tr("两台电脑登录的是同一个账号，完整导入。")
-            : !account.here
-              ? tr("这台电脑还没登录，按不同账号处理：去掉只有原账号能用的加密推理和思考签名，对话正文完整保留。")
-              : tr("两台电脑登录的不是同一个账号：去掉只有原账号能用的加密推理和思考签名，对话正文完整保留。")}</span>
-        </div>)}
-        {hasCodex && preview.codexRunning && <div className="vault-warn">{tr("Codex 还在运行。导入要写 Codex 的会话数据库，请先完全退出 Codex 桌面版和命令行，再点“我已退出 Codex，重新检查”。")}</div>}
-        {hasCodex && !preview.codexReady && <div className="vault-warn">{tr("这台电脑还没用过 Codex：先打开 Codex 登录一次，然后完全退出，再导入。")}</div>}
-        <div className="transfer-head">{tr("工程位置")}</div>
-        <div className="transfer-targets">
+        <div className="transfer-accounts">
+          {preview.accounts.map((account) => <div key={account.agent} className={"transfer-account" + (account.same ? " same" : "")}>
+            <i className={"ti " + (account.same ? "ti-user-check" : "ti-user-question")} />
+            <span><b>{AGENT[account.agent] ?? account.agent}</b>{account.same
+              ? tr("两台电脑登录的是同一个账号，完整导入。")
+              : !account.here
+                ? tr("这台电脑还没登录，按不同账号处理：去掉只有原账号能用的加密推理和思考签名，对话正文完整保留。")
+                : tr("两台电脑登录的不是同一个账号：去掉只有原账号能用的加密推理和思考签名，对话正文完整保留。")}</span>
+          </div>)}
+        </div>
+        {hasCodex && preview.codexRunning && <div className="transfer-hint warn"><i className="ti ti-alert-triangle" /><span>{tr("Codex 还在运行。导入要写 Codex 的会话数据库，请先完全退出 Codex 桌面版和命令行，再点“我已退出 Codex，重新检查”。")}</span></div>}
+        {hasCodex && !preview.codexReady && <div className="transfer-hint warn"><i className="ti ti-alert-triangle" /><span>{tr("这台电脑还没用过 Codex：先打开 Codex 登录一次，然后完全退出，再导入。")}</span></div>}
+        <div className="transfer-section-title">{tr("工程位置")}<small>{tr("会话会接到这台电脑上的这些目录")}</small></div>
+        <div className="transfer-list">
           {preview.projects.map((project, index) => {
             const target = targets[index];
             if (!target) return null;
             return <div key={project.path} className="transfer-target">
-              <div className="from"><b translate="no">{project.name || project.path}</b><small translate="no" title={project.path}>{tr("原位置")} {project.path}</small></div>
-              <div className="to">
+              <div className="transfer-target-head">
+                <span className="transfer-row-icon"><i className="ti ti-folder" /></span>
+                <span className="transfer-row-main"><b translate="no">{project.name || project.path}</b><small translate="no" title={project.path}>{tr("原位置")} {project.path}</small></span>
+              </div>
+              <div className="transfer-target-to">
+                <i className="ti ti-arrow-right" />
                 <input className="ip" value={target.to} onChange={(e) => setTargets((old) => old.map((t, i) => i === index ? { ...t, to: e.target.value } : t))} />
                 <button className="gh sm" title={tr("选择文件夹")} onClick={() => void pickFolder(index)}><i className="ti ti-folder-open" /></button>
               </div>
               {project.included
-                ? <label className="vault-check"><input type="checkbox" checked={target.extract} onChange={(e) => setTargets((old) => old.map((t, i) => i === index ? { ...t, extract: e.target.checked } : t))} />
+                ? <label className="transfer-check"><input type="checkbox" checked={target.extract} onChange={(e) => setTargets((old) => old.map((t, i) => i === index ? { ...t, extract: e.target.checked } : t))} />
                   <span>{tr("把包里的工程文件解压到这里（{files} 个文件 · {size}，已有的文件保持原样）").replace("{files}", String(project.files)).replace("{size}", bytes(project.bytes))}</span></label>
-                : <small className="mut">{tr("迁移包里没带这个工程的文件：请先把工程放到上面的位置（比如从 Git 拉下来）。")}</small>}
+                : <small className="transfer-target-note">{tr("迁移包里没带这个工程的文件：请先把工程放到上面的位置（比如从 Git 拉下来）。")}</small>}
             </div>;
           })}
         </div>
-        <div className="transfer-head">{tr("会话")}</div>
-        <div className="transfer-sessions">
-          {preview.sessions.map((session) => <div key={session.agent + session.id} className={session.present ? "present" : ""}>
-            <span className="agent">{AGENT[session.agent]}</span>
-            <b translate="no" title={session.title}>{session.title}</b>
-            {session.present && <span className="bd">{tr("这台电脑已有")}</span>}
+        <div className="transfer-section-title">{tr("会话")}<small>{tr("{count} 个").replace("{count}", String(preview.sessions.length))}</small></div>
+        <div className="transfer-list compact">
+          {preview.sessions.map((session) => <div key={session.agent + session.id} className={"transfer-row" + (session.present ? " present" : "")}>
+            <span className={"transfer-agent " + session.agent}>{AGENT[session.agent]}</span>
+            <span className="transfer-row-main"><b translate="no" title={session.title}>{session.title}</b></span>
+            {session.present && <span className="transfer-pill">{tr("这台电脑已有")}</span>}
           </div>)}
         </div>
       </>}

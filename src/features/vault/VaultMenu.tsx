@@ -11,6 +11,7 @@ import { RetiredVaults, useRetiredVaults } from "./RetiredVaults";
 import { TrashDialog } from "./TrashDialog";
 import { BrowserImport } from "./BrowserImport";
 import { BrowserExport } from "./BrowserExport";
+import { BrowserPasswordHelp } from "./BrowserPasswordHelp";
 
 /** Every login: the export from this menu is not limited to a selection. */
 const ALL: string[] = [];
@@ -18,7 +19,7 @@ const ALL: string[] = [];
 const backupFilters = (tr: (text: string) => string) => [{ name: tr("Stacker 保管库"), extensions: ["skv"] }];
 // A vault a reset set aside ends in `.skv.old`, and is imported like any backup.
 const importFilters = (tr: (text: string) => string) => [{ name: tr("Stacker 保管库"), extensions: ["skv", "old"] }];
-type Dialog = "password" | "recovery" | "export" | "import" | "browser" | "browserExport" | "trash" | "autolock" | null;
+type Dialog = "password" | "recovery" | "export" | "import" | "browser" | "browserExport" | "browserHelp" | "trash" | "autolock" | null;
 
 function today(): string {
   const now = new Date();
@@ -37,6 +38,7 @@ export function VaultMenu({ onChanged }: { onChanged: () => void }) {
     ["import", "ti-file-import", "导入备份"],
     ["browser", "ti-world-download", "导入浏览器密码"],
     ["browserExport", "ti-world-upload", "导出为浏览器密码"],
+    ["browserHelp", "ti-help-circle", "浏览器密码导入导出说明"],
     ["trash", "ti-trash", "回收站"],
     ["autolock", "ti-clock-lock", "自动锁定"],
   ];
@@ -58,6 +60,7 @@ export function VaultMenu({ onChanged }: { onChanged: () => void }) {
       {dialog === "import" && <ImportDialog onClose={close} onChanged={onChanged} />}
       {dialog === "browser" && <BrowserImport onClose={close} onChanged={onChanged} />}
       {dialog === "browserExport" && <BrowserExport ids={ALL} onClose={close} />}
+      {dialog === "browserHelp" && <BrowserPasswordHelp onClose={close} />}
       {dialog === "trash" && <TrashDialog onClose={close} onChanged={onChanged} />}
       {dialog === "autolock" && <AutoLockDialog onClose={close} />}
     </span>

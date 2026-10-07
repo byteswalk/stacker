@@ -45,7 +45,7 @@ const button = (label: string) => [...document.querySelectorAll<HTMLButtonElemen
 describe("importing a session move package", () => {
   it("says what each account means, waits for Codex to close, and imports into the place given", async () => {
     await act(async () => { root.render(<TransferImport onClose={() => {}} />); });
-    await act(async () => { button("选择迁移包").click(); });
+    await act(async () => { button("选择文件").click(); });
     expect(text()).toContain("两台电脑登录的不是同一个账号");
     expect(text()).toContain("两台电脑登录的是同一个账号，完整导入。");
     expect(text()).toContain("这台电脑已有");

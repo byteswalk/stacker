@@ -59,6 +59,8 @@
 .a .vault-win{ margin-left:7px; color:var(--blue); font-size:13px; font-weight:400; vertical-align:-1px; }
 .a .vault-batch{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:8px 10px; margin-bottom:8px; border:.5px solid rgba(245,130,31,.35); border-radius:9px; background:var(--acc-soft); font-size:12.5px; }
 .a .vault-batch > span{ margin-right:auto; font-weight:600; }
+/* Floating over the rows: an opaque card tinted with the accent, never see-through. */
+.a .vault-batch.float-bar{ background:linear-gradient(var(--acc-soft),var(--acc-soft)),var(--cardh); border:1px solid rgba(245,130,31,.6); padding:10px 15px; box-shadow:0 10px 28px rgba(0,0,0,.45),0 0 0 1px rgba(0,0,0,.25); }
 .a .vault-import-steps{ display:flex; flex-direction:column; gap:6px; padding:10px 12px; border:.5px solid var(--bd); border-radius:9px; font-size:12px; }
 .a .vault-import-steps > div{ display:grid; grid-template-columns:64px minmax(0,1fr); gap:8px; } .a .vault-import-steps span{ color:var(--mut); }
 .a .vault-row .title{ font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -111,3 +113,10 @@
 .a .vault-form label.vault-check{ flex-direction:row; align-items:flex-start; gap:8px; font-size:12.5px; color:var(--tx); cursor:pointer; line-height:1.6; }
 .a .vault-check input{ margin-top:3px; } .a .vault-check .mut{ color:var(--mut); font-size:12px; }
 .a .vault-check-more{ margin-left:8px; }
+.a .pw-help-line{ display:flex; align-items:flex-start; gap:10px; font-size:12px; color:var(--mut); line-height:1.7; } .a .pw-help-line > span{ flex:1; }
+.a .pw-help{ display:flex; flex-direction:column; gap:14px; } .a .pw-help > .seg{ align-self:flex-start; }
+.a .pw-help section{ padding:12px 15px; border:.5px solid var(--bd); border-radius:10px; background:var(--card); }
+.a .pw-help h4{ display:flex; align-items:center; gap:7px; margin:0 0 8px; font-size:13px; color:var(--tx); } .a .pw-help h4 i{ color:var(--acc); }
+.a .pw-help ol{ margin:0; padding-left:20px; display:flex; flex-direction:column; gap:5px; font-size:12.5px; line-height:1.65; color:var(--sub, var(--tx)); }
+.a .pw-help-note{ display:flex; gap:8px; align-items:flex-start; font-size:12px; line-height:1.65; color:var(--mut); } .a .pw-help-note i{ margin-top:3px; }
+.a .pw-help-note.warn{ color:#e6b450; }

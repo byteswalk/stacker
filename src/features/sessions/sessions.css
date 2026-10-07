@@ -315,21 +315,48 @@
 .a .ext-counts em{margin-left:auto;font-style:normal}
 .a .session-reading{display:inline-flex;align-items:center;gap:6px;margin-left:auto;color:var(--mut);font-size:12px}.a .session-reading i{color:var(--acc)}.a .session-reading + .session-total{margin-left:12px}
 /* Moving sessions to another computer */
-.a .transfer-head{font-size:12px;font-weight:600;color:var(--tx);margin-top:4px}
-.a .transfer-projects,.a .transfer-targets,.a .transfer-sessions{display:flex;flex-direction:column;gap:6px;max-height:260px;overflow:auto}
-.a .transfer-project{display:grid;grid-template-columns:16px minmax(0,1fr) auto;gap:10px;align-items:center;padding:8px 10px;border:.5px solid var(--bd);border-radius:8px;cursor:pointer;font-size:12px}
-.a .transfer-project.missing{opacity:.55;cursor:default}
-.a .transfer-project .mt,.a .transfer-target .from,.a .transfer-resume .mt{display:flex;flex-direction:column;gap:2px;min-width:0}
-.a .transfer-project small,.a .transfer-target small,.a .transfer-resume small{color:var(--mut);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.a .transfer-project .mut{color:var(--mut);font-size:11.5px;white-space:nowrap}
-.a .transfer-target{display:flex;flex-direction:column;gap:6px;padding:10px;border:.5px solid var(--bd);border-radius:8px;font-size:12px}
-.a .transfer-target .to{display:flex;gap:6px}.a .transfer-target .to .ip{flex:1;min-width:0}
-.a .transfer-sessions>div{display:flex;align-items:center;gap:8px;font-size:12px;padding:4px 2px}.a .transfer-sessions>div.present{opacity:.55}
-.a .transfer-sessions .agent{flex:0 0 auto;padding:1px 6px;border-radius:4px;background:var(--cardh);color:var(--sub);font-size:10.5px}
-.a .transfer-sessions b{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-.a .transfer-account{display:flex;gap:8px;align-items:flex-start;padding:8px 10px;border-radius:8px;background:rgba(230,180,80,.08);font-size:12px;line-height:1.6}
+.a .transfer{display:flex;flex-direction:column;gap:12px;font-size:12.5px}
+.a .transfer-intro,.a .transfer-pick,.a .transfer-done{display:flex;align-items:center;gap:12px;padding:12px 15px;border:.5px solid var(--bd);border-radius:10px;background:var(--card)}
+.a .transfer-intro>div,.a .transfer-pick>div,.a .transfer-done>div{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1}
+.a .transfer-intro b,.a .transfer-pick b,.a .transfer-done b{font-size:13.5px;color:var(--tx)}
+.a .transfer-intro span,.a .transfer-pick span,.a .transfer-done span{color:var(--mut);line-height:1.6}
+.a .transfer-intro-icon{flex:0 0 auto;width:38px;height:38px;border-radius:10px;display:grid;place-items:center;background:var(--acc-soft);color:var(--acc);font-size:19px}
+.a .transfer-done{border-color:rgba(107,207,134,.35);background:linear-gradient(rgba(107,207,134,.07),rgba(107,207,134,.07)),var(--card)}
+.a .transfer-done-icon{flex:0 0 auto;width:38px;height:38px;border-radius:10px;display:grid;place-items:center;background:rgba(107,207,134,.14);color:var(--green);font-size:20px}
+.a .transfer-done code{font-size:11px;color:var(--sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.a .transfer-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.a .transfer-stats>div{display:flex;flex-direction:column;gap:2px;padding:10px 14px;border:.5px solid var(--bd);border-radius:10px;background:var(--card)}
+.a .transfer-stats b{font-size:20px;font-weight:600;color:var(--tx)}.a .transfer-stats span{color:var(--mut);font-size:11.5px}
+.a .transfer-section-title{display:flex;align-items:baseline;gap:8px;font-size:12.5px;font-weight:600;color:var(--tx);margin-top:2px}
+.a .transfer-section-title small{font-weight:400;color:var(--mut);font-size:11.5px}
+.a .transfer-list{display:flex;flex-direction:column;gap:6px;max-height:280px;overflow:auto}
+.a .transfer-row{display:flex;align-items:center;gap:10px;padding:9px 12px;border:.5px solid var(--bd);border-radius:9px;background:var(--card);cursor:pointer}
+.a .transfer-row:hover{border-color:var(--bdh,var(--bd))}.a .transfer-row.on{border-color:rgba(245,130,31,.5);background:linear-gradient(var(--acc-soft),var(--acc-soft)),var(--card)}
+.a .transfer-row.missing,.a .transfer-row.present{opacity:.55}.a .transfer-row.resume,.a .transfer-list.compact .transfer-row{cursor:default}
+.a .transfer-list.compact .transfer-row{padding:7px 12px}
+.a .transfer-row input[type=checkbox],.a .transfer-check input{width:15px;height:15px;margin:0;flex:0 0 auto;accent-color:var(--acc)}
+.a .transfer-row-icon{flex:0 0 auto;width:30px;height:30px;border-radius:8px;display:grid;place-items:center;background:var(--cardh);color:var(--sub);font-size:15px}
+.a .transfer-row-main{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+.a .transfer-row-main b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.a .transfer-row-main small,.a .transfer-row-main code{color:var(--mut);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.a .transfer-row-main code{user-select:all}
+.a .transfer-row-side{display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex:0 0 auto}.a .transfer-row-side small{color:var(--mut);font-size:11px}
+.a .transfer-pill{padding:1px 8px;border-radius:999px;background:var(--cardh);color:var(--sub);font-size:11px;white-space:nowrap}
+.a .transfer-agent{flex:0 0 auto;padding:2px 8px;border-radius:6px;font-size:11px;background:var(--cardh);color:var(--sub)}
+.a .transfer-agent.codex{color:#8fb8ff;background:rgba(106,163,245,.12)}.a .transfer-agent.claude{color:#f0a37a;background:rgba(217,119,87,.13)}
+.a .transfer-hint{display:flex;gap:8px;align-items:flex-start;padding:9px 12px;border-radius:9px;background:var(--cardh);color:var(--mut);font-size:12px;line-height:1.65}
+.a .transfer-hint i{margin-top:3px;flex:0 0 auto}.a .transfer-hint.warn{background:rgba(230,180,80,.09);color:#e6b450}
+.a .transfer-empty{display:flex;align-items:center;gap:8px;color:var(--mut);padding:10px 2px}
+.a .transfer-steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px;counter-reset:step}
+.a .transfer-steps li{display:grid;grid-template-columns:24px 64px minmax(0,1fr);gap:8px;align-items:baseline;counter-increment:step}
+.a .transfer-steps li::before{content:counter(step);width:22px;height:22px;border-radius:50%;display:grid;place-items:center;background:var(--acc-soft);color:var(--acc);font-size:11.5px;font-weight:600}
+.a .transfer-steps b{color:var(--tx)}.a .transfer-steps span{color:var(--mut);line-height:1.6}
+.a .transfer-accounts{display:flex;flex-direction:column;gap:6px}
+.a .transfer-account{display:flex;gap:8px;align-items:flex-start;padding:9px 12px;border-radius:9px;background:rgba(230,180,80,.08);font-size:12px;line-height:1.6}
 .a .transfer-account.same{background:rgba(107,207,134,.08)}.a .transfer-account i{margin-top:3px;color:#e6b450}.a .transfer-account.same i{color:var(--green)}
-.a .transfer-steps{font-size:12px;line-height:1.7}.a .transfer-steps ol{margin:4px 0 0;padding-left:20px;color:var(--sub)}
-.a .transfer-resume{display:flex;flex-direction:column;gap:6px;font-size:12px}
-.a .transfer-resume>div{display:grid;grid-template-columns:minmax(0,.8fr) minmax(0,1.4fr) auto;gap:8px;align-items:center;padding:6px 8px;border:.5px solid var(--bd);border-radius:8px}
-.a .transfer-resume code{font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;user-select:all}
+.a .transfer-account b{margin-right:6px;color:var(--tx)}
+.a .transfer-target{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border:.5px solid var(--bd);border-radius:9px;background:var(--card)}
+.a .transfer-target-head{display:flex;align-items:center;gap:10px}
+.a .transfer-target-to{display:flex;align-items:center;gap:6px;padding-left:40px}.a .transfer-target-to>i{color:var(--mut)}.a .transfer-target-to .ip{flex:1;min-width:0}
+.a .transfer-check{display:flex;align-items:flex-start;gap:8px;padding-left:40px;color:var(--sub);cursor:pointer;line-height:1.6}.a .transfer-check input{margin-top:3px}
+.a .transfer-target-note{padding-left:40px;color:var(--mut);font-size:11.5px}

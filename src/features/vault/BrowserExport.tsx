@@ -4,6 +4,7 @@ import { invoke } from "../../invoke";
 import { useI18n } from "../../i18n";
 import { Modal, useToast } from "../../ui";
 import { vaultApi, vaultError, type BrowserKind } from "./api";
+import { BrowserPasswordHelpButton } from "./BrowserPasswordHelp";
 
 const BROWSERS: { id: BrowserKind; name: string; step: string }[] = [
   { id: "chrome", name: "Chrome", step: "打开 chrome://password-manager/settings，点「导入密码」旁的「选择文件」" },
@@ -66,8 +67,9 @@ export function BrowserExport({ ids, onClose }: { ids: string[]; onClose: () => 
       <div className="vault-warn">这个文件里的密码是明文。导入浏览器后请删掉它，并清空回收站。</div>
       <div><button className="gh sm" onClick={() => void invoke("space_open_directory", { path: folder }).catch((error) => toast(String(error), "err"))}><i className="ti ti-folder-open" /> 打开文件所在位置</button></div>
     </div> : <div className="vault-form">
-      <div className="vault-sub" style={{ margin: 0 }}>
-        {ids.length ? tr("导出选中的条目里有网址和密码的登录。") : tr("导出保管库里所有有网址和密码的登录。")}SSH 密钥和没有网址的条目不导出。
+      <div className="pw-help-line">
+        <span>{ids.length ? tr("导出选中的条目里有网址和密码的登录。") : tr("导出保管库里所有有网址和密码的登录。")}SSH 密钥和没有网址的条目不导出。</span>
+        <BrowserPasswordHelpButton />
       </div>
       <div className="seg" role="radiogroup" aria-label="导出给哪个浏览器">
         {BROWSERS.map((item) => <button key={item.id} role="radio" aria-checked={browser === item.id} className={browser === item.id ? "on" : ""}

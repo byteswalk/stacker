@@ -4,6 +4,7 @@ import { invoke } from "../../invoke";
 import { useI18n } from "../../i18n";
 import { Modal, useToast } from "../../ui";
 import { vaultApi, vaultError, type BrowserStats } from "./api";
+import { BrowserPasswordHelpButton } from "./BrowserPasswordHelp";
 import { useTitleProgress } from "./titleProgress";
 
 const STEPS: [string, string][] = [
@@ -60,7 +61,7 @@ export function BrowserImport({ onClose, onChanged }: { onClose: () => void; onC
         </button>
       </>}>
     {done === null ? <div className="vault-form">
-      <div className="vault-sub" style={{ margin: 0 }}>浏览器不允许别的程序直接读取它保存的密码，请先在浏览器里导出成 CSV 文件，再在这里选择它。</div>
+      <div className="pw-help-line"><span>浏览器不允许别的程序直接读取它保存的密码，请先在浏览器里导出成 CSV 文件，再在这里选择它。</span><BrowserPasswordHelpButton /></div>
       <div className="vault-import-steps">{STEPS.map(([name, step]) => <div key={name}><b>{name}</b><span>{tr(step)}</span></div>)}</div>
       <div className="vault-bar" style={{ margin: 0 }}>
         <button className="gh sm" disabled={busy} onClick={() => void choose()}><i className={"ti " + (busy && !stats ? "ti-loader spin" : "ti-folder-open")} /> 选择 CSV 文件</button>
