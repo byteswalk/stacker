@@ -8,6 +8,7 @@ use super::format::{self, Header, Snapshot, Wrap};
 use super::model::{self, Body, Digests, EntryInput, EntryView, HistoryView, Kind, MergeStats};
 use super::wincred::{self, CredStore};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
@@ -265,19 +266,107 @@ impl Vault {
     }
 
     /// What a browser's password export would add; with `apply`, adds it.
+    /// `titles`, when given, reads the new logins' pages so each gets its page title as a note.
     pub(crate) fn import_browser(
         &self,
         text: &str,
         apply: bool,
+        titles: Option<&dyn Fn(Vec<String>) -> HashMap<String, String>>,
     ) -> Result<super::browser::BrowserStats, String> {
         let (logins, empty) = super::browser::logins(text)?;
-        let (inputs, same) =
+        let (mut inputs, same) =
             self.with_unlocked(|open| Ok(super::browser::new_logins(&open.body, logins)))?;
         let added = inputs.len();
         if apply && added > 0 {
+            if let Some(titles) = titles {
+                let urls = inputs.iter().filter_map(input_url).collect();
+                let found = titles(urls);
+                for input in &mut inputs {
+                    if let Some(title) = input_url(input).and_then(|url| found.get(&url)) {
+                        if input.note.is_empty() && !title.eq_ignore_ascii_case(&input.title) {
+                            input.note = title.clone();
+                        }
+                    }
+                }
+            }
             self.add_entries(inputs)?;
         }
         Ok(super::browser::BrowserStats { added, same, empty })
+    }
+
+    /// The web address of each of these entries that has one and no note yet: what a page
+    /// title can be read for.
+    pub(crate) fn untitled_pages(&self, ids: &[String]) -> Result<Vec<(String, String)>, String> {
+        self.with_unlocked(|open| {
+            Ok(open
+                .body
+                .entries
+                .iter()
+                .filter(|entry| entry.deleted_at.is_none() && entry.note.trim().is_empty())
+                .filter(|entry| ids.contains(&entry.id))
+                .filter_map(|entry| {
+                    let url = entry
+                        .fields
+                        .iter()
+                        .find(|field| field.name == super::browser::URL_FIELD)?;
+                    Some((entry.id.clone(), url.value.trim().to_string()))
+                })
+                .filter(|(_, url)| !url.is_empty())
+                .collect())
+        })
+    }
+
+    /// Notes for entries that still have none; one written meanwhile is kept. Taking a page's
+    /// title is not an edit of the login, so the entry keeps its place in the list.
+    pub(crate) fn set_notes(&self, notes: &HashMap<String, String>) -> Result<usize, String> {
+        self.mutate(|body| {
+            let mut count = 0;
+            for entry in body
+                .entries
+                .iter_mut()
+                .filter(|entry| entry.note.trim().is_empty())
+            {
+                if let Some(note) = notes.get(&entry.id) {
+                    entry.note = note.clone();
+                    count += 1;
+                }
+            }
+            Ok(count)
+        })
+    }
+
+    /// For each of `others`, whether any of its secrets differs from `keep`'s: what merging
+    /// would put into keep's history.
+    pub(crate) fn secrets_differ(
+        &self,
+        keep: &str,
+        others: &[String],
+    ) -> Result<Vec<bool>, String> {
+        self.with_unlocked(|open| {
+            let find = |id: &str| {
+                open.body
+                    .entries
+                    .iter()
+                    .find(|entry| entry.id == id && entry.deleted_at.is_none())
+            };
+            let keep = find(keep).ok_or(NOT_FOUND)?;
+            Ok(others
+                .iter()
+                .map(|id| {
+                    find(id).is_some_and(|other| {
+                        other.fields.iter().any(|field| {
+                            field.secret
+                                && !field.value.is_empty()
+                                && keep
+                                    .fields
+                                    .iter()
+                                    .find(|mine| mine.name == field.name)
+                                    .map_or(true, |mine| mine.value != field.value)
+                        })
+                    })
+                })
+                .collect())
+        })
     }
 
     /// Puts entries' secrets into Credential Manager, or takes them out. SSH keys never go.
@@ -931,6 +1020,16 @@ impl Vault {
     }
 }
 
+/// A new entry's web address, as typed in its 网址 field.
+fn input_url(input: &EntryInput) -> Option<String> {
+    input
+        .fields
+        .iter()
+        .find(|field| field.name == super::browser::URL_FIELD)
+        .and_then(|field| field.value.clone())
+        .filter(|url| !url.trim().is_empty())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -977,6 +1076,87 @@ mod tests {
         vault.confirm_recovery(&typed).unwrap();
         assert!(vault.path.exists());
         assert_eq!(vault.status().state, "unlocked");
+    }
+
+    #[test]
+    fn page_titles_become_notes_and_merging_is_previewed() {
+        let dir = tempfile::tempdir().unwrap();
+        let (vault, _) = created(&dir);
+        let csv = "name,url,username,password
+r,http://192.168.2.1/,admin,one
+r,http://192.168.2.1/,admin,two
+g,https://github.com/login,me,x
+";
+        let asked = std::cell::RefCell::new(Vec::new());
+        let titles = |urls: Vec<String>| {
+            asked.borrow_mut().extend(urls.clone());
+            urls.into_iter()
+                .filter(|url| url.contains("192.168"))
+                .map(|url| (url, "路由器管理".to_string()))
+                .collect::<HashMap<_, _>>()
+        };
+        let titles: &dyn Fn(Vec<String>) -> HashMap<String, String> = &titles;
+        assert_eq!(
+            vault
+                .import_browser(csv, false, Some(titles))
+                .unwrap()
+                .added,
+            3
+        );
+        assert!(asked.borrow().is_empty(), "a preview reads no pages");
+        vault.import_browser(csv, true, Some(titles)).unwrap();
+        let entries = vault.list(false).unwrap();
+        let note_of = |user: &str| {
+            entries
+                .iter()
+                .filter(|entry| {
+                    entry
+                        .fields
+                        .iter()
+                        .any(|field| field.value.as_deref() == Some(user))
+                })
+                .map(|entry| entry.note.clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(note_of("admin"), vec!["路由器管理", "路由器管理"]);
+        assert_eq!(note_of("me"), vec![""]);
+
+        let github = entries
+            .iter()
+            .find(|entry| entry.note.is_empty())
+            .unwrap()
+            .id
+            .clone();
+        let ids: Vec<String> = entries.iter().map(|entry| entry.id.clone()).collect();
+        assert_eq!(
+            vault.untitled_pages(&ids).unwrap(),
+            vec![(github.clone(), "https://github.com/login".to_string())],
+            "only entries without a note are asked about"
+        );
+        let mut notes = HashMap::new();
+        notes.insert(github.clone(), "GitHub".to_string());
+        notes.insert(ids[0].clone(), "ignored".to_string());
+        assert_eq!(
+            vault.set_notes(&notes).unwrap(),
+            1,
+            "a note already there stays"
+        );
+
+        let routers: Vec<String> = vault
+            .list(false)
+            .unwrap()
+            .into_iter()
+            .filter(|entry| entry.note == "路由器管理")
+            .map(|entry| entry.id)
+            .collect();
+        assert_eq!(
+            vault.secrets_differ(&routers[0], &routers[1..]).unwrap(),
+            vec![true]
+        );
+        assert_eq!(
+            vault.secrets_differ(&routers[0], &routers[..1]).unwrap(),
+            vec![false]
+        );
     }
 
     #[test]

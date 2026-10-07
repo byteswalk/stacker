@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { ConfirmModal, useToast } from "../../ui";
 import { vaultApi, vaultError, type EntryView } from "./api";
 import { KIND_LABELS } from "./labels";
@@ -6,9 +6,25 @@ import { accountOf, daysUntil, expiryState, formatTime, groupEntries, type Entry
 import { useI18n } from "../../i18n";
 import { aiBrief } from "./aiBrief";
 import { publicKeyOf } from "./SshKeys";
+import { MergeDialog } from "./MergeDialog";
+import { useTitleProgress } from "./titleProgress";
 
 /** How many sites the list draws before asking to show more. */
 const STEP = 100;
+
+/** The two columns a user can widen, in pixels; unset ones share the room left. */
+type Widths = { title?: number; site?: number };
+const WIDTHS_KEY = "stacker.vault.columns.v1";
+const readWidths = (): Widths => {
+  try { return JSON.parse(localStorage.getItem(WIDTHS_KEY) ?? "{}") as Widths; } catch { return {}; }
+};
+export const columnsOf = (widths: Widths) =>
+  `16px 18px ${widths.title ? `${widths.title}px` : "minmax(0,1.6fr)"} ${widths.site ? `${widths.site}px` : "minmax(0,1fr)"} 90px 100px 92px auto`;
+
+const urlOf = (entry: EntryView) => entry.fields.find((field) => field.name === "网址")?.value ?? "";
+
+/** One line of the list: a site's group, or one entry (`inGroup` when it sits under its site). */
+type Line = { group: EntryGroup; entry?: undefined } | { entry: EntryView; inGroup: boolean; group?: undefined };
 
 export function ExpiryBadge({ expiresAt, today }: { expiresAt: string | null; today: Date }) {
   const state = expiryState(expiresAt, today);
@@ -32,6 +48,13 @@ export function EntryList({ entries, today, onView, onEdit, onChanged }: {
   const [deleting, setDeleting] = useState<EntryView | null>(null);
   const [merging, setMerging] = useState<EntryGroup | null>(null);
   const [busy, setBusy] = useState(false);
+  const [filling, setFilling] = useState(false);
+  const progress = useTitleProgress(filling);
+  const [widths, setWidths] = useState<Widths>(readWidths);
+  const saveWidths = (next: Widths) => {
+    setWidths(next);
+    try { localStorage.setItem(WIDTHS_KEY, JSON.stringify(next)); } catch { /* a per-viewer convenience only */ }
+  };
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [shown, setShown] = useState(STEP);
@@ -46,6 +69,72 @@ export function EntryList({ entries, today, onView, onEdit, onChanged }: {
     return next;
   });
   const flip = (key: string) => setOpen((old) => { const next = new Set(old); if (next.has(key)) next.delete(key); else next.add(key); return next; });
+
+  const lines: Line[] = groups.slice(0, shown).flatMap((group): Line[] => group.entries.length === 1
+    ? [{ entry: group.entries[0], inGroup: false }]
+    : [{ group }, ...(open.has(group.key) ? group.entries.map((entry) => ({ entry, inGroup: true })) : [])]);
+  const idsOf = (line: Line) => (line.group ? line.group.entries : [line.entry]).filter((entry) => entry.kind !== "ssh_key").map((entry) => entry.id);
+
+  // Picking: press on a box and drag over the rows to set them all the same way; shift picks the range from the last box.
+  const dragging = useRef<boolean | null>(null);
+  const lastPicked = useRef<number | null>(null);
+  const pressed = useRef(false);
+  useEffect(() => {
+    const release = () => { dragging.current = null; window.setTimeout(() => { pressed.current = false; }, 0); };
+    window.addEventListener("pointerup", release);
+    return () => window.removeEventListener("pointerup", release);
+  }, []);
+  function press(index: number, event: ReactPointerEvent) {
+    const ids = idsOf(lines[index]);
+    if (event.button !== 0 || ids.length === 0) return;
+    event.preventDefault();
+    pressed.current = true;
+    const on = !ids.every((id) => picked.has(id));
+    const range = event.shiftKey && lastPicked.current !== null;
+    const from = range ? Math.min(lastPicked.current!, index) : index;
+    const to = range ? Math.max(lastPicked.current!, index) : index;
+    toggle(lines.slice(from, to + 1).flatMap(idsOf), on);
+    lastPicked.current = index;
+    dragging.current = on;
+  }
+  const pass = (index: number) => { if (dragging.current !== null) toggle(idsOf(lines[index]), dragging.current); };
+  // The keyboard still ticks a box; a press already did.
+  const keyed = (index: number, on: boolean) => { if (!pressed.current) { toggle(idsOf(lines[index]), on); lastPicked.current = index; } };
+
+  function resize(column: keyof Widths, event: ReactPointerEvent<HTMLElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    const cell = event.currentTarget.parentElement;
+    if (!cell) return;
+    const start = event.clientX;
+    const width = cell.getBoundingClientRect().width;
+    let latest = widths;
+    const move = (moved: PointerEvent) => {
+      latest = { ...widths, [column]: Math.round(Math.max(80, Math.min(900, width + moved.clientX - start))) };
+      setWidths(latest);
+    };
+    const stop = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+      saveWidths(latest);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+  }
+  const resizer = (column: keyof Widths) => <i className="vault-resize" title="拖动调整列宽，双击恢复"
+    onPointerDown={(event) => resize(column, event)} onDoubleClick={() => saveWidths({ ...widths, [column]: undefined })} />;
+
+  async function fillTitles() {
+    setFilling(true);
+    try {
+      const count = await vaultApi.fillTitles(chosen.map((entry) => entry.id));
+      toast(count > 0
+        ? tr("已给 {count} 条填上网页标题作为备注。").replace("{count}", String(count))
+        : "没有读到新的网页标题：选中的条目已有备注、没有网址，或网站打不开。", count > 0 ? "ok" : "info");
+      onChanged();
+    } catch (error) { toast(vaultError(error), "err"); }
+    finally { setFilling(false); }
+  }
 
   async function setWindows(on: boolean) {
     setBusy(true);
@@ -87,34 +176,26 @@ export function EntryList({ entries, today, onView, onEdit, onChanged }: {
     catch (error) { toast(vaultError(error), "err"); }
     finally { setBusy(false); setDeleting(null); }
   }
-  // Each account kept more than once becomes its newest entry; the others' passwords go to its history.
-  async function merge(group: EntryGroup) {
-    setBusy(true);
-    try {
-      let count = 0;
-      for (const set of group.duplicates) count += await vaultApi.merge(set[0].id, set.slice(1).map((entry) => entry.id));
-      toast(tr("已合并 {count} 条重复登录，旧密码留在保留那条的历史里，原条目在回收站。").replace("{count}", String(count)), "ok");
-      onChanged();
-    } catch (error) { toast(vaultError(error), "err"); }
-    finally { setBusy(false); setMerging(null); }
-  }
-
-  const row = (entry: EntryView, inGroup: boolean) => {
+  const row = (entry: EntryView, inGroup: boolean, index: number) => {
     const field = mainField(entry);
     const publicKey = entry.kind === "ssh_key" ? publicKeyOf(entry) : "";
     const account = accountOf(entry);
+    const name = inGroup && account ? account : entry.title;
+    const where = inGroup ? urlOf(entry) || entry.title : entry.platform;
+    const second = entry.note || where || "—";
     return (
-      <div key={entry.id} role="listitem" className={"vault-row" + (picked.has(entry.id) ? " picked" : "") + (inGroup ? " child" : "")} onClick={() => onView(entry)}>
-        <span onClick={(event) => event.stopPropagation()}>
+      <div key={entry.id} role="listitem" className={"vault-row" + (picked.has(entry.id) ? " picked" : "") + (inGroup ? " child" : "")}
+        onClick={() => onView(entry)} onPointerEnter={() => pass(index)}>
+        <span className="vault-pick-cell" onClick={(event) => event.stopPropagation()} onPointerDown={(event) => press(index, event)}>
           {entry.kind === "ssh_key"
             ? <input type="checkbox" className="vault-pick" disabled aria-label="SSH 密钥不进 Windows 凭据" title="SSH 密钥放在 ~/.ssh 给 ssh 用，不进 Windows 凭据管理器" />
-            : <input type="checkbox" className="vault-pick" aria-label="选择" checked={picked.has(entry.id)} onChange={(e) => toggle([entry.id], e.target.checked)} />}
+            : <input type="checkbox" className="vault-pick" aria-label="选择" title="按住拖过几行可以一起勾选；按住 Shift 点选一段" checked={picked.has(entry.id)} onChange={(e) => keyed(index, e.target.checked)} />}
         </span>
         <i className={"ti " + (inGroup ? "ti-user" : "ti-key")} aria-hidden="true" />
-        <span className="title" translate="no" title={entry.title}>{inGroup && account ? account : entry.title}
+        <span className="title" translate="no" title={inGroup && account ? `${account}\n${entry.title}` : entry.title}>{name}
           {entry.windows && <i className="ti ti-brand-windows vault-win" title="已放进 Windows 凭据管理器，本机的其他程序可以按名字取用" />}
         </span>
-        <span className="mut" translate="no">{inGroup ? entry.title : entry.platform || "—"}</span>
+        <span className="mut" translate="no" title={[entry.note, where].filter(Boolean).join("\n") || undefined}>{second}</span>
         <span className="mut">{KIND_LABELS[entry.kind]}</span>
         <ExpiryBadge expiresAt={entry.expiresAt} today={today} />
         <span className="mut">{formatTime(entry.updatedAt).slice(0, 10)}</span>
@@ -131,19 +212,21 @@ export function EntryList({ entries, today, onView, onEdit, onChanged }: {
     );
   };
 
-  const groupRow = (group: EntryGroup) => {
+  const groupRow = (group: EntryGroup, index: number) => {
     const ids = group.entries.filter((entry) => entry.kind !== "ssh_key").map((entry) => entry.id);
     const all = ids.length > 0 && ids.every((id) => picked.has(id));
     const expanded = open.has(group.key);
     const extra = group.duplicates.reduce((sum, set) => sum + set.length - 1, 0);
     const newest = Math.max(...group.entries.map((entry) => entry.updatedAt));
-    return <div key={`g:${group.key}`} className={"vault-row group" + (expanded ? " open" : "")} onClick={() => flip(group.key)}>
-      <span onClick={(event) => event.stopPropagation()}>
-        <input type="checkbox" className="vault-pick" aria-label="选择这个网站的全部条目" checked={all} disabled={!ids.length} onChange={(e) => toggle(ids, e.target.checked)} />
+    const note = group.entries.find((entry) => entry.note)?.note ?? "";
+    const count = tr("{count} 条").replace("{count}", String(group.entries.length));
+    return <div key={`g:${group.key}`} className={"vault-row group" + (expanded ? " open" : "")} onClick={() => flip(group.key)} onPointerEnter={() => pass(index)}>
+      <span className="vault-pick-cell" onClick={(event) => event.stopPropagation()} onPointerDown={(event) => press(index, event)}>
+        <input type="checkbox" className="vault-pick" aria-label="选择这个网站的全部条目" title="按住拖过几行可以一起勾选；按住 Shift 点选一段" checked={all} disabled={!ids.length} onChange={(e) => keyed(index, e.target.checked)} />
       </span>
       <i className={"ti " + (expanded ? "ti-chevron-down" : "ti-chevron-right")} aria-hidden="true" />
       <span className="title" translate="no" title={group.key}>{group.key}</span>
-      <span className="mut">{tr("{count} 条").replace("{count}", String(group.entries.length))}</span>
+      <span className="mut" title={note ? `${count}\n${note}` : count}>{count}{note ? <span translate="no"> · {note}</span> : null}</span>
       <span className="mut">{group.entries.some((entry) => entry.windows) ? <i className="ti ti-brand-windows vault-win" title="其中有条目放进了 Windows 凭据管理器" /> : ""}</span>
       <span />
       <span className="mut">{formatTime(newest).slice(0, 10)}</span>
@@ -158,22 +241,25 @@ export function EntryList({ entries, today, onView, onEdit, onChanged }: {
 
   if (entries.length === 0) return <div className="vault-empty">没有符合条件的条目。</div>;
   return (
-    <div className="vault-rows" role="list">
+    <div className="vault-rows" role="list" style={{ ["--vault-cols" as string]: columnsOf(widths) }}>
       {chosen.length > 0 && <div className="vault-batch">
         <span>{tr("已选 {count} 条").replace("{count}", String(chosen.length))}</span>
         <button className="gh sm" disabled={busy} title="本机的其他程序（比如 AI）可以按名字从 Windows 凭据管理器取用这些值" onClick={() => void setWindows(true)}><i className="ti ti-brand-windows" /> 放进 Windows 凭据</button>
         <button className="gh sm" disabled={busy} onClick={() => void setWindows(false)}><i className="ti ti-lock" /> 移出，只留在保管库</button>
+        <button className="gh sm" disabled={busy || filling} title="逐个打开选中条目的网址，读出网页标题，填进还没有备注的条目；只读网页，不带任何账号信息" onClick={() => void fillTitles()}>
+          <i className={"ti " + (filling ? "ti-loader spin" : "ti-world-search")} /> {filling
+            ? progress ? tr("正在读取网页标题 {done}/{total}").replace("{done}", String(progress[0])).replace("{total}", String(progress[1])) : tr("正在读取网页标题…")
+            : tr("获取网页标题作为备注")}
+        </button>
         <button className="gh sm" disabled={busy} onClick={() => setPicked(new Set())}>清空选择</button>
       </div>}
       <div className="vault-row head">
         <input type="checkbox" className="vault-pick" aria-label="全选" checked={allPicked} disabled={pickable.length === 0}
           onChange={() => setPicked(allPicked ? new Set() : new Set(pickable.map((entry) => entry.id)))} />
         <span />
-        <span>标题</span><span>平台</span><span>类型</span><span>到期</span><span>更新于</span><span className="ops">操作</span>
+        <span className="vault-col">标题{resizer("title")}</span><span className="vault-col">平台 / 备注{resizer("site")}</span><span>类型</span><span>到期</span><span>更新于</span><span className="ops">操作</span>
       </div>
-      {groups.slice(0, shown).map((group) => group.entries.length === 1
-        ? row(group.entries[0], false)
-        : [groupRow(group), ...(open.has(group.key) ? group.entries.map((entry) => row(entry, true)) : [])])}
+      {lines.map((line, index) => line.group ? groupRow(line.group, index) : row(line.entry, line.inGroup, index))}
       {groups.length > shown && <div className="vault-more">
         <button className="gh sm" onClick={() => setShown((n) => n + STEP)}>{tr("再显示 {count} 个网站").replace("{count}", String(Math.min(STEP, groups.length - shown)))}</button>
         <span className="mut">{tr("已显示 {shown} / {total} 个网站，可以用上面的搜索和筛选缩小范围。").replace("{shown}", String(shown)).replace("{total}", String(groups.length))}</span>
@@ -182,11 +268,7 @@ export function EntryList({ entries, today, onView, onEdit, onChanged }: {
         <ConfirmModal title="删除条目" danger message={`删除「${deleting.title}」？可在回收站保留 30 天。`} confirmLabel="删除条目" busy={busy}
           onClose={() => setDeleting(null)} onConfirm={() => void remove(deleting)} />
       )}
-      {merging && (
-        <ConfirmModal title="合并重复登录" icon="ti-arrows-join" busy={busy} confirmLabel="合并"
-          message={tr("「{site}」里同一账号存了几份：每个账号只保留最近更新的那条，其余各条的密码放进它的历史（详情里点「历史」能看到），原条目移进回收站，30 天内可以恢复。").replace("{site}", merging.key)}
-          onClose={() => setMerging(null)} onConfirm={() => void merge(merging)} />
-      )}
+      {merging && <MergeDialog group={merging} onClose={() => setMerging(null)} onDone={() => { setMerging(null); onChanged(); }} />}
     </div>
   );
 }

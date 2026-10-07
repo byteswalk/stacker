@@ -7,6 +7,7 @@ use super::errors::{IO, NOT_FOUND};
 use super::model::{EntryInput, EntryView, FieldInput, HistoryView, MergeStats};
 use super::session::{Credential, Retired, Status};
 use super::{clipboard, guard, ssh, vault};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use zeroize::Zeroizing;
 
@@ -281,14 +282,46 @@ pub async fn vault_ssh_set_passphrase(
 /// Reads a browser's password export: what it would add, or (with `apply`) adds it.
 #[tauri::command]
 pub async fn vault_import_browser(
+    app: tauri::AppHandle,
     src: String,
     apply: bool,
+    titles: Option<bool>,
 ) -> Result<super::browser::BrowserStats, String> {
     blocking(move || {
         let text = super::browser::read(&PathBuf::from(src))?;
-        vault().import_browser(&text, apply)
+        let fetch = |urls: Vec<String>| page_titles(&app, urls);
+        let fetch: &dyn Fn(Vec<String>) -> HashMap<String, String> = &fetch;
+        vault().import_browser(&text, apply, titles.unwrap_or(false).then_some(fetch))
     })
     .await
+}
+
+/// Reads pages' titles, telling the page how far it got.
+fn page_titles(app: &tauri::AppHandle, urls: Vec<String>) -> HashMap<String, String> {
+    use tauri::Emitter;
+    super::titles::fetch_all(urls, |done, total| {
+        let _ = app.emit("vault-titles-progress", (done, total));
+    })
+}
+
+/// Gives the chosen entries that have a web address and no note their page's title as a note.
+#[tauri::command]
+pub async fn vault_fill_titles(app: tauri::AppHandle, ids: Vec<String>) -> Result<usize, String> {
+    blocking(move || {
+        let pages = vault().untitled_pages(&ids)?;
+        let found = page_titles(&app, pages.iter().map(|(_, url)| url.clone()).collect());
+        let notes = pages
+            .into_iter()
+            .filter_map(|(id, url)| found.get(&url).map(|title| (id, title.clone())))
+            .collect();
+        vault().set_notes(&notes)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn vault_merge_preview(keep: String, others: Vec<String>) -> Result<Vec<bool>, String> {
+    blocking(move || vault().secrets_differ(&keep, &others)).await
 }
 
 /// Puts the secrets of `ids` into Windows Credential Manager, or takes them out.

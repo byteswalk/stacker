@@ -583,6 +583,8 @@ pub fn run() {
             vault::commands::vault_credential_targets,
             vault::commands::vault_set_windows,
             vault::commands::vault_merge,
+            vault::commands::vault_merge_preview,
+            vault::commands::vault_fill_titles,
             winget_settings::winget_downloader,
             winget_settings::winget_downloader_set,
             vault::commands::vault_import_browser,

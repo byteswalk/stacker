@@ -4,6 +4,7 @@ import { invoke } from "../../invoke";
 import { useI18n } from "../../i18n";
 import { Modal, useToast } from "../../ui";
 import { vaultApi, vaultError, type BrowserStats } from "./api";
+import { useTitleProgress } from "./titleProgress";
 
 const STEPS: [string, string][] = [
   ["Chrome", "打开 chrome://password-manager/settings，点「导出密码」旁的「下载文件」"],
@@ -19,6 +20,9 @@ export function BrowserImport({ onClose, onChanged }: { onClose: () => void; onC
   const [stats, setStats] = useState<BrowserStats | null>(null);
   const [done, setDone] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
+  const [titles, setTitles] = useState(false);
+  const [applying, setApplying] = useState(false);
+  const progress = useTitleProgress(applying && titles);
 
   async function choose() {
     try {
@@ -33,12 +37,13 @@ export function BrowserImport({ onClose, onChanged }: { onClose: () => void; onC
   }
   async function apply() {
     setBusy(true);
+    setApplying(true);
     try {
-      const result = await vaultApi.importBrowser(src, true);
+      const result = await vaultApi.importBrowser(src, true, titles);
       setDone(result.added);
       onChanged();
     } catch (error) { toast(vaultError(error), "err"); }
-    finally { setBusy(false); }
+    finally { setBusy(false); setApplying(false); }
   }
   const folder = src.replace(/[\\/][^\\/]+$/, "");
 
@@ -48,7 +53,10 @@ export function BrowserImport({ onClose, onChanged }: { onClose: () => void; onC
       : <>
         <button className="gh sm" disabled={busy} onClick={onClose}>取消</button>
         <button className="pr sm" disabled={busy || !stats || stats.added === 0} onClick={() => void apply()}>
-          {stats ? tr("导入 {count} 条").replace("{count}", String(stats.added)) : tr("导入")}
+          {applying && <i className="ti ti-loader spin" />}
+          {applying && titles
+            ? progress ? tr("正在读取网页标题 {done}/{total}").replace("{done}", String(progress[0])).replace("{total}", String(progress[1])) : tr("正在读取网页标题…")
+            : stats ? tr("导入 {count} 条").replace("{count}", String(stats.added)) : tr("导入")}
         </button>
       </>}>
     {done === null ? <div className="vault-form">
@@ -61,6 +69,10 @@ export function BrowserImport({ onClose, onChanged }: { onClose: () => void; onC
       {stats && <div className="callout" style={{ margin: 0 }}><i className="ti ti-info-circle" /><div>
         {tr("新增 {added} 条，已在保管库 {same} 条，没有密码的 {empty} 行跳过。").replace("{added}", String(stats.added)).replace("{same}", String(stats.same)).replace("{empty}", String(stats.empty))}
       </div></div>}
+      <label className="vault-check">
+        <input type="checkbox" checked={titles} disabled={busy} onChange={(event) => setTitles(event.target.checked)} />
+        <span>读取各网站的网页标题作为备注<span className="mut vault-check-more">会逐个打开这些网址（只读网页，不带账号信息），多的话要一两分钟；打不开的留空。以后也能在列表里勾选后补。</span></span>
+      </label>
       <div className="vault-sub" style={{ margin: 0 }}>每条登录存成一条通用凭据（网址、账号、密码），打上「浏览器」标签；默认不放进 Windows 凭据管理器，需要的再在列表里勾选后放进去。</div>
     </div> : <div className="vault-form">
       <div className="callout" style={{ margin: 0 }}><i className="ti ti-circle-check" /><div>{tr("已导入 {count} 条。").replace("{count}", String(done))}</div></div>

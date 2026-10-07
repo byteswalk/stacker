@@ -62,8 +62,11 @@ export const vaultApi = {
   sshSetPassphrase: (id: string, old: string, next: string, passphraseField: string) =>
     invoke<EntryView>("vault_ssh_set_passphrase", { id, old, new: next, passphraseField }),
   merge: (keep: string, others: string[]) => invoke<number>("vault_merge", { keep, others }),
+  /** For each of `others`, whether its password differs from `keep`'s. */
+  mergePreview: (keep: string, others: string[]) => invoke<boolean[]>("vault_merge_preview", { keep, others }),
+  fillTitles: (ids: string[]) => invoke<number>("vault_fill_titles", { ids }),
   setWindows: (ids: string[], on: boolean) => invoke<number>("vault_set_windows", { ids, on }),
-  importBrowser: (src: string, apply: boolean) => invoke<BrowserStats>("vault_import_browser", { src, apply }),
+  importBrowser: (src: string, apply: boolean, titles = false) => invoke<BrowserStats>("vault_import_browser", { src, apply, titles }),
   credentialTargets: (id: string) => invoke<CredentialTarget[]>("vault_credential_targets", { id }),
   envHolders: (id: string) => invoke<EnvHolder[]>("vault_env_holders", { id }),
   sshLocal: (id: string) => invoke<SshLocal>("vault_ssh_local", { id }),

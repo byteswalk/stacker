@@ -13,6 +13,7 @@ pub(crate) mod logins;
 pub(crate) mod model;
 pub(crate) mod session;
 pub(crate) mod ssh;
+pub(crate) mod titles;
 pub(crate) mod wincred;
 
 use std::path::PathBuf;

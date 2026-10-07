@@ -60,7 +60,10 @@ export function EntryDetail({ entry, today, onEdit, onChanged, onClose }: {
     <Modal wide icon="ti-key" title={<span translate="no">{entry.title}</span>} onClose={onClose}
       sub={<span>{entry.platform ? <span translate="no">{entry.platform} · </span> : null}{KIND_LABELS[entry.kind]}</span>}
       footer={<>
-        {entry.historyCount > 0 && <button className="gh sm" onClick={() => setHistoryOpen(true)}><i className="ti ti-history" /> 历史</button>}
+        <button className="gh sm" disabled={entry.historyCount === 0} onClick={() => setHistoryOpen(true)}
+          title={entry.historyCount > 0 ? "保密字段改动或合并重复前的旧值" : "还没有历史：保密字段改过，或合并重复登录后，旧值会留在这里"}>
+          <i className="ti ti-history" /> {entry.historyCount > 0 ? tr("历史 {count}").replace("{count}", String(entry.historyCount)) : tr("历史")}
+        </button>
         {entry.kind === "ssh_key" && entry.ssh && <button className="gh sm" disabled={busy} onClick={() => void exportKey()}><i className="ti ti-file-export" /> 导出私钥</button>}
         <button className="gh sm" disabled={busy} onClick={() => setConfirmDelete(true)}><i className="ti ti-trash" /> 删除条目</button>
         <button className="pr sm" disabled={busy} onClick={onEdit}><i className="ti ti-edit" /> 编辑</button>
