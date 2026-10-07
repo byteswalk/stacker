@@ -134,15 +134,6 @@ export function DuplicateFiles({ taskId }: { taskId: string }) {
     </div>
     {!report && !busy && <p className="proxy-note">{t("按大小先筛，再逐字节比对内容；只列出内容完全相同的文件。大于 256 MB 的文件按大小和首尾片段判断，会单独标注。")}</p>}
     {report && !report.groups.length && <div className="space-analysis-state"><i className="ti ti-sparkles" /><span>{t("这次扫描范围里没有重复文件")}</span></div>}
-    {!!report?.groups.length && <RecycleBar files={files} onDone={removed}
-      extra={<>
-        <button className="gh sm" disabled={!!verifying} onClick={() => void pickAll()} title={t("每组保留一份。只比对过首尾的大文件先逐字节核对，内容完全一致才勾；有程序文件的组（AppData、node_modules、dll、exe 等）只勾临时、备份、副本或你自己文件夹里的那份；系统目录里的不勾")}>
-          <i className={"ti " + (verifying ? "ti-loader spin" : "ti-wand")} /> {verifying
-            ? t("正在逐字节核对 {done}/{total} 组…").replace("{done}", String(verifying[0])).replace("{total}", String(verifying[1]))
-            : t("智能选择")}
-        </button>
-        {picked.size > 0 && <button className="gh sm" onClick={() => setPicked(new Set())}>{t("清空选择")}</button>}
-      </>} />}
     {report?.groups.map((group, index) => <div className="dupe-group" key={index}>
       <div className="dupe-head">
         <b>{bytes(group.bytes)} × {group.paths.length}</b>
@@ -158,6 +149,15 @@ export function DuplicateFiles({ taskId }: { taskId: string }) {
         <button className="gh xs" title={t("打开所在目录")} onClick={() => open(path)}><i className="ti ti-folder-open" /></button>
       </div>)}
     </div>)}
+    {!!report?.groups.length && <RecycleBar files={files} onDone={removed}
+      extra={<>
+        <button className="gh sm" disabled={!!verifying} onClick={() => void pickAll()} title={t("每组保留一份。只比对过首尾的大文件先逐字节核对，内容完全一致才勾；有程序文件的组（AppData、node_modules、dll、exe 等）只勾临时、备份、副本或你自己文件夹里的那份；系统目录里的不勾")}>
+          <i className={"ti " + (verifying ? "ti-loader spin" : "ti-wand")} /> {verifying
+            ? t("正在逐字节核对 {done}/{total} 组…").replace("{done}", String(verifying[0])).replace("{total}", String(verifying[1]))
+            : t("智能选择")}
+        </button>
+        {picked.size > 0 && <button className="gh sm" onClick={() => setPicked(new Set())}>{t("清空选择")}</button>}
+      </>} />}
     {report && !report.complete && <p className="proxy-note">{t("比对被中断，结果不完整。")}</p>}
   </div>;
 }

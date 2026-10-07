@@ -251,7 +251,10 @@ export function BackToTop({ scroller, after = 900 }: { scroller: { current: HTML
       frame = 0;
       if (element.scrollTop < after) { setPlace(null); return; }
       const box = element.getBoundingClientRect();
-      setPlace({ right: Math.max(0, window.innerWidth - box.right) + 28, bottom: Math.max(0, window.innerHeight - box.bottom) + 24 });
+      // Above a list's floating action bar, when the page has one.
+      const bar = element.querySelector<HTMLElement>(".float-bar");
+      const lift = bar ? bar.getBoundingClientRect().height + 20 : 0;
+      setPlace({ right: Math.max(0, window.innerWidth - box.right) + 28, bottom: Math.max(0, window.innerHeight - box.bottom) + 24 + lift });
     };
     const schedule = () => { if (!frame) frame = requestAnimationFrame(update); };
     element.addEventListener("scroll", schedule, { passive: true });

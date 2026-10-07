@@ -95,7 +95,7 @@ export function RecycleBar({ files, extra, onDone, folders = false }: {
     }
   }
 
-  return <div className="recycle-bar">
+  return <div className="recycle-bar float-bar">
     {extra}
     <span className="recycle-bar-count">{files.length
       ? tr(words.picked).replace("{count}", String(files.length)).replace("{size}", formatSpaceBytes(total))

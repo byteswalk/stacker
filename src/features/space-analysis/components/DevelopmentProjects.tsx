@@ -70,12 +70,6 @@ export function DevelopmentProjects({ projects }: { projects: DevelopmentProject
       <span>{t("space.projects.detected")} <b>{filtered.length}</b> / {projects.length}</span>
       <span>{t("space.projects.reclaimable")} <b>{formatSpaceBytes(filtered.reduce((sum, project) => sum + project.reclaimableBytes, 0))}</b></span>
     </div>
-    {filtered.length > 0 && <RecycleBar folders files={chosen} onDone={removed}
-      extra={<label className="recycle-all">
-        <input type="checkbox" checked={allPicked} disabled={!pickable.length}
-          onChange={(event) => setPicked(event.target.checked ? new Set(pickable.map((project) => project.path)) : new Set())} />
-        {tr(query ? "全选筛选出的项目" : "全选")}
-      </label>} />}
     <div className="space-project-list">
       {filtered.map((project, index) => {
         const lockedHere = locked.has(project.path);
@@ -106,6 +100,12 @@ export function DevelopmentProjects({ projects }: { projects: DevelopmentProject
         </article>;
       })}
     </div>
+    {filtered.length > 0 && <RecycleBar folders files={chosen} onDone={removed}
+      extra={<label className="recycle-all">
+        <input type="checkbox" checked={allPicked} disabled={!pickable.length}
+          onChange={(event) => setPicked(event.target.checked ? new Set(pickable.map((project) => project.path)) : new Set())} />
+        {tr(query ? "全选筛选出的项目" : "全选")}
+      </label>} />}
     {filtered.length === 0 && <div className="space-analysis-empty compact">{t("space.projects.noMatch")}</div>}
   </>;
 }

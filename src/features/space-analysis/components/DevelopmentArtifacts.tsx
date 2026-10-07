@@ -102,7 +102,7 @@ export function CleanupAction() {
   const cleanup = useCleanupStore();
   const picked = cleanup.candidates.filter((node) => cleanup.selected.has(node.nodeId));
   const bytes = picked.reduce((sum, node) => sum + node.allocatedBytes, 0);
-  return <div className="space-cleanup-action">
+  return <div className="space-cleanup-action float-bar">
     <span>{tr("已选择")} {picked.length} {tr("项")} · {formatSpaceBytes(bytes)}</span>
     <button className="pr sm" type="button" disabled={cleanup.loading || cleanup.planning || picked.length === 0 || cleanup.progress?.state === "running"}
       title={tr("核对所选项目后进入清理确认")}
@@ -144,9 +144,10 @@ export function DevelopmentArtifacts({ nodes }: { nodes: DirectoryNode[] }) {
   return <>
     <div className="space-analysis-section-heading space-cleanup-heading">
       <div><strong>{tr("开发产物")}</strong><span>{tr("仅列出已识别项目中可重新生成的依赖、构建目录和发布产物。")}</span></div>
-      <div className="space-cleanup-heading-actions"><CleanupPathFilter value={query} onChange={setQuery} /><SelectionActions nodes={filteredNodes} /><CleanupAction /></div>
+      <div className="space-cleanup-heading-actions"><CleanupPathFilter value={query} onChange={setQuery} /><SelectionActions nodes={filteredNodes} /></div>
     </div>
     {query && <div className="space-cleanup-filter-note">{tr("批量操作仅作用于当前筛选结果。")} {filteredNodes.length} / {nodes.length}</div>}
     <CandidateRows nodes={filteredNodes} emptyText={query ? tr("未找到匹配的可清理项。") : undefined} />
+    {nodes.length > 0 && <CleanupAction />}
   </>;
 }

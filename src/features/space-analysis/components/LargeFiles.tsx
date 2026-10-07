@@ -189,14 +189,6 @@ export function LargeFiles({ taskId, thresholdBytes }: { taskId: string; thresho
         </div>
       )}
 
-      {page.items.length > 0 && <RecycleBar
-        files={page.items.filter((item) => picked.has(item.path)).map((item) => ({ path: item.path, bytes: item.logicalBytes }))}
-        extra={<label className="recycle-all">
-          <input type="checkbox" checked={allPicked} disabled={!pickable.length}
-            onChange={(e) => setPicked(e.target.checked ? new Set(pickable.map((item) => item.path)) : new Set())} />
-          {tr("全选已加载的")}
-        </label>}
-        onDone={removed} />}
 
       <div className="space-large-file-list">
         {page.items.map((file, i) => (
@@ -239,6 +231,14 @@ export function LargeFiles({ taskId, thresholdBytes }: { taskId: string; thresho
           {loading ? tr("正在加载…") : `${tr("加载更多")} (${page.items.length}/${page.total})`}
         </button>
       )}
+      {page.items.length > 0 && <RecycleBar
+        files={page.items.filter((item) => picked.has(item.path)).map((item) => ({ path: item.path, bytes: item.logicalBytes }))}
+        extra={<label className="recycle-all">
+          <input type="checkbox" checked={allPicked} disabled={!pickable.length}
+            onChange={(e) => setPicked(e.target.checked ? new Set(pickable.map((item) => item.path)) : new Set())} />
+          {tr("全选已加载的")}
+        </label>}
+        onDone={removed} />}
     </div>
   );
 }

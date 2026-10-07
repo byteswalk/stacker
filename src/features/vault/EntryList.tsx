@@ -200,7 +200,18 @@ export function EntryList({ entries, today, onView, onEdit, onChanged }: {
   if (entries.length === 0) return <div className="vault-empty">没有符合条件的条目。</div>;
   return (
     <div className="vault-rows" role="list" style={{ ["--vault-cols" as string]: columns.template }}>
-      {chosen.length > 0 && <div className="vault-batch">
+      <div className="vault-row head" data-columns="">
+        <input type="checkbox" className="vault-pick" aria-label="全选" checked={allPicked} disabled={pickable.length === 0}
+          onChange={() => setPicked(allPicked ? new Set() : new Set(pickable.map((entry) => entry.id)))} />
+        <span />
+        <span className="col-cell">标题{columns.handle("title")}</span><span className="col-cell">平台 / 备注{columns.handle("site")}</span><span className="col-cell">类型{columns.handle("kind")}</span><span className="col-cell">到期{columns.handle("expiry")}</span><span className="col-cell">更新于{columns.handle("updated")}</span><span className="ops">操作</span>
+      </div>
+      {lines.map((line, index) => line.group ? groupRow(line.group, index) : row(line.entry, line.inGroup, index))}
+      {groups.length > shown && <div className="vault-more">
+        <button className="gh sm" onClick={() => setShown((n) => n + STEP)}>{tr("再显示 {count} 个网站").replace("{count}", String(Math.min(STEP, groups.length - shown)))}</button>
+        <span className="mut">{tr("已显示 {shown} / {total} 个网站，可以用上面的搜索和筛选缩小范围。").replace("{shown}", String(shown)).replace("{total}", String(groups.length))}</span>
+      </div>}
+      {chosen.length > 0 && <div className="vault-batch float-bar">
         <span>{tr("已选 {count} 条").replace("{count}", String(chosen.length))}</span>
         <button className="gh sm" disabled={busy} title="本机的其他程序（比如 AI）可以按名字从 Windows 凭据管理器取用这些值" onClick={() => void setWindows(true)}><i className="ti ti-brand-windows" /> 放进 Windows 凭据</button>
         <button className="gh sm" disabled={busy} onClick={() => void setWindows(false)}><i className="ti ti-lock" /> 移出，只留在保管库</button>
@@ -213,17 +224,6 @@ export function EntryList({ entries, today, onView, onEdit, onChanged }: {
             : tr("获取网页标题作为备注")}
         </button>
         <button className="gh sm" disabled={busy} onClick={() => setPicked(new Set())}>清空选择</button>
-      </div>}
-      <div className="vault-row head" data-columns="">
-        <input type="checkbox" className="vault-pick" aria-label="全选" checked={allPicked} disabled={pickable.length === 0}
-          onChange={() => setPicked(allPicked ? new Set() : new Set(pickable.map((entry) => entry.id)))} />
-        <span />
-        <span className="col-cell">标题{columns.handle("title")}</span><span className="col-cell">平台 / 备注{columns.handle("site")}</span><span className="col-cell">类型{columns.handle("kind")}</span><span className="col-cell">到期{columns.handle("expiry")}</span><span className="col-cell">更新于{columns.handle("updated")}</span><span className="ops">操作</span>
-      </div>
-      {lines.map((line, index) => line.group ? groupRow(line.group, index) : row(line.entry, line.inGroup, index))}
-      {groups.length > shown && <div className="vault-more">
-        <button className="gh sm" onClick={() => setShown((n) => n + STEP)}>{tr("再显示 {count} 个网站").replace("{count}", String(Math.min(STEP, groups.length - shown)))}</button>
-        <span className="mut">{tr("已显示 {shown} / {total} 个网站，可以用上面的搜索和筛选缩小范围。").replace("{shown}", String(shown)).replace("{total}", String(groups.length))}</span>
       </div>}
       {deleting && (
         <ConfirmModal title="删除条目" danger message={`删除「${deleting.title}」？可在回收站保留 30 天。`} confirmLabel="删除条目" busy={busy}
