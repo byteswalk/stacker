@@ -15,15 +15,15 @@ import { useTitleProgress } from "./titleProgress";
 /** How many sites the list draws before asking to show more. */
 const STEP = 100;
 
-/** The list's columns: title and site can be widened; the actions stay as they are. */
+/** The list's columns: every one with data can be resized; the actions stay as they are. */
 const COLUMNS: Column[] = [
   { key: "pick", track: "16px" },
   { key: "icon", track: "18px" },
   { key: "title", track: "minmax(0,1.6fr)", resizable: true, min: 80 },
   { key: "site", track: "minmax(0,1fr)", resizable: true, min: 80 },
-  { key: "kind", track: "90px" },
-  { key: "expiry", track: "100px" },
-  { key: "updated", track: "92px" },
+  { key: "kind", track: "90px", resizable: true, min: 60 },
+  { key: "expiry", track: "100px", resizable: true, min: 70 },
+  { key: "updated", track: "92px", resizable: true, min: 80 },
   { key: "ops", track: "auto", grows: true, min: 300 },
 ];
 
@@ -218,7 +218,7 @@ export function EntryList({ entries, today, onView, onEdit, onChanged }: {
         <input type="checkbox" className="vault-pick" aria-label="全选" checked={allPicked} disabled={pickable.length === 0}
           onChange={() => setPicked(allPicked ? new Set() : new Set(pickable.map((entry) => entry.id)))} />
         <span />
-        <span className="col-cell">标题{columns.handle("title")}</span><span className="col-cell">平台 / 备注{columns.handle("site")}</span><span>类型</span><span>到期</span><span>更新于</span><span className="ops">操作</span>
+        <span className="col-cell">标题{columns.handle("title")}</span><span className="col-cell">平台 / 备注{columns.handle("site")}</span><span className="col-cell">类型{columns.handle("kind")}</span><span className="col-cell">到期{columns.handle("expiry")}</span><span className="col-cell">更新于{columns.handle("updated")}</span><span className="ops">操作</span>
       </div>
       {lines.map((line, index) => line.group ? groupRow(line.group, index) : row(line.entry, line.inGroup, index))}
       {groups.length > shown && <div className="vault-more">

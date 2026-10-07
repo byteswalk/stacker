@@ -13,8 +13,8 @@ const COLUMNS: Column[] = [
   { key: "time", track: "140px", resizable: true, min: 100 },
   { key: "endpoint", track: "minmax(150px,1fr)", resizable: true, min: 150 },
   { key: "model", track: "minmax(130px,1fr)", resizable: true, min: 100 },
-  { key: "status", track: "50px" },
-  { key: "elapsed", track: "60px" },
+  { key: "status", track: "50px", resizable: true, min: 40 },
+  { key: "elapsed", track: "60px", resizable: true, min: 50 },
   { key: "ops", track: "60px", grows: true, min: 60 },
 ];
 
@@ -125,7 +125,7 @@ export function GatewayLog({ enabled, retentionDays, onSettings }: {
       <div className="gw-log" style={{ ["--gw-log-cols" as string]: columns.template }}>
         <div className="head" data-columns="">
           <label className="ck"><input type="checkbox" checked={allPicked} onChange={(e) => setPicked(e.target.checked ? rows.map((r) => r.id) : [])} /></label>
-          <span className="col-cell">{t("时间")}{columns.handle("time")}</span><span className="col-cell">{t("接口")}{columns.handle("endpoint")}</span><span className="col-cell">{t("模型")}{columns.handle("model")}</span><span>{t("状态")}</span><span>{t("耗时")}</span><span />
+          <span className="col-cell">{t("时间")}{columns.handle("time")}</span><span className="col-cell">{t("接口")}{columns.handle("endpoint")}</span><span className="col-cell">{t("模型")}{columns.handle("model")}</span><span className="col-cell">{t("状态")}{columns.handle("status")}</span><span className="col-cell">{t("耗时")}{columns.handle("elapsed")}</span><span />
         </div>
         {rows.map((r, i) => <div key={r.id} className={"row" + (picked.includes(r.id) ? " on" : "")} onClick={() => setOpened(r)} title={t("查看这条请求的详情")} {...pick.row(i)}>
           <label className="ck" onClick={(event) => event.stopPropagation()} title={t("按住拖过几行可以一起勾选；按住 Shift 点选一段")} {...pick.box(i)}><input type="checkbox" checked={picked.includes(r.id)} aria-label={String(r.at)}

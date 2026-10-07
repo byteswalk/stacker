@@ -7,14 +7,14 @@ import { AGENT_LABEL, formatAge } from "./sessionsView";
 import type { AgentName, ProjectRow } from "./types";
 import { useColumns, type Column } from "../../columns";
 
-/** The table's tracks: project and agents can be widened; the actions keep the width of their buttons. */
+/** The table's tracks: every one with data can be resized; the actions keep the width of their buttons. */
 const TRACKS: Column[] = [
   { key: "name", track: "minmax(200px,1fr)", resizable: true, min: 160 },
   { key: "agent", track: "120px", resizable: true, min: 80 },
-  { key: "sessions", track: "60px" },
-  { key: "orphans", track: "60px" },
-  { key: "bytes", track: "80px" },
-  { key: "updated", track: "80px" },
+  { key: "sessions", track: "60px", resizable: true, min: 44 },
+  { key: "orphans", track: "60px", resizable: true, min: 44 },
+  { key: "bytes", track: "80px", resizable: true, min: 60 },
+  { key: "updatedAt", track: "80px", resizable: true, min: 60 },
   { key: "ops", track: "auto", grows: true },
 ];
 
@@ -105,7 +105,7 @@ export function ProjectList({ rows, loading, onPick, onHandoff }: { rows: Projec
     <div className="session-projects" role="table" style={{ ["--project-cols" as string]: columns.template }}>
       <div className="session-project head" role="row" data-columns="">
         <span className="col-cell">{header("name", "项目")}{columns.handle("name")}</span><span className="col-cell">{t("智能体")}{columns.handle("agent")}</span>
-        {COLUMNS.map((c) => <span key={c.key}>{header(c.key, c.label)}</span>)}
+        {COLUMNS.map((c) => <span key={c.key} className="col-cell">{header(c.key, c.label)}{columns.handle(c.key)}</span>)}
         <span />
       </div>
       {shown.map((row) => <div key={row.project.key || "none"} className="session-project" role="row">
