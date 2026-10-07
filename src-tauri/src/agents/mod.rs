@@ -4,7 +4,7 @@ mod detect;
 pub(crate) mod devcli;
 mod feeds;
 mod health;
-mod install;
+pub(crate) mod install;
 pub(crate) mod net;
 pub(crate) mod process;
 pub(crate) mod pty;

@@ -44,6 +44,7 @@ mod versions;
 mod webchat;
 mod winadmin;
 mod winenv;
+mod winget_settings;
 /// The smallest the main window may be, in logical pixels: every page is drawn for it.
 const MIN_WINDOW: (f64, f64) = (1280.0, 720.0);
 
@@ -582,6 +583,8 @@ pub fn run() {
             vault::commands::vault_credential_targets,
             vault::commands::vault_set_windows,
             vault::commands::vault_merge,
+            winget_settings::winget_downloader,
+            winget_settings::winget_downloader_set,
             vault::commands::vault_import_browser,
             vault::commands::vault_ssh_set_passphrase,
             vault::commands::vault_retired,
