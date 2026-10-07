@@ -6,6 +6,17 @@ import { Select } from "../../Select";
 import { AiAskModal, askAi } from "../ai/AiAsk";
 import { INTERNAL, LogDetail, parseDetail, statusMeaning, type LogRow } from "./LogDetail";
 import { useDragPick, setInArray } from "../../dragPick";
+import { useColumns, type Column } from "../../columns";
+
+const COLUMNS: Column[] = [
+  { key: "pick", track: "24px" },
+  { key: "time", track: "140px", resizable: true, min: 100 },
+  { key: "endpoint", track: "minmax(150px,1fr)", resizable: true, min: 150 },
+  { key: "model", track: "minmax(130px,1fr)", resizable: true, min: 100 },
+  { key: "status", track: "50px" },
+  { key: "elapsed", track: "60px" },
+  { key: "ops", track: "60px", grows: true, min: 60 },
+];
 
 type LogPage = { items: LogRow[]; total: number; kept: number; agents: string[] };
 type Query = { search: string; outcome: string; agent: string; since: number; offset: number; limit: number };
@@ -78,6 +89,7 @@ export function GatewayLog({ enabled, retentionDays, onSettings }: {
   }
 
   const rows = page?.items ?? [];
+  const columns = useColumns("stacker.gatewayLog.columns.v1", COLUMNS);
   const pick = useDragPick(rows.map((r) => [r.id]), (id) => picked.includes(id), (ids, on) => setPicked((old) => setInArray(old, ids, on)));
   const filtered = !!(query.search.trim() || query.outcome || query.agent || query.since);
   const allPicked = rows.length > 0 && picked.length === rows.length;
@@ -110,10 +122,10 @@ export function GatewayLog({ enabled, retentionDays, onSettings }: {
     </div>
 
     {!rows.length ? <p className="proxy-note">{t(filtered ? "没有匹配的记录。" : "还没有请求。")}</p> : <>
-      <div className="gw-log">
-        <div className="head">
+      <div className="gw-log" style={{ ["--gw-log-cols" as string]: columns.template }}>
+        <div className="head" data-columns="">
           <label className="ck"><input type="checkbox" checked={allPicked} onChange={(e) => setPicked(e.target.checked ? rows.map((r) => r.id) : [])} /></label>
-          <span>{t("时间")}</span><span>{t("接口")}</span><span>{t("模型")}</span><span>{t("状态")}</span><span>{t("耗时")}</span><span />
+          <span className="col-cell">{t("时间")}{columns.handle("time")}</span><span className="col-cell">{t("接口")}{columns.handle("endpoint")}</span><span className="col-cell">{t("模型")}{columns.handle("model")}</span><span>{t("状态")}</span><span>{t("耗时")}</span><span />
         </div>
         {rows.map((r, i) => <div key={r.id} className={"row" + (picked.includes(r.id) ? " on" : "")} onClick={() => setOpened(r)} title={t("查看这条请求的详情")} {...pick.row(i)}>
           <label className="ck" onClick={(event) => event.stopPropagation()} title={t("按住拖过几行可以一起勾选；按住 Shift 点选一段")} {...pick.box(i)}><input type="checkbox" checked={picked.includes(r.id)} aria-label={String(r.at)}

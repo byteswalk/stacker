@@ -1412,7 +1412,7 @@ button{ font-family:inherit; }
 .a .gw-log-bar{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:9px}
 .a .gw-log-bar>.s.dim{margin-left:auto}
 .a .gw-log{display:flex;flex-direction:column;font-size:12px}
-.a .gw-log>div{display:grid;grid-template-columns:24px 140px minmax(150px,1fr) minmax(130px,1fr) 50px 60px 60px;gap:10px;align-items:center;padding:6px 0;border-top:1px solid var(--bd)}
+.a .gw-log>div{display:grid;grid-template-columns:var(--gw-log-cols, 24px 140px minmax(150px,1fr) minmax(130px,1fr) 50px 60px 60px);gap:10px;align-items:center;padding:6px 0;border-top:1px solid var(--bd)}
 .a .gw-log>div.head{color:var(--mut);font-size:11px;border-top:0}
 .a .gw-log>div.on{background:var(--cardh)}
 .a .gw-log>div.row{cursor:pointer}.a .gw-log>div.row:hover{background:var(--ov)}
@@ -1698,3 +1698,8 @@ button{ font-family:inherit; }
 .a .recycle-permanent input{ accent-color:#d6463d; }
 .a .dupe-path .recycle-lock{ width:15px; }
 .a .dupe-path.picked code{ color:var(--acc); text-decoration:line-through; text-decoration-color:color-mix(in srgb,var(--acc) 60%,transparent); }
+/* A header cell whose column can be dragged wider: the handle sits on its right edge. */
+.a .col-cell{ position:relative; min-width:0; }
+.a .col-resize{ position:absolute; top:-4px; bottom:-8px; right:-9px; width:9px; cursor:col-resize; z-index:1; }
+.a .col-resize::after{ content:""; position:absolute; left:4px; top:5px; bottom:5px; width:1px; background:var(--bd); }
+.a .col-resize:hover::after{ width:2px; left:3px; background:var(--acc); }

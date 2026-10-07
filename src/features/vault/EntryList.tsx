@@ -1,4 +1,5 @@
-import { useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useState } from "react";
+import { useColumns, type Column } from "../../columns";
 import { useDragPick } from "../../dragPick";
 import { ConfirmModal, useToast } from "../../ui";
 import { vaultApi, vaultError, type EntryView } from "./api";
@@ -14,14 +15,17 @@ import { useTitleProgress } from "./titleProgress";
 /** How many sites the list draws before asking to show more. */
 const STEP = 100;
 
-/** The two columns a user can widen, in pixels; unset ones share the room left. */
-type Widths = { title?: number; site?: number };
-const WIDTHS_KEY = "stacker.vault.columns.v1";
-const readWidths = (): Widths => {
-  try { return JSON.parse(localStorage.getItem(WIDTHS_KEY) ?? "{}") as Widths; } catch { return {}; }
-};
-export const columnsOf = (widths: Widths) =>
-  `16px 18px ${widths.title ? `${widths.title}px` : "minmax(0,1.6fr)"} ${widths.site ? `${widths.site}px` : "minmax(0,1fr)"} 90px 100px 92px auto`;
+/** The list's columns: title and site can be widened; the actions stay as they are. */
+const COLUMNS: Column[] = [
+  { key: "pick", track: "16px" },
+  { key: "icon", track: "18px" },
+  { key: "title", track: "minmax(0,1.6fr)", resizable: true, min: 80 },
+  { key: "site", track: "minmax(0,1fr)", resizable: true, min: 80 },
+  { key: "kind", track: "90px" },
+  { key: "expiry", track: "100px" },
+  { key: "updated", track: "92px" },
+  { key: "ops", track: "auto", grows: true, min: 300 },
+];
 
 const urlOf = (entry: EntryView) => entry.fields.find((field) => field.name === "网址")?.value ?? "";
 
@@ -53,11 +57,7 @@ export function EntryList({ entries, today, onView, onEdit, onChanged }: {
   const [busy, setBusy] = useState(false);
   const [filling, setFilling] = useState(false);
   const progress = useTitleProgress(filling);
-  const [widths, setWidths] = useState<Widths>(readWidths);
-  const saveWidths = (next: Widths) => {
-    setWidths(next);
-    try { localStorage.setItem(WIDTHS_KEY, JSON.stringify(next)); } catch { /* a per-viewer convenience only */ }
-  };
+  const columns = useColumns("stacker.vault.columns.v1", COLUMNS);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [shown, setShown] = useState(STEP);
@@ -81,28 +81,6 @@ export function EntryList({ entries, today, onView, onEdit, onChanged }: {
   // Press a box and drag over the rows to set them all the same way; shift picks a range.
   const pick = useDragPick(lines.map(idsOf), (id) => picked.has(id), toggle);
 
-  function resize(column: keyof Widths, event: ReactPointerEvent<HTMLElement>) {
-    event.preventDefault();
-    event.stopPropagation();
-    const cell = event.currentTarget.parentElement;
-    if (!cell) return;
-    const start = event.clientX;
-    const width = cell.getBoundingClientRect().width;
-    let latest = widths;
-    const move = (moved: PointerEvent) => {
-      latest = { ...widths, [column]: Math.round(Math.max(80, Math.min(900, width + moved.clientX - start))) };
-      setWidths(latest);
-    };
-    const stop = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", stop);
-      saveWidths(latest);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", stop);
-  }
-  const resizer = (column: keyof Widths) => <i className="vault-resize" title="拖动调整列宽，双击恢复"
-    onPointerDown={(event) => resize(column, event)} onDoubleClick={() => saveWidths({ ...widths, [column]: undefined })} />;
 
   async function fillTitles() {
     setFilling(true);
@@ -221,7 +199,7 @@ export function EntryList({ entries, today, onView, onEdit, onChanged }: {
 
   if (entries.length === 0) return <div className="vault-empty">没有符合条件的条目。</div>;
   return (
-    <div className="vault-rows" role="list" style={{ ["--vault-cols" as string]: columnsOf(widths) }}>
+    <div className="vault-rows" role="list" style={{ ["--vault-cols" as string]: columns.template }}>
       {chosen.length > 0 && <div className="vault-batch">
         <span>{tr("已选 {count} 条").replace("{count}", String(chosen.length))}</span>
         <button className="gh sm" disabled={busy} title="本机的其他程序（比如 AI）可以按名字从 Windows 凭据管理器取用这些值" onClick={() => void setWindows(true)}><i className="ti ti-brand-windows" /> 放进 Windows 凭据</button>
@@ -236,11 +214,11 @@ export function EntryList({ entries, today, onView, onEdit, onChanged }: {
         </button>
         <button className="gh sm" disabled={busy} onClick={() => setPicked(new Set())}>清空选择</button>
       </div>}
-      <div className="vault-row head">
+      <div className="vault-row head" data-columns="">
         <input type="checkbox" className="vault-pick" aria-label="全选" checked={allPicked} disabled={pickable.length === 0}
           onChange={() => setPicked(allPicked ? new Set() : new Set(pickable.map((entry) => entry.id)))} />
         <span />
-        <span className="vault-col">标题{resizer("title")}</span><span className="vault-col">平台 / 备注{resizer("site")}</span><span>类型</span><span>到期</span><span>更新于</span><span className="ops">操作</span>
+        <span className="col-cell">标题{columns.handle("title")}</span><span className="col-cell">平台 / 备注{columns.handle("site")}</span><span>类型</span><span>到期</span><span>更新于</span><span className="ops">操作</span>
       </div>
       {lines.map((line, index) => line.group ? groupRow(line.group, index) : row(line.entry, line.inGroup, index))}
       {groups.length > shown && <div className="vault-more">

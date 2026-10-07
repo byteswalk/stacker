@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "../../invoke";
 import type { EntryView } from "./api";
-import { columnsOf, EntryList } from "./EntryList";
+import { EntryList } from "./EntryList";
 import { MergeDialog } from "./MergeDialog";
 import { groupEntries } from "./vaultView";
 
@@ -72,11 +72,6 @@ describe("vault entry list", () => {
     const second = rows()[1].querySelectorAll<HTMLElement>(".mut")[0];
     expect(second.textContent).toBe("B 公司后台");
     expect(second.title).toContain("b.example.net");
-  });
-
-  it("keeps a widened column", () => {
-    expect(columnsOf({})).toContain("minmax(0,1.6fr) minmax(0,1fr)");
-    expect(columnsOf({ title: 320 })).toContain("320px minmax(0,1fr)");
   });
 
   it("lists what a merge would do before doing it", async () => {

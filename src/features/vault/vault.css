@@ -63,7 +63,7 @@
 .a .vault-import-steps > div{ display:grid; grid-template-columns:64px minmax(0,1fr); gap:8px; } .a .vault-import-steps span{ color:var(--mut); }
 .a .vault-row .title{ font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .a .vault-row .mut{ color:var(--mut); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.a .vault-row .ops{ display:flex; gap:6px; justify-content:flex-end; width:300px; cursor:default; }
+.a .vault-row .ops{ display:flex; gap:6px; justify-content:flex-end; justify-self:end; width:300px; cursor:default; }
 .a .vault-row.head .ops{ justify-content:flex-start; }
 .a .modal.wide:has(.vault-detail){ max-width:min(700px, calc(100vw - 48px)); }
 .a .vault-detail .vault-field:last-child{ border-bottom:0; }
@@ -100,10 +100,6 @@
 .a .vault-row.child{ padding-left:22px; background:rgba(255,255,255,.015); }
 .a .vault-row.child .title{ font-weight:500; }
 .a .vault-more{ display:flex; align-items:center; gap:10px; padding:10px 8px 2px; font-size:12px; } .a .vault-more .mut{ color:var(--mut); }
-.a .vault-col{ position:relative; min-width:0; }
-.a .vault-resize{ position:absolute; top:-4px; bottom:-8px; right:-9px; width:9px; cursor:col-resize; z-index:1; }
-.a .vault-resize::after{ content:""; position:absolute; left:4px; top:5px; bottom:5px; width:1px; background:var(--bd); }
-.a .vault-resize:hover::after{ width:2px; left:3px; background:var(--acc); }
 .a .vault-pick-cell{ display:flex; align-items:center; align-self:stretch; margin:-8px 0; padding:8px 0; cursor:pointer; user-select:none; }
 .a .vault-merge{ display:flex; flex-direction:column; gap:12px; }
 .a .vault-merge-set{ border:.5px solid var(--bd); border-radius:9px; padding:8px 10px; }

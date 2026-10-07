@@ -12,7 +12,8 @@ export function useDragPick<T>(rows: T[][], isPicked: (id: T) => boolean, set: (
   const pressed = useRef(false);
   // The handlers are made anew each render, so a drag that outlives a render reads the newest rows.
   useEffect(() => {
-    const release = () => { dragging.current = null; window.setTimeout(() => { pressed.current = false; }, 0); };
+    // The click that follows a press clears `pressed`; should none come (the drag ended elsewhere), this does.
+    const release = () => { dragging.current = null; window.setTimeout(() => { pressed.current = false; }, 500); };
     window.addEventListener("pointerup", release);
     window.addEventListener("pointercancel", release);
     return () => { window.removeEventListener("pointerup", release); window.removeEventListener("pointercancel", release); };
@@ -46,7 +47,7 @@ export function useDragPick<T>(rows: T[][], isPicked: (id: T) => boolean, set: (
     }),
     /** The box's onChange: a keyboard tick; a press has already done its part. */
     change: (index: number, on: boolean) => {
-      if (pressed.current) return;
+      if (pressed.current) { pressed.current = false; return; }
       const ids = rows[index] ?? [];
       if (ids.length) set(ids, on);
       last.current = index;
