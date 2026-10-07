@@ -70,9 +70,10 @@ export function siteKey(entry: EntryView): string {
 }
 
 /**
- * Which system an entry's login belongs to: its whole address, as the backend decides it.
- * Another port, path or page may be another system, so only the same address counts; only
- * spelling is evened out (case of scheme and host, a default port, a trailing slash, `#…`).
+ * Which system an entry's login belongs to: scheme, host, port and path, as the backend
+ * decides it. Another port, path or page may be another system, so only all of them together
+ * count (http and https are two); left out is what tells nothing apart: case, `www.`, a scheme's own port, a trailing
+ * slash, the query and `#…`.
  */
 export function systemOf(entry: EntryView): string {
   const url = entry.fields.find((field) => field.name === "网址")?.value?.trim() ?? "";
@@ -80,8 +81,8 @@ export function systemOf(entry: EntryView): string {
   try {
     const parsed = new URL(url);
     if (!parsed.hostname) return url;
-    const port = parsed.port || ({ "https:": "443", "http:": "80" } as Record<string, string>)[parsed.protocol] || "";
-    return `${parsed.protocol}//${parsed.hostname}:${port}${parsed.pathname.replace(/\/+$/, "")}${parsed.search}`;
+    // `port` is empty for the scheme's own port, written or not.
+    return `${parsed.protocol}//${parsed.hostname.replace(/^www\./, "")}${parsed.port ? `:${parsed.port}` : ""}${parsed.pathname.replace(/\/+$/, "")}`;
   } catch {
     return url;
   }

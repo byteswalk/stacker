@@ -71,9 +71,12 @@ describe("vault view helpers", () => {
     const router = login("router", "https://192.168.2.1/userLogin.asp");
     expect(systemOf(router)).toBe(systemOf(login("x", "HTTPS://192.168.2.1:443/userLogin.asp#top")));
     expect(systemOf(login("x", "https://192.168.2.1"))).toBe(systemOf(login("x", "https://192.168.2.1/")));
+    expect(systemOf(login("x", "https://www.github.com/login"))).toBe(systemOf(login("x", "https://github.com/login")));
     expect(systemOf(router)).not.toBe(systemOf(login("x", "https://192.168.2.1/")));
     expect(systemOf(router)).not.toBe(systemOf(login("x", "http://192.168.2.1:1188/")));
-    expect(systemOf(login("x", "https://h/login?app=1"))).not.toBe(systemOf(login("x", "https://h/login?app=2")));
+    expect(systemOf(login("x", "https://h/login?app=1"))).toBe(systemOf(login("x", "https://h/login?next=/")));
+    expect(systemOf(login("x", "http://h/login"))).not.toBe(systemOf(login("x", "https://h/login")));
+    expect(systemOf(login("x", "https://h/"))).not.toBe(systemOf(login("x", "https://h:8443/")));
     const groups = groupEntries([router, login("root", "https://192.168.2.1/"), login("nas", "http://192.168.2.1:1188/"),
       login("again", "https://192.168.2.1/userLogin.asp"), login("web", "http://192.168.2.1:6086/")]);
     expect(groups).toHaveLength(1);

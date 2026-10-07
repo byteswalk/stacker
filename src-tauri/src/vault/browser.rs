@@ -85,12 +85,12 @@ fn host_of(url: &str) -> String {
         .unwrap_or_default()
 }
 
-/// Which system a login belongs to: its whole address. Another port, another path, even
+/// Which system a login belongs to: scheme, host, port and path. Another port, another path, even
 /// another page on the same host may be another system (a router's page, a NAS on :1188,
-/// two apps under one address), so only the same address is taken for the same system.
-/// Spelling that names the same address is evened out: the case of scheme and host, a
-/// default port written or not, a trailing slash, the part after `#`. Without a parseable
-/// address, the text as it is.
+/// two apps under one address), so only all of them together are taken for one system;
+/// http and https are two. What does not tell systems apart is left out: the case of the
+/// host, a leading `www.`, the scheme's own port written or not, a trailing slash, the query and
+/// the part after `#`. Without a parseable address, the text as it is.
 pub(crate) fn system_of(url: &str) -> String {
     let Ok(parsed) = url::Url::parse(url.trim()) else {
         return url.trim().to_string();
@@ -98,13 +98,14 @@ pub(crate) fn system_of(url: &str) -> String {
     let Some(host) = parsed.host_str() else {
         return url.trim().to_string();
     };
+    // `port()` is empty for the scheme's own port, written or not.
     let port = parsed
-        .port_or_known_default()
-        .map(|port| port.to_string())
+        .port()
+        .map(|port| format!(":{port}"))
         .unwrap_or_default();
     let path = parsed.path().trim_end_matches('/');
-    let query = parsed.query().map(|q| format!("?{q}")).unwrap_or_default();
-    format!("{}://{host}:{port}{path}{query}", parsed.scheme())
+    let host = host.trim_start_matches("www.");
+    format!("{}://{host}{port}{path}", parsed.scheme())
 }
 
 /// The logins in a browser's export, by the columns its header names. Chrome and Edge write
@@ -380,13 +381,13 @@ mod tests {
             system_of("https://192.168.2.1/userLogin.asp"),
             system_of("https://192.168.2.1/")
         );
-        assert_ne!(
+        assert_eq!(
             system_of("https://www.github.com/login"),
             system_of("https://github.com/login")
         );
-        assert_ne!(
+        assert_eq!(
             system_of("https://host/login?app=1"),
-            system_of("https://host/login?app=2")
+            system_of("https://host/login?next=/")
         );
         assert_ne!(
             system_of("https://192.168.2.1/userLogin.asp"),
@@ -395,6 +396,10 @@ mod tests {
         assert_ne!(
             system_of("http://192.168.2.1/"),
             system_of("https://192.168.2.1/")
+        );
+        assert_ne!(
+            system_of("https://192.168.2.1/"),
+            system_of("https://192.168.2.1:8443/")
         );
         assert_ne!(
             system_of("https://host/app1/login"),
