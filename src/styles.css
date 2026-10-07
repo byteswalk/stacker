@@ -97,7 +97,8 @@ button{ font-family:inherit; }
 .a .pbtn{ width:27px; height:27px; display:flex; align-items:center; justify-content:center;
   background:transparent; border:none; border-radius:7px; color:var(--mut); cursor:pointer; font-size:14px; }
 .a .pbtn:hover{ background:rgba(255,255,255,.08); color:var(--tx); }
-.a .content{ padding:15px; display:flex; flex-direction:column; gap:2px; overflow:auto; }
+/* 15px on every side, the scrollbar included: its 10px are kept free on the right whether it shows or not. */
+.a .content{ padding:15px 5px 15px 15px; scrollbar-gutter:stable; display:flex; flex-direction:column; gap:2px; overflow:auto; }
 .a .content > *{ min-width:0; max-width:100%; flex-shrink:0; }
 .a .page-loading-slot{ min-height:calc(100vh - 126px); display:flex; align-items:center; justify-content:center; gap:8px;
   color:var(--mut); font-size:12px; }
@@ -444,13 +445,13 @@ button{ font-family:inherit; }
   border:.5px solid var(--bdh); border-radius:14px; display:flex; flex-direction:column;
   box-shadow:0 24px 64px rgba(0,0,0,.5); outline:none; }
 .a .modal.wide{ max-width:min(1060px, calc(100vw - 48px)); }
-.a .modalhd{ display:flex; align-items:center; justify-content:space-between; padding:13px 16px;
+.a .modalhd{ display:flex; align-items:center; justify-content:space-between; padding:15px;
   border-bottom:.5px solid var(--bd); font-weight:600; font-size:14px; }
 .a .modalhd span{ display:flex; align-items:center; gap:8px; } .a .modalhd i{ color:var(--acc); }
 .a .modalsub{ font-size:12px; color:var(--mut); padding:10px 16px; border-bottom:.5px solid var(--bd);
   display:flex; align-items:center; justify-content:space-between; gap:12px; line-height:1.5; }
-.a .modalbody{ padding:14px 16px; display:flex; flex-direction:column; gap:12px; min-width:0; overflow:auto; }
-.a .modalft{ padding:12px 16px; border-top:.5px solid var(--bd); display:flex; justify-content:flex-end; gap:8px; flex-wrap:wrap; }
+.a .modalbody{ padding:15px 5px 15px 15px; scrollbar-gutter:stable; display:flex; flex-direction:column; gap:12px; min-width:0; overflow:auto; }
+.a .modalft{ padding:15px; border-top:.5px solid var(--bd); display:flex; justify-content:flex-end; gap:8px; flex-wrap:wrap; }
 
 /* 表单 */
 .a .field{ display:flex; flex-direction:column; gap:6px; }
@@ -757,7 +758,7 @@ button{ font-family:inherit; }
 
 @media (max-width:760px){
   .a .side{ width:164px; }
-  .a .content{ padding:15px; }
+  .a .content{ padding:15px 5px 15px 15px; }
   .a .checkup .cacts{ padding-left:0; justify-content:flex-start; }
   .a .banner{ flex-wrap:wrap; }
   .a .banner .acts{ flex:1 1 100%; justify-content:flex-start; }
@@ -767,7 +768,7 @@ button{ font-family:inherit; }
 
 @media (max-width:1020px){
   .a .side{ width:164px; }
-  .a .content{ padding:15px; }
+  .a .content{ padding:15px 5px 15px 15px; }
   .a .terminal-bar .shells{ flex-basis:100%; order:3; }
   .a .terminal-bar > button{ order:4; }
   .a .srcrow > .sel2{ flex:1 1 220px; }
