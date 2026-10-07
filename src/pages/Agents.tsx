@@ -387,7 +387,9 @@ export default function Agents() {
             <i className="ti ti-trash" /> 卸载
           </button>
           {surface.can_repair && (
-            <button className="pr sm" title={`移除无法运行的入口，改用本机另一份健康的 ${surface.label}`} disabled={busy} onClick={() => setRepair({ tool, surface })}>
+            <button className="pr sm" title={surface.repair_kind === "reinstall"
+              ? `卸载后重新安装 ${surface.label}（和在终端运行 npm install -g 一样）`
+              : `移除无法运行的入口，改用本机另一份健康的 ${surface.label}`} disabled={busy} onClick={() => setRepair({ tool, surface })}>
               <i className="ti ti-tool" /> 修复
             </button>
           )}
@@ -560,7 +562,9 @@ export default function Agents() {
           title={`修复 ${repair.surface.label}`}
           icon="ti-tool"
           danger
-          message={<>将卸载无法运行的生效入口 <code>{repair.surface.path}</code>，之后使用本机另一份健康的安装。不会删除账号登录信息、会话或项目文件。</>}
+          message={repair.surface.repair_kind === "reinstall"
+            ? <>{`将用 npm 卸载后重新安装 ${repair.surface.label}，装完会确认它能正常运行。`}不会删除账号登录信息、会话或项目文件。<br />{"如果它在终端里能正常运行，多半是刚更新完被安全软件扫描时检测的；可以先点“状态刷新”再看一次。"}</>
+            : <>将卸载无法运行的生效入口 <code>{repair.surface.path}</code>，之后使用本机另一份健康的安装。不会删除账号登录信息、会话或项目文件。</>}
           confirmLabel="确认修复"
           onClose={() => setRepair(null)}
           onConfirm={() => runToolAction(repair.tool, "cli", "repair")}

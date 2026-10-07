@@ -57,8 +57,11 @@ pub struct VibeSurface {
     pub health: String,
     pub broken_reason: Option<String>,
     pub other_installs: Vec<health::InstallInfo>,
-    /// The effective entry is broken while another install on PATH is healthy.
+    /// The effective entry is broken, and either another install on PATH is healthy
+    /// (`repair_kind` "switch") or it can be installed again the way it was (`"reinstall"`).
     pub can_repair: bool,
+    #[serde(default)]
+    pub repair_kind: Option<String>,
     /// Why the latest version could not be looked up; the update state is then unknown.
     pub latest_error: Option<String>,
     /// Where `latest` came from (WinGet, npm, the vendor's own feed…); set only with `latest`.
@@ -245,6 +248,7 @@ pub(crate) fn pending_surface(
         broken_reason: None,
         other_installs: Vec::new(),
         can_repair: false,
+        repair_kind: None,
         latest_error: None,
         latest_source: None,
         latest_checked: false,
@@ -304,6 +308,7 @@ pub(crate) fn unavailable_surface(
         broken_reason: None,
         other_installs: Vec::new(),
         can_repair: false,
+        repair_kind: None,
         latest_error: None,
         latest_source: None,
         latest_checked: false,

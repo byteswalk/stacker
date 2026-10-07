@@ -55,7 +55,19 @@ pub(crate) fn cli_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurface {
         Some(info) if info.healthy => "healthy",
         Some(_) => "broken",
     };
-    let can_repair = health == "broken" && other_installs.iter().any(|info| info.healthy);
+    let repair_kind = (health == "broken")
+        .then(|| {
+            if other_installs.iter().any(|info| info.healthy) {
+                Some("switch")
+            } else if method.as_deref() == Some("npm") && spec.cli.npm_package.is_some() {
+                // One npm install that does not start: what `npm install -g` would mend.
+                Some("reinstall")
+            } else {
+                None
+            }
+        })
+        .flatten();
+    let can_repair = repair_kind.is_some();
     let latest_checked = check_latest && installed;
     let (latest, latest_source, latest_error) = if latest_checked {
         split_latest(latest_for_cli(spec, method.as_deref()))
@@ -102,6 +114,7 @@ pub(crate) fn cli_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurface {
         broken_reason,
         other_installs,
         can_repair,
+        repair_kind: repair_kind.map(str::to_string),
         latest_error,
         latest_source,
         latest_checked,
@@ -220,6 +233,7 @@ pub(crate) fn desktop_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurfac
         broken_reason,
         other_installs: Vec::new(),
         can_repair: false,
+        repair_kind: None,
         latest_error,
         latest_source,
         latest_checked,

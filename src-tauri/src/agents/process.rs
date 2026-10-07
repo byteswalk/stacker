@@ -724,12 +724,77 @@ pub(crate) fn apply_fresh_path(c: &mut Command) {
 /// The exit code of a process that could not load because a file it needs was held open.
 const STATUS_SHARING_VIOLATION: i32 = 0xC000_0043_u32 as i32;
 
+/// Errors that usually pass in a moment: a program written a second ago held by the
+/// antivirus scanning it, or a launcher whose child could not be started for the same reason
+/// (Node prints `node:internal/child_process`, then `Error: spawn EBUSY` or `EPERM`).
+pub(crate) fn looks_passing(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    [
+        "ebusy",
+        "eperm",
+        "eacces",
+        "spawn unknown",
+        "child_process",
+        "being used by another process",
+        "另一个程序正在使用此文件",
+        "拒绝访问",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle))
+}
+
+/// What a failed run says went wrong. A stack trace starts with where it was thrown
+/// (`node:internal/child_process:458`); the line that says what happened (`Error: spawn
+/// EBUSY`) comes after, so that one is taken when there is one.
+pub(crate) fn failure_line(text: &str) -> Option<String> {
+    let error = text.lines().map(str::trim).find(|line| {
+        let words = line.split(|c: char| !c.is_ascii_alphanumeric());
+        line.starts_with("Error")
+            || line.contains("Error:")
+            || line.contains("error:")
+            || words.into_iter().any(|word| {
+                word.len() >= 4
+                    && word.starts_with('E')
+                    && word[1..].chars().all(|c| c.is_ascii_uppercase())
+                    && matches!(
+                        word,
+                        "EBUSY" | "EPERM" | "EACCES" | "ENOENT" | "EINVAL" | "ENOEXEC" | "EMFILE"
+                    )
+            })
+    });
+    match error {
+        Some(line) => first_output_line(line),
+        None => first_output_line(text),
+    }
+}
+
 pub(crate) fn run_program_probe(
     display_name: &str,
     program: &Path,
     args: &[&str],
     timeout: Duration,
 ) -> Result<String, String> {
+    let mut result = run_program_probe_once(display_name, program, args, timeout);
+    // A failure that usually passes gets two more looks before it counts.
+    for _ in 0..2 {
+        match &result {
+            Err((_, true)) => {
+                std::thread::sleep(Duration::from_millis(2000));
+                result = run_program_probe_once(display_name, program, args, timeout);
+            }
+            _ => break,
+        }
+    }
+    result.map_err(|(reason, _)| reason)
+}
+
+/// One run; a failure says what went wrong and whether it may pass in a moment.
+fn run_program_probe_once(
+    display_name: &str,
+    program: &Path,
+    args: &[&str],
+    timeout: Duration,
+) -> Result<String, (String, bool)> {
     let mut cmd = command_for_path(program, args);
     #[cfg(windows)]
     {
@@ -737,7 +802,8 @@ pub(crate) fn run_program_probe(
         cmd.creation_flags(0x08000000);
     }
     apply_fresh_path(&mut cmd);
-    let mut out = command_output_timeout_named(cmd, display_name, timeout)?;
+    let mut out =
+        command_output_timeout_named(cmd, display_name, timeout).map_err(|e| (e, false))?;
     // 0xC0000043, a file the program needs held by another process: a security suite looking
     // over a new program's children does this for a moment. One more try, a little later.
     if out.status.code() == Some(STATUS_SHARING_VIOLATION) {
@@ -749,14 +815,18 @@ pub(crate) fn run_program_probe(
             again.creation_flags(0x08000000);
         }
         apply_fresh_path(&mut again);
-        out = command_output_timeout_named(again, display_name, timeout)?;
+        out = command_output_timeout_named(again, display_name, timeout).map_err(|e| (e, false))?;
     }
     if out.status.code() == Some(STATUS_SHARING_VIOLATION) {
-        return Err("程序启动时文件被其他进程占用（常见于安全软件正在检查），稍后再刷新".into());
+        return Err((
+            "程序启动时文件被其他进程占用（常见于安全软件正在检查），稍后再刷新".into(),
+            true,
+        ));
     }
     let version_text = output_text(&out);
     if !out.status.success() {
-        return Err(first_output_line(&version_text).unwrap_or_else(|| "命令返回失败状态".into()));
+        let reason = failure_line(&version_text).unwrap_or_else(|| "命令返回失败状态".into());
+        return Err((reason, looks_passing(&version_text)));
     }
     Ok(first_output_line(&version_text).unwrap_or_else(|| "可用".into()))
 }
@@ -838,6 +908,25 @@ pub(crate) fn is_meaningful_output_line(line: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_launcher_that_could_not_start_its_binary_says_why_and_may_pass() {
+        let node = "node:internal/child_process:458\n    throw new ErrnoException(err, 'spawn');\n    ^\n\nError: spawn EBUSY\n    at ChildProcess.spawn (node:internal/child_process:420:11)\n  errno: -4082,\n  code: 'EBUSY',\n";
+        assert_eq!(
+            super::failure_line(node).as_deref(),
+            Some("Error: spawn EBUSY")
+        );
+        assert!(super::looks_passing(node));
+        let plain = "Usage: tool [options]\nunknown option --version\n";
+        assert_eq!(
+            super::failure_line(plain).as_deref(),
+            Some("Usage: tool [options]")
+        );
+        assert!(!super::looks_passing(plain));
+        assert!(!super::looks_passing(
+            "Error: Cannot find module 'C:\\x\\cli.js'"
+        ));
+    }
+
     #[test]
     fn a_query_that_matched_nothing_is_not_a_failure() {
         assert!(super::is_query_miss(

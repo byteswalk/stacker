@@ -842,6 +842,15 @@ pub(crate) fn repair_cli_tool(
     if !tool.cli.can_repair {
         return Err("当前没有可自动修复的损坏入口".into());
     }
+    if tool.cli.repair_kind.as_deref() == Some("reinstall") {
+        let package = spec.cli.npm_package.ok_or("当前没有可自动修复的损坏入口")?;
+        let program = resolve_command(spec.cli.candidates);
+        emit_progress(window, format!("正在卸载后重新安装 {}…", spec.cli.name));
+        npm_uninstall(package, program.as_deref(), window)?;
+        npm_install_latest(package, program.as_deref(), window)?;
+        verify_cli_present(spec, window)?;
+        return Ok(format!("{} 已重新安装，可以正常运行", spec.cli.name));
+    }
     emit_progress(
         window,
         format!(
