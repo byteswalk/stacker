@@ -19,6 +19,7 @@ pub mod roots;
 pub mod summary;
 pub mod summary_job;
 pub mod transcript;
+pub mod transfer;
 pub mod workbuddy_catalog;
 
 pub(crate) fn err(e: impl std::fmt::Display) -> String {

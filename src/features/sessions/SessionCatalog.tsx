@@ -3,6 +3,7 @@ import { useI18n } from "../../i18n";
 import { useToast } from "../../ui";
 import { listProjects, listSessions, setFavorite } from "./api";
 import { DeleteDialog } from "./DeleteDialog";
+import { TransferExport, TransferImport } from "./TransferDialogs";
 import { DistillDialog } from "./DistillDialog";
 import { DistillPanel } from "./DistillPanel";
 import { FootprintPanel } from "./FootprintPanel";
@@ -37,6 +38,8 @@ export function SessionCatalog({ onCleanup }: { onCleanup: () => void }) {
   const [error, setError] = useState("");
   const [detail, setDetail] = useState<Session | null>(null);
   const [deleting, setDeleting] = useState<string[] | null>(null);
+  const [migrating, setMigrating] = useState<string[] | null>(null);
+  const [importing, setImporting] = useState(false);
   const [summarizing, setSummarizing] = useState<{ kind: "summary"; ids: string[] } | { kind: "handoff"; project: string } | null>(null);
   const request = useRef(0);
   const queryRef = useRef(query);
@@ -91,6 +94,7 @@ export function SessionCatalog({ onCleanup }: { onCleanup: () => void }) {
         {TABS.map(([value, label, icon]) => <button key={value} role="tab" aria-selected={tab === value} className={tab === value ? "active" : ""} onClick={() => setTab(value)}><i className={`ti ${icon}`} />{t(label)}</button>)}
       </div>
       <div className="session-actions">
+        <button className="gh sm" title={t("导入另一台电脑打出来的会话迁移包")} onClick={() => setImporting(true)}><i className="ti ti-transfer-in" />{t("导入迁移包")}</button>
         <button className="gh sm" onClick={onCleanup}><i className="ti ti-device-desktop-analytics" />{t("检查磁盘空间")}</button>
         <button className="gh sm" disabled={loading} onClick={() => { if (tab === "web") setWebRefresh((n) => n + 1); else if (tab === "distill") setDistillRefresh((n) => n + 1); else void load(); }}><i className={`ti ${loading ? "ti-loader spin" : "ti-refresh"}`} />{t("刷新")}</button>
       </div>
@@ -100,7 +104,8 @@ export function SessionCatalog({ onCleanup }: { onCleanup: () => void }) {
     {tab === "sessions" && <SessionList page={page} query={query} projects={projects} loading={loading} selected={selected}
       onSelect={setSelected} onFilter={filter} onPage={(offset) => setQuery((q) => ({ ...q, offset }))}
       onOpen={setDetail} onFavorite={(ids, value) => void favorite(ids, value)} onDelete={() => setDeleting([...selected])} onSummarize={() => setSummarizing({ kind: "summary", ids: [...selected] })}
-      onDistill={() => setDistilling(selected.map((id) => ({ kind: "session" as const, key: id })))} />}
+      onDistill={() => setDistilling(selected.map((id) => ({ kind: "session" as const, key: id })))}
+      onMigrate={() => setMigrating([...selected])} />}
     {tab === "projects" && <ProjectList rows={projects} loading={loading} onPick={(project) => { filter({ project }); setTab("sessions"); }} onHandoff={(project) => setSummarizing({ kind: "handoff", project })} />}
     {tab === "web" && <WebChatPanel refresh={webRefresh} onDistill={(key) => setDistilling([{ kind: "web", key }])} />}
     {tab === "distill" && <DistillPanel refresh={distillRefresh} onNew={() => setDistilling([])} />}
@@ -108,6 +113,8 @@ export function SessionCatalog({ onCleanup }: { onCleanup: () => void }) {
     {tab === "sources" && <SettingsPanel />}
     {detail && <SessionDetail session={detail} onClose={() => setDetail(null)} onSummarize={() => { setDetail(null); setSummarizing({ kind: "summary", ids: [detail.id] }); }} />}
     {summarizing && <SummaryDialog target={summarizing} onClose={(changed) => { setSummarizing(null); if (changed) void load(); }} />}
+    {migrating && <TransferExport ids={migrating} onClose={() => setMigrating(null)} />}
+    {importing && <TransferImport onClose={(changed) => { setImporting(false); if (changed) void load(); }} />}
     {deleting && <DeleteDialog ids={deleting} onClose={(changed) => { setDeleting(null); if (changed) { setSelected([]); void load(); } }} />}
     {distilling && <DistillDialog initial={distilling} onClose={(changed) => { setDistilling(null); if (changed) setDistillRefresh((n) => n + 1); }} />}
   </div>;

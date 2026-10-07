@@ -504,3 +504,131 @@ pub fn migration_job() -> Option<super::migration::MigrationJob> {
 pub fn migration_cancel() {
     super::migration::cancel()
 }
+
+// ---------- moving conversations to another computer ----------
+
+fn codex_running() -> bool {
+    super::codex_rpc::require_closed().is_err()
+}
+
+fn transfer_progress(app: &tauri::AppHandle) -> impl Fn(&str, u64, u64) + '_ {
+    use tauri::Emitter;
+    move |stage: &str, done: u64, total: u64| {
+        let _ = app.emit(
+            "sessions-transfer-progress",
+            (stage.to_string(), done, total),
+        );
+    }
+}
+
+/// The projects these sessions worked in, as a package could carry them.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransferProject {
+    pub path: String,
+    pub name: String,
+    pub exists: bool,
+    pub sessions: usize,
+}
+
+#[tauri::command]
+pub async fn sessions_transfer_projects(ids: Vec<String>) -> Result<Vec<TransferProject>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let (sessions, _, _) = annotated_catalog()?;
+        let mut projects: Vec<TransferProject> = Vec::new();
+        for session in sessions
+            .iter()
+            .filter(|s| ids.contains(&s.id) && super::transfer::supported(s.agent))
+        {
+            let path = session.project.path.trim_start_matches(r"\?\").to_string();
+            if path.is_empty() {
+                continue;
+            }
+            match projects
+                .iter_mut()
+                .find(|p| p.path.eq_ignore_ascii_case(&path))
+            {
+                Some(project) => project.sessions += 1,
+                None => projects.push(TransferProject {
+                    exists: Path::new(&path).is_dir(),
+                    name: session.project.name.clone(),
+                    path,
+                    sessions: 1,
+                }),
+            }
+        }
+        Ok(projects)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Files and bytes a project adds to a package, rebuilt folders left out.
+#[tauri::command]
+pub async fn sessions_transfer_size(path: String) -> (u64, u64) {
+    tauri::async_runtime::spawn_blocking(move || super::transfer::project_size(Path::new(&path)))
+        .await
+        .unwrap_or((0, 0))
+}
+
+#[tauri::command]
+pub async fn sessions_transfer_export(
+    app: tauri::AppHandle,
+    ids: Vec<String>,
+    include: Vec<String>,
+    dest: String,
+) -> Result<super::transfer::ExportResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let (sessions, _, roots) = annotated_catalog()?;
+        let chosen: Vec<Session> = sessions
+            .into_iter()
+            .filter(|s| ids.contains(&s.id))
+            .collect();
+        super::transfer::export(
+            &chosen,
+            &roots,
+            &include,
+            Path::new(&dest),
+            &transfer_progress(&app),
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn sessions_transfer_preview(path: String) -> Result<super::transfer::Preview, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let (_, _, roots) = annotated_catalog()?;
+        super::transfer::preview(Path::new(&path), &roots, codex_running())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn sessions_transfer_import(
+    app: tauri::AppHandle,
+    path: String,
+    targets: Vec<super::transfer::ProjectTarget>,
+) -> Result<super::transfer::ImportResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let (_, _, roots) = annotated_catalog()?;
+        let backups = crate::backup::backup_root().join(format!(
+            "session-import-{}",
+            chrono::Local::now().format("%Y%m%d_%H%M%S")
+        ));
+        let result = super::transfer::import(
+            Path::new(&path),
+            &targets,
+            &roots,
+            codex_running(),
+            &backups,
+            &transfer_progress(&app),
+        );
+        catalog::invalidate();
+        result
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}

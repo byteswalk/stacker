@@ -33,9 +33,10 @@ type Props = {
   onDelete: () => void;
   onSummarize: () => void;
   onDistill: () => void;
+  onMigrate: () => void;
 };
 
-export function SessionList({ page, query, projects, loading, selected, onSelect, onFilter, onPage, onOpen, onFavorite, onDelete, onSummarize, onDistill }: Props) {
+export function SessionList({ page, query, projects, loading, selected, onSelect, onFilter, onPage, onOpen, onFavorite, onDelete, onSummarize, onDistill, onMigrate }: Props) {
   const { tr: t, locale } = useI18n();
   const [expanded, setExpanded] = useState<string | null>(null);
   const [now] = useState(() => Math.floor(Date.now() / 1000));
@@ -146,6 +147,7 @@ export function SessionList({ page, query, projects, loading, selected, onSelect
       <button className="gh sm" onClick={() => onFavorite(selected, !selectedFavorite)}><i className="ti ti-star" />{t(selectedFavorite ? "取消收藏" : "收藏")}</button>
       <button className="gh sm" onClick={onSummarize}><i className="ti ti-sparkles" />{t("生成摘要")}</button>
       <button className="gh sm" onClick={onDistill}><i className="ti ti-bulb" />{t("提炼…")}</button>
+      <button className="gh sm" title={t("打成迁移包，拷到另一台电脑导入后接着聊（Codex、Claude Code）")} onClick={onMigrate}><i className="ti ti-transfer" />{t("迁移…")}</button>
       <button className="pr sm danger" onClick={onDelete}><i className="ti ti-trash" />{t("删除…")}</button>
       <button className="ic" title={t("清除选择")} aria-label={t("清除选择")} onClick={() => onSelect([])}><i className="ti ti-x" /></button>
     </div>}
