@@ -27,13 +27,13 @@ const click = async (element: Element | null | undefined) => { await act(async (
 describe("WinGet downloads", () => {
   it("leaves WinGet as it is by default and switches to downloading by itself when picked", async () => {
     await act(async () => { root.render(<WingetDownloader />); });
-    expect(host.textContent).toContain("跟随系统（传递优化）");
-    expect(host.textContent).toContain("这是 WinGet 的默认做法");
+    expect(host.textContent).toContain("默认（传递优化）");
+    expect(host.textContent).toContain("WinGet 默认设置");
 
     await click(host.querySelector("button"));
-    await click([...host.querySelectorAll("[role=option]")].find((option) => option.textContent === "WinGet 自己下载"));
+    await click([...host.querySelectorAll("[role=option]")].find((option) => option.textContent === "WinINet"));
     expect(invoke).toHaveBeenCalledWith("winget_downloader_set", { value: "wininet" });
-    expect(host.textContent).toContain("走系统代理，有进度");
+    expect(host.textContent).toContain("经系统代理，任务中显示下载进度");
   });
 
   it("is greyed out without WinGet", async () => {

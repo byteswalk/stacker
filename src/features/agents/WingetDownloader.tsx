@@ -12,9 +12,9 @@ const ERRORS: Record<string, string> = {
 };
 
 const HINT: Record<string, string> = {
-  default: "大安装包交给 Windows 的“传递优化”下载：没有进度，有时很慢。这是 WinGet 的默认做法。",
-  wininet: "WinGet 自己下载，走系统代理，有进度。改的是 WinGet 自己的设置，命令行里用 winget 也一样。",
-  do: "WinGet 设置里指定了只用“传递优化”下载。",
+  default: "WinGet 默认设置：大安装包交给 Windows 传递优化服务下载，任务中不显示下载进度，部分网络下速度较慢。",
+  wininet: "使用 WinINet 下载：经系统代理，任务中显示下载进度。此项写入 WinGet 的 network.downloader 设置，命令行中的 winget 同样生效。",
+  do: "WinGet 设置中 network.downloader 已指定为 do，所有下载都使用传递优化。",
 };
 
 /** WinGet's own download setting: left as Windows has it, or WinGet downloading by itself. */
@@ -30,7 +30,7 @@ export function WingetDownloader() {
     try {
       const next = await invoke<Downloader>("winget_downloader_set", { value });
       setState(next);
-      const done = value === "wininet" ? "已改为 WinGet 自己下载。" : "已改回跟随系统。";
+      const done = value === "wininet" ? "WinGet 下载器已设为 WinINet。" : "WinGet 下载器已恢复默认。";
       toast(tr(done) + (next.backedUp ? tr("原设置文件已备份到“配置备份”。") : ""), "ok");
     } catch (e) {
       toast(ERRORS[String(e)] ?? String(e), "err");
@@ -41,14 +41,14 @@ export function WingetDownloader() {
 
   const value = state?.value ?? "default";
   const options = [
-    { value: "default", label: tr("跟随系统（传递优化）") },
-    { value: "wininet", label: tr("WinGet 自己下载") },
-    ...(value === "do" ? [{ value: "do", label: tr("只用传递优化") }] : []),
+    { value: "default", label: tr("默认（传递优化）") },
+    { value: "wininet", label: tr("WinINet") },
+    ...(value === "do" ? [{ value: "do", label: tr("传递优化（强制）") }] : []),
   ];
   return <div className="srcrow">
     <span className="av st"><i className="ti ti-download" /></span>
     <div className="mt">
-      <div className="t">{tr("WinGet 下载方式")}</div>
+      <div className="t">{tr("WinGet 下载器")}</div>
       <div className="s dim" title={state?.path || undefined}>
         {state && !state.available ? tr("本机没有找到 WinGet。") : tr(HINT[value] ?? HINT.default)}
       </div>
