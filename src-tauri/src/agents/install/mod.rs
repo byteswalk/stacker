@@ -638,7 +638,7 @@ pub(crate) fn verify_cli_present(
         ));
     }
     emit_progress(window, format!("正在确认 {} 能正常运行…", spec.cli.name));
-    let surface = cli_surface(spec, false);
+    let surface = settled_surface(spec, window);
     if surface.health != "broken" {
         return Ok(());
     }
@@ -655,7 +655,7 @@ pub(crate) fn verify_cli_present(
         let program = resolve_command(spec.cli.candidates);
         npm_uninstall(pkg, program.as_deref(), window)?;
         npm_install_latest(pkg, program.as_deref(), window)?;
-        let again = cli_surface(spec, false);
+        let again = settled_surface(spec, window);
         if again.health != "broken" {
             return Ok(());
         }
@@ -666,6 +666,53 @@ pub(crate) fn verify_cli_present(
         ));
     }
     Err(format!("{} 已装上，但无法运行：{reason}", spec.cli.name))
+}
+
+/// How often, and how far apart, a command that just failed to run is tried again.
+const RUN_TRIES: usize = 8;
+const RUN_PAUSE: Duration = Duration::from_secs(4);
+
+/// Tries `probe` until `fine` says so or `tries` are used up, calling `pause` (with how many
+/// tries are done) between them; returns the last result.
+fn settle<T>(
+    mut probe: impl FnMut() -> T,
+    fine: impl Fn(&T) -> bool,
+    tries: usize,
+    mut pause: impl FnMut(usize),
+) -> T {
+    let mut last = probe();
+    for done in 1..tries {
+        if fine(&last) {
+            break;
+        }
+        pause(done);
+        last = probe();
+    }
+    last
+}
+
+/// The command's state once it has had a moment. A program written a second ago is often
+/// held by the antivirus scanning it, and fails to start until the scan is done (Copilot's
+/// 150 MB binary did, and its loader blamed a missing package); a broken install stays
+/// broken however long it is given.
+fn settled_surface(spec: &ToolSpec, window: &Option<tauri::Window>) -> VibeSurface {
+    settle(
+        || cli_surface(spec, false),
+        |surface| surface.health != "broken",
+        RUN_TRIES,
+        |done| {
+            emit_progress(
+                window,
+                format!(
+                    "{} 刚装好还不能运行，可能是安全软件正在扫描新文件，{} 秒后再试（{done}/{}）…",
+                    spec.cli.name,
+                    RUN_PAUSE.as_secs(),
+                    RUN_TRIES - 1
+                ),
+            );
+            std::thread::sleep(RUN_PAUSE);
+        },
+    )
 }
 
 /// Waits for an uninstaller that returns before it has finished (NSIS and Squirrel copy
@@ -841,6 +888,41 @@ pub(crate) fn image_is_running(image: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_command_that_fails_at_first_is_tried_again_before_it_counts_as_broken() {
+        // Fails twice (the scan), then runs.
+        let mut runs = 0;
+        let mut pauses = Vec::new();
+        let ok = settle(
+            || {
+                runs += 1;
+                runs >= 3
+            },
+            |fine| *fine,
+            8,
+            |done| pauses.push(done),
+        );
+        assert!(ok);
+        assert_eq!((runs, pauses), (3, vec![1, 2]));
+        // Never runs: every try is used, and no pause after the last.
+        let mut runs = 0;
+        let mut pauses = 0;
+        assert!(!settle(
+            || {
+                runs += 1;
+                false
+            },
+            |fine| *fine,
+            4,
+            |_| pauses += 1
+        ));
+        assert_eq!((runs, pauses), (4, 3));
+        // Fine at once: no waiting at all.
+        let mut pauses = 0;
+        assert!(settle(|| true, |fine| *fine, 8, |_| pauses += 1));
+        assert_eq!(pauses, 0);
+    }
 
     #[test]
     fn an_msi_uninstall_command_names_its_product_code() {
