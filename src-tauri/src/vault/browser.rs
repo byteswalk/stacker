@@ -85,29 +85,26 @@ fn host_of(url: &str) -> String {
         .unwrap_or_default()
 }
 
-/// Which system a login belongs to: host, port and the first directory of the path. Two
-/// logins on one host but another port, or under another first directory, may be two
-/// different systems (a router's page and a NAS on :1188), so they are never taken for one.
-/// A path of a single page (`/userLogin.asp`, `/login`) names no directory. Without a
-/// parseable address, the text as it is.
+/// Which system a login belongs to: its whole address. Another port, another path, even
+/// another page on the same host may be another system (a router's page, a NAS on :1188,
+/// two apps under one address), so only the same address is taken for the same system.
+/// Spelling that names the same address is evened out: the case of scheme and host, a
+/// default port written or not, a trailing slash, the part after `#`. Without a parseable
+/// address, the text as it is.
 pub(crate) fn system_of(url: &str) -> String {
     let Ok(parsed) = url::Url::parse(url.trim()) else {
-        return url.trim().to_lowercase();
+        return url.trim().to_string();
     };
     let Some(host) = parsed.host_str() else {
-        return url.trim().to_lowercase();
+        return url.trim().to_string();
     };
-    let host = host.trim_start_matches("www.").to_ascii_lowercase();
     let port = parsed
         .port_or_known_default()
         .map(|port| port.to_string())
         .unwrap_or_default();
-    let segments: Vec<&str> = parsed
-        .path_segments()
-        .map(|parts| parts.filter(|part| !part.is_empty()).collect())
-        .unwrap_or_default();
-    let context = if segments.len() > 1 { segments[0] } else { "" };
-    format!("{host}:{port}/{context}")
+    let path = parsed.path().trim_end_matches('/');
+    let query = parsed.query().map(|q| format!("?{q}")).unwrap_or_default();
+    format!("{}://{host}:{port}{path}{query}", parsed.scheme())
 }
 
 /// The logins in a browser's export, by the columns its header names. Chrome and Edge write
@@ -360,7 +357,7 @@ mod tests {
             .iter()
             .all(|entry| entry.windows == Some(false)));
 
-        let twice = format!("{CHROME}github.com,https://github.com/,me,\"p,1\"\"x\",\nother.com,https://other.com/,me,pw3,\n");
+        let twice = format!("{CHROME}github.com,https://github.com/login,me,\"p,1\"\"x\",\nother.com,https://other.com/,me,pw3,\n");
         let (inputs, same) = new_logins(&body, logins(&twice).unwrap().0);
         assert_eq!(same, 3);
         assert_eq!(
@@ -370,18 +367,26 @@ mod tests {
     }
 
     #[test]
-    fn another_port_or_first_directory_is_another_system() {
+    fn only_the_same_address_is_the_same_system() {
         assert_eq!(
+            system_of("HTTPS://192.168.2.1:443/#top"),
+            system_of("https://192.168.2.1")
+        );
+        assert_eq!(
+            system_of("http://Router.lan:80/admin/"),
+            system_of("http://router.lan/admin")
+        );
+        assert_ne!(
             system_of("https://192.168.2.1/userLogin.asp"),
             system_of("https://192.168.2.1/")
         );
-        assert_eq!(
+        assert_ne!(
             system_of("https://www.github.com/login"),
-            system_of("https://github.com/session")
+            system_of("https://github.com/login")
         );
-        assert_eq!(
-            system_of("http://192.168.2.1/"),
-            system_of("http://192.168.2.1:80/index.html")
+        assert_ne!(
+            system_of("https://host/login?app=1"),
+            system_of("https://host/login?app=2")
         );
         assert_ne!(
             system_of("https://192.168.2.1/userLogin.asp"),
@@ -396,9 +401,10 @@ mod tests {
             system_of("https://host/app2/login")
         );
 
-        // The same account and password on two ports are two logins, both imported.
-        let csv = "name,url,username,password\nr,https://192.168.2.1/userLogin.asp,admin,pw\nn,http://192.168.2.1:1188/,admin,pw\nr,https://192.168.2.1/,admin,pw\n";
+        // The same account and password at three addresses are three logins; the same
+        // address twice is one.
+        let csv = "name,url,username,password\nr,https://192.168.2.1/userLogin.asp,admin,pw\nn,http://192.168.2.1:1188/,admin,pw\nr,https://192.168.2.1/,admin,pw\nr,https://192.168.2.1,admin,pw\n";
         let (inputs, same) = new_logins(&Body::default(), logins(csv).unwrap().0);
-        assert_eq!((inputs.len(), same), (2, 1));
+        assert_eq!((inputs.len(), same), (3, 1));
     }
 }

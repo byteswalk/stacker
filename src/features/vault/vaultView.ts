@@ -70,21 +70,20 @@ export function siteKey(entry: EntryView): string {
 }
 
 /**
- * Which system an entry's login belongs to: host, port and the first directory of the path,
- * as the backend decides it. Another port or first directory may be another system (a
- * router's page and a NAS on :1188), so logins there are never duplicates of each other.
+ * Which system an entry's login belongs to: its whole address, as the backend decides it.
+ * Another port, path or page may be another system, so only the same address counts; only
+ * spelling is evened out (case of scheme and host, a default port, a trailing slash, `#…`).
  */
 export function systemOf(entry: EntryView): string {
   const url = entry.fields.find((field) => field.name === "网址")?.value?.trim() ?? "";
   if (!url) return (entry.platform || entry.title).toLowerCase();
   try {
     const parsed = new URL(url);
-    if (!parsed.hostname) return url.toLowerCase();
+    if (!parsed.hostname) return url;
     const port = parsed.port || ({ "https:": "443", "http:": "80" } as Record<string, string>)[parsed.protocol] || "";
-    const segments = parsed.pathname.split("/").filter(Boolean);
-    return `${parsed.hostname.toLowerCase().replace(/^www\./, "")}:${port}/${segments.length > 1 ? segments[0] : ""}`;
+    return `${parsed.protocol}//${parsed.hostname}:${port}${parsed.pathname.replace(/\/+$/, "")}${parsed.search}`;
   } catch {
-    return url.toLowerCase();
+    return url;
   }
 }
 

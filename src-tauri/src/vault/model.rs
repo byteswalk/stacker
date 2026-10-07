@@ -428,8 +428,8 @@ pub(crate) fn merge_entries(
         else {
             continue;
         };
-        // Only one system's logins are merged: another port or first directory may be
-        // another system, whatever the account is called.
+        // Only logins of one address are merged: another port or path may be another
+        // system, whatever the account is called.
         if system(&body.entries[index]) != system(&body.entries[keep_index]) {
             continue;
         }
@@ -761,15 +761,18 @@ mod tests {
         };
         let router = apply_input(&mut body, at("https://192.168.2.1/userLogin.asp"), 2).unwrap();
         let nas = apply_input(&mut body, at("http://192.168.2.1:1188/"), 1).unwrap();
-        let again = apply_input(&mut body, at("https://192.168.2.1/"), 1).unwrap();
+        let again = apply_input(&mut body, at("https://192.168.2.1/userLogin.asp#x"), 1).unwrap();
+        let root = apply_input(&mut body, at("https://192.168.2.1/"), 1).unwrap();
         assert_eq!(
-            merge_entries(&mut body, &router, &[nas.clone(), again], 9).unwrap(),
+            merge_entries(&mut body, &router, &[nas.clone(), again, root.clone()], 9).unwrap(),
             1
         );
-        assert!(body
-            .entries
-            .iter()
-            .any(|entry| entry.id == nas && entry.deleted_at.is_none()));
+        for kept in [nas, root] {
+            assert!(body
+                .entries
+                .iter()
+                .any(|entry| entry.id == kept && entry.deleted_at.is_none()));
+        }
     }
 
     #[test]

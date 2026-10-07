@@ -87,8 +87,8 @@ describe("vault entry list", () => {
     }) as typeof invoke);
     const group = groupEntries([
       login("new", "https://example.com/", "me", 9),
-      login("old", "https://example.com/login", "me", 5),
-      login("same", "https://www.example.com/", "me", 1),
+      login("old", "https://example.com", "me", 5),
+      login("same", "https://EXAMPLE.com/#top", "me", 1),
     ])[0];
     const onDone = vi.fn();
     await act(async () => { root.render(<MergeDialog group={group} onClose={() => {}} onDone={onDone} />); });
