@@ -7,6 +7,7 @@ import { useBusyRead } from "../../ui";
 import { FootprintDialog } from "./FootprintDialog";
 import { invoke } from "../../invoke";
 import { errorMessage, type FootprintItem, type FootprintKind, type FootprintReport, type LocationStatus } from "./types";
+import { useDragPick, setInArray } from "../../dragPick";
 
 // Survives tab switches; a scan takes several seconds.
 let cachedReport: FootprintReport | null = null;
@@ -54,6 +55,9 @@ export function FootprintPanel({ onShowSessions }: { onShowSessions: (agent: str
   const [shown, setShown] = useState<string | null>(null);
   const request = useRef(0);
   const [locations, setLocations] = useState<LocationStatus[]>([]);
+  // Only the agent opened below lists its items to pick.
+  const shownReview = report?.agents.find((agent) => agent.product.id === shown)?.items.filter((i) => i.kind === "review") ?? [];
+  const pick = useDragPick(shownReview.map((i) => i.blocked ? [] : [i.id]), (id) => selected.includes(id), (ids, on) => setSelected((old) => setInArray(old, ids, on)));
 
   const loadLocations = useCallback(() => {
     migrationStatus().then((list) => setLocations(list ?? [])).catch((e) => setError(errorMessage(e)));
@@ -76,7 +80,6 @@ export function FootprintPanel({ onShowSessions }: { onShowSessions: (agent: str
 
   useEffect(() => { if (!cachedReport) void load(false); }, [load]);
 
-  const toggle = (id: string) => setSelected((old) => old.includes(id) ? old.filter((x) => x !== id) : [...old, id]);
 
   /** Opens the folder an item lives in, so the user can look before deciding. */
   const openFolder = (item: FootprintItem) => {
@@ -180,10 +183,10 @@ export function FootprintPanel({ onShowSessions }: { onShowSessions: (agent: str
             <b>{t("需你判断")}</b>
             <span>{t("智能体的工作产物，确认不再需要后再删")} · {t("合计")} {bytes(review.reduce((n, i) => n + i.bytes, 0))}</span>
           </div>
-          {review.map((item) => <div className={"fp-pick" + (selected.includes(item.id) ? " on" : "")} key={item.id}>
+          {review.map((item, i) => <div className={"fp-pick" + (selected.includes(item.id) ? " on" : "")} key={item.id} {...pick.row(i)}>
             {item.blocked
               ? <span className="fp-lock" title={t(errorMessage(item.blocked))}><i className="ti ti-lock" /></span>
-              : <input type="checkbox" checked={selected.includes(item.id)} aria-label={t(item.label)} onChange={() => toggle(item.id)} />}
+              : <input type="checkbox" checked={selected.includes(item.id)} aria-label={t(item.label)} title={t("按住拖过几行可以一起勾选；按住 Shift 点选一段")} {...pick.box(i)} onChange={(e) => pick.change(i, e.target.checked)} />}
             <span className="ic amber"><i className={"ti " + reviewIcon(item.label)} /></span>
             <button className="footprint-label" onClick={() => setOpen(open === item.id ? null : item.id)}>
               <b>{t(item.label)}</b>

@@ -5,6 +5,7 @@ import { useBusyRead, useToast } from "../../../ui";
 import type { LargeFileRow, Paged } from "../types";
 import { formatSpaceBytes } from "./SpaceOverview";
 import { RecycleBar, useProtectedPaths } from "./FileRemoval";
+import { useDragPick, setInSet } from "../../../dragPick";
 
 const PAGE_SIZE = 100;
 
@@ -157,12 +158,8 @@ export function LargeFiles({ taskId, thresholdBytes }: { taskId: string; thresho
   }
 
   const pickable = page.items.filter((item) => !protectedPaths.has(item.path));
+  const pick = useDragPick(page.items.map((item) => protectedPaths.has(item.path) ? [] : [item.path]), (path) => picked.has(path), (paths, on) => setPicked((old) => setInSet(old, paths, on)));
   const allPicked = pickable.length > 0 && pickable.every((item) => picked.has(item.path));
-  const toggle = (path: string) => setPicked((old) => {
-    const next = new Set(old);
-    if (next.has(path)) next.delete(path); else next.add(path);
-    return next;
-  });
   const removed = (paths: string[]) => {
     const gone = new Set(paths);
     setPage((current) => ({ ...current, items: current.items.filter((item) => !gone.has(item.path)), total: current.total - gone.size }));
@@ -202,12 +199,12 @@ export function LargeFiles({ taskId, thresholdBytes }: { taskId: string; thresho
         onDone={removed} />}
 
       <div className="space-large-file-list">
-        {page.items.map((file) => (
-          <div className={"space-large-file-row" + (picked.has(file.path) ? " picked" : "")} key={file.nodeId}>
+        {page.items.map((file, i) => (
+          <div className={"space-large-file-row" + (picked.has(file.path) ? " picked" : "")} key={file.nodeId} {...pick.row(i)}>
             {protectedPaths.has(file.path)
               ? <span className="recycle-lock" title={tr("系统或程序目录里的文件不能在这里删除")}><i className="ti ti-lock" /></span>
-              : <input type="checkbox" className="recycle-check" checked={picked.has(file.path)} aria-label={tr("选择")}
-                onChange={() => toggle(file.path)} />}
+              : <input type="checkbox" className="recycle-check" checked={picked.has(file.path)} aria-label={tr("选择")} title={tr("按住拖过几行可以一起勾选；按住 Shift 点选一段")}
+                {...pick.box(i)} onChange={(e) => pick.change(i, e.target.checked)} />}
             <span className="space-file-icon"><i className="ti ti-file" /></span>
             <div className="space-large-file-main">
               <div>

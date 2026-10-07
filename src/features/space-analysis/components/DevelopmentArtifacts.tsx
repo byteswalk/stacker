@@ -1,10 +1,11 @@
 import { useMemo, useState } from "react";
 import { AiExplain } from "../../ai/AiExplain";
 import type { DirectoryNode } from "../types";
-import { canSelectSafety, setCleanupNodesSelected, toggleCleanupNode, useCleanupStore } from "../cleanupStore";
+import { canSelectSafety, setCleanupNodesSelected, useCleanupStore } from "../cleanupStore";
 import { useI18n } from "../../../i18n";
 import { invoke } from "../../../invoke";
 import { useToast } from "../../../ui";
+import { useDragPick } from "../../../dragPick";
 
 export function formatSpaceBytes(bytes: number) {
   if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
@@ -32,6 +33,9 @@ export function CandidateRows({ nodes, emptyText }: { nodes: DirectoryNode[]; em
   const toast = useToast();
   const cleanup = useCleanupStore();
   const [explain, setExplain] = useState<DirectoryNode | null>(null);
+  const running = cleanup.progress?.state === "running";
+  const pick = useDragPick(nodes.map((node) => node.safety === "viewOnly" || running ? [] : [node.nodeId]), (id) => cleanup.selected.has(id),
+    (ids, on) => setCleanupNodesSelected(nodes.filter((node) => ids.includes(node.nodeId)), on));
   async function openDirectory(path: string) {
     try {
       await invoke("space_open_directory", { path });
@@ -43,12 +47,12 @@ export function CandidateRows({ nodes, emptyText }: { nodes: DirectoryNode[]; em
   if (cleanup.error) return <div className="space-analysis-state error"><i className="ti ti-alert-triangle" />{tr("无法读取可清理项，请重新扫描。")}</div>;
   if (nodes.length === 0) return <div className="space-analysis-empty">{emptyText ?? tr("当前扫描结果没有此类可清理项。")}</div>;
   return <div className="space-cleanup-list">
-    {nodes.map((node) => {
-      const disabled = node.safety === "viewOnly" || cleanup.progress?.state === "running";
+    {nodes.map((node, i) => {
+      const disabled = node.safety === "viewOnly" || running;
       const checked = cleanup.selected.has(node.nodeId);
-      return <div className={`space-cleanup-row safety-${node.safety}`} key={node.nodeId}>
-        <input type="checkbox" className="ck2" checked={checked && !disabled} disabled={disabled}
-          aria-label={`${tr("选择清理项")}: ${node.name}`} onChange={() => toggleCleanupNode(node)} />
+      return <div className={`space-cleanup-row safety-${node.safety}`} key={node.nodeId} {...pick.row(i)}>
+        <input type="checkbox" className="ck2" checked={checked && !disabled} disabled={disabled} title={tr("按住拖过几行可以一起勾选；按住 Shift 点选一段")}
+          aria-label={`${tr("选择清理项")}: ${node.name}`} {...pick.box(i)} onChange={(e) => pick.change(i, e.target.checked)} />
         <span className="space-cleanup-icon"><i className="ti ti-folders" /></span>
         <div className="space-cleanup-copy">
           <strong title={node.name}>{node.name}</strong>

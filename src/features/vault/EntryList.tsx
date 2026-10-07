@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useDragPick } from "../../dragPick";
 import { ConfirmModal, useToast } from "../../ui";
 import { vaultApi, vaultError, type EntryView } from "./api";
 import { KIND_LABELS } from "./labels";
@@ -75,31 +76,8 @@ export function EntryList({ entries, today, onView, onEdit, onChanged }: {
     : [{ group }, ...(open.has(group.key) ? group.entries.map((entry) => ({ entry, inGroup: true })) : [])]);
   const idsOf = (line: Line) => (line.group ? line.group.entries : [line.entry]).filter((entry) => entry.kind !== "ssh_key").map((entry) => entry.id);
 
-  // Picking: press on a box and drag over the rows to set them all the same way; shift picks the range from the last box.
-  const dragging = useRef<boolean | null>(null);
-  const lastPicked = useRef<number | null>(null);
-  const pressed = useRef(false);
-  useEffect(() => {
-    const release = () => { dragging.current = null; window.setTimeout(() => { pressed.current = false; }, 0); };
-    window.addEventListener("pointerup", release);
-    return () => window.removeEventListener("pointerup", release);
-  }, []);
-  function press(index: number, event: ReactPointerEvent) {
-    const ids = idsOf(lines[index]);
-    if (event.button !== 0 || ids.length === 0) return;
-    event.preventDefault();
-    pressed.current = true;
-    const on = !ids.every((id) => picked.has(id));
-    const range = event.shiftKey && lastPicked.current !== null;
-    const from = range ? Math.min(lastPicked.current!, index) : index;
-    const to = range ? Math.max(lastPicked.current!, index) : index;
-    toggle(lines.slice(from, to + 1).flatMap(idsOf), on);
-    lastPicked.current = index;
-    dragging.current = on;
-  }
-  const pass = (index: number) => { if (dragging.current !== null) toggle(idsOf(lines[index]), dragging.current); };
-  // The keyboard still ticks a box; a press already did.
-  const keyed = (index: number, on: boolean) => { if (!pressed.current) { toggle(idsOf(lines[index]), on); lastPicked.current = index; } };
+  // Press a box and drag over the rows to set them all the same way; shift picks a range.
+  const pick = useDragPick(lines.map(idsOf), (id) => picked.has(id), toggle);
 
   function resize(column: keyof Widths, event: ReactPointerEvent<HTMLElement>) {
     event.preventDefault();
@@ -185,11 +163,11 @@ export function EntryList({ entries, today, onView, onEdit, onChanged }: {
     const second = entry.note || where || "—";
     return (
       <div key={entry.id} role="listitem" className={"vault-row" + (picked.has(entry.id) ? " picked" : "") + (inGroup ? " child" : "")}
-        onClick={() => onView(entry)} onPointerEnter={() => pass(index)}>
-        <span className="vault-pick-cell" onClick={(event) => event.stopPropagation()} onPointerDown={(event) => press(index, event)}>
+        onClick={() => onView(entry)} {...pick.row(index)}>
+        <span className="vault-pick-cell" onClick={(event) => event.stopPropagation()} {...pick.box(index)}>
           {entry.kind === "ssh_key"
             ? <input type="checkbox" className="vault-pick" disabled aria-label="SSH 密钥不进 Windows 凭据" title="SSH 密钥放在 ~/.ssh 给 ssh 用，不进 Windows 凭据管理器" />
-            : <input type="checkbox" className="vault-pick" aria-label="选择" title="按住拖过几行可以一起勾选；按住 Shift 点选一段" checked={picked.has(entry.id)} onChange={(e) => keyed(index, e.target.checked)} />}
+            : <input type="checkbox" className="vault-pick" aria-label="选择" title="按住拖过几行可以一起勾选；按住 Shift 点选一段" checked={picked.has(entry.id)} onChange={(e) => pick.change(index, e.target.checked)} />}
         </span>
         <i className={"ti " + (inGroup ? "ti-user" : "ti-key")} aria-hidden="true" />
         <span className="title" translate="no" title={inGroup && account ? `${account}\n${entry.title}` : entry.title}>{name}
@@ -220,9 +198,9 @@ export function EntryList({ entries, today, onView, onEdit, onChanged }: {
     const newest = Math.max(...group.entries.map((entry) => entry.updatedAt));
     const note = group.entries.find((entry) => entry.note)?.note ?? "";
     const count = tr("{count} 条").replace("{count}", String(group.entries.length));
-    return <div key={`g:${group.key}`} className={"vault-row group" + (expanded ? " open" : "")} onClick={() => flip(group.key)} onPointerEnter={() => pass(index)}>
-      <span className="vault-pick-cell" onClick={(event) => event.stopPropagation()} onPointerDown={(event) => press(index, event)}>
-        <input type="checkbox" className="vault-pick" aria-label="选择这个网站的全部条目" title="按住拖过几行可以一起勾选；按住 Shift 点选一段" checked={all} disabled={!ids.length} onChange={(e) => keyed(index, e.target.checked)} />
+    return <div key={`g:${group.key}`} className={"vault-row group" + (expanded ? " open" : "")} onClick={() => flip(group.key)} {...pick.row(index)}>
+      <span className="vault-pick-cell" onClick={(event) => event.stopPropagation()} {...pick.box(index)}>
+        <input type="checkbox" className="vault-pick" aria-label="选择这个网站的全部条目" title="按住拖过几行可以一起勾选；按住 Shift 点选一段" checked={all} disabled={!ids.length} onChange={(e) => pick.change(index, e.target.checked)} />
       </span>
       <i className={"ti " + (expanded ? "ti-chevron-down" : "ti-chevron-right")} aria-hidden="true" />
       <span className="title" translate="no" title={group.key}>{group.key}</span>

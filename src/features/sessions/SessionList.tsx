@@ -6,8 +6,9 @@ import { aiError } from "../ai/AiSettings";
 import { AiSetupPrompt, needsAiSetup } from "../ai/AiAsk";
 import { Select } from "../../Select";
 import { formatSpaceBytes as bytes } from "../space-analysis/components/SpaceOverview";
-import { AGENT_LABEL, CLIENT_LABEL, STATUS_LABEL, formatAge, toggleSelection } from "./sessionsView";
+import { AGENT_LABEL, CLIENT_LABEL, STATUS_LABEL, formatAge } from "./sessionsView";
 import { PAGE_SIZE, type AgentName, type ClientTag, type ProjectRow, type Session, type SessionPage, type SessionQuery } from "./types";
+import { useDragPick, setInArray } from "../../dragPick";
 
 /** Client tags each agent can produce (CodeBuddy runs from a terminal or an IDE). */
 function clientsFor(agent: string): ClientTag[] {
@@ -78,6 +79,7 @@ export function SessionList({ page, query, projects, loading, selected, onSelect
     project: !agent || !query.project || projects.some((p) => p.project.key === query.project && p.agents.includes(agent as AgentName)) ? query.project : "",
     client: clientsFor(agent).includes(query.client as ClientTag) ? query.client : "",
   });
+  const pick = useDragPick(page.items.map((s) => [s.id]), (id) => selected.includes(id), (ids, on) => onSelect(setInArray(selected, ids, on)));
   const togglePage = () => onSelect(allPage
     ? selected.filter((id) => !page.items.some((s) => s.id === id))
     : Array.from(new Set([...selected, ...page.items.map((s) => s.id)])));
@@ -110,9 +112,9 @@ export function SessionList({ page, query, projects, loading, selected, onSelect
     </div>
     <div className="session-list" aria-busy={loading}>
       {!page.items.length ? <div className="session-empty"><i className="ti ti-messages-off" /><b>{t(loading ? "正在读取会话" : "没有符合筛选的会话")}</b></div>
-        : page.items.map((s) => <div key={s.id} className="session-item">
-          <div className={`session-row ${selected.includes(s.id) ? "selected" : ""}`}>
-            <input type="checkbox" checked={selected.includes(s.id)} aria-label={s.title} onChange={() => onSelect(toggleSelection(selected, s.id))} />
+        : page.items.map((s, i) => <div key={s.id} className="session-item">
+          <div className={`session-row ${selected.includes(s.id) ? "selected" : ""}`} {...pick.row(i)}>
+            <input type="checkbox" checked={selected.includes(s.id)} aria-label={s.title} title={t("按住拖过几行可以一起勾选；按住 Shift 点选一段")} {...pick.box(i)} onChange={(e) => pick.change(i, e.target.checked)} />
             <button className={`session-favorite ${s.favorite ? "on" : ""}`} title={t(s.favorite ? "取消收藏" : "收藏")} aria-label={t(s.favorite ? "取消收藏" : "收藏")} onClick={() => onFavorite([s.id], !s.favorite)}><i className="ti ti-star" /></button>
             <button className="session-title" onClick={() => onOpen(s)}>
               <b title={s.title}>{s.pinned && <i className="ti ti-pin" />}{s.title}{s.summary && <i className={`ti ti-notes summary-mark ${s.summaryStale ? "stale" : ""}`} title={t(s.summaryStale ? "摘要已过期" : "已有摘要")} />}</b>

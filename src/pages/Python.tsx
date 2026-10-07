@@ -10,6 +10,7 @@ import { useNotifications } from "../notifications";
 import { pythonSummary, type PythonEnvReport } from "../features/python/pythonSummary";
 import { VenvPanel } from "../features/python/VenvPanel";
 import { BinaryMirrors } from "../features/sources/BinaryMirrors";
+import { useDragPick, setInArray } from "../dragPick";
 
 type PyVer = { version: string; is_default: boolean; path?: string | null };
 type PyenvStatus = { installed: boolean; pyenv_version: string | null; versions: PyVer[]; default: string | null };
@@ -319,6 +320,8 @@ export default function Python() {
     } catch (e) { toast(operationWasCancelled(e) ? `已取消安装 Python ${v}` : "安装 Python 失败。请切换下载源或检查安装目录权限后重试。原因：" + e, operationWasCancelled(e) ? "info" : "err"); }
   }
 
+  const runtimePick = useDragPick((scannedRuntimes ?? []).map((runtime) => removable(runtime) ? [runtime.path] : []), (path) => picked.includes(path),
+    (paths, on) => setPicked((cur) => setInArray(cur, paths, on)));
   if (loadErr) return <ErrorState title="暂时无法读取 Python 环境" description="请确认 pyenv-win 与 Python 安装目录可访问，然后重试。" onRetry={async () => { await loadPy(); setLoadErr(false); }} />;
   const pyLoading = !py;
   const pyState: PyenvStatus = py ?? { installed: false, pyenv_version: null, versions: [], default: null };
@@ -441,12 +444,12 @@ export default function Python() {
               </button>
             </div>
           </div>
-          {scannedRuntimes.map((runtime) => (
-            <div className="vrow" key={runtime.path}>
+          {scannedRuntimes.map((runtime, i) => (
+            <div className="vrow" key={runtime.path} {...runtimePick.row(i)}>
               <input type="checkbox" className="py-pick" disabled={!removable(runtime)}
-                title={removable(runtime) ? "选中后可批量删除" : "pyenv 管理的版本或 Microsoft Store 占位程序，不能在这里删除"}
+                title={removable(runtime) ? "选中后可批量删除；按住拖过几行可以一起勾选，按住 Shift 点选一段" : "pyenv 管理的版本或 Microsoft Store 占位程序，不能在这里删除"}
                 checked={picked.includes(runtime.path)}
-                onChange={(e) => setPicked((cur) => e.target.checked ? [...cur, runtime.path] : cur.filter((p) => p !== runtime.path))} />
+                {...runtimePick.box(i)} onChange={(e) => runtimePick.change(i, e.target.checked)} />
               <span className="ver">{runtime.version}</span>
               <span className="meta" title={runtime.path}><code className="py-path">{runtime.path}</code></span>
               <div className="acts">

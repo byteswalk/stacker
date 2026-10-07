@@ -9,6 +9,7 @@ import { useI18n } from "../i18n";
 import { invoke } from "../invoke";
 import { useNotifications } from "../notifications";
 import { ConfirmModal, Modal, useToast } from "../ui";
+import { useDragPick, setInSet } from "../dragPick";
 
 type CleanupCategory = "safe" | "history" | "temp" | "cautious";
 
@@ -228,17 +229,12 @@ export default function Cleanup() {
   const total = scan.result?.totalBytes ?? items.reduce((sum, item) => sum + item.size, 0);
   const safeTotal = scan.result?.safelyReleasableBytes ?? safe.reduce((sum, item) => sum + item.size, 0);
   const selItems = items.filter((item) => sel.has(item.path));
+  // The rows in the order shown, section by section.
+  const ordered = [...safe, ...history, ...temp, ...cautious];
+  const order = new Map(ordered.map((item, index) => [item.path, index]));
+  const pick = useDragPick(ordered.map((item) => item.canSelect && !cleanupBusy ? [item.path] : []), (path) => sel.has(path), (paths, on) => setSel((old) => setInSet(old, paths, on)));
   const selTotal = selItems.reduce((sum, item) => sum + item.size, 0);
 
-  function toggle(item: CacheItem) {
-    if (!item.canSelect) return;
-    setSel((current) => {
-      const next = new Set(current);
-      if (next.has(item.path)) next.delete(item.path);
-      else next.add(item.path);
-      return next;
-    });
-  }
 
   function categoryBadge(item: CacheItem) {
     if (item.category === "history") return <span className="bd w">{tr("历史版本")}</span>;
@@ -253,14 +249,16 @@ export default function Cleanup() {
       ? undefined
       : { boxShadow: "inset 3px 0 0 var(--amber)", borderColor: "rgba(228,180,80,.3)" };
     return (
-      <div className="clrow" key={item.path} style={cautiousStyle}>
+      <div className="clrow" key={item.path} style={cautiousStyle} {...pick.row(order.get(item.path) ?? -1)}>
         <input
           type="checkbox"
           className="ck2"
           checked={item.canSelect && sel.has(item.path)}
           disabled={!item.canSelect || cleanupBusy}
+          title={tr("按住拖过几行可以一起勾选；按住 Shift 点选一段")}
           aria-label={`${tr("选择清理项")}: ${item.name}`}
-          onChange={() => toggle(item)}
+          {...pick.box(order.get(item.path) ?? -1)}
+          onChange={(e) => pick.change(order.get(item.path) ?? -1, e.target.checked)}
         />
         <span className={`av ${item.av}`}><i className={`ti ${item.icon}`} /></span>
         <div className="ct2">

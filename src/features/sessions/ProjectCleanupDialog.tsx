@@ -3,6 +3,7 @@ import { invoke } from "../../invoke";
 import { useI18n } from "../../i18n";
 import { ConfirmModal, Modal, useToast } from "../../ui";
 import { formatSpaceBytes as bytes } from "../space-analysis/components/SpaceOverview";
+import { useDragPick, setInArray } from "../../dragPick";
 
 type JunkKind = "rebuildable" | "releases" | "cache" | "environment";
 type JunkItem = {
@@ -57,9 +58,11 @@ export function ProjectCleanupDialog({ name, path, onClose }: { name: string; pa
   }
 
   const items = report?.items ?? [];
+  // The rows in the order shown: grouped by kind.
+  const ordered = ORDER.flatMap((kind) => items.filter((i) => i.kind === kind));
+  const pick = useDragPick(ordered.map((i) => busy ? [] : [i.id]), (id) => picked.includes(id), (ids, on) => setPicked((old) => setInArray(old, ids, on)));
   const chosen = items.filter((i) => picked.includes(i.id));
   const chosenBytes = chosen.reduce((sum, i) => sum + i.bytes, 0);
-  const toggle = (id: string) => setPicked((old) => old.includes(id) ? old.filter((x) => x !== id) : [...old, id]);
 
   return <>
     <Modal wide icon="ti-recycle" title={<>{t("清理项目")} · {name}</>} onClose={() => onClose(changed)}
@@ -80,8 +83,8 @@ export function ProjectCleanupDialog({ name, path, onClose }: { name: string; pa
             <i className={"ti " + KIND[kind].icon} /> {t(KIND[kind].label)}
             <span>{bytes(items.filter((i) => i.kind === kind).reduce((sum, i) => sum + i.bytes, 0))}</span>
           </div>
-          {items.filter((i) => i.kind === kind).map((item) => <label key={item.id} className={"pj-item" + (picked.includes(item.id) ? " on" : "")}>
-            <input type="checkbox" checked={picked.includes(item.id)} disabled={busy} onChange={() => toggle(item.id)} />
+          {items.filter((i) => i.kind === kind).map((item) => <label key={item.id} className={"pj-item" + (picked.includes(item.id) ? " on" : "")} {...pick.row(ordered.indexOf(item))}>
+            <input type="checkbox" checked={picked.includes(item.id)} disabled={busy} title={t("按住拖过几行可以一起勾选；按住 Shift 点选一段")} {...pick.box(ordered.indexOf(item))} onChange={(e) => pick.change(ordered.indexOf(item), e.target.checked)} />
             <span className="pj-item-tx">
               <b>{item.id}</b>
               <small>{t(item.label)} · {t(item.explain)}</small>

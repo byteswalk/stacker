@@ -1292,6 +1292,7 @@ Object.assign(CURATED_EN, {
   "锁定密钥保管": "Lock the key vault",
   "密钥保管已锁定": "Key vault is locked",
   "前往": "Go to",
+  "选中后可批量删除；按住拖过几行可以一起勾选，按住 Shift 点选一段": "Pick to delete several at once; press and drag over rows to pick them together, Shift-click picks a range",
   "历史 {count}": "History {count}",
   "{count} 份": "{count} copies",
   "合并 {count} 条": "Merge {count}",

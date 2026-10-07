@@ -5,6 +5,7 @@ import { ConfirmModal, useToast } from "../../ui";
 import { Select } from "../../Select";
 import { AiAskModal, askAi } from "../ai/AiAsk";
 import { INTERNAL, LogDetail, parseDetail, statusMeaning, type LogRow } from "./LogDetail";
+import { useDragPick, setInArray } from "../../dragPick";
 
 type LogPage = { items: LogRow[]; total: number; kept: number; agents: string[] };
 type Query = { search: string; outcome: string; agent: string; since: number; offset: number; limit: number };
@@ -77,6 +78,7 @@ export function GatewayLog({ enabled, retentionDays, onSettings }: {
   }
 
   const rows = page?.items ?? [];
+  const pick = useDragPick(rows.map((r) => [r.id]), (id) => picked.includes(id), (ids, on) => setPicked((old) => setInArray(old, ids, on)));
   const filtered = !!(query.search.trim() || query.outcome || query.agent || query.since);
   const allPicked = rows.length > 0 && picked.length === rows.length;
   const pages = Math.max(1, Math.ceil((page?.total ?? 0) / PAGE));
@@ -113,9 +115,9 @@ export function GatewayLog({ enabled, retentionDays, onSettings }: {
           <label className="ck"><input type="checkbox" checked={allPicked} onChange={(e) => setPicked(e.target.checked ? rows.map((r) => r.id) : [])} /></label>
           <span>{t("时间")}</span><span>{t("接口")}</span><span>{t("模型")}</span><span>{t("状态")}</span><span>{t("耗时")}</span><span />
         </div>
-        {rows.map((r) => <div key={r.id} className={"row" + (picked.includes(r.id) ? " on" : "")} onClick={() => setOpened(r)} title={t("查看这条请求的详情")}>
-          <label className="ck" onClick={(event) => event.stopPropagation()}><input type="checkbox" checked={picked.includes(r.id)} aria-label={String(r.at)}
-            onChange={(e) => setPicked((old) => e.target.checked ? [...old, r.id] : old.filter((id) => id !== r.id))} /></label>
+        {rows.map((r, i) => <div key={r.id} className={"row" + (picked.includes(r.id) ? " on" : "")} onClick={() => setOpened(r)} title={t("查看这条请求的详情")} {...pick.row(i)}>
+          <label className="ck" onClick={(event) => event.stopPropagation()} title={t("按住拖过几行可以一起勾选；按住 Shift 点选一段")} {...pick.box(i)}><input type="checkbox" checked={picked.includes(r.id)} aria-label={String(r.at)}
+            onChange={(e) => pick.change(i, e.target.checked)} /></label>
           <span>{new Date(r.at * 1000).toLocaleString()}</span>
           {r.endpoint === INTERNAL
             ? <span className="gw-log-internal" title={t("Stacker 自己的 AI 功能发起的调用，不经过接口服务")}><i className="ti ti-sparkles" /> {t("Stacker 内部")}</span>

@@ -4,6 +4,7 @@ import { useI18n } from "../../../i18n";
 import { useToast } from "../../../ui";
 import { formatSpaceBytes as bytes } from "./SpaceOverview";
 import { RecycleBar, useProtectedPaths } from "./FileRemoval";
+import { useDragPick } from "../../../dragPick";
 
 type DuplicateGroup = { bytes: number; wasted: number; paths: string[]; verified: boolean };
 type DuplicateReport = { groups: DuplicateGroup[]; wasted: number; complete: boolean };
@@ -58,19 +59,21 @@ export function DuplicateFiles({ taskId }: { taskId: string }) {
   const open = (path: string) => void invoke("space_open_directory", { path: path.replace(/[\\/][^\\/]+$/, "") })
     .catch((e) => toast(String(e), "err"));
 
-  // One copy of every group always stays: the last unpicked one cannot be picked.
-  function toggle(group: DuplicateGroup, path: string) {
-    setPicked((old) => {
-      const next = new Set(old);
-      if (next.has(path)) { next.delete(path); return next; }
-      if (group.paths.filter((p) => p !== path && !next.has(p)).length === 0) {
-        toast(t("每组至少保留一份"), "info");
-        return old;
-      }
+  // One copy of every group always stays: the last unpicked one cannot be picked, however it is pressed.
+  const flat = (report?.groups ?? []).flatMap((group) => group.paths.map((path) => ({ group, path })));
+  const order = new Map(flat.map((item, index) => [item.path, index]));
+  const pick = useDragPick(flat.map(({ path }) => locked.has(path) ? [] : [path]), (path) => picked.has(path), (paths, on) => setPicked((old) => {
+    const next = new Set(old);
+    let kept = false;
+    for (const path of paths) {
+      if (!on) { next.delete(path); continue; }
+      const group = flat[order.get(path) ?? -1]?.group;
+      if (group && group.paths.filter((p) => p !== path && !next.has(p)).length === 0) { kept = true; continue; }
       next.add(path);
-      return next;
-    });
-  }
+    }
+    if (kept) toast(t("每组至少保留一份"), "info");
+    return next;
+  }));
 
   function pickAll() {
     setPicked(new Set((report?.groups ?? []).flatMap((group) => smartPick(group, locked))));
@@ -117,11 +120,11 @@ export function DuplicateFiles({ taskId }: { taskId: string }) {
         <span className="green">{t("可省")} {bytes(group.wasted)}</span>
         {!group.verified && <span className="bd y" title={t("文件太大，未逐字节比对")}>{t("按首尾片段判断")}</span>}
       </div>
-      {group.paths.map((path) => <div className={"dupe-path" + (picked.has(path) ? " picked" : "")} key={path}>
+      {group.paths.map((path) => <div className={"dupe-path" + (picked.has(path) ? " picked" : "")} key={path} {...pick.row(order.get(path) ?? -1)}>
         {locked.has(path)
           ? <span className="recycle-lock" title={t("系统或程序目录里的文件不能在这里删除")}><i className="ti ti-lock" /></span>
-          : <input type="checkbox" className="recycle-check" checked={picked.has(path)} aria-label={t("选择")}
-            onChange={() => toggle(group, path)} />}
+          : <input type="checkbox" className="recycle-check" checked={picked.has(path)} aria-label={t("选择")} title={t("按住拖过几行可以一起勾选；按住 Shift 点选一段")}
+            {...pick.box(order.get(path) ?? -1)} onChange={(e) => pick.change(order.get(path) ?? -1, e.target.checked)} />}
         <code title={path}>{path}</code>
         <button className="gh xs" title={t("打开所在目录")} onClick={() => open(path)}><i className="ti ti-folder-open" /></button>
       </div>)}
