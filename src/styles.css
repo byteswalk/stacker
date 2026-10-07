@@ -1703,3 +1703,11 @@ button{ font-family:inherit; }
 .a .col-resize{ position:absolute; top:-4px; bottom:-8px; right:-9px; width:9px; cursor:col-resize; z-index:1; }
 .a .col-resize::after{ content:""; position:absolute; left:4px; top:5px; bottom:5px; width:1px; background:var(--bd); }
 .a .col-resize:hover::after{ width:2px; left:3px; background:var(--acc); }
+/* A list being read again: a slim light running along its top edge, the rows still usable. */
+.a .list-progress{ position:relative; height:2px; overflow:hidden; background:rgba(106,163,245,.12); border-radius:2px; }
+.a .list-progress > i{ position:absolute; top:0; left:0; height:100%; width:28%; border-radius:2px;
+  background:linear-gradient(90deg,transparent,#6aa3f5,rgba(255,255,255,.7),#6aa3f5,transparent);
+  box-shadow:0 0 8px rgba(106,163,245,.7); animation:list-progress 1.3s ease-in-out infinite; }
+@keyframes list-progress{ from{ transform:translateX(-110%); } to{ transform:translateX(380%); } }
+@media (prefers-reduced-motion: reduce){ .a .list-progress > i{ animation:none; width:100%; opacity:.5; } }
+.a .session-list > .stub.load-card{ margin:15px 0; text-align:left; }

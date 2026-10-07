@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { invoke } from "../../invoke";
 import { useI18n } from "../../i18n";
-import { useToast } from "../../ui";
+import { ListProgress, Loading, useToast } from "../../ui";
 import { aiError } from "../ai/AiSettings";
 import { AiSetupPrompt, needsAiSetup } from "../ai/AiAsk";
 import { Select } from "../../Select";
@@ -107,11 +107,13 @@ export function SessionList({ page, query, projects, loading, selected, onSelect
     <div className="session-bulk">
       <label className="session-check"><input type="checkbox" checked={allPage} onChange={togglePage} />{t("本页")}</label>
       <button className="gh sm" disabled={loading || !page.total} onClick={() => onSelect([...page.ids])}>{t("选择全部结果")} ({page.total})</button>
-      {loading && <span className="session-reading"><i className="ti ti-loader spin" />{t("正在读取…")}</span>}
-      <span className="session-total">{page.total} {t("个会话")} · {bytes(page.totalBytes)}</span>
+      <span className="session-total">{loading && !page.total ? "—" : `${page.total} ${t("个会话")} · ${bytes(page.totalBytes)}`}</span>
     </div>
     <div className="session-list" aria-busy={loading}>
-      {!page.items.length ? <div className="session-empty"><i className="ti ti-messages-off" /><b>{t(loading ? "正在读取会话" : "没有符合筛选的会话")}</b></div>
+      {loading && !!page.items.length && <ListProgress />}
+      {!page.items.length ? (loading
+        ? <Loading title="正在读取会话" text="第一次要扫描各智能体的会话文件，会多花一点时间。可以先去别的页面，回来时结果还在。" />
+        : <div className="session-empty"><i className="ti ti-messages-off" /><b>{t("没有符合筛选的会话")}</b></div>)
         : page.items.map((s, i) => <div key={s.id} className="session-item">
           <div className={`session-row ${selected.includes(s.id) ? "selected" : ""}`} {...pick.row(i)}>
             <input type="checkbox" checked={selected.includes(s.id)} aria-label={s.title} title={t("按住拖过几行可以一起勾选；按住 Shift 点选一段")} {...pick.box(i)} onChange={(e) => pick.change(i, e.target.checked)} />
@@ -134,11 +136,11 @@ export function SessionList({ page, query, projects, loading, selected, onSelect
           {expanded === s.id && <div className="session-children">{s.children.map((c) => <div key={c.id}><i className="ti ti-corner-down-right" /><span title={c.title}>{c.title || c.id}</span><small>{bytes(c.bytes)}</small></div>)}</div>}
         </div>)}
     </div>
-    <div className="session-pagination"><span>{loading ? t("读取中") : ""}</span>
+    {(!loading || !!page.items.length) && <div className="session-pagination"><span />
       <button className="gh sm" disabled={!query.offset || loading} title={t("上一页")} aria-label={t("上一页")} onClick={() => onPage(Math.max(0, query.offset - PAGE_SIZE))}><i className="ti ti-chevron-left" /></button>
       <span>{Math.floor(query.offset / PAGE_SIZE) + 1} / {Math.max(1, Math.ceil(page.total / PAGE_SIZE))}</span>
       <button className="gh sm" disabled={query.offset + PAGE_SIZE >= page.total || loading} title={t("下一页")} aria-label={t("下一页")} onClick={() => onPage(query.offset + PAGE_SIZE)}><i className="ti ti-chevron-right" /></button>
-    </div>
+    </div>}
     {!!selected.length && <div className="session-actionbar" role="toolbar">
       <b>{t("已选")} {selected.length} {t("项")}</b>{selectedBytes > 0 && <span>{t("本页约")} {bytes(selectedBytes)}</span>}
       <button className="gh sm" onClick={() => onFavorite(selected, !selectedFavorite)}><i className="ti ti-star" />{t(selectedFavorite ? "取消收藏" : "收藏")}</button>

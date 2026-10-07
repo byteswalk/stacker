@@ -222,17 +222,24 @@ function BusyDialog({ state, requestCancel }: { state: NonNullable<BusyState>; r
 }
 
 /* ───────────── 加载占位（统一的"检测中"动画） ───────────── */
-export function Loading({ text }: { text: string }) {
+export function Loading({ text, title = "正在读取环境状态" }: { text: string; title?: string }) {
+  const { tr } = useI18n();
   return (
-    <div className="stub load-card trace-card">
+    <div className="stub load-card trace-card" role="status" aria-live="polite">
       <span className="border-runner" />
       <div className="si"><i className="ti ti-loader spin" /></div>
       <div>
-        <h2>正在读取环境状态</h2>
-        <p>{text}</p>
+        <h2>{tr(title)}</h2>
+        <p>{tr(text)}</p>
       </div>
     </div>
   );
+}
+
+/** A thin bar running along the top of a list that is being read again: what is shown stays usable. */
+export function ListProgress() {
+  const { tr } = useI18n();
+  return <div className="list-progress" role="progressbar" aria-label={tr("列表正在重新读取")}><i /></div>;
 }
 
 export function ErrorState({ title, description, onRetry }: {

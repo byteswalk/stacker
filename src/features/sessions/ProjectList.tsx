@@ -6,6 +6,7 @@ import { formatSpaceBytes as bytes } from "../space-analysis/components/SpaceOve
 import { AGENT_LABEL, formatAge } from "./sessionsView";
 import type { AgentName, ProjectRow } from "./types";
 import { useColumns, type Column } from "../../columns";
+import { Loading } from "../../ui";
 
 /** The table's tracks: every one with data can be resized; the actions keep the width of their buttons. */
 const TRACKS: Column[] = [
@@ -87,7 +88,9 @@ export function ProjectList({ rows, loading, onPick, onHandoff }: { rows: Projec
     {t(label)}{sort.key === key && <i className={"ti " + (sort.ascending ? "ti-chevron-up" : "ti-chevron-down")} />}
   </button>;
 
-  if (!rows.length) return <div className="session-empty"><i className="ti ti-folders" /><b>{t(loading ? "正在读取会话" : "没有项目")}</b></div>;
+  if (!rows.length) return loading
+    ? <Loading title="正在读取项目" text="按会话里记下的工作目录归到各个项目，第一次要扫描各智能体的会话文件。可以先去别的页面，回来时结果还在。" />
+    : <div className="session-empty"><i className="ti ti-folders" /><b>{t("没有项目")}</b></div>;
   return <>
     <div className="session-projects-bar">
       <label className="session-search">
