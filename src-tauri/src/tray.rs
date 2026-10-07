@@ -25,6 +25,7 @@ const PAGES: &[(&str, &str, &str)] = &[
 
 const GOTO: &str = "goto:";
 const PROXY_PAGE: &str = "goto:proxy";
+const FOLLOW: &str = "proxy_follow";
 
 /// What the menu shows, read before it opens.
 #[derive(Debug, Clone, PartialEq)]
@@ -43,7 +44,7 @@ type Line = (&'static str, String, bool);
 
 struct Lines {
     system: Line,
-    follow: Option<Line>,
+    follow: Line,
     gateway: Line,
     vault: Line,
 }
@@ -68,37 +69,42 @@ fn lines(shown: &Shown, english: bool) -> Lines {
             true,
         ),
     };
+    // One line whatever the state, so the menu is changed in place and never rebuilt while open.
     let follow = match (&shown.system, shown.differ) {
-        (Some(_), None) => Some((
-            "proxy_follow",
+        (Some(_), None) => (
+            FOLLOW,
             pick("各处代理跟随系统", "Make every place follow it"),
             true,
-        )),
-        (Some(_), Some(0)) => Some((
-            "proxy_follow",
+        ),
+        (Some(_), Some(0)) => (
+            FOLLOW,
             pick("各处代理已跟随系统", "Every place follows it"),
             false,
-        )),
-        (Some(_), Some(n)) => Some((
-            "proxy_follow",
+        ),
+        (Some(_), Some(n)) => (
+            FOLLOW,
             if english {
                 format!("Make every place follow it ({n} differ)")
             } else {
                 format!("各处代理跟随系统（{n} 处不同）")
             },
             true,
-        )),
+        ),
         // Taking proxies back out is asked for on the page, where the places are listed.
-        (None, Some(n)) if n > 0 => Some((
-            PROXY_PAGE,
+        (None, Some(n)) if n > 0 => (
+            FOLLOW,
             if english {
                 format!("{n} place(s) still set to a proxy…")
             } else {
                 format!("还有 {n} 处留着代理…")
             },
             true,
-        )),
-        (None, _) => None,
+        ),
+        (None, _) => (
+            FOLLOW,
+            pick("各处代理跟随系统", "Make every place follow it"),
+            false,
+        ),
     };
     let gateway = (
         "gateway_toggle",
@@ -173,7 +179,7 @@ fn recount(app: &AppHandle) {
         let differ = crate::proxy_ledger::sync_report().rows.len();
         remember(system, differ);
         COUNTING.store(false, Ordering::SeqCst);
-        let _ = refresh(&app);
+        update(&app);
     });
 }
 
@@ -197,6 +203,41 @@ fn item(app: &AppHandle, (id, text, enabled): Line) -> tauri::Result<MenuItem<Wr
     MenuItem::with_id(app, id, text, enabled, None::<&str>)
 }
 
+/// The lines that change, kept so they can be updated in place: replacing the menu while it
+/// is open closes it.
+#[derive(Clone)]
+struct Items {
+    system: MenuItem<Wry>,
+    follow: MenuItem<Wry>,
+    gateway: CheckMenuItem<Wry>,
+    vault: MenuItem<Wry>,
+}
+
+static ITEMS: Mutex<Option<Items>> = Mutex::new(None);
+
+/// Brings the changing lines up to date without touching the menu itself.
+fn update(app: &AppHandle) {
+    let shown = read_state();
+    let lines = lines(&shown, english());
+    // Copied out first: off the main thread each change waits for the main thread, which may
+    // itself be waiting here.
+    let items = ITEMS.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let Some(items) = items else {
+        let _ = refresh(app);
+        return;
+    };
+    for (item, (_, text, enabled)) in [
+        (&items.system, lines.system),
+        (&items.follow, lines.follow),
+        (&items.vault, lines.vault),
+    ] {
+        let _ = item.set_text(text);
+        let _ = item.set_enabled(enabled);
+    }
+    let _ = items.gateway.set_text(lines.gateway.1);
+    let _ = items.gateway.set_checked(shown.gateway_on);
+}
+
 fn create_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let english = english();
     let pick = |zh: &'static str, en: &'static str| if english { en } else { zh };
@@ -211,7 +252,7 @@ fn create_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         None::<&str>,
     )?;
     let system = item(app, lines.system)?;
-    let follow = lines.follow.map(|line| item(app, line)).transpose()?;
+    let follow = item(app, lines.follow)?;
     let (id, text, enabled) = lines.gateway;
     let gateway = CheckMenuItem::with_id(app, id, text, enabled, shown.gateway_on, None::<&str>)?;
     let vault = item(app, lines.vault)?;
@@ -242,21 +283,22 @@ fn create_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
 
     let separator = || PredefinedMenuItem::separator(app);
     let (one, two, three) = (separator()?, separator()?, separator()?);
-    let mut items: Vec<&dyn tauri::menu::IsMenuItem<Wry>> = vec![&show, &one, &system];
-    if let Some(follow) = &follow {
-        items.push(follow);
-    }
-    items.extend([
-        &gateway as &dyn tauri::menu::IsMenuItem<Wry>,
-        &vault,
-        &two,
-        &goto,
-        &three,
-        &quit,
-    ]);
-    Menu::with_items(app, &items)
+    let menu = Menu::with_items(
+        app,
+        &[
+            &show, &one, &system, &follow, &gateway, &vault, &two, &goto, &three, &quit,
+        ],
+    )?;
+    *ITEMS.lock().unwrap_or_else(|e| e.into_inner()) = Some(Items {
+        system,
+        follow,
+        gateway,
+        vault,
+    });
+    Ok(menu)
 }
 
+/// Builds the menu anew, for a change of language; everything else updates in place.
 pub(crate) fn refresh(app: &AppHandle) -> Result<(), String> {
     let menu = create_menu(app).map_err(|error| error.to_string())?;
     if let Some(tray) = app.tray_by_id("main") {
@@ -313,7 +355,7 @@ fn follow(app: &AppHandle) {
             }
         }
         let _ = app.emit("proxy-changed", ());
-        let _ = refresh(&app);
+        update(&app);
     });
 }
 
@@ -340,7 +382,12 @@ fn toggle_gateway(app: &AppHandle) {
 fn on_menu(app: &AppHandle, id: &str) {
     match id {
         "show" => show_main(app),
-        "proxy_follow" => follow(app),
+        // With no system proxy the line points at the leftovers, which the page lists.
+        FOLLOW if system_proxy().is_some() => follow(app),
+        FOLLOW => {
+            show_main(app);
+            let _ = app.emit("tray-goto", "proxy");
+        }
         "gateway_toggle" => toggle_gateway(app),
         "vault_lock" => {
             crate::vault::guard::lock_everything();
@@ -354,7 +401,7 @@ fn on_menu(app: &AppHandle, id: &str) {
             }
         }
     }
-    let _ = refresh(app);
+    update(app);
 }
 
 pub(crate) fn build(app: &AppHandle) -> tauri::Result<()> {
@@ -377,7 +424,7 @@ pub(crate) fn build(app: &AppHandle) -> tauri::Result<()> {
                 button_state: MouseButtonState::Down,
                 ..
             } => {
-                let _ = refresh(tray.app_handle());
+                update(tray.app_handle());
                 recount(tray.app_handle());
             }
             _ => {}
@@ -403,10 +450,9 @@ mod tests {
         }
     }
 
-    fn follow_of(shown: Shown) -> Option<(String, bool)> {
-        lines(&shown, false)
-            .follow
-            .map(|(_, text, enabled)| (text, enabled))
+    fn follow_of(shown: Shown) -> (String, bool) {
+        let (_, text, enabled) = lines(&shown, false).follow;
+        (text, enabled)
     }
 
     #[test]
@@ -433,7 +479,7 @@ mod tests {
     fn following_the_system_is_offered_while_something_differs() {
         assert_eq!(
             follow_of(shown()),
-            Some(("各处代理跟随系统".into(), true)),
+            ("各处代理跟随系统".into(), true),
             "not counted yet"
         );
         assert_eq!(
@@ -441,14 +487,14 @@ mod tests {
                 differ: Some(3),
                 ..shown()
             }),
-            Some(("各处代理跟随系统（3 处不同）".into(), true))
+            ("各处代理跟随系统（3 处不同）".into(), true)
         );
         assert_eq!(
             follow_of(Shown {
                 differ: Some(0),
                 ..shown()
             }),
-            Some(("各处代理已跟随系统".into(), false))
+            ("各处代理已跟随系统".into(), false)
         );
     }
 
@@ -459,13 +505,9 @@ mod tests {
             differ,
             ..shown()
         };
-        assert_eq!(follow_of(off(None)), None);
-        assert_eq!(follow_of(off(Some(0))), None);
-        let lines = lines(&off(Some(2)), false);
-        assert_eq!(
-            lines.follow,
-            Some((PROXY_PAGE, "还有 2 处留着代理…".into(), true))
-        );
+        assert_eq!(follow_of(off(None)), ("各处代理跟随系统".into(), false));
+        assert_eq!(follow_of(off(Some(0))), ("各处代理跟随系统".into(), false));
+        assert_eq!(follow_of(off(Some(2))), ("还有 2 处留着代理…".into(), true));
     }
 
     #[test]
