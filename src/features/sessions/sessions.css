@@ -252,7 +252,10 @@
 .a .summary-mark{margin-left:6px;color:#5fb878;font-size:12px}
 .a .summary-mark.stale{color:#e6b450}
 .a .handoff-text{white-space:pre-wrap;overflow-wrap:anywhere;font-family:inherit;font-size:13px;line-height:1.7;max-height:360px;overflow:auto;border:1px solid var(--bd);border-radius:8px;padding:10px 12px;margin:0}
-.a .session-project{grid-template-columns:minmax(200px,1fr) 120px 60px 60px 80px 80px 70px;cursor:default}
+.a .session-project{grid-template-columns:var(--project-cols, minmax(200px,1fr) 120px 60px 60px 80px 80px auto);cursor:default}
+.a .session-project>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.a .session-project>span.col-cell{overflow:visible}
+.a .session-project>.session-project-acts{overflow:visible;justify-self:end}
 .a .session-project-name{background:none;border:0;padding:0;color:var(--tx);font:inherit;text-align:left;cursor:pointer}
 .a .session-project-name:hover b{color:var(--link)}
 

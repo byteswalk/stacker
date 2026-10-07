@@ -5,6 +5,18 @@ import { useI18n } from "../../i18n";
 import { formatSpaceBytes as bytes } from "../space-analysis/components/SpaceOverview";
 import { AGENT_LABEL, formatAge } from "./sessionsView";
 import type { AgentName, ProjectRow } from "./types";
+import { useColumns, type Column } from "../../columns";
+
+/** The table's tracks: project and agents can be widened; the actions keep the width of their buttons. */
+const TRACKS: Column[] = [
+  { key: "name", track: "minmax(200px,1fr)", resizable: true, min: 160 },
+  { key: "agent", track: "120px", resizable: true, min: 80 },
+  { key: "sessions", track: "60px" },
+  { key: "orphans", track: "60px" },
+  { key: "bytes", track: "80px" },
+  { key: "updated", track: "80px" },
+  { key: "ops", track: "auto", grows: true },
+];
 
 export type SortKey = "bytes" | "sessions" | "orphans" | "updatedAt" | "name";
 
@@ -48,6 +60,7 @@ export function ProjectList({ rows, loading, onPick, onHandoff }: { rows: Projec
   const [agent, setAgent] = useState<AgentName | "">("");
   const [missingOnly, setMissingOnly] = useState(false);
   const [sort, setSort] = useState<{ key: SortKey; ascending: boolean }>({ key: "bytes", ascending: false });
+  const columns = useColumns("stacker.projects.columns.v1", TRACKS);
   const [error, setError] = useState("");
   const [cleaning, setCleaning] = useState<ProjectRow | null>(null);
 
@@ -89,9 +102,9 @@ export function ProjectList({ rows, loading, onPick, onHandoff }: { rows: Projec
       <span className="s dim">{shown.length} / {rows.length} {t("个项目")}</span>
     </div>
     {error && <p role="alert" className="session-error">{t(error)}</p>}
-    <div className="session-projects" role="table">
-      <div className="session-project head" role="row">
-        <span>{header("name", "项目")}</span><span>{t("智能体")}</span>
+    <div className="session-projects" role="table" style={{ ["--project-cols" as string]: columns.template }}>
+      <div className="session-project head" role="row" data-columns="">
+        <span className="col-cell">{header("name", "项目")}{columns.handle("name")}</span><span className="col-cell">{t("智能体")}{columns.handle("agent")}</span>
         {COLUMNS.map((c) => <span key={c.key}>{header(c.key, c.label)}</span>)}
         <span />
       </div>
