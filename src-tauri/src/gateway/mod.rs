@@ -515,6 +515,43 @@ mod tests {
     use super::*;
 
     #[test]
+    fn opening_and_closing_the_network_keeps_the_service_on_its_port() {
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let mut state = State {
+            running: None,
+            error: String::new(),
+        };
+        let mut config = GatewayConfig {
+            enabled: true,
+            port,
+            ..GatewayConfig::default()
+        };
+        for lan in [false, true, false, true] {
+            config.lan_access = lan;
+            start_locked(&mut state, &config);
+            assert!(state.error.is_empty(), "lan={lan}: {}", state.error);
+            assert_eq!(state.running.as_ref().map(|(r, _)| r.port), Some(port));
+            // Served a request: its connection lingers in TIME_WAIT on the port.
+            use std::io::{Read, Write};
+            let mut client = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+            client
+                .set_read_timeout(Some(std::time::Duration::from_secs(3)))
+                .unwrap();
+            client
+                .write_all(b"GET /v1/models HTTP/1.0\r\n\r\n")
+                .unwrap();
+            let mut answer = String::new();
+            let _ = client.read_to_string(&mut answer);
+            assert!(answer.starts_with("HTTP/1."), "{answer}");
+        }
+        stop_locked(&mut state);
+    }
+
+    #[test]
     fn each_address_is_told_by_its_adapter() {
         let wifi = "MediaTek Wi-Fi 7 MT7925 Wireless LAN Card";
         assert_eq!(adapter_kind("192.168.1.2", "WLAN", wifi, true), "lan");

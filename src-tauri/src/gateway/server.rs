@@ -107,19 +107,66 @@ pub struct Running {
 }
 
 impl Running {
+    /// Stops the service and returns once its port is let go of.
     pub fn stop(mut self) {
         self.server.unblock();
         if let Some(t) = self.thread.take() {
             let _ = t.join();
         }
+        let port = self.port;
+        drop(self.server);
+        // tiny_http wakes its listening thread by connecting to the address it listens on,
+        // which cannot be done to 0.0.0.0: that thread would keep the port for good. It is
+        // woken on loopback here, until nothing answers there any more.
+        let local = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while std::time::Instant::now() < until {
+            match std::net::TcpStream::connect_timeout(
+                &local,
+                std::time::Duration::from_millis(150),
+            ) {
+                Ok(_) => std::thread::sleep(std::time::Duration::from_millis(30)),
+                Err(_) => break,
+            }
+        }
     }
+}
+
+/// A listening socket on `addr`. Connections the service already served linger for minutes
+/// in TIME_WAIT on its port, and Windows then refuses the same port on the other address
+/// (127.0.0.1 → 0.0.0.0 when the network is opened); only when nothing answers on the port is
+/// it taken again over them. A port another program really listens on stays refused.
+fn listen(addr: std::net::SocketAddr) -> std::io::Result<std::net::TcpListener> {
+    use socket2::{Domain, Socket, Type};
+    let open = |reuse: bool| -> std::io::Result<std::net::TcpListener> {
+        let socket = Socket::new(Domain::IPV4, Type::STREAM, None)?;
+        if reuse {
+            socket.set_reuse_address(true)?;
+        }
+        socket.bind(&addr.into())?;
+        socket.listen(128)?;
+        Ok(socket.into())
+    };
+    open(false).or_else(|error| {
+        let local = std::net::SocketAddr::from(([127, 0, 0, 1], addr.port()));
+        let answered =
+            std::net::TcpStream::connect_timeout(&local, std::time::Duration::from_millis(300))
+                .is_ok();
+        if answered || addr.port() == 0 {
+            Err(error)
+        } else {
+            open(true)
+        }
+    })
 }
 
 /// Binds 127.0.0.1, or 0.0.0.0 when the user opened the service to the local network.
 /// Port 0 picks a free port (tests).
 pub fn start(port: u16, lan: bool, shared: Arc<Shared>) -> Result<Running, String> {
-    let host = if lan { "0.0.0.0" } else { "127.0.0.1" };
-    let server = Server::http((host, port)).map_err(|_| "E_PORT".to_string())?;
+    let host = if lan { [0, 0, 0, 0] } else { [127, 0, 0, 1] };
+    let listener =
+        listen(std::net::SocketAddr::from((host, port))).map_err(|_| "E_PORT".to_string())?;
+    let server = Server::from_listener(listener, None).map_err(|_| "E_PORT".to_string())?;
     let port = server
         .server_addr()
         .to_ip()

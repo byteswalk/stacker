@@ -44,6 +44,7 @@ ureq = "2"
 zip = "2"
 flate2 = "1"
 tiny_http = "0.12"
+socket2 = "0.6"
 minisign-verify = "0.2.5"
 argon2 = { version = "0.5", features = ["zeroize"] }
 chacha20poly1305 = "0.10"
