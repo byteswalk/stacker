@@ -4,6 +4,7 @@ mod detect;
 pub(crate) mod devcli;
 mod feeds;
 mod health;
+pub(crate) mod hidden_console;
 pub(crate) mod install;
 pub(crate) mod net;
 pub(crate) mod process;

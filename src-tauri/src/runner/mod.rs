@@ -71,6 +71,71 @@ pub(crate) fn hidden(cmd: &mut Command) {
     crate::sessions::codex_rpc::hidden(cmd);
 }
 
+/// An agent's CLI while it runs: started in a hidden console where Windows allows it, so
+/// what it starts in turn shares that console instead of flashing up one of its own.
+enum Running {
+    Plain(std::process::Child),
+    #[cfg(windows)]
+    Hidden(crate::agents::hidden_console::HiddenChild),
+}
+
+type Pipes = (
+    Box<dyn Write + Send>,
+    Box<dyn std::io::Read + Send>,
+    Box<dyn std::io::Read + Send>,
+);
+
+impl Running {
+    fn start(program: &mut Command) -> std::io::Result<Self> {
+        #[cfg(windows)]
+        match crate::agents::hidden_console::spawn(program) {
+            Ok(child) => return Ok(Running::Hidden(child)),
+            Err(error) if error.kind() == std::io::ErrorKind::Unsupported => {}
+            Err(error) => return Err(error),
+        }
+        program.spawn().map(Running::Plain)
+    }
+
+    fn pipes(&mut self) -> Option<Pipes> {
+        match self {
+            Running::Plain(child) => Some((
+                Box::new(child.stdin.take()?),
+                Box::new(child.stdout.take()?),
+                Box::new(child.stderr.take()?),
+            )),
+            #[cfg(windows)]
+            Running::Hidden(child) => Some((
+                Box::new(child.stdin.take()?),
+                Box::new(child.stdout.take()?),
+                Box::new(child.stderr.take()?),
+            )),
+        }
+    }
+
+    fn try_wait(&mut self) -> std::io::Result<Option<ExitStatus>> {
+        match self {
+            Running::Plain(child) => child.try_wait(),
+            #[cfg(windows)]
+            Running::Hidden(child) => child.try_wait(),
+        }
+    }
+
+    /// Ends the CLI and everything it started.
+    fn stop(&mut self) {
+        match self {
+            Running::Plain(child) => {
+                crate::agents::process::terminate_command_tree(child);
+                let _ = child.wait();
+            }
+            #[cfg(windows)]
+            Running::Hidden(child) => {
+                child.kill_tree();
+                let _ = child.wait();
+            }
+        }
+    }
+}
+
 /// Runs `program` in `cwd` with `stdin`, returning exit status, stdout and stderr.
 pub(crate) fn run_program(
     program: Command,
@@ -103,7 +168,7 @@ pub(crate) fn run_program_lines(
             program.env(key, value);
         }
     }
-    let mut child = program.spawn().map_err(|error| {
+    let mut child = Running::start(&mut program).map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
             "E_RUNNER_MISSING".to_string()
         } else {
@@ -111,13 +176,11 @@ pub(crate) fn run_program_lines(
             "E_RUNNER_START".to_string()
         }
     })?;
-    let mut input = child.stdin.take().ok_or("E_RUNNER_FAILED")?;
+    let (mut input, out, mut err) = child.pipes().ok_or("E_RUNNER_FAILED")?;
     let payload = stdin.as_bytes().to_vec();
     let writer = std::thread::spawn(move || {
         let _ = input.write_all(&payload);
     });
-    let out = child.stdout.take().ok_or("E_RUNNER_FAILED")?;
-    let mut err = child.stderr.take().ok_or("E_RUNNER_FAILED")?;
     let (lines_tx, lines) = mpsc::channel::<Vec<u8>>();
     let out_reader = std::thread::spawn(move || {
         let mut out = std::io::BufReader::new(out);
@@ -165,8 +228,7 @@ pub(crate) fn run_program_lines(
             None
         };
         if let Some(code) = stop {
-            crate::agents::process::terminate_command_tree(&mut child);
-            let _ = child.wait();
+            child.stop();
             return Err(code.into());
         }
     };
@@ -485,6 +547,26 @@ mod tests {
             println!("{backend} -> {out:?}");
             assert_eq!(out.unwrap().text, "5");
         }
+    }
+
+    /// Live, one backend (`STACKER_LIVE_BACKEND`, agy when unset), to watch for console
+    /// windows: `cargo test --lib live_one_backend -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn live_one_backend() {
+        let backend = std::env::var("STACKER_LIVE_BACKEND").unwrap_or_else(|_| "agy".into());
+        let req = RunRequest {
+            backend: backend.clone(),
+            model: None,
+            effort: Some("low".into()),
+            prompt: "Reply with one number only: 2+3=?".into(),
+            timeout: DEFAULT_TIMEOUT,
+            attachments: Vec::new(),
+            on_delta: None,
+        };
+        let out = run(&req, &CancelFlag::default());
+        println!("{backend} -> {out:?}");
+        assert_eq!(out.unwrap().text, "5");
     }
 
     /// Live: no backend may run a command. `cargo test --lib live_no_tools -- --ignored --nocapture`.

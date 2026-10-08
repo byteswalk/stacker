@@ -88,9 +88,12 @@ fn agy_command(home: &Path) -> Result<Command, String> {
     write(gemini.join("config").join("hooks.json"), AGY_HOOKS)?;
     let mut cmd = Command::new(program);
     super::hidden(&mut cmd);
+    // agy reads this as the word `true`, not `1`. Without it every run in a fresh home starts
+    // `agy --bg-updater`, which starts `agy --version` in a new console: a terminal window
+    // that flashes up on every request.
     cmd.env("USERPROFILE", home)
         .env("HOME", home)
-        .env("AGY_CLI_DISABLE_AUTO_UPDATE", "1");
+        .env("AGY_CLI_DISABLE_AUTO_UPDATE", "true");
     Ok(cmd)
 }
 
@@ -526,6 +529,20 @@ pub fn mimo_efforts() -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn agy_runs_without_its_background_updater() {
+        let home = tempfile::tempdir().unwrap();
+        // Only where agy is installed: the command names the program it found.
+        let Ok(cmd) = agy_command(home.path()) else {
+            return;
+        };
+        let value = cmd
+            .get_envs()
+            .find(|(key, _)| *key == "AGY_CLI_DISABLE_AUTO_UPDATE")
+            .and_then(|(_, value)| value);
+        assert_eq!(value, Some(std::ffi::OsStr::new("true")));
+    }
 
     #[test]
     fn agy_prompt_is_one_argument_and_empty_answers_fail() {
