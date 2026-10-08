@@ -679,20 +679,38 @@ pub(crate) fn uninstall_desktop_tool(
             window,
             format!("正在通过 WinGet 卸载 {}…", spec.desktop.name),
         );
-        run_winget_owned(
+        match run_winget_owned(
             winget_args("uninstall", id, spec.desktop.winget_source, true),
             Duration::from_secs(1200),
             window,
-        )?;
-        if !wait_for_desktop_removal(spec, window, Duration::from_secs(90)) {
-            return Ok(format!(
-                "{} 的卸载程序仍在运行，稍后刷新即可看到结果",
-                spec.desktop.name
-            ));
+        ) {
+            Ok(_) => {
+                if !wait_for_desktop_removal(spec, window, Duration::from_secs(90)) {
+                    return Ok(format!(
+                        "{} 的卸载程序仍在运行，稍后刷新即可看到结果",
+                        spec.desktop.name
+                    ));
+                }
+                return Ok(format!("{} 已通过 WinGet 卸载", spec.desktop.name));
+            }
+            // An app installed from its own package (Factory's, when WinGet could not reach
+            // its source) is unknown to WinGet; its own uninstaller still knows it.
+            Err(err)
+                if is_query_miss(&err) && found.as_ref().is_some_and(|f| f.uninstall.is_some()) => {
+            }
+            Err(err) => return Err(err),
         }
-        return Ok(format!("{} 已通过 WinGet 卸载", spec.desktop.name));
     }
-    if let Some(uninstall) = found.and_then(|f| f.uninstall) {
+    let uninstall = found
+        .as_ref()
+        .and_then(|f| f.uninstall.clone())
+        .or_else(|| {
+            found
+                .as_ref()
+                .and_then(|f| f.path.as_deref())
+                .and_then(squirrel_uninstall)
+        });
+    if let Some(uninstall) = uninstall {
         emit_progress(window, format!("正在运行 {} 卸载程序…", spec.desktop.name));
         run_uninstall_string(&uninstall)?;
         // An NSIS uninstaller copies itself away and exits at once; what counts is the app gone.
@@ -942,6 +960,17 @@ pub(crate) fn split_command(command: &str) -> Option<(PathBuf, String)> {
 /// Runs a recorded uninstall command. Not through `cmd /c`: given a quoted path followed by
 /// arguments, cmd strips the outer quotes and the uninstaller never starts. The program is
 /// started directly with its arguments as recorded, and waited for (up to ten minutes).
+/// A Squirrel app's own uninstall command, for one whose registry entry is missing (Factory's
+/// was, after its install was cut short): `Update.exe` beside the `app-<version>` folders.
+fn squirrel_uninstall(path: &Path) -> Option<String> {
+    let root = if path.is_file() { path.parent()? } else { path };
+    let update = root.join("Update.exe");
+    let has_app = std::fs::read_dir(root).ok()?.flatten().any(|entry| {
+        entry.path().is_dir() && entry.file_name().to_string_lossy().starts_with("app-")
+    });
+    (update.is_file() && has_app).then(|| format!("\"{}\" --uninstall -s", update.display()))
+}
+
 pub(crate) fn run_uninstall_string(uninstall: &str) -> Result<(), String> {
     let (program, args) = split_command(uninstall).ok_or("卸载命令格式无法识别")?;
     let mut cmd = Command::new(&program);
@@ -1088,6 +1117,22 @@ pub(crate) fn image_is_running(image: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_squirrel_app_without_its_registry_entry_still_uninstalls() {
+        let root = std::env::temp_dir().join(format!("stacker-squirrel-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("app-0.193.0")).unwrap();
+        std::fs::write(root.join("factory-desktop.exe"), b"").unwrap();
+        assert_eq!(squirrel_uninstall(&root.join("factory-desktop.exe")), None);
+        std::fs::write(root.join("Update.exe"), b"").unwrap();
+        let command = squirrel_uninstall(&root.join("factory-desktop.exe")).unwrap();
+        assert!(
+            command.ends_with("Update.exe\" --uninstall -s"),
+            "{command}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     use super::*;
 
     #[test]
