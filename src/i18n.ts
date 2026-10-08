@@ -1291,6 +1291,8 @@ Object.assign(CURATED_EN, {
   "锁定密钥保管": "Lock the key vault",
   "密钥保管已锁定": "Key vault is locked",
   "前往": "Go to",
+  "SSH 密钥和没有网址的条目不导出；同一地址同一账号存了几份的，只导出最新的一份。": "SSH keys and entries without an address are left out; a login kept several times for one address and account is exported once, the newest.",
+  "Firefox 只记网站的协议、域名和端口，不记路径：同一网站同一账号的几条在它看来是同一条，文件里只放最近改过的那条，免得导入时报重复或冲突。手机 App 的登录它不收，不导出。": "Firefox keeps only a site's scheme, host and port, not the path: several logins of one account on one site are one login to it, so the file holds only the most recently changed one, avoiding duplicates and conflicts on import. App logins are not accepted by Firefox and are left out.",
   "AI 解读这个目录": "AI reading of this folder",
   "AI 正在看这个目录…": "The AI is looking at this folder…",
   "只把目录路径、子目录名称和大小发给 AI，不读取文件内容。回答仅供参考，删前以清理确认为准。": "Only the folder path and its subfolders' names and sizes are sent to the AI; no file is read. The answer is for reference: what gets deleted is decided in the cleanup confirmation.",

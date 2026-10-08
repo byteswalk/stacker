@@ -131,13 +131,66 @@ fn exportable<'a>(
     })
 }
 
-/// How many of these entries a browser could take (all entries when `ids` is empty).
+/// What a browser refuses in a login it imports: a NUL anywhere, a line break in the address
+/// or account (Firefox rejects the row), an empty password.
+fn browser_takes(address: &str, user: &str, password: &str) -> bool {
+    !password.is_empty()
+        && !address.is_empty()
+        && ![address, user, password]
+            .iter()
+            .any(|value| value.contains('\0'))
+        && ![address, user]
+            .iter()
+            .any(|value| value.contains(['\r', '\n']))
+}
+
+/// The rows a browser file holds, one per login the browser can tell apart: Chrome and Edge
+/// keep the whole address, Firefox only `scheme://host[:port]`, so two logins of one account
+/// on two pages of a site are one login to Firefox. Of such a set the newest change is kept,
+/// as the browser would keep it; a second row would only come back as a duplicate or a conflict.
+fn export_rows<'a>(
+    body: &'a Body,
+    ids: &'a [String],
+    browser: Browser,
+) -> Vec<(&'a super::model::Entry, String)> {
+    let mut entries: Vec<_> = exportable(body, ids).collect();
+    entries.sort_by_key(|entry| std::cmp::Reverse(entry.updated_at));
+    let mut seen = HashSet::new();
+    let mut rows = Vec::new();
+    for entry in entries {
+        let url = field(&entry.fields, URL_FIELD).trim();
+        let address = match browser {
+            Browser::Firefox => match origin(url) {
+                Some(origin) => origin,
+                None => continue,
+            },
+            Browser::Chrome | Browser::Edge => url.to_string(),
+        };
+        let user = field(&entry.fields, USER_FIELD);
+        if !browser_takes(&address, user, field(&entry.fields, PASSWORD_FIELD)) {
+            continue;
+        }
+        let key = match browser {
+            Browser::Firefox => address.clone(),
+            Browser::Chrome | Browser::Edge => system_of(url),
+        };
+        if seen.insert((key, user.to_string())) {
+            rows.push((entry, address));
+        }
+    }
+    // The file keeps the vault's order.
+    rows.sort_by_key(|(entry, _)| {
+        body.entries
+            .iter()
+            .position(|other| other.id == entry.id)
+            .unwrap_or(usize::MAX)
+    });
+    rows
+}
+
+/// How many logins a browser file of these entries holds (all entries when `ids` is empty).
 pub(crate) fn exportable_count(body: &Body, ids: &[String], browser: Browser) -> usize {
-    exportable(body, ids)
-        .filter(|entry| {
-            browser != Browser::Firefox || origin(field(&entry.fields, URL_FIELD)).is_some()
-        })
-        .count()
+    export_rows(body, ids, browser).len()
 }
 
 /// `scheme://host[:port]`: all Firefox keeps of an address. Only web addresses have one.
@@ -171,10 +224,10 @@ pub(crate) fn export_csv(
     match browser {
         Browser::Chrome | Browser::Edge => {
             out.push_str("name,url,username,password,note\r\n");
-            for entry in exportable(body, ids) {
+            for (entry, url) in export_rows(body, ids, browser) {
                 let row = [
                     entry.title.as_str(),
-                    field(&entry.fields, URL_FIELD).trim(),
+                    url.as_str(),
                     field(&entry.fields, USER_FIELD),
                     field(&entry.fields, PASSWORD_FIELD),
                     entry.note.as_str(),
@@ -187,10 +240,7 @@ pub(crate) fn export_csv(
         }
         Browser::Firefox => {
             out.push_str("\"url\",\"username\",\"password\",\"httpRealm\",\"formActionOrigin\",\"guid\",\"timeCreated\",\"timeLastUsed\",\"timePasswordChanged\"\r\n");
-            for entry in exportable(body, ids) {
-                let Some(origin) = origin(field(&entry.fields, URL_FIELD)) else {
-                    continue;
-                };
+            for (entry, origin) in export_rows(body, ids, browser) {
                 let (created, changed) =
                     (entry.created_at.to_string(), entry.updated_at.to_string());
                 let row = [
@@ -510,6 +560,35 @@ mod tests {
 
         let one = body.entries[0].id.clone();
         assert_eq!(export_csv(&body, &[one], Browser::Chrome).1, 1);
+    }
+
+    #[test]
+    fn a_browser_file_holds_each_login_once_as_that_browser_tells_logins_apart() {
+        let mut body = Body::default();
+        let csv = "name,url,username,password\n\
+            a,https://shop.example/login,me,old\n\
+            b,https://shop.example/admin,me,new\n\
+            c,https://shop.example/login,me,newest\n\
+            d,https://shop.example/login,you,pw\n";
+        for (at, input) in new_logins(&body, logins(csv).unwrap().0)
+            .0
+            .into_iter()
+            .enumerate()
+        {
+            apply_input(&mut body, input, 10 + at as i64).unwrap();
+        }
+        // Chrome keeps the page: /login and /admin are two logins, the second /login one is not.
+        let (chrome, count) = export_csv(&body, &[], Browser::Chrome);
+        assert_eq!(count, 3);
+        assert!(
+            chrome.contains(",newest,") && chrome.contains(",new,") && !chrome.contains(",old,")
+        );
+        // Firefox keeps the site only: one login per account, the newest.
+        let (firefox, count) = export_csv(&body, &[], Browser::Firefox);
+        assert_eq!(count, 2);
+        assert_eq!(exportable_count(&body, &[], Browser::Firefox), 2);
+        assert!(firefox.contains("\"newest\"") && firefox.contains("\"you\""));
+        assert!(!firefox.contains("\"new\"") && !firefox.contains("\"old\""));
     }
 
     #[test]

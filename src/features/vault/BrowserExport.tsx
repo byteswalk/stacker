@@ -68,7 +68,7 @@ export function BrowserExport({ ids, onClose }: { ids: string[]; onClose: () => 
       <div><button className="gh sm" onClick={() => void invoke("space_open_directory", { path: folder }).catch((error) => toast(String(error), "err"))}><i className="ti ti-folder-open" /> 打开文件所在位置</button></div>
     </div> : <div className="vault-form">
       <div className="pw-help-line">
-        <span>{ids.length ? tr("导出选中的条目里有网址和密码的登录。") : tr("导出保管库里所有有网址和密码的登录。")}SSH 密钥和没有网址的条目不导出。</span>
+        <span>{ids.length ? tr("导出选中的条目里有网址和密码的登录。") : tr("导出保管库里所有有网址和密码的登录。")}SSH 密钥和没有网址的条目不导出；同一地址同一账号存了几份的，只导出最新的一份。</span>
         <BrowserPasswordHelpButton />
       </div>
       <div className="seg" role="radiogroup" aria-label="导出给哪个浏览器">
@@ -76,7 +76,7 @@ export function BrowserExport({ ids, onClose }: { ids: string[]; onClose: () => 
           disabled={busy} onClick={() => setBrowser(item.id)}>{item.name}</button>)}
       </div>
       <div className="vault-import-steps"><div><b>{tr("导入")}</b><span>{tr(chosen.step)}</span></div></div>
-      {browser === "firefox" && <div className="vault-sub" style={{ margin: 0 }}>Firefox 只记网站的协议、域名和端口，不记路径；同一网站同一账号的几条，导入后会被它合成一条。手机 App 的登录它不收，不导出。</div>}
+      {browser === "firefox" && <div className="vault-sub" style={{ margin: 0 }}>Firefox 只记网站的协议、域名和端口，不记路径：同一网站同一账号的几条在它看来是同一条，文件里只放最近改过的那条，免得导入时报重复或冲突。手机 App 的登录它不收，不导出。</div>}
       <div className="callout" style={{ margin: 0 }}><i className="ti ti-info-circle" /><div>
         {count === null ? tr("正在计算…") : tr("将导出 {count} 条登录。").replace("{count}", String(count))}
       </div></div>
