@@ -1,6 +1,7 @@
 pub mod classifier;
 pub mod cleanup_plan;
 pub mod cleanup_tasks;
+pub mod compress;
 pub mod duplicates;
 pub mod elevated;
 pub mod file_removal;

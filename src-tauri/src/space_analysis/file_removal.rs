@@ -34,7 +34,7 @@ pub struct RemovalResult {
     pub failures: Vec<RemovalFailure>,
 }
 
-fn system_roots() -> Vec<PathBuf> {
+pub(crate) fn system_roots() -> Vec<PathBuf> {
     [
         "WINDIR",
         "ProgramFiles",

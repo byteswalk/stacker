@@ -6,6 +6,16 @@ import type { LargeFileRow, Paged } from "../types";
 import { formatSpaceBytes } from "./SpaceOverview";
 import { RecycleBar, useProtectedPaths } from "./FileRemoval";
 import { useDragPick, setInSet } from "../../../dragPick";
+import { CompressDialog, mediaKind, type Outcome } from "./CompressDialog";
+
+type TypeFilter = "" | "video" | "image" | "packed";
+const TYPE_FILTERS: { value: TypeFilter; label: string }[] = [
+  { value: "", label: "全部" },
+  { value: "video", label: "视频" },
+  { value: "image", label: "图片" },
+  { value: "packed", label: "其他" },
+];
+const TYPE_ICONS = { video: "ti-movie", image: "ti-photo", packed: "ti-file" } as const;
 
 const PAGE_SIZE = 100;
 
@@ -74,6 +84,8 @@ export function LargeFiles({ taskId, thresholdBytes }: { taskId: string; thresho
   const [error, setError] = useState<string | null>(null);
   // Picked for removal, by path; files under Windows or a program's folder cannot be picked.
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>("");
+  const [compressing, setCompressing] = useState(false);
   const protectedPaths = useProtectedPaths(page.items.map((item) => item.path));
 
   useEffect(() => {
@@ -157,9 +169,28 @@ export function LargeFiles({ taskId, thresholdBytes }: { taskId: string; thresho
     }
   }
 
-  const pickable = page.items.filter((item) => !protectedPaths.has(item.path));
-  const pick = useDragPick(page.items.map((item) => protectedPaths.has(item.path) ? [] : [item.path]), (path) => picked.has(path), (paths, on) => setPicked((old) => setInSet(old, paths, on)));
+  // The type filter works on what is loaded so far.
+  const shown = typeFilter ? page.items.filter((item) => mediaKind(item.path) === typeFilter) : page.items;
+  const pickable = shown.filter((item) => !protectedPaths.has(item.path));
+  const pick = useDragPick(shown.map((item) => protectedPaths.has(item.path) ? [] : [item.path]), (path) => picked.has(path), (paths, on) => setPicked((old) => setInSet(old, paths, on)));
   const allPicked = pickable.length > 0 && pickable.every((item) => picked.has(item.path));
+  const chosen = shown.filter((item) => picked.has(item.path)).map((item) => ({ path: item.path, bytes: item.logicalBytes }));
+  // A compressed file stays in the list with its new name and size.
+  const compressed = (outcomes: Outcome[]) => {
+    const byPath = new Map(outcomes.filter((row) => row.status === "ok").map((row) => [row.path, row]));
+    setPage((current) => ({
+      ...current,
+      items: current.items.map((item) => {
+        const row = byPath.get(item.path);
+        if (!row) return item;
+        const name = row.newPath.split(/[\\/]/).pop() ?? item.name;
+        return row.method === "packed"
+          ? { ...item, allocatedBytes: row.after }
+          : { ...item, path: row.newPath, name, logicalBytes: row.after, allocatedBytes: row.after };
+      }),
+    }));
+    setPicked(new Set());
+  };
   const removed = (paths: string[]) => {
     const gone = new Set(paths);
     setPage((current) => ({ ...current, items: current.items.filter((item) => !gone.has(item.path)), total: current.total - gone.size }));
@@ -173,7 +204,17 @@ export function LargeFiles({ taskId, thresholdBytes }: { taskId: string; thresho
           <strong>{tr("大文件")}</strong>
           <span>{tr("按实际磁盘占用排序，仅展示达到设置阈值的文件。")}</span>
         </div>
-        <span>{tr("当前阈值")}: {formatSpaceBytes(thresholdBytes)}</span>
+        <div className="space-cleanup-heading-actions">
+          <span className="s dim">{tr("当前阈值")}{locale === "zh-CN" ? "：" : ": "}{formatSpaceBytes(thresholdBytes)}</span>
+          <div className="seg sm">{TYPE_FILTERS.map((option) => <button key={option.value} type="button" className={typeFilter === option.value ? "on" : ""}
+            onClick={() => setTypeFilter(option.value)}>{tr(option.label)}</button>)}</div>
+          <div className="space-selection-actions">
+            <button type="button" className="gh sm" disabled={!pickable.length || allPicked} title={tr("选择已加载的全部文件")}
+              onClick={() => setPicked((old) => setInSet(old, pickable.map((item) => item.path), true))}><i className="ti ti-checkbox" /> {tr("全选")}</button>
+            <button type="button" className="gh sm" disabled={!picked.size} title={tr("取消全部选择")} onClick={() => setPicked(new Set())}>
+              <i className="ti ti-square" /> {tr("全部取消")}</button>
+          </div>
+        </div>
       </div>
 
       {page.items.length === 0 && loading && (
@@ -191,13 +232,13 @@ export function LargeFiles({ taskId, thresholdBytes }: { taskId: string; thresho
 
 
       <div className="space-large-file-list">
-        {page.items.map((file, i) => (
+        {shown.map((file, i) => (
           <div className={"space-large-file-row" + (picked.has(file.path) ? " picked" : "")} key={file.nodeId} {...pick.row(i)}>
             {protectedPaths.has(file.path)
               ? <span className="recycle-lock" title={tr("系统或程序目录里的文件不能在这里删除")}><i className="ti ti-lock" /></span>
               : <input type="checkbox" className="recycle-check" checked={picked.has(file.path)} aria-label={tr("选择")} title={tr("按住拖过几行可以一起勾选；按住 Shift 点选一段")}
                 {...pick.box(i)} onChange={(e) => pick.change(i, e.target.checked)} />}
-            <span className="space-file-icon"><i className="ti ti-file" /></span>
+            <span className="space-file-icon"><i className={"ti " + TYPE_ICONS[mediaKind(file.path)]} /></span>
             <div className="space-large-file-main">
               <div>
                 <strong title={file.name}>{file.name}</strong>
@@ -231,14 +272,13 @@ export function LargeFiles({ taskId, thresholdBytes }: { taskId: string; thresho
           {loading ? tr("正在加载…") : `${tr("加载更多")} (${page.items.length}/${page.total})`}
         </button>
       )}
-      {page.items.length > 0 && <RecycleBar
-        files={page.items.filter((item) => picked.has(item.path)).map((item) => ({ path: item.path, bytes: item.logicalBytes }))}
-        extra={<label className="recycle-all">
-          <input type="checkbox" checked={allPicked} disabled={!pickable.length}
-            onChange={(e) => setPicked(e.target.checked ? new Set(pickable.map((item) => item.path)) : new Set())} />
-          {tr("全选已加载的")}
-        </label>}
-        onDone={removed} />}
+      {page.items.length > 0 && shown.length === 0 && <div className="space-analysis-empty compact">{tr("已加载的文件里没有这一类。")}</div>}
+      {page.items.length > 0 && <RecycleBar files={chosen} onDone={removed}
+        extra={<button type="button" className="gh sm" disabled={!chosen.length}
+          title={tr("视频转 H.265、图片重新压缩，其他文件用 Windows 透明压缩；先估算再压缩")} onClick={() => setCompressing(true)}>
+          <i className="ti ti-file-zip" /> {tr("压缩所选")}{chosen.length ? ` (${chosen.length})` : ""}
+        </button>} />}
+      {compressing && <CompressDialog files={chosen} onClose={() => setCompressing(false)} onDone={compressed} />}
     </div>
   );
 }

@@ -107,7 +107,7 @@ fn kill_process_tree(child: &mut std::process::Child) {
     let _ = child.kill();
 }
 
-fn extract_zip(zip_path: &Path, dest: &Path, strip_top: bool) -> Result<(), String> {
+pub(crate) fn extract_zip(zip_path: &Path, dest: &Path, strip_top: bool) -> Result<(), String> {
     let file = fs::File::open(zip_path).map_err(|e| e.to_string())?;
     let mut ar = zip::ZipArchive::new(file).map_err(|e| format!("打开压缩包失败：{e}"))?;
     // 顶层公共目录（如 jdk-21.0.5+11/），strip 后直接落到 dest
