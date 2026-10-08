@@ -34,6 +34,10 @@ pub(crate) fn npm_install_latest(
             "--fetch-retry-mintimeout=1000",
             "--fetch-retry-maxtimeout=5000",
             "--fetch-timeout=30000",
+            // npm draws no progress bar into a pipe; at this level it names every package as
+            // it arrives (address, time taken, cache hit or miss), so a long update is seen
+            // moving. Byte progress it does not report at all.
+            "--loglevel=http",
         ];
         if let Some(registry) = registry {
             args.push(registry);
@@ -83,7 +87,7 @@ pub(crate) fn npm_uninstall(
         .ok_or_else(|| "未检测到 npm。".to_string())?;
     run_command_streamed(
         &npm,
-        &["uninstall", "-g", package],
+        &["uninstall", "-g", package, "--loglevel=http"],
         "npm uninstall",
         Duration::from_secs(900),
         Duration::ZERO,
