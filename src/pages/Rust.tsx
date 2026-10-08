@@ -7,6 +7,7 @@ import { Select } from "../Select";
 import { EcoActions, type Shells, summaryLine } from "../EcoActions";
 import { useNotifications } from "../notifications";
 import { StorageLocations } from "../StorageLocations";
+import { rustToolchainOrder } from "../versionOrder";
 
 type Toolchain = { name: string; is_default: boolean };
 type RustupStatus = {
@@ -410,7 +411,7 @@ export default function Rust() {
         </div>
       ) : ruState.probe_error ? null : ruState.toolchains.length === 0 ? (
         <div className="banner gray"><i className="ti ti-info-circle lead" /><div className="bt">尚未安装 Rust 工具链。点击「安装工具链」选择版本。</div></div>
-      ) : ruState.toolchains.map((t) => (
+      ) : rustToolchainOrder(ruState.toolchains, (t) => t.name).map((t) => (
         <div className={"vrow" + (t.is_default ? " cur" : "")} key={t.name}>
           <span className="ver">{t.name}</span>
           <span className="meta">{t.is_default ? "默认工具链（rustup default）" : "已安装"}</span>

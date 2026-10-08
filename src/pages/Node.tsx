@@ -9,6 +9,7 @@ import { Select } from "../Select";
 import { summaryLine } from "../EcoActions";
 import { BinaryMirrors, type BinaryMirrorState } from "../features/sources/BinaryMirrors";
 import { useNotifications } from "../notifications";
+import { newestFirst } from "../versionOrder";
 
 type NodeVer = { version: string; is_default: boolean; path: string };
 type Shells = { powershell: boolean; gitbash: boolean; cmd: boolean };
@@ -401,7 +402,7 @@ export default function Node() {
           )}
           {stState.versions.length === 0
             ? <div className="banner gray"><i className="ti ti-info-circle lead" /><div className="bt">尚未安装 Node 版本。请选择需要的版本进行安装。</div></div>
-            : stState.versions.map((v) => (
+            : newestFirst(stState.versions, (v) => v.version).map((v) => (
               <div className={"vrow" + (v.is_default ? " cur" : "")} key={v.version}>
                 <span className="ver">{v.version}</span>
                 <span className="meta">{v.is_default ? "当前默认版本" : "已安装"}</span>

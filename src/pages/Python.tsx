@@ -11,6 +11,7 @@ import { pythonSummary, type PythonEnvReport } from "../features/python/pythonSu
 import { VenvPanel } from "../features/python/VenvPanel";
 import { BinaryMirrors } from "../features/sources/BinaryMirrors";
 import { useDragPick, setInArray } from "../dragPick";
+import { newestFirst } from "../versionOrder";
 
 type PyVer = { version: string; is_default: boolean; path?: string | null };
 type PyenvStatus = { installed: boolean; pyenv_version: string | null; versions: PyVer[]; default: string | null };
@@ -413,7 +414,7 @@ export default function Python() {
           </div>
       ) : pyState.versions.length === 0 ? (
         <div className="banner gray"><i className="ti ti-info-circle lead" /><div className="bt">尚未安装 Python 版本。请选择需要的版本进行安装。</div></div>
-      ) : pyState.versions.map((v) => (
+      ) : newestFirst(pyState.versions, (v) => v.version).map((v) => (
         <div className={"vrow" + (v.is_default ? " cur" : "")} key={v.version}>
           <span className="ver">{v.version}</span>
           <span className="meta" title={v.path ?? undefined}>{v.is_default ? "当前默认版本" : "已安装"}{v.path && <> · <code className="py-path">{v.path}</code></>}</span>

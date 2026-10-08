@@ -5,6 +5,7 @@ import { useToast, Modal, useBusy, useBusyRead, Loading, ErrorState, operationWa
 import { TerminalBar } from "../TerminalBar";
 import { EcoActions, type Shells, summaryLine } from "../EcoActions";
 import { useNotifications } from "../notifications";
+import { newestFirst } from "../versionOrder";
 
 type SdkVersion = { kind: string; version: string; vendor: string; path: string; current: boolean; arch?: string; origin?: "managed" | "external" | "tool-bundled" | "project" | "unknown"; can_delete?: boolean };
 const archLabel = (a?: string) => (a === "x64" ? "64 位" : a === "x86" ? "32 位" : a === "ARM64" ? "ARM64" : "");
@@ -346,7 +347,7 @@ export default function Java() {
       ) : versions.length === 0 ? (
         <div className="stub"><div className="si"><i className="ti ti-coffee-off" /></div><h2>未检测到 JDK</h2>
           <p>可扫描磁盘识别已有 JDK，也可直接下载并安装所需版本。</p></div>
-      ) : versions.map((v) => (
+      ) : newestFirst(versions, (v) => v.version).map((v) => (
         <div className={"vrow" + (v.current ? " cur" : "")} key={v.path}>
           <span className="ver">{v.version}</span>
           {v.arch && <span className="bd n" style={{ marginRight: 6 }}>{archLabel(v.arch)}</span>}

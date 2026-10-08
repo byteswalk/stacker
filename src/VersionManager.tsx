@@ -6,6 +6,7 @@ import { Select } from "./Select";
 import { TerminalBar } from "./TerminalBar";
 import { EcoActions, type EcosystemId, type Shells, summaryLine } from "./EcoActions";
 import { useNotifications } from "./notifications";
+import { newestFirst } from "./versionOrder";
 
 type SdkVersion = { kind: string; version: string; vendor: string; path: string; current: boolean; arch?: string; origin?: "managed" | "external" | "tool-bundled" | "project" | "unknown"; can_delete?: boolean };
 type SdkGroup = { kind: string; label: string; current_desc: string; versions: SdkVersion[] };
@@ -497,7 +498,7 @@ export function VersionManager({ kind, icon, cmd, envvar, download, onChanged, o
       ) : versions.length === 0 ? (
         <div className="stub"><div className="si"><i className="ti ti-package-off" /></div><h2>未检测到已装版本</h2>
           <p>可扫描磁盘识别已有安装，也可由 Stacker 下载并安装新版本。</p></div>
-      ) : versions.map((v) => (
+      ) : newestFirst(versions, (v) => v.version).map((v) => (
         <div className={"vrow" + (v.current ? " cur" : "")} key={v.path}>
           <span className="ver">{v.version}</span>
           <span className="meta">{v.path}</span>
