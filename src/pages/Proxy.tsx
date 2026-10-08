@@ -141,7 +141,7 @@ export default function Proxy() {
   const followAll = () => run("all", () => invoke("proxy_follow_system", { release: false }), "各处代理已跟随系统");
   const saveTarget = (target: Target) => run("draft", () => invoke("proxy_target_save", { target }), `已保存 ${target.name}`);
   const removeTarget = (id: string) => run(id, () => invoke("proxy_target_remove", { id }), "已删除这个自定义项");
-  const releaseAll = () => run("all", () => invoke("proxy_follow_system", { release: true }), "各处代理已清除");
+  const releaseAll = () => run("all", () => invoke("proxy_follow_system", { release: true }), "各处代理已撤销");
 
   async function copy(text: string, which: string) {
     try { await navigator.clipboard.writeText(text); setCopied(which); setTimeout(() => setCopied(""), 1500); toast("已复制", "ok"); }
@@ -192,15 +192,13 @@ export default function Proxy() {
           <div className="pxname">{info.label}{info.on && <b className="mono">{system.server}</b>}</div>
           <div className="pxsub">{info.hint}</div>
         </div>
-        <span className="pxhero-ops">
-          <button className={info.on ? "gh sm" : "pr sm"} disabled={!!busy || !anySet} onClick={() => setConfirmRelease(true)}
-            title="清除下面各处写入的代理；系统代理本身不变">
-            <i className={"ti " + (busy === "all" ? "ti-loader spin" : "ti-eraser")} /> 全部清除
-          </button>
-          {info.on && <button className="pr sm" disabled={!!busy} onClick={() => void followAll()}>
+        {info.on
+          ? <button className="pr sm" disabled={!!busy} onClick={() => void followAll()}>
             <i className={"ti " + (busy === "all" ? "ti-loader spin" : "ti-arrow-down-to-arc")} /> 全部跟随系统
+          </button>
+          : <button className="gh sm" disabled={!!busy || !anySet} onClick={() => setConfirmRelease(true)}>
+            <i className={"ti " + (busy === "all" ? "ti-loader spin" : "ti-eraser")} /> 全部撤销
           </button>}
-        </span>
       </div>
 
       <div className="pxcard">
@@ -343,11 +341,9 @@ export default function Proxy() {
         </div>
       </Modal>}
 
-      {confirmRelease && <ConfirmModal title="清除所有位置的代理" icon="ti-eraser" danger
-        message={info.on
-          ? "下面所有写着代理的位置都会被清除，包括不是 Stacker 写入的；Windows 的系统代理本身不变。之后这些程序直接联网，或由代理软件的 TUN 模式接管。服务代理 WinHTTP 需要一次管理员授权。确定吗？"
-          : "系统代理已经关闭，下面仍写着代理的位置都会被清除，包括不是 Stacker 写入的。确定吗？"}
-        confirmLabel="全部清除"
+      {confirmRelease && <ConfirmModal title="撤销所有位置的代理" icon="ti-eraser" danger
+        message="系统代理已经关闭，下面仍写着代理的位置都会被清除，包括不是 Stacker 写入的。确定吗？"
+        confirmLabel="全部撤销"
         onConfirm={() => { setConfirmRelease(false); void releaseAll(); }}
         onClose={() => setConfirmRelease(false)} />}
     </>
