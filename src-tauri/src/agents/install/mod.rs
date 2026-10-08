@@ -452,6 +452,17 @@ pub(crate) fn install_desktop_tool(
                             if opened { "；已打开商店里的该应用页面，也可以直接在那里安装" } else { "" }
                         ));
                     }
+                    // The Store lists an app only in the markets it is offered in, and asks by
+                    // the Windows region (MiniMax Code's international edition is missing when
+                    // that is China). Trying again finds nothing either.
+                    if spec.desktop.winget_source == Some("msstore") && is_query_miss(&err) {
+                        let opened = open_external_target(spec.desktop.install_url).is_ok();
+                        return Err(format!(
+                            "Microsoft Store 在当前 Windows 区域没有上架 {}（商店按「设置 → 时间和语言 → 语言和区域 → 国家或地区」决定可见的应用）。可把区域改为该应用提供的地区后重试，或从官网下载安装{}",
+                            spec.desktop.name,
+                            if opened { "；已打开官方下载页" } else { "" }
+                        ));
+                    }
                     last_error = Some(err);
                     if attempt == 1 {
                         emit_progress(window, "首次安装未完成，正在复核下载缓存后重试…");
