@@ -27,6 +27,7 @@ pub(crate) fn cli_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurface {
     let mut installs = super::health::enumerate_candidates(&command_dirs(), spec.cli.candidates)
         .into_iter()
         .filter(|path| !(spec.vendor == Vendor::Xai && is_community_grok(path)))
+        .filter(|path| !(spec.vendor == Vendor::Qoder && is_qoder_dispatcher(path)))
         .map(|path| super::health::check_install(&path, &probe));
     let effective = installs.next();
     let other_installs: Vec<_> = installs.collect();
@@ -297,6 +298,14 @@ fn split_latest(lookup: LatestLookup) -> (Option<String>, Option<String>, Option
     }
 }
 
+/// Qoder's `qoder` dispatcher in `%USERPROFILE%\.qoder\entry` (`.qoder-cn` for the China
+/// edition). The CLI writes it on its first run and puts it first on PATH; it hands `qoder` to
+/// the desktop app or to `qodercli`, so it is not where the CLI is installed.
+pub(crate) fn is_qoder_dispatcher(path: &Path) -> bool {
+    let p = path.to_string_lossy().replace('/', "\\").to_lowercase();
+    p.contains("\\.qoder\\entry\\") || p.contains("\\.qoder-cn\\entry\\")
+}
+
 /// xAI's Grok Build and the community `grok-dev` both install a `grok` command; the second is
 /// neither this product nor xAI's, so it is never counted as the install.
 pub(crate) fn is_community_grok(path: &Path) -> bool {
@@ -343,9 +352,12 @@ pub(crate) fn detect_install_method(spec: &ToolSpec, program: Option<&Path>) -> 
     if spec.vendor == Vendor::MiMo && p.contains("\\.mimocode\\bin\\") {
         return Some("native".into());
     }
+    // The official installer's own folder is `%USERPROFILE%\.kimi-code` (its data lives there
+    // too, so an uninstall removes the command, not the folder).
     if spec.vendor == Vendor::Kimi
         && (p.contains("\\.local\\bin\\kimi")
             || p.contains("\\kimi-code\\bin\\")
+            || p.contains("\\.kimi-code\\bin\\")
             || p.contains("\\appdata\\local\\kimi-code\\"))
     {
         return Some("native".into());
@@ -1571,6 +1583,19 @@ url: https://filecdn.minimax.chat/public/minimax-agent/release
     #[test]
     fn script_installs_are_told_apart_by_where_they_live() {
         let method = |id: &str, path: &str| detect_install_method(&spec(id), Some(Path::new(path)));
+        // Qoder's dispatcher on PATH is not where its CLI is installed.
+        assert!(is_qoder_dispatcher(Path::new(
+            r"C:\Users\me\.qoder\entry\qoder.cmd"
+        )));
+        assert!(is_qoder_dispatcher(Path::new(
+            r"C:\Users\me\.qoder-cn\entry\qodercn.cmd"
+        )));
+        assert!(!is_qoder_dispatcher(Path::new(r"C:\nodejs\qoder.cmd")));
+        // Kimi's official installer puts it in %USERPROFILE%\.kimi-code\bin.
+        assert_eq!(
+            method("kimi", r"C:\Users\me\.kimi-code\bin\kimi.exe").as_deref(),
+            Some("native")
+        );
         assert_eq!(
             method(
                 "cursor",

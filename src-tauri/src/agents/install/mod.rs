@@ -217,8 +217,23 @@ pub(crate) fn uninstall_cli_tool(
     window: &Option<tauri::Window>,
 ) -> Result<String, String> {
     emit_progress(window, "正在检测当前安装来源…");
-    let program = resolve_command(spec.cli.candidates);
+    let program = resolve_command(spec.cli.candidates)
+        .filter(|path| !(spec.vendor == Vendor::Qoder && super::detect::is_qoder_dispatcher(path)))
+        .or_else(|| {
+            // Past Qoder's dispatcher, the npm command it would hand over to.
+            (spec.vendor == Vendor::Qoder)
+                .then(|| resolve_command(&[&format!("{}.cmd", spec.cli.command)]))
+                .flatten()
+                .filter(|path| !super::detect::is_qoder_dispatcher(path))
+        });
     let method = detect_install_method(spec, program.as_deref());
+    if spec.vendor == Vendor::Qoder && method.as_deref() == Some("npm") {
+        let pkg = spec.cli.npm_package.ok_or("Qoder CLI 缺少 npm 包信息。")?;
+        emit_progress(window, format!("正在通过 npm 卸载 {}…", spec.cli.name));
+        npm_uninstall(pkg, program.as_deref(), window)?;
+        remove_qoder_dispatcher(spec, window);
+        return Ok(format!("{} 已通过 npm 卸载", spec.cli.name));
+    }
     if spec.vendor == Vendor::Hermes {
         let program = program.ok_or_else(|| "未检测到 Hermes CLI。".to_string())?;
         emit_progress(window, "正在运行 Hermes 官方卸载程序…");
@@ -346,6 +361,40 @@ pub(crate) fn uninstall_cli_tool(
             spec.cli.name
         )),
     }
+}
+
+/// Qoder's `qoder` dispatcher, once the CLI is gone: removed with its PATH entry unless the
+/// desktop app of the same edition is installed, which uses it too.
+fn remove_qoder_dispatcher(spec: &ToolSpec, window: &Option<tauri::Window>) {
+    if detect_desktop_for(spec).is_some() {
+        return;
+    }
+    let folder = if spec.edition == Edition::Cn {
+        ".qoder-cn"
+    } else {
+        ".qoder"
+    };
+    let Some(entry) = dirs::home_dir().map(|home| home.join(folder).join("entry")) else {
+        return;
+    };
+    // `qoder-dispatcher.ps1` (`qodercn-dispatcher.ps1` for the China edition) marks the folder.
+    let is_dispatcher = std::fs::read_dir(&entry)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .any(|file| {
+            file.file_name()
+                .to_string_lossy()
+                .to_lowercase()
+                .ends_with("-dispatcher.ps1")
+        });
+    if !is_dispatcher {
+        return;
+    }
+    emit_progress(window, "正在移除 Qoder 的命令转发器…");
+    let _ = std::fs::remove_dir_all(&entry);
+    let _ = crate::winenv::remove_path_in(crate::winenv::Hive::User, &entry.to_string_lossy());
+    crate::winenv::broadcast_change();
 }
 
 /// A Microsoft Store refusal: its errors are 0x803FBxxx (licensing and account).
@@ -610,6 +659,20 @@ pub(crate) fn uninstall_desktop_tool(
         emit_progress(window, format!("正在卸载 {}…", spec.desktop.name));
         uninstall_appx_package(package)?;
         return Ok(format!("{} 已卸载", spec.desktop.name));
+    }
+    // An uninstaller run beside the app drops its registry entry but cannot delete the
+    // files in use (TRAE SOLO did), leaving an app with no way to uninstall it.
+    if let Some(image) = found
+        .as_ref()
+        .and_then(|f| f.path.as_deref())
+        .and_then(Path::file_name)
+        .map(|name| name.to_string_lossy().into_owned())
+        .filter(|image| image_is_running(image))
+    {
+        return Err(format!(
+            "{} 正在运行（{image}）。卸载需要删除程序文件，请先退出应用后重试。",
+            spec.desktop.name
+        ));
     }
     if let Some(id) = spec.desktop.winget_id {
         emit_progress(

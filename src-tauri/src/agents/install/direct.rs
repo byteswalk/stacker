@@ -512,8 +512,51 @@ pub(crate) fn run_downloaded_desktop_installer(
             ),
         );
     }
+    match run_installer_once(spec, path, &args, &log_path, window)? {
+        InstallerExit::Done => Ok(()),
+        // Qoder's installer (from 0.4.3) quits at once with code 22 under `/S` and installs
+        // fine from its window: a silent run refused outright is handed to the user.
+        InstallerExit::Failed { code, elapsed }
+            if !args.is_empty() && elapsed < Duration::from_secs(20) && !cancel_code(code) =>
+        {
+            emit_progress(
+                window,
+                format!(
+                    "{0} 安装程序拒绝静默安装（退出代码 {code}），已改为打开安装窗口，请在 {0} 窗口中完成安装…",
+                    spec.desktop.name
+                ),
+            );
+            match run_installer_once(spec, path, &[], &log_path, window)? {
+                InstallerExit::Done => Ok(()),
+                InstallerExit::Failed { code, .. } => Err(installer_failure(spec, code)),
+            }
+        }
+        InstallerExit::Failed { code, .. } => {
+            Err(installer_failure_logged(spec, code, &log_path, path))
+        }
+    }
+}
+
+/// How an installer run ended, when it ran at all.
+enum InstallerExit {
+    Done,
+    Failed { code: i32, elapsed: Duration },
+}
+
+/// Exit codes that mean the user (or the UAC prompt) said no: never asked again.
+fn cancel_code(code: i32) -> bool {
+    matches!(code, 2 | 5 | 1602)
+}
+
+fn run_installer_once(
+    spec: &ToolSpec,
+    path: &Path,
+    args: &[&str],
+    log_path: &Path,
+    window: &Option<tauri::Window>,
+) -> Result<InstallerExit, String> {
     let mut command = Command::new(path);
-    command.args(&args);
+    command.args(args);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -525,7 +568,8 @@ pub(crate) fn run_downloaded_desktop_installer(
         // which only the shell can ask for. Qoder's system-wide updater is one of these.
         #[cfg(windows)]
         Err(e) if e.raw_os_error() == Some(740) => {
-            return run_installer_elevated(spec, path, &args, &log_path, window)
+            return run_installer_elevated(spec, path, args, log_path, window)
+                .map(|()| InstallerExit::Done)
         }
         Err(e) => return Err(format!("启动 {} 安装程序失败：{e}", spec.desktop.name)),
     };
@@ -539,14 +583,12 @@ pub(crate) fn run_downloaded_desktop_installer(
             return Err(format!("已取消安装 {}", spec.desktop.name));
         }
         match child.try_wait() {
-            Ok(Some(status)) if status.success() => return Ok(()),
+            Ok(Some(status)) if status.success() => return Ok(InstallerExit::Done),
             Ok(Some(status)) => {
-                return Err(installer_failure_logged(
-                    spec,
-                    status.code().unwrap_or(-1),
-                    &log_path,
-                    path,
-                ))
+                return Ok(InstallerExit::Failed {
+                    code: status.code().unwrap_or(-1),
+                    elapsed: started.elapsed(),
+                })
             }
             Ok(None) => {
                 let elapsed = started.elapsed().as_secs();
