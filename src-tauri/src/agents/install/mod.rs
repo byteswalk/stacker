@@ -173,6 +173,7 @@ pub(crate) fn update_cli_tool(
         },
         Vendor::Hermes => {
             let program = program.ok_or_else(|| "未检测到 Hermes CLI。".to_string())?;
+            hermes_not_busy()?;
             emit_progress(window, "正在执行 hermes update…");
             run_command_text(
                 &program,
@@ -564,6 +565,7 @@ fn update_hermes_desktop(
 ) -> Result<String, String> {
     let program = resolve_command(spec.cli.candidates)
         .ok_or_else(|| "未检测到 Hermes CLI，无法更新 Hermes 桌面端。".to_string())?;
+    hermes_not_busy()?;
     // The rebuild replaces Hermes.exe; never close the user's app for it.
     if image_is_running("Hermes.exe") {
         return Err(format!(
@@ -920,6 +922,18 @@ pub(crate) fn tasklist_has_image(csv: &str, image: &str) -> bool {
             .map(|column| column.trim().trim_matches('"'))
             .is_some_and(|name| name.eq_ignore_ascii_case(image))
     })
+}
+
+/// Hermes updates itself (its desktop's "Update now") and repairs itself (`hermes-setup.exe
+/// --repair`); a second update started beside one of those fails half-way ("Another Hermes
+/// update is already running") and can leave the install broken until the next repair.
+fn hermes_not_busy() -> Result<(), String> {
+    if image_is_running("hermes-setup.exe") {
+        return Err(
+            "Hermes 正在自行更新或修复（hermes-setup 正在运行），请等它完成后再试。".into(),
+        );
+    }
+    Ok(())
 }
 
 pub(crate) fn image_is_running(image: &str) -> bool {

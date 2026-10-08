@@ -549,43 +549,105 @@ pub(crate) fn asar_package_version(path: &std::path::Path) -> Option<String> {
     package_json_version(std::str::from_utf8(&manifest).ok()?)
 }
 
-/// `version = "0.21.4"` under `[project]` in a pyproject.toml.
-pub(crate) fn pyproject_version(text: &str) -> Option<String> {
-    let mut in_project = false;
-    for line in text.lines().map(str::trim) {
-        if line.starts_with('[') {
-            in_project = line == "[project]";
-        } else if in_project {
-            if let Some(value) = line.strip_prefix("version").map(str::trim_start) {
-                if let Some(value) = value.strip_prefix('=') {
-                    return release_version(value.trim().trim_matches(['"', '\'']));
-                }
-            }
+/// Hermes follows `main` of its repository rather than numbered releases (both its
+/// pyproject and its desktop package.json say 0.0.0), and its own updater counts the commits a
+/// checkout is behind. Its version is therefore the commit: `git.0240fa4`, as `hermes --version`
+/// prints it.
+const HERMES_REPO: &str = "NousResearch/hermes-agent";
+
+/// The Hermes Agent checkout, where `hermes update` pulls.
+pub(crate) fn hermes_checkout() -> Option<std::path::PathBuf> {
+    let dir = dirs::data_local_dir()?.join("hermes").join("hermes-agent");
+    dir.join(".git").exists().then_some(dir)
+}
+
+/// The commit a checkout is on, read from `.git` itself: `HEAD`, the branch it names, or
+/// `packed-refs` when the branch file has been packed away.
+pub(crate) fn git_head(checkout: &std::path::Path) -> Option<String> {
+    let git = checkout.join(".git");
+    let head = std::fs::read_to_string(git.join("HEAD")).ok()?;
+    let head = head.trim();
+    let sha = match head.strip_prefix("ref:") {
+        None => head.to_string(),
+        Some(reference) => {
+            let reference = reference.trim();
+            std::fs::read_to_string(git.join(reference.replace('/', "\\")))
+                .ok()
+                .map(|text| text.trim().to_string())
+                .or_else(|| {
+                    std::fs::read_to_string(git.join("packed-refs"))
+                        .ok()?
+                        .lines()
+                        .find_map(|line| {
+                            let (sha, name) = line.split_once(' ')?;
+                            (name.trim() == reference).then(|| sha.to_string())
+                        })
+                })?
         }
+    };
+    (sha.len() >= 7 && sha.chars().all(|ch| ch.is_ascii_hexdigit()))
+        .then(|| sha.to_ascii_lowercase())
+}
+
+/// How a commit is shown as a version.
+pub(crate) fn commit_version(sha: &str) -> String {
+    format!("git.{}", &sha[..sha.len().min(7)])
+}
+
+/// The commit on `main` now, and how many commits the checkout is behind it (unknown when
+/// GitHub will not compare the two).
+pub(crate) fn hermes_main(local: &str) -> Result<(String, Option<u64>), String> {
+    let (_, body) = get(&format!(
+        "https://api.github.com/repos/{HERMES_REPO}/commits/main"
+    ))?;
+    let reply: Value =
+        serde_json::from_str(&body).map_err(|_| "GitHub 返回了无法识别的内容".to_string())?;
+    let remote = reply
+        .get("sha")
+        .and_then(Value::as_str)
+        .ok_or("GitHub 没有给出 main 分支的提交")?
+        .to_ascii_lowercase();
+    if remote == local {
+        return Ok((remote, Some(0)));
     }
-    None
+    let behind = get(&format!(
+        "https://api.github.com/repos/{HERMES_REPO}/compare/{local}...{remote}"
+    ))
+    .ok()
+    .and_then(|(_, body)| serde_json::from_str::<Value>(&body).ok())
+    .and_then(|reply| {
+        // `ahead_by` counts what main has that the checkout lacks; a checkout ahead of main
+        // (local commits on top) is not behind.
+        match reply.get("status").and_then(Value::as_str) {
+            Some("ahead") | Some("identical") => Some(0),
+            _ => reply.get("ahead_by").and_then(Value::as_u64),
+        }
+    });
+    Ok((remote, behind))
 }
 
-/// `hermes update` pulls `main` of the Hermes Agent repository; its pyproject names the
-/// version that update brings.
-pub(crate) fn hermes_cli_latest() -> Result<String, String> {
-    let (_, body) =
-        get("https://raw.githubusercontent.com/NousResearch/hermes-agent/main/pyproject.toml")?;
-    pyproject_version(&body).ok_or_else(|| "Hermes 的 pyproject.toml 里没有版本号".into())
+/// What Hermes' "latest" is: the installed commit when nothing is behind, else main's commit
+/// with the count beside it (`git.9fe737a +40938`).
+pub(crate) fn hermes_latest() -> Result<String, String> {
+    let local = hermes_checkout()
+        .and_then(|dir| git_head(&dir))
+        .ok_or("找不到 Hermes 的代码目录")?;
+    let (remote, behind) = hermes_main(&local)?;
+    Ok(match behind {
+        Some(0) => commit_version(&local),
+        Some(n) => format!("{} +{n}", commit_version(&remote)),
+        None => commit_version(&remote),
+    })
 }
 
-/// Hermes Desktop is built from the Hermes Agent checkout, and its updater pulls `main`: the
-/// version there is the one an update brings.
-pub(crate) fn hermes_desktop_latest() -> Result<String, String> {
-    let (_, body) = get(
-        "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/apps/desktop/package.json",
-    )?;
-    package_json_version(&body).ok_or_else(|| "Hermes 桌面端的 package.json 里没有版本号".into())
-}
-
-/// `0.0.0` is what a package.json says when nobody numbers the releases: no version at all.
-pub(crate) fn real_version(version: String) -> Option<String> {
-    (version.trim_start_matches(['v', 'V']) != "0.0.0").then_some(version)
+/// Whether `next` is an update over `current`: a commit version differs, a release is greater.
+pub(crate) fn is_newer(current: &str, next: &str) -> bool {
+    if current.starts_with("git.") || next.starts_with("git.") {
+        let commit = |v: &str| v.split_whitespace().next().unwrap_or(v).to_string();
+        commit(current) != commit(next)
+    } else {
+        crate::update::ver_lt(current, next)
+    }
 }
 
 #[cfg(test)]
@@ -605,27 +667,6 @@ mod tests {
         bytes.extend([0, 0, 0, 0]);
         assert_eq!(pe_product_version(&bytes), Some("26.922.220226".into()));
         assert_eq!(pe_product_version(b"MZ no resources"), None);
-    }
-
-    #[test]
-    fn pyproject_version_is_the_project_one() {
-        let text = "[build-system]
-requires = [\"setuptools\"]
-version = \"9.9.9\"
-
-[project]
-name = \"hermes-agent\"
-version = \"0.21.4\"
-";
-        assert_eq!(pyproject_version(text), Some("0.21.4".into()));
-        assert_eq!(
-            pyproject_version(
-                "[project]
-name = \"x\"
-"
-            ),
-            None
-        );
     }
 
     #[test]
@@ -685,11 +726,40 @@ name = \"x\"
     }
 
     #[test]
+    fn a_checkout_is_read_from_git_itself_and_compared_by_commit() {
+        let dir = tempfile::tempdir().unwrap();
+        let git = dir.path().join(".git");
+        std::fs::create_dir_all(git.join("refs").join("heads")).unwrap();
+        std::fs::write(git.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+        // Packed away first, then written loose.
+        std::fs::write(
+            git.join("packed-refs"),
+            "# pack-refs\n0240fa4a84aa0000000000000000000000000000 refs/heads/main\n",
+        )
+        .unwrap();
+        assert_eq!(
+            git_head(dir.path()).as_deref(),
+            Some("0240fa4a84aa0000000000000000000000000000")
+        );
+        std::fs::write(
+            git.join("refs").join("heads").join("main"),
+            "9FE737A000000000000000000000000000000000\n",
+        )
+        .unwrap();
+        assert_eq!(
+            git_head(dir.path()).as_deref(),
+            Some("9fe737a000000000000000000000000000000000")
+        );
+        assert_eq!(commit_version("9fe737a000"), "git.9fe737a");
+        assert!(is_newer("git.0240fa4", "git.9fe737a +40938"));
+        assert!(!is_newer("git.0240fa4", "git.0240fa4"));
+        assert!(is_newer("1.2.0", "1.10.0") && !is_newer("1.10.0", "1.2.0"));
+    }
+
+    #[test]
     fn a_rebuild_tag_is_its_version_and_a_placeholder_is_none() {
         assert_eq!(release_version("v2026.9.8-1").as_deref(), Some("2026.9.8"));
         assert_eq!(release_version("v2026.9.8-alpha.2"), None);
-        assert_eq!(real_version("0.0.0".into()), None);
-        assert_eq!(real_version("0.17.1".into()).as_deref(), Some("0.17.1"));
     }
 
     #[test]

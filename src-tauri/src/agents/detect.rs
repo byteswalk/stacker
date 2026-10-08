@@ -38,7 +38,12 @@ pub(crate) fn cli_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurface {
         .map(|text| {
             // "Hermes Agent v0.18.2 (2026.7.7.2) · upstream 524041b9 · local …" → "0.18.2"
             match spec.vendor {
-                Vendor::Hermes | Vendor::Kiro | Vendor::Factory | Vendor::MiniMax => {
+                Vendor::Hermes => super::feeds::hermes_checkout()
+                    .and_then(|dir| super::feeds::git_head(&dir))
+                    .map(|sha| super::feeds::commit_version(&sha))
+                    .or_else(|| first_semver(&text))
+                    .unwrap_or(text),
+                Vendor::Kiro | Vendor::Factory | Vendor::MiniMax => {
                     first_semver(&text).unwrap_or(text)
                 }
                 Vendor::Cursor => cursor_build(&text).unwrap_or(text),
@@ -78,7 +83,7 @@ pub(crate) fn cli_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurface {
         && version
             .as_deref()
             .zip(latest.as_deref())
-            .is_some_and(|(cur, next)| crate::update::ver_lt(cur, next));
+            .is_some_and(|(cur, next)| super::feeds::is_newer(cur, next));
     let status = if health == "broken" {
         "broken"
     } else if update_available {
@@ -153,10 +158,10 @@ pub(crate) fn desktop_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurfac
     // version, the app's own is in the package.json it was built from.
     let version = found.as_ref().and_then(|found| {
         if spec.vendor == Vendor::Hermes {
-            found
-                .path
-                .as_deref()
-                .and_then(hermes_desktop_version)
+            super::feeds::hermes_checkout()
+                .and_then(|dir| super::feeds::git_head(&dir))
+                .map(|sha| super::feeds::commit_version(&sha))
+                .or_else(|| found.path.as_deref().and_then(hermes_desktop_version))
                 .or_else(|| found.version.clone())
         } else if matches!(spec.vendor, Vendor::Kimi | Vendor::OpenClaw) {
             found
@@ -180,7 +185,7 @@ pub(crate) fn desktop_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurfac
     };
     // What the app's own updater has downloaded counts too: WinGet's listing trails the
     // vendor by days, and a vendor rolling a version out shows it only to some machines.
-    if latest_checked {
+    if latest_checked && spec.vendor != Vendor::Hermes {
         let executable = found.as_ref().and_then(|f| f.path.as_deref());
         let downloaded = super::feeds::downloaded_update(&super::feeds::updater_cache_dirs(
             spec.data_dirs,
@@ -204,7 +209,7 @@ pub(crate) fn desktop_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurfac
         && version
             .as_deref()
             .zip(latest.as_deref())
-            .is_some_and(|(cur, next)| crate::update::ver_lt(cur, next));
+            .is_some_and(|(cur, next)| super::feeds::is_newer(cur, next));
     let has_direct_installer = direct_desktop_installer(spec.vendor, spec.edition).is_some();
     let can_install = spec.desktop.winget_id.is_some() || has_direct_installer;
     VibeSurface {
@@ -479,7 +484,7 @@ pub(crate) fn latest_for_cli(spec: &ToolSpec, method: Option<&str>) -> LatestLoo
             .map(|version| Some((cursor_build(&version).unwrap_or(version), "官方安装脚本"))),
         CliSource::KiroManifest => kiro_latest().map(|version| Some((version, "Kiro 官方发布"))),
         CliSource::HermesRepo => {
-            super::feeds::hermes_cli_latest().map(|version| Some((version, "Hermes 官方仓库")))
+            super::feeds::hermes_latest().map(|version| Some((version, "Hermes main 分支")))
         }
         CliSource::Npm(pkg) => npm_latest(pkg).map(|version| Some((version, "npm"))),
         CliSource::None => Ok(None),
@@ -679,9 +684,8 @@ pub(crate) fn desktop_latest(spec: &ToolSpec, current: Option<&str>) -> LatestLo
             super::feeds::installer_version(url).map(|version| Some((version, "官方安装包")))
         }
         DesktopSource::HermesRepo => {
-            // The repository numbers its desktop app 0.0.0 between releases: no version to go by.
-            super::feeds::hermes_desktop_latest()
-                .map(|version| super::feeds::real_version(version).map(|v| (v, "Hermes 官方仓库")))
+            // Built from the same checkout `hermes update` pulls: behind main is an update.
+            super::feeds::hermes_latest().map(|version| Some((version, "Hermes main 分支")))
         }
         DesktopSource::None => Ok(None),
     }
