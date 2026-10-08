@@ -1252,7 +1252,7 @@ pub fn import(
                         }
                         let mut value = Value::Object(row);
                         if let Some(map) = value.as_object_mut() {
-                            if let Some(cwd) = map.get("cwd").and_then(Value::as_str).map(&mapped) {
+                            if let Some(cwd) = map.get("cwd").and_then(Value::as_str).map(mapped) {
                                 map.insert("cwd".into(), Value::from(cwd));
                             }
                             for key in [

@@ -704,43 +704,37 @@ fn checksums_of(
 
 fn github_latest_release(repo: &str, current: &str) -> Result<UpdateInfo, String> {
     let url = format!("https://api.github.com/repos/{repo}/releases/latest");
-    let a = agent();
-    let mut last = String::new();
-    for u in [url.clone()] {
-        match a.get(&u).set("User-Agent", "Stacker").call() {
-            Ok(r) => match r.into_string() {
-                Ok(b) => {
-                    let release: GitHubRelease = serde_json::from_str(&b)
-                        .map_err(|e| format!("GitHub Release 格式错误：{e}"))?;
-                    let latest = release.tag_name.trim_start_matches('v').trim().to_string();
-                    let installer_url = pick_asset(&release.assets, false);
-                    let portable_url = pick_asset(&release.assets, true);
-                    let (installer_sha256, portable_sha256) =
-                        checksums_of(&release.assets, &installer_url, &portable_url);
-                    return Ok(UpdateInfo {
-                        has_update: ver_lt(current, &latest),
-                        current: current.into(),
-                        latest,
-                        release_url: release.html_url,
-                        installer_url,
-                        portable_url,
-                        installer_sha256,
-                        portable_sha256,
-                        installer_signature: None,
-                        published_at: release.published_at,
-                        notes: release
-                            .body
-                            .as_deref()
-                            .map(notes_from_body)
-                            .unwrap_or_default(),
-                    });
-                }
-                Err(e) => last = e.to_string(),
-            },
-            Err(e) => last = e.to_string(),
-        }
-    }
-    Err(format!("获取最新版本失败：{last}"))
+    let body = agent()
+        .get(&url)
+        .set("User-Agent", "Stacker")
+        .call()
+        .map_err(|e| format!("获取最新版本失败：{e}"))?
+        .into_string()
+        .map_err(|e| format!("获取最新版本失败：{e}"))?;
+    let release: GitHubRelease =
+        serde_json::from_str(&body).map_err(|e| format!("GitHub Release 格式错误：{e}"))?;
+    let latest = release.tag_name.trim_start_matches('v').trim().to_string();
+    let installer_url = pick_asset(&release.assets, false);
+    let portable_url = pick_asset(&release.assets, true);
+    let (installer_sha256, portable_sha256) =
+        checksums_of(&release.assets, &installer_url, &portable_url);
+    Ok(UpdateInfo {
+        has_update: ver_lt(current, &latest),
+        current: current.into(),
+        latest,
+        release_url: release.html_url,
+        installer_url,
+        portable_url,
+        installer_sha256,
+        portable_sha256,
+        installer_signature: None,
+        published_at: release.published_at,
+        notes: release
+            .body
+            .as_deref()
+            .map(notes_from_body)
+            .unwrap_or_default(),
+    })
 }
 
 fn gitee_latest_release(repo: &str, current: &str) -> Result<UpdateInfo, String> {

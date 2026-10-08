@@ -252,7 +252,8 @@ pub fn sync_report() -> SyncReport {
     let wanted = crate::proxy_system::first_endpoint(&system.server);
     let overview = overview();
     let mut rows = Vec::new();
-    for row in &overview.locations {
+    // A tool that is not installed here follows nothing and is out of step with nothing.
+    for row in overview.locations.iter().filter(|row| row.installed) {
         let ours = row.owner == "managed";
         let current = row.value.clone().unwrap_or_default();
         let endpoint = endpoint(&current).map(|(h, p)| format!("{h}:{p}"));

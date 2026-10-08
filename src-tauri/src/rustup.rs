@@ -419,10 +419,11 @@ pub(crate) fn rustup_status_snapshot() -> RustupStatus {
             }
             Err(err) => probe_error = Some(err),
         }
-        if probe_error.is_none() {
+        // By its own name: rustup 1.29 no longer takes `default` as a toolchain to run.
+        if let (None, Some(name)) = (&probe_error, default.as_deref()) {
             if let Ok(out) = run_quick(
                 &exe,
-                &["run", "default", "rustc", "--version"],
+                &["run", name, "rustc", "--version"],
                 Duration::from_secs(5),
             ) {
                 default_version = parse_rustc_version(&out);

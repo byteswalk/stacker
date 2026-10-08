@@ -864,7 +864,11 @@ fn coding_ecosystem_check_impl() -> CodingEcosystemCheck {
         rustup.default_version.as_deref(),
     ) {
         (Some(manager), Some(runtime)) => format!("{manager} · Rust {runtime}"),
-        (Some(manager), None) => format!("{manager} · 未设置默认工具链"),
+        // A default the version could not be read from is still a default.
+        (Some(manager), None) => match rustup.default.as_deref() {
+            Some(name) => format!("{manager} · {name}"),
+            None => format!("{manager} · 未设置默认工具链"),
+        },
         (None, Some(runtime)) => format!("Rust {runtime}"),
         _ => "未检测到 Rust 工具链".to_string(),
     };

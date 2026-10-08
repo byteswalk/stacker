@@ -7,7 +7,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::image::Image;
+use tauri::menu::{CheckMenuItem, IconMenuItem, Menu, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, Wry};
 
@@ -185,13 +186,49 @@ fn recount(app: &AppHandle) {
 
 fn read_state() -> Shown {
     let system = system_proxy();
-    let gateway = crate::gateway::status();
+    let (gateway_on, gateway_port) = crate::gateway::running_port();
     Shown {
         differ: counted(&system).map(|(differ, _)| differ),
         system,
-        gateway_on: gateway.running,
-        gateway_port: gateway.port,
+        gateway_on,
+        gateway_port,
         vault_open: crate::vault::vault().is_unlocked(),
+    }
+}
+
+/// The menu's icons: the app's own Tabler glyphs, drawn grey so they read on a light menu
+/// and a dark one.
+fn icon(name: &str) -> Option<Image<'static>> {
+    let bytes: &'static [u8] = match name {
+        "show" => include_bytes!("../icons/tray/show.png"),
+        "proxy" => include_bytes!("../icons/tray/proxy.png"),
+        "follow" => include_bytes!("../icons/tray/follow.png"),
+        "lock" => include_bytes!("../icons/tray/lock.png"),
+        "overview" => include_bytes!("../icons/tray/overview.png"),
+        "agents" => include_bytes!("../icons/tray/agents.png"),
+        "agent-data" => include_bytes!("../icons/tray/agent-data.png"),
+        "gateway-log" => include_bytes!("../icons/tray/gateway-log.png"),
+        "proxy-page" => include_bytes!("../icons/tray/proxy-page.png"),
+        "cleanup" => include_bytes!("../icons/tray/cleanup.png"),
+        "vault" => include_bytes!("../icons/tray/vault.png"),
+        "settings" => include_bytes!("../icons/tray/settings.png"),
+        "quit" => include_bytes!("../icons/tray/quit.png"),
+        _ => return None,
+    };
+    Image::from_bytes(bytes).ok()
+}
+
+/// The icon of a page in the "Go to" menu: the sidebar's.
+fn page_icon(page: &str) -> &'static str {
+    match page {
+        "proxy" => "proxy-page",
+        "overview" => "overview",
+        "agents" => "agents",
+        "agent-data" => "agent-data",
+        "gateway-log" => "gateway-log",
+        "cleanup" => "cleanup",
+        "vault" => "vault",
+        _ => "settings",
     }
 }
 
@@ -199,18 +236,22 @@ fn english() -> bool {
     crate::settings::load().locale == "en-US"
 }
 
-fn item(app: &AppHandle, (id, text, enabled): Line) -> tauri::Result<MenuItem<Wry>> {
-    MenuItem::with_id(app, id, text, enabled, None::<&str>)
+fn item(
+    app: &AppHandle,
+    (id, text, enabled): Line,
+    glyph: &str,
+) -> tauri::Result<IconMenuItem<Wry>> {
+    IconMenuItem::with_id(app, id, text, enabled, icon(glyph), None::<&str>)
 }
 
 /// The lines that change, kept so they can be updated in place: replacing the menu while it
 /// is open closes it.
 #[derive(Clone)]
 struct Items {
-    system: MenuItem<Wry>,
-    follow: MenuItem<Wry>,
+    system: IconMenuItem<Wry>,
+    follow: IconMenuItem<Wry>,
     gateway: CheckMenuItem<Wry>,
-    vault: MenuItem<Wry>,
+    vault: IconMenuItem<Wry>,
 }
 
 static ITEMS: Mutex<Option<Items>> = Mutex::new(None);
@@ -244,26 +285,28 @@ fn create_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let shown = read_state();
     let lines = lines(&shown, english);
 
-    let show = MenuItem::with_id(
+    let show = IconMenuItem::with_id(
         app,
         "show",
         pick("打开 Stacker", "Open Stacker"),
         true,
+        icon("show"),
         None::<&str>,
     )?;
-    let system = item(app, lines.system)?;
-    let follow = item(app, lines.follow)?;
+    let system = item(app, lines.system, "proxy")?;
+    let follow = item(app, lines.follow, "follow")?;
     let (id, text, enabled) = lines.gateway;
     let gateway = CheckMenuItem::with_id(app, id, text, enabled, shown.gateway_on, None::<&str>)?;
-    let vault = item(app, lines.vault)?;
+    let vault = item(app, lines.vault, "lock")?;
     let pages = PAGES
         .iter()
         .map(|(id, zh, en)| {
-            MenuItem::with_id(
+            IconMenuItem::with_id(
                 app,
                 format!("{GOTO}{id}"),
                 if english { *en } else { *zh },
                 true,
+                icon(page_icon(id)),
                 None::<&str>,
             )
         })
@@ -273,11 +316,12 @@ fn create_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         .map(|item| item as &dyn tauri::menu::IsMenuItem<Wry>)
         .collect::<Vec<_>>();
     let goto = Submenu::with_items(app, pick("前往", "Go to"), true, &page_refs)?;
-    let quit = MenuItem::with_id(
+    let quit = IconMenuItem::with_id(
         app,
         "quit",
         pick("退出 Stacker", "Quit Stacker"),
         true,
+        icon("quit"),
         None::<&str>,
     )?;
 
@@ -433,6 +477,8 @@ pub(crate) fn build(app: &AppHandle) -> tauri::Result<()> {
         builder = builder.icon(icon.clone());
     }
     builder.build(app)?;
+    // Counted now, so the first right-click already knows how many places differ.
+    recount(app);
     Ok(())
 }
 

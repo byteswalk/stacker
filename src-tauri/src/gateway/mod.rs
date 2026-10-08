@@ -419,6 +419,16 @@ pub fn status() -> GatewayStatus {
     }
 }
 
+/// Whether the service runs, and on which port: what the tray shows, without looking up the
+/// network addresses (a PowerShell call the first time).
+pub(crate) fn running_port() -> (bool, u16) {
+    let state = STATE.lock().unwrap_or_else(|e| e.into_inner());
+    match &state.running {
+        Some((running, _)) => (true, running.port),
+        None => (false, load().port),
+    }
+}
+
 #[tauri::command]
 pub fn gateway_status() -> GatewayStatus {
     status()
