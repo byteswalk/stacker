@@ -484,10 +484,14 @@ pub(crate) fn install_desktop_tool(
     if let Some(installer) = direct_desktop_installer(spec.vendor, spec.edition) {
         return match install_desktop_from_official_package(spec, installer, window) {
             Ok(message) => Ok(message),
-            Err(err) if err.contains("已取消") => Err(err),
+            // Cancelled, or an installer window is already open: the vendor's page helps neither.
+            Err(err) if err.contains("已取消") || err.contains("安装程序已经在运行") => {
+                Err(err)
+            }
             Err(err) => match open_external_target(spec.desktop.install_url) {
                 Ok(()) => Err(format!(
-                    "{err}。已打开 {} 官方安装页，可在浏览器中继续下载。",
+                    "{}。已打开 {} 官方安装页，可在浏览器中继续下载。",
+                    err.trim_end_matches('。'),
                     spec.desktop.name
                 )),
                 Err(open_err) => Err(format!("{err}；同时无法打开官方安装页：{open_err}")),
