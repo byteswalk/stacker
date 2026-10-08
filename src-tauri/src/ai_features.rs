@@ -85,6 +85,18 @@ pub fn prompt(kind: &str, payload: &Value) -> Result<String, String> {
             size = field(payload, "size"),
             children = json(payload.get("children").unwrap_or(&Value::Null)),
         ),
+        "skipped_path" => format!(
+            "你是 Windows 开发机的磁盘空间顾问。磁盘扫描跳过了下面这个路径，没有计入空间统计。\n\
+             路径：{path}\n跳过原因（扫描器给出的）：{reason}\n同一路径被跳过的次数：{count}\n\
+             扫描器的规则：硬链接（同一个文件 ID 已在别处计入）只算一次；符号链接、目录联接和其他\
+             重解析点只记录不进入，避免重复统计或绕到别的盘；无权访问、扫描中消失、无法读取的都跳过。\n\n\
+             请说明：1) 这个路径大概属于什么程序或工具，为什么会出现这种情况（例如 pnpm 用硬链接共享包、\
+             OneDrive 占位文件、系统保护目录）；2) 跳过它会不会让统计结果明显偏小；3) 需不需要用户做什么，\
+             要的话怎么做（例如以管理员身份重新扫描）。{STYLE}",
+            path = field(payload, "path"),
+            reason = field(payload, "reason"),
+            count = field(payload, "count"),
+        ),
         "gateway_error" => format!(
             "你是一个本机 AI 接口服务的排错助手。这个服务把本机已登录的 Codex / Claude 等命令行包装成 \
              OpenAI / Anthropic 风格的接口。记录里有状态码，常常还有服务给出的报错原文（error 字段）和调用方式（是否流式、推理强度、客户端），但没有请求内容；这个服务的状态码含义如下：\n\
@@ -547,6 +559,7 @@ mod tests {
             "checkup",
             "toolchain",
             "disk_directory",
+            "skipped_path",
             "gateway_error",
             "proxy",
         ] {
