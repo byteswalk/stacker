@@ -247,11 +247,8 @@ export default function Cleanup() {
 
   function row(item: CacheItem) {
     const agedClean = item.category === "cautious";
-    const cautiousStyle = item.category === "safe"
-      ? undefined
-      : { boxShadow: "inset 3px 0 0 var(--amber)", borderColor: "rgba(228,180,80,.3)" };
     return (
-      <div className="clrow" key={item.path} style={cautiousStyle} {...pick.row(order.get(item.path) ?? -1)}>
+      <div className={`clrow mark-${item.category === "safe" ? "safe" : "caution"}${sel.has(item.path) ? " picked" : ""}`} key={item.path} {...pick.row(order.get(item.path) ?? -1)}>
         <input
           type="checkbox"
           className="ck2"

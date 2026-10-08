@@ -1730,4 +1730,21 @@ button{ font-family:inherit; }
 .a .float-bar{ position:sticky; bottom:15px; z-index:6; margin:12px 0 0; padding:10px 15px; border:1px solid var(--bdh, var(--bd)); border-radius:10px;
   background:var(--cardh); box-shadow:0 10px 28px rgba(0,0,0,.45),0 0 0 1px rgba(0,0,0,.25); }
 .a .vault-batch.float-bar{ border-color:rgba(245,130,31,.45); }
+
+/* Disk Cleanup lists all mark their rows on the left the same way: green safe to clean, amber
+   to check first, grey only to look at, blue an ordinary row; a picked row takes the accent. */
+.a :is(.clrow, .space-cleanup-row, .space-project-card, .space-large-file-row, .dupe-group, .space-directory-row, .space-skipped-row, .space-change-list > div){
+  --row-mark:var(--blue); box-shadow:inset 3px 0 0 var(--row-mark); }
+.a :is(.clrow.mark-safe, .space-cleanup-row.safety-safe){ --row-mark:var(--green); }
+.a :is(.clrow.mark-caution, .space-cleanup-row.safety-rebuildable, .space-cleanup-row.safety-needsConfirmation, .space-skipped-row){ --row-mark:var(--amber); }
+.a .space-cleanup-row.safety-viewOnly{ --row-mark:var(--mut); }
+.a .space-change-list > div:has(b.grow){ --row-mark:var(--red); }
+.a .space-change-list > div:has(b.shrink){ --row-mark:var(--green); }
+.a :is(.clrow, .space-cleanup-row, .space-project-card, .space-large-file-row).picked{ --row-mark:var(--acc); }
+.a .dupe-group:has(.dupe-path.picked){ --row-mark:var(--acc); }
+/* Project cards as compact as the other rows. */
+.a .space-project-main{ min-height:0; padding:8px 12px; gap:10px; }
+.a .space-project-icon{ width:34px; height:34px; font-size:17px; }
+.a .space-project-copy{ gap:2px; }
+.a .space-project-metrics > span{ padding:4px 8px; gap:1px; }
 .a .space-cleanup-action{ display:flex; align-items:center; justify-content:flex-end; gap:12px; color:var(--mut); font-size:12px; }

@@ -517,6 +517,7 @@ pub fn run() {
             ai_features::ai_ask,
             ai_features::ai_session_filter,
             ai_features::ai_vault_filter,
+            ai_features::ai_list_filter,
             ai_features::ai_update_notes,
             ai_features::proxy_probe,
             project_junk::project_junk_scan,

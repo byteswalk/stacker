@@ -240,6 +240,102 @@ pub async fn ai_vault_filter(query: String, platforms: Vec<String>) -> Result<Va
     .map_err(|e| e.to_string())?
 }
 
+/// One filter a list offers, as the page describes it to the AI.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FilterField {
+    pub name: String,
+    /// What it means, in words the model reads.
+    pub meaning: String,
+    /// "text", "number", "bool" or "choice".
+    pub kind: String,
+    #[serde(default)]
+    pub options: Vec<String>,
+}
+
+fn list_filter_prompt(list: &str, fields: &[FilterField], query: &str) -> String {
+    let lines: Vec<String> = fields
+        .iter()
+        .take(12)
+        .map(|field| {
+            let options: Vec<&str> = field.options.iter().take(200).map(String::as_str).collect();
+            match field.kind.as_str() {
+                "choice" => format!(
+                    "- {}：{}；只能是下列之一，不确定就空字符串：{}",
+                    field.name,
+                    field.meaning,
+                    options.join(" | ")
+                ),
+                "number" => format!("- {}：{}；数字，没说就 0", field.name, field.meaning),
+                "bool" => format!(
+                    "- {}：{}；true 或 false，没说就 false",
+                    field.name, field.meaning
+                ),
+                _ => format!(
+                    "- {}：{}；尽量短的关键词，没有就空字符串",
+                    field.name, field.meaning
+                ),
+            }
+        })
+        .collect();
+    format!(
+        "把用户在「{list}」里找东西的一句话转换成筛选条件。只输出一个 JSON 对象，不要任何其他文字。\n\
+         字段：\n{fields}\n\n用户的话：{query}",
+        fields = lines.join("\n"),
+    )
+}
+
+/// Only what the list can filter by survives: a field it does not have, a choice it does not
+/// offer, or a value of the wrong kind is dropped rather than giving a mysteriously empty list.
+pub fn parse_list_filter(text: &str, fields: &[FilterField]) -> Result<Value, String> {
+    let object = first_object(text).ok_or("E_AI_REPLY")?;
+    let reply: Value = serde_json::from_str(object).map_err(|_| "E_AI_REPLY")?;
+    let mut out = serde_json::Map::new();
+    for field in fields {
+        let value = reply.get(&field.name);
+        let kept = match field.kind.as_str() {
+            "choice" => value
+                .and_then(Value::as_str)
+                .filter(|v| field.options.iter().any(|o| o == v))
+                .map(|v| Value::from(v.to_string()))
+                .unwrap_or_else(|| Value::from("")),
+            "number" => value
+                .and_then(|v| {
+                    v.as_f64()
+                        .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+                })
+                .filter(|n| n.is_finite() && *n >= 0.0)
+                .map(Value::from)
+                .unwrap_or_else(|| Value::from(0)),
+            "bool" => Value::from(value.and_then(Value::as_bool).unwrap_or(false)),
+            _ => Value::from(
+                value
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .chars()
+                    .take(60)
+                    .collect::<String>(),
+            ),
+        };
+        out.insert(field.name.clone(), kept);
+    }
+    Ok(Value::Object(out))
+}
+
+#[tauri::command]
+pub async fn ai_list_filter(
+    list: String,
+    fields: Vec<FilterField>,
+    query: String,
+) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let reply = crate::ai_config::complete(&list_filter_prompt(&list, &fields, &query))?;
+        parse_list_filter(&reply, &fields)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 // ── What changed in an update, from the real release notes only ─────────────────────────
 
 fn agent(timeout: Duration) -> ureq::Agent {
@@ -517,6 +613,34 @@ mod tests {
         // What goes out is the words and the platform names, nothing else.
         let prompt = vault_filter_prompt("阿里云的 root", &platforms);
         assert!(prompt.contains("阿里云的 root") && prompt.contains("GitHub"));
+    }
+
+    #[test]
+    fn a_list_filter_keeps_only_the_fields_choices_and_kinds_the_list_has() {
+        let field = |name: &str, kind: &str, options: &[&str]| FilterField {
+            name: name.into(),
+            meaning: "m".into(),
+            kind: kind.into(),
+            options: options.iter().map(|o| o.to_string()).collect(),
+        };
+        let fields = vec![
+            field("search", "text", &[]),
+            field("outcome", "choice", &["ok", "error"]),
+            field("hours", "number", &[]),
+            field("git", "bool", &[]),
+        ];
+        let reply = "```json\n{\"search\":\"502\",\"outcome\":\"error\",\"hours\":\"24\",\"git\":true,\"extra\":1}\n```";
+        let got = parse_list_filter(reply, &fields).unwrap();
+        assert_eq!(
+            got,
+            serde_json::json!({"search":"502","outcome":"error","hours":24.0,"git":true})
+        );
+        let invented = parse_list_filter(r#"{"outcome":"maybe","hours":-3}"#, &fields).unwrap();
+        assert_eq!(invented["outcome"], "");
+        assert_eq!(invented["hours"], 0);
+        assert_eq!(invented["search"], "");
+        let prompt = list_filter_prompt("请求记录", &fields, "昨天失败的");
+        assert!(prompt.contains("ok | error") && prompt.contains("昨天失败的"));
     }
 
     #[test]

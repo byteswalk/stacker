@@ -6,6 +6,12 @@ import { setInSet, useDragPick } from "../../../dragPick";
 import type { DevelopmentProject, ProjectKind } from "../types";
 import { CleanupPathFilter, formatSpaceBytes } from "./DevelopmentArtifacts";
 import { RecycleBar, useProtectedPaths } from "./FileRemoval";
+import { AiFindButton } from "../../ai/AiFind";
+
+/** What AI search narrows the list to, beyond the words in the box. */
+type Narrow = { kind: string; agent: string; idleDays: number; minGb: number; git: boolean };
+const NO_NARROW: Narrow = { kind: "", agent: "", idleDays: 0, minGb: 0, git: false };
+const DAY = 86_400_000;
 
 const kindLabels: Record<ProjectKind, string> = {
   node: "Node.js", rust: "Rust", python: "Python", maven: "Maven",
@@ -32,14 +38,23 @@ export function DevelopmentProjects({ projects }: { projects: DevelopmentProject
   const { locale, t, tr } = useI18n();
   const toast = useToast();
   const [query, setQuery] = useState("");
+  const [narrow, setNarrow] = useState<Narrow>(NO_NARROW);
+  // "Not changed for N days" counts from when the page opened.
+  const [now] = useState(() => Date.now());
+  const narrowed = narrow.kind !== "" || narrow.agent !== "" || narrow.idleDays > 0 || narrow.minGb > 0 || narrow.git;
   const [gone, setGone] = useState<Set<string>>(new Set());
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const filtered = useMemo(() => {
     const keyword = query.trim().toLocaleLowerCase();
-    const present = projects.filter((project) => !gone.has(project.path));
+    const present = projects.filter((project) => !gone.has(project.path)
+      && (!narrow.kind || project.kinds.includes(narrow.kind as ProjectKind))
+      && (!narrow.agent || project.agentTraces.includes(narrow.agent))
+      && (!narrow.git || project.hasGitMetadata)
+      && (!narrow.minGb || project.allocatedBytes >= narrow.minGb * 1024 ** 3)
+      && (!narrow.idleDays || (!!project.lastModifiedAt && now - new Date(project.lastModifiedAt).getTime() >= narrow.idleDays * DAY)));
     if (!keyword) return present;
     return present.filter((project) => `${project.name}\n${project.path}\n${project.kinds.join(" ")}\n${project.agentTraces.join(" ")}`.toLocaleLowerCase().includes(keyword));
-  }, [projects, query, gone]);
+  }, [projects, query, gone, narrow, now]);
   const locked = useProtectedPaths(filtered.map((project) => project.path));
   const pick = useDragPick(filtered.map((project) => locked.has(project.path) ? [] : [project.path]), (path) => picked.has(path),
     (paths, on) => setPicked((old) => setInSet(old, paths, on)));
@@ -62,14 +77,45 @@ export function DevelopmentProjects({ projects }: { projects: DevelopmentProject
   if (projects.length === 0) return <div className="space-analysis-empty">{t("space.projects.empty")}</div>;
 
   return <>
-    <div className="space-analysis-section-heading space-project-heading">
+    <div className="space-analysis-section-heading space-cleanup-heading">
       <div><strong>{t("space.projects.title")}</strong><span>{t("space.projects.description")}</span></div>
-      <CleanupPathFilter value={query} onChange={setQuery} />
+      <div className="space-cleanup-heading-actions">
+        <CleanupPathFilter value={query} onChange={setQuery} />
+        <AiFindButton list="开发项目" query={query} hint="先在筛选框里用一句话描述要找的项目，比如“半年没动过的 Node 项目”"
+          fields={[
+            { name: "search", meaning: "项目名或路径里的关键词", kind: "text" },
+            { name: "kind", meaning: "项目类型", kind: "choice", options: Object.keys(kindLabels) },
+            { name: "agent", meaning: "用过的 AI 工具留下的痕迹", kind: "choice", options: Object.keys(traceLabels) },
+            { name: "idleDays", meaning: "至少多少天没有改动", kind: "number" },
+            { name: "minGb", meaning: "总大小至少多少 GB", kind: "number" },
+            { name: "git", meaning: "是否只要 Git 仓库", kind: "bool" },
+          ]}
+          onFilter={(found) => {
+            setQuery(String(found.search ?? ""));
+            setNarrow({ kind: String(found.kind ?? ""), agent: String(found.agent ?? ""), idleDays: Number(found.idleDays) || 0, minGb: Number(found.minGb) || 0, git: found.git === true });
+          }} />
+        <div className="space-selection-actions">
+          <button type="button" className="gh sm" disabled={!pickable.length || allPicked}
+            title={tr(query ? "全选筛选出的项目" : "选择全部可删除的项目")} onClick={() => setPicked(new Set(pickable.map((project) => project.path)))}>
+            <i className="ti ti-checkbox" /> {tr("全选")}
+          </button>
+          <button type="button" className="gh sm" disabled={!chosen.length} title={tr("取消全部选择")} onClick={() => setPicked(new Set())}>
+            <i className="ti ti-square" /> {tr("全部取消")}
+          </button>
+        </div>
+      </div>
     </div>
-    <div className="space-project-summary">
-      <span>{t("space.projects.detected")} <b>{filtered.length}</b> / {projects.length}</span>
-      <span>{t("space.projects.reclaimable")} <b>{formatSpaceBytes(filtered.reduce((sum, project) => sum + project.reclaimableBytes, 0))}</b></span>
-    </div>
+    {narrowed && <div className="space-cleanup-filter-note">
+      {tr("AI 筛选")}：{[
+        narrow.kind && kindLabels[narrow.kind as ProjectKind],
+        narrow.agent && (traceLabels[narrow.agent] ?? narrow.agent),
+        narrow.idleDays > 0 && tr("{days} 天以上未改动").replace("{days}", String(narrow.idleDays)),
+        narrow.minGb > 0 && tr("{size} GB 以上").replace("{size}", String(narrow.minGb)),
+        narrow.git && "Git",
+      ].filter(Boolean).join(" · ")}
+      <button type="button" className="gh xs" onClick={() => setNarrow(NO_NARROW)}><i className="ti ti-x" /> {tr("清除")}</button>
+    </div>}
+    {(query || narrowed) && <div className="space-cleanup-filter-note">{tr("批量操作仅作用于当前筛选结果。")} {filtered.length} / {projects.length}</div>}
     <div className="space-project-list">
       {filtered.map((project, index) => {
         const lockedHere = locked.has(project.path);
@@ -100,12 +146,7 @@ export function DevelopmentProjects({ projects }: { projects: DevelopmentProject
         </article>;
       })}
     </div>
-    {filtered.length > 0 && <RecycleBar folders files={chosen} onDone={removed}
-      extra={<label className="recycle-all">
-        <input type="checkbox" checked={allPicked} disabled={!pickable.length}
-          onChange={(event) => setPicked(event.target.checked ? new Set(pickable.map((project) => project.path)) : new Set())} />
-        {tr(query ? "全选筛选出的项目" : "全选")}
-      </label>} />}
+    {filtered.length > 0 && <RecycleBar folders files={chosen} onDone={removed} />}
     {filtered.length === 0 && <div className="space-analysis-empty compact">{t("space.projects.noMatch")}</div>}
   </>;
 }

@@ -7,6 +7,7 @@ import { AiAskModal, askAi } from "../ai/AiAsk";
 import { INTERNAL, LogDetail, parseDetail, statusMeaning, type LogRow } from "./LogDetail";
 import { useDragPick, setInArray } from "../../dragPick";
 import { useColumns, type Column } from "../../columns";
+import { AiFindButton } from "../ai/AiFind";
 
 const COLUMNS: Column[] = [
   { key: "pick", track: "24px" },
@@ -107,6 +108,21 @@ export function GatewayLog({ enabled, retentionDays, onSettings }: {
         <i className="ti ti-search" />
         <input value={query.search} placeholder={t("搜索接口或模型…")} onChange={(e) => change({ search: e.target.value })} />
       </label>
+      <AiFindButton list="接口服务请求记录" query={query.search} hint="先在搜索框里用一句话描述要找的请求，比如“昨天 claude 失败的请求”"
+        fields={[
+          { name: "search", meaning: "接口路径或模型名里的关键词，例如 /v1/messages、sonnet、codex", kind: "text" },
+          { name: "outcome", meaning: "ok 成功，error 失败", kind: "choice", options: ["ok", "error"] },
+          { name: "agent", meaning: "哪个智能体处理的", kind: "choice", options: page?.agents ?? [] },
+          { name: "hours", meaning: "最近多少小时内", kind: "number" },
+        ]}
+        onFilter={(found) => {
+          const hours = Number(found.hours) || 0;
+          setRange(hours * 3600);
+          change({
+            search: String(found.search ?? ""), outcome: String(found.outcome ?? ""), agent: String(found.agent ?? ""),
+            since: hours ? Math.floor(Date.now() / 1000) - Math.round(hours * 3600) : 0,
+          });
+        }} />
       <Select value={query.outcome} width={110} onChange={(v) => change({ outcome: v })} options={[
         { value: "", label: t("全部结果") },
         { value: "ok", label: t("成功") },
@@ -117,7 +133,9 @@ export function GatewayLog({ enabled, retentionDays, onSettings }: {
         ...(page?.agents ?? []).map((a) => ({ value: a, label: a })),
       ]} />
       <Select value={String(range)} width={130} onChange={(v) => { setRange(Number(v)); change({ since: Number(v) ? Math.floor(Date.now() / 1000) - Number(v) : 0 }); }}
-        options={RANGES.map((r) => ({ value: String(r.value), label: t(r.label) }))} />
+        options={[...RANGES.map((r) => ({ value: String(r.value), label: t(r.label) })),
+          // A span the AI chose that is not one of the presets.
+          ...(RANGES.some((r) => r.value === range) ? [] : [{ value: String(range), label: t("最近 {hours} 小时").replace("{hours}", String(Math.round(range / 360) / 10)) }])]} />
       <span className="s dim">{page ? `${page.total} / ${page.kept}` : "—"} {t("条")}</span>
     </div>
 

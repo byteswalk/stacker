@@ -50,7 +50,7 @@ export function CandidateRows({ nodes, emptyText }: { nodes: DirectoryNode[]; em
     {nodes.map((node, i) => {
       const disabled = node.safety === "viewOnly" || running;
       const checked = cleanup.selected.has(node.nodeId);
-      return <div className={`space-cleanup-row safety-${node.safety}`} key={node.nodeId} {...pick.row(i)}>
+      return <div className={`space-cleanup-row safety-${node.safety}${checked && !disabled ? " picked" : ""}`} key={node.nodeId} {...pick.row(i)}>
         <input type="checkbox" className="ck2" checked={checked && !disabled} disabled={disabled} title={tr("按住拖过几行可以一起勾选；按住 Shift 点选一段")}
           aria-label={`${tr("选择清理项")}: ${node.name}`} {...pick.box(i)} onChange={(e) => pick.change(i, e.target.checked)} />
         <span className="space-cleanup-icon"><i className="ti ti-folders" /></span>
