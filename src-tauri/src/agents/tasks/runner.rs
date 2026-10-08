@@ -122,7 +122,11 @@ impl TaskRunner for ProductionRunner {
                     && reason == VERSION_UNCHANGED
                     && crate::agents::install::desktop_staged_update(
                         &spec_by_id(&request.product_id).ok_or("未知的智能体")?,
-                        None,
+                        surface_of(&after, request.surface).version.as_deref(),
+                        surface_of(&after, request.surface)
+                            .path
+                            .as_deref()
+                            .map(std::path::Path::new),
                     )
                     .is_some() =>
             {

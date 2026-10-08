@@ -60,6 +60,11 @@ fn arm64() -> bool {
 /// (`5.5.6.38337834`) that the installed version never carries.
 fn release_version(value: &str) -> Option<String> {
     let value = value.trim().trim_start_matches(['v', 'V']);
+    // A rebuild of one version (`2026.9.8-1`, as OpenClaw tags them) is that version.
+    let value = match value.split_once(['-', '+']) {
+        Some((head, tail)) if tail.chars().all(|ch| ch.is_ascii_digit() || ch == '.') => head,
+        _ => value,
+    };
     let parts: Vec<&str> = value.split('.').take(3).collect();
     let numeric = !parts.is_empty()
         && parts
@@ -416,6 +421,85 @@ pub(crate) fn installer_version(url: &str) -> Result<String, String> {
     pe_product_version(&head).ok_or_else(|| "官方安装包里没有版本号".into())
 }
 
+/// A version written into an installer's name: `ZCode-3.14.5-win-x64.exe`,
+/// `MiniMax Code Setup 3.1.1.exe`, `XiaomiMiMo-26.929.292248-x64-setup.exe`.
+pub(crate) fn version_in_name(name: &str) -> Option<String> {
+    let re = regex::Regex::new(r"(\d+(?:\.\d+){2,3})").ok()?;
+    re.captures(name).map(|c| c[1].to_string())
+}
+
+/// `updaterCacheDirName` from an Electron app's `resources/app-update.yml`.
+pub(crate) fn updater_cache_name(app_update_yml: &str) -> Option<String> {
+    app_update_yml.lines().find_map(|line| {
+        let value = line.trim().strip_prefix("updaterCacheDirName:")?;
+        let value = value.trim().trim_matches(['"', '\'']).trim();
+        (!value.is_empty() && !value.contains(['/', '\\', '.'])).then(|| value.to_string())
+    })
+}
+
+/// Where an Electron app's own updater keeps what it downloaded: the folder its
+/// `app-update.yml` names, and any `…-updater` folder the catalog lists for it.
+pub(crate) fn updater_cache_dirs(
+    data_dirs: &[super::registry::DataDir],
+    executable: Option<&std::path::Path>,
+) -> Vec<std::path::PathBuf> {
+    let mut dirs: Vec<std::path::PathBuf> = data_dirs
+        .iter()
+        .filter(|dir| dir.relative.ends_with("-updater"))
+        .filter_map(|dir| dir.path())
+        .collect();
+    let named = executable
+        .and_then(|exe| exe.parent())
+        .map(|dir| dir.join("resources").join("app-update.yml"))
+        .and_then(|file| std::fs::read_to_string(file).ok())
+        .and_then(|text| updater_cache_name(&text));
+    if let (Some(name), Some(local)) = (named, dirs::data_local_dir()) {
+        let dir = local.join(name);
+        if !dirs.contains(&dir) {
+            dirs.push(dir);
+        }
+    }
+    dirs
+}
+
+/// The version an app's own updater has already downloaded and will install on the next
+/// restart. electron-updater writes `pending/update-info.json` only once the download is
+/// complete and checked, so this is a version that exists for this machine, including one a
+/// vendor is still rolling out and its public feed does not show yet.
+pub(crate) fn downloaded_update(dirs: &[std::path::PathBuf]) -> Option<String> {
+    let mut best: Option<String> = None;
+    for dir in dirs {
+        let pending = dir.join("pending");
+        let Ok(text) = std::fs::read_to_string(pending.join("update-info.json")) else {
+            continue;
+        };
+        let Ok(info) = serde_json::from_str::<Value>(&text) else {
+            continue;
+        };
+        let file = info.get("fileName").and_then(Value::as_str).unwrap_or("");
+        // A name without a version (`Antigravity-x64.exe`): the installer's own says it.
+        let version = version_in_name(file).or_else(|| {
+            let installer = pending.join(file);
+            let mut head = Vec::new();
+            std::io::Read::read_to_end(
+                &mut std::io::Read::take(std::fs::File::open(installer).ok()?, 4 * 1024 * 1024),
+                &mut head,
+            )
+            .ok()?;
+            pe_product_version(&head)
+        });
+        if let Some(version) = version {
+            if best
+                .as_deref()
+                .map_or(true, |b| crate::update::ver_lt(b, &version))
+            {
+                best = Some(version);
+            }
+        }
+    }
+    best
+}
+
 /// The `version` field of a package.json.
 pub(crate) fn package_json_version(text: &str) -> Option<String> {
     let manifest: Value = serde_json::from_str(text).ok()?;
@@ -499,6 +583,11 @@ pub(crate) fn hermes_desktop_latest() -> Result<String, String> {
     package_json_version(&body).ok_or_else(|| "Hermes 桌面端的 package.json 里没有版本号".into())
 }
 
+/// `0.0.0` is what a package.json says when nobody numbers the releases: no version at all.
+pub(crate) fn real_version(version: String) -> Option<String> {
+    (version.trim_start_matches(['v', 'V']) != "0.0.0").then_some(version)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -548,6 +637,59 @@ name = \"x\"
         }
         assert_eq!(asar_layout(&prefix), Some((16, 34887, 34904)));
         assert_eq!(asar_layout(&[0u8; 16]), None);
+    }
+
+    #[test]
+    fn an_update_the_app_downloaded_itself_is_found_by_name_or_not_at_all() {
+        assert_eq!(
+            version_in_name("ZCode-3.14.5-win-x64.exe").as_deref(),
+            Some("3.14.5")
+        );
+        assert_eq!(
+            version_in_name("MiniMax Code Setup 3.1.1.exe").as_deref(),
+            Some("3.1.1")
+        );
+        assert_eq!(
+            version_in_name("XiaomiMiMo-26.929.292248-x64-setup.exe").as_deref(),
+            Some("26.929.292248")
+        );
+        assert_eq!(version_in_name("Antigravity-x64.exe"), None);
+        assert_eq!(
+            updater_cache_name(
+                "provider: generic\nupdaterCacheDirName: '@mmx-agentelectron-updater'\n"
+            )
+            .as_deref(),
+            Some("@mmx-agentelectron-updater")
+        );
+        assert_eq!(updater_cache_name("updaterCacheDirName: ../evil"), None);
+
+        let root = tempfile::tempdir().unwrap();
+        let (old, new, empty) = (
+            root.path().join("a"),
+            root.path().join("b"),
+            root.path().join("c"),
+        );
+        for (dir, name) in [(&old, "App-1.2.0.exe"), (&new, "App Setup 1.10.0.exe")] {
+            std::fs::create_dir_all(dir.join("pending")).unwrap();
+            std::fs::write(
+                dir.join("pending").join("update-info.json"),
+                format!(r#"{{"fileName":"{name}","sha512":"x"}}"#),
+            )
+            .unwrap();
+        }
+        assert_eq!(
+            downloaded_update(&[old, new, empty]).as_deref(),
+            Some("1.10.0")
+        );
+        assert_eq!(downloaded_update(&[]), None);
+    }
+
+    #[test]
+    fn a_rebuild_tag_is_its_version_and_a_placeholder_is_none() {
+        assert_eq!(release_version("v2026.9.8-1").as_deref(), Some("2026.9.8"));
+        assert_eq!(release_version("v2026.9.8-alpha.2"), None);
+        assert_eq!(real_version("0.0.0".into()), None);
+        assert_eq!(real_version("0.17.1".into()).as_deref(), Some("0.17.1"));
     }
 
     #[test]

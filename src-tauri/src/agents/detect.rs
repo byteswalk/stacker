@@ -173,11 +173,33 @@ pub(crate) fn desktop_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurfac
         .and_then(|f| f.path.as_ref())
         .map(|p| p.to_string_lossy().into_owned());
     let latest_checked = check_latest && installed;
-    let (latest, latest_source, latest_error) = if latest_checked {
+    let (mut latest, mut latest_source, mut latest_error) = if latest_checked {
         split_latest(desktop_latest(spec, version.as_deref()))
     } else {
         (None, None, None)
     };
+    // What the app's own updater has downloaded counts too: WinGet's listing trails the
+    // vendor by days, and a vendor rolling a version out shows it only to some machines.
+    if latest_checked {
+        let executable = found.as_ref().and_then(|f| f.path.as_deref());
+        let downloaded = super::feeds::downloaded_update(&super::feeds::updater_cache_dirs(
+            spec.data_dirs,
+            executable,
+        ));
+        if let Some(ready) = downloaded {
+            let newer_than_installed = version
+                .as_deref()
+                .is_some_and(|current| crate::update::ver_lt(current, &ready));
+            let newer_than_listed = latest
+                .as_deref()
+                .map_or(true, |listed| crate::update::ver_lt(listed, &ready));
+            if newer_than_installed && newer_than_listed {
+                latest = Some(ready);
+                latest_source = Some("应用已下载的更新".into());
+                latest_error = None;
+            }
+        }
+    }
     let update_available = installed
         && version
             .as_deref()
@@ -657,7 +679,9 @@ pub(crate) fn desktop_latest(spec: &ToolSpec, current: Option<&str>) -> LatestLo
             super::feeds::installer_version(url).map(|version| Some((version, "官方安装包")))
         }
         DesktopSource::HermesRepo => {
-            super::feeds::hermes_desktop_latest().map(|version| Some((version, "Hermes 官方仓库")))
+            // The repository numbers its desktop app 0.0.0 between releases: no version to go by.
+            super::feeds::hermes_desktop_latest()
+                .map(|version| super::feeds::real_version(version).map(|v| (v, "Hermes 官方仓库")))
         }
         DesktopSource::None => Ok(None),
     }

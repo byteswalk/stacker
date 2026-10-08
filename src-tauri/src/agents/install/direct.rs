@@ -148,7 +148,8 @@ pub(crate) fn resolve_installer(
         InstallerSource::ElectronRelease { base_url } => {
             let release = electron_release_latest(base_url)?;
             Ok(ResolvedInstaller {
-                url: format!("{base_url}/{}", release.file_name),
+                // `MiniMax Code Setup 3.1.1.exe`: a name with spaces is one path segment.
+                url: format!("{base_url}/{}", release.file_name.replace(' ', "%20")),
                 file_name: release.file_name,
                 sha512: Some(release.sha512),
                 silent_args: None,

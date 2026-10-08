@@ -1588,6 +1588,15 @@ pub(crate) fn direct_desktop_installer(
             silent_args: &["/S"],
             signed: edition == Edition::Cn,
         }),
+        // MiniMax Code (China) publishes on its own feed days before WinGet lists it; the
+        // installer is signed by 上海稀宇科技有限公司.
+        Vendor::MiniMax if edition == Edition::Cn => Some(DirectDesktopInstaller {
+            source: InstallerSource::ElectronRelease {
+                base_url: MINIMAX_CN_DESKTOP_FEED,
+            },
+            silent_args: &["/S"],
+            signed: true,
+        }),
         // Third-party open-source pi desktop app; its Windows installer is not signed.
         Vendor::Pi => Some(DirectDesktopInstaller {
             source: InstallerSource::ElectronRelease {
@@ -1599,6 +1608,10 @@ pub(crate) fn direct_desktop_installer(
         _ => None,
     }
 }
+
+/// MiniMax Code's (China) electron-builder feed, as its updater logs it.
+pub(crate) const MINIMAX_CN_DESKTOP_FEED: &str =
+    "https://filecdn.minimax.chat/public/minimax-agent-prod/release";
 
 /// The release manifest ZCode's own updater reads (stable channel).
 pub(crate) fn zcode_manifest_url() -> &'static str {

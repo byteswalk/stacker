@@ -479,16 +479,41 @@ pub(crate) fn update_desktop_tool(
 ) -> Result<String, String> {
     let found = detect_desktop_for(spec);
     let current = found.as_ref().and_then(|f| f.version.as_deref());
-    if let Some(next) = desktop_staged_update(spec, current) {
+    let executable = found.as_ref().and_then(|f| f.path.as_deref());
+    if let Some(next) = desktop_staged_update(spec, current, executable) {
         emit_progress(
             window,
             format!("{} 已下载 {next}，需要重启应用完成更新…", spec.desktop.name),
         );
         open_desktop_tool(spec.id)?;
-        return Ok(format!(
-            "{} 已下载 {next}，请在应用内点击 Relaunch to update 完成更新。",
-            spec.desktop.name
-        ));
+        return Ok(if spec.vendor == Vendor::Claude {
+            format!(
+                "{} 已下载 {next}，请在应用内点击 Relaunch to update 完成更新。",
+                spec.desktop.name
+            )
+        } else {
+            format!(
+                "{} 已自行下载好 {next}：在应用里点「重启更新」，或退出后重新打开即可完成更新。",
+                spec.desktop.name
+            )
+        });
+    }
+    // Where the latest version was found is where it is installed from: a vendor's own feed
+    // can be days ahead of WinGet's listing, and upgrading through WinGet would change nothing.
+    let vendor_feed = !matches!(
+        super::detect::desktop_source(spec),
+        super::detect::DesktopSource::Winget(..)
+    );
+    if let (true, Some(installer)) = (
+        vendor_feed && spec.desktop.winget_id.is_some(),
+        direct_desktop_installer(spec.vendor, spec.edition),
+    ) {
+        emit_progress(
+            window,
+            format!("正在用官方安装包更新 {}…", spec.desktop.name),
+        );
+        return install_desktop_from_official_package(spec, installer, window)
+            .map(|_| format!("{} 已用官方安装包更新", spec.desktop.name));
     }
     if let Some(id) = spec.desktop.winget_id {
         emit_progress(
@@ -864,11 +889,28 @@ pub(crate) fn repair_cli_tool(
 
 /// An update the app's own updater already downloaded and applies on relaunch. Only
 /// Claude reports this (in its log); other vendors only publish an online version.
-pub(crate) fn desktop_staged_update(spec: &ToolSpec, current: Option<&str>) -> Option<String> {
+/// A newer version the app's own updater has already downloaded, which it installs when the
+/// app restarts: Claude's, or any Electron app's `pending` download.
+pub(crate) fn desktop_staged_update(
+    spec: &ToolSpec,
+    current: Option<&str>,
+    executable: Option<&Path>,
+) -> Option<String> {
     match spec.vendor {
         Vendor::Claude => claude_desktop_ready_update(current),
-        _ => None,
+        _ => staged_in(
+            &super::feeds::updater_cache_dirs(spec.data_dirs, executable),
+            current,
+        ),
     }
+}
+
+/// What is downloaded in these updater folders, when it is newer than what is installed.
+pub(crate) fn staged_in(dirs: &[std::path::PathBuf], current: Option<&str>) -> Option<String> {
+    let ready = super::feeds::downloaded_update(dirs)?;
+    current
+        .is_some_and(|current| crate::update::ver_lt(current, &ready))
+        .then_some(ready)
 }
 
 pub(crate) fn tasklist_has_image(csv: &str, image: &str) -> bool {
@@ -985,7 +1027,19 @@ mod tests {
         // Kimi Work only publishes its latest version online; nothing is downloaded, so
         // it must update with its signed silent installer instead of opening the app.
         let kimi = spec_by_id("kimi").unwrap();
-        assert!(desktop_staged_update(&kimi, Some("3.2.9")).is_none());
+        let none: [std::path::PathBuf; 0] = [];
+        assert!(staged_in(&none, Some("3.2.9")).is_none());
+        // A download older than what is installed is left over, not an update.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("pending")).unwrap();
+        std::fs::write(
+            dir.path().join("pending").join("update-info.json"),
+            r#"{"fileName":"Kimi-Setup-3.2.12.exe"}"#,
+        )
+        .unwrap();
+        let dirs = [dir.path().to_path_buf()];
+        assert!(staged_in(&dirs, Some("3.2.15")).is_none());
+        assert_eq!(staged_in(&dirs, Some("3.2.9")).as_deref(), Some("3.2.12"));
         assert!(direct_desktop_installer(kimi.vendor, kimi.edition)
             .is_some_and(|installer| installer.signed));
     }
