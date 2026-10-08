@@ -454,6 +454,16 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     if (!prefs.ecosystemUpdate) setAiToolUpdates([]);
     else if (catalog.checked) setAiToolUpdates(aiToolUpdatesFrom(catalog.tools));
   }), [prefs.ecosystemUpdate]);
+  // A kind of reminder turned off takes its red dots with it.
+  // Turning background checks off clears what they found; a check by hand fills it again.
+  useEffect(() => {
+    const off = !prefs.enabled;
+    if (off || !prefs.appUpdate) setAppUpdate(null);
+    if (off || !prefs.sourceUpdate) setSourceUpdate(null);
+    if (off || !prefs.ecosystemUpdate) { setEcosystemUpdates([]); setAiToolUpdates([]); }
+    if (off || !prefs.environmentIssue) setEnvironmentIssues([]);
+    if (off || !prefs.cleanup) setCleanupBytes(0);
+  }, [prefs.enabled, prefs.appUpdate, prefs.sourceUpdate, prefs.ecosystemUpdate, prefs.environmentIssue, prefs.cleanup]);
   const runRef = useRef<Promise<void> | null>(null);
   const queuedReasonsRef = useRef<string[]>([]);
   const checkNowRef = useRef<(reason?: string) => Promise<void>>(async () => {});
@@ -469,7 +479,8 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const checkNow = useCallback(async (reason?: string) => {
-    if (!prefs.enabled) return;
+    // Off means no checks of its own; one asked for by hand still runs.
+    if (!prefs.enabled && reason !== "manual") return;
     if (runRef.current) {
       const queued = reason ?? "background";
       if (!queuedReasonsRef.current.includes(queued)) queuedReasonsRef.current.push(queued);

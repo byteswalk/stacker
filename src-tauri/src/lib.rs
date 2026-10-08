@@ -492,6 +492,7 @@ pub fn run() {
             settings::settings_get,
             settings::settings_set_tray,
             settings::settings_set_close_behavior,
+            app_close_once,
             settings::settings_set_theme,
             settings::settings_get_theme,
             settings::settings_set_locale,
@@ -625,6 +626,24 @@ pub fn run() {
                 .cancel_all_and_wait(std::time::Duration::from_secs(3));
         }
     });
+}
+
+/// Closes the main window this once as chosen ("tray" or "exit"), without saving the choice.
+#[tauri::command]
+fn app_close_once(app: tauri::AppHandle, behavior: String) -> Result<(), String> {
+    use tauri::Manager;
+    match behavior.as_str() {
+        "tray" => app
+            .get_webview_window("main")
+            .ok_or("E_NO_WINDOW")?
+            .hide()
+            .map_err(|error| error.to_string()),
+        "exit" => {
+            quit(&app);
+            Ok(())
+        }
+        _ => Err("E_CLOSE_BEHAVIOR".into()),
+    }
 }
 
 /// Quits, asking first while agent installs are still running.

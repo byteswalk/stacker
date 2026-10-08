@@ -123,7 +123,7 @@ export default function Gateway() {
           <div className="gw-tips">
             <div className="gw-tip">
               <i className="ti ti-route" />
-              <span>{t("挑与对方同一网段的地址；虚拟机用宿主机虚拟网卡的那个。对方开了系统代理的，要让它绕开这个地址（curl 加 --noproxy，或加进 NO_PROXY）。")}</span>
+              <span>{t("选择与客户端同一网段的地址；虚拟机请使用宿主机虚拟网卡的地址。客户端开启了系统代理的，需让它绕开这个地址（curl 加 --noproxy，或加进 NO_PROXY）。")}</span>
             </div>
             <div className="gw-tip">
               <i className="ti ti-shield-half" />

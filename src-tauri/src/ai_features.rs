@@ -114,7 +114,7 @@ pub fn prompt(kind: &str, payload: &Value) -> Result<String, String> {
 #[tauri::command]
 pub async fn ai_ask(kind: String, payload: Value) -> Result<String, String> {
     let prompt = prompt(&kind, &payload)?;
-    tauri::async_runtime::spawn_blocking(move || crate::ai_config::complete(&prompt))
+    tauri::async_runtime::spawn_blocking(move || crate::ai_config::complete_answer(&prompt))
         .await
         .map_err(|e| e.to_string())?
 }
@@ -383,7 +383,7 @@ pub async fn ai_update_notes(
              最后一句话给出建议：建议升级 / 可以等等 / 有风险先别升。只根据日志内容，不要补充日志里没有的东西。",
             notes = tail(&notes, 12_000),
         );
-        crate::ai_config::complete(&prompt)
+        crate::ai_config::complete_answer(&prompt)
     })
     .await
     .map_err(|e| e.to_string())?

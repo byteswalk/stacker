@@ -105,7 +105,7 @@ export function VaultWorkspace({ onLocked }: { onLocked: () => void }) {
               <option value="">全部类型</option>
               {CATEGORY_ORDER.map((category: Category) => <option key={category} value={category}>{CATEGORY_LABELS[category]}</option>)}
             </select>
-            {filter.platform && <button className="gh sm on" title="只看这个平台的条目，点一下取消" onClick={() => setFilter({ ...filter, platform: "" })}>
+            {filter.platform && <button className="gh sm on" title="只看这个平台的条目，再次点击取消" onClick={() => setFilter({ ...filter, platform: "" })}>
               <span translate="no">{filter.platform}</span> <i className="ti ti-x" />
             </button>}
             <select className="ip" style={{ width: 170 }} value={filter.windows ?? ""} onChange={(e) => setFilter({ ...filter, windows: e.target.value as ListFilter["windows"] })}>

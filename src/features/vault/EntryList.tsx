@@ -123,7 +123,7 @@ export function EntryList({ entries, today, onView, onEdit, onChanged }: {
       const secrets = entry.fields.filter((field) => field.secret && field.filled);
       const reachable = (name: string) => credentials.some((item) => item.field === name) || holders.some((item) => item.field === name);
       if (ssh && !local?.path) toast("已复制给 AI 的信息。私钥还没放到本机 ~/.ssh，AI 暂时连不上：先在详情里点「放到本机 ~/.ssh」。", "info");
-      else if (!ssh && secrets.some((field) => !reachable(field.name))) toast(entry.windows ? "已复制给 AI 的信息。有的值太长，放不进 Windows 凭据管理器，AI 拿不到那一项。" : "已复制给 AI 的信息。这一条没有放进 Windows 凭据管理器，AI 拿不到值：需要的话勾选它，点「放进 Windows 凭据」。", "info");
+      else if (!ssh && secrets.some((field) => !reachable(field.name))) toast(entry.windows ? "已复制给 AI 的信息。有的值太长，放不进 Windows 凭据管理器，AI 无法读取该项。" : "已复制给 AI 的信息。这一条没有放进 Windows 凭据管理器，AI 无法读取它的值：需要的话勾选它，点「放进 Windows 凭据」。", "info");
       else toast(ssh ? "已复制给 AI 的信息，不含保密内容。" : "已复制给 AI 的信息：告诉了它凭据名和取值命令，不含密钥值。", "ok");
     } catch (error) { toast(vaultError(error), "err"); }
   }

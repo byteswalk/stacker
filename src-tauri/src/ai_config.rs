@@ -158,6 +158,21 @@ pub fn complete(prompt: &str) -> Result<String, String> {
     complete_with(&load(), prompt)
 }
 
+/// The prompts are written in Chinese and ask for Chinese; with the interface in English the
+/// answer is asked for in English instead. Not for replies a program reads (filters).
+pub fn in_ui_language(prompt: &str, locale: &str) -> String {
+    if locale == "en-US" {
+        format!("{prompt}\n\nWrite the whole answer in English, whatever language is asked for above; keep commands, paths and names as they are.")
+    } else {
+        prompt.to_string()
+    }
+}
+
+/// `complete`, for an answer a person reads: in the interface's language.
+pub fn complete_answer(prompt: &str) -> Result<String, String> {
+    complete(&in_ui_language(prompt, &crate::settings::load().locale))
+}
+
 /// The configured source as the runner describes one, for features that go through a job:
 /// a local agent names its backend, an external API leaves the backend empty.
 pub fn runner_choice() -> Result<crate::sessions::summary::RunnerChoice, String> {
@@ -484,7 +499,7 @@ pub async fn ai_config_test() -> Result<String, String> {
 #[tauri::command]
 pub async fn ai_explain_path(path: String, bytes: u64, kind: String) -> Result<String, String> {
     let prompt = explain_prompt(&path, bytes, &kind);
-    tauri::async_runtime::spawn_blocking(move || complete(&prompt))
+    tauri::async_runtime::spawn_blocking(move || complete_answer(&prompt))
         .await
         .map_err(|e| e.to_string())?
 }
@@ -506,6 +521,13 @@ fn explain_prompt(path: &str, bytes: u64, kind: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_english_interface_asks_for_an_english_answer() {
+        assert_eq!(in_ui_language("用简体中文回答", "zh-CN"), "用简体中文回答");
+        assert!(in_ui_language("用简体中文回答", "en-US")
+            .ends_with("keep commands, paths and names as they are."));
+    }
 
     #[test]
     fn the_reasoning_level_reaches_each_protocol_in_its_own_form() {

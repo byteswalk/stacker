@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "../../invoke";
+import { translateText } from "../../i18n";
 import { ConfirmModal, Modal, operationWasCancelled, useBusy, useToast } from "../../ui";
 import { Select } from "../../Select";
 import { kindName, venvSummary, type VenvInfo } from "./venvSummary";
@@ -76,7 +77,7 @@ export function VenvPanel({ versions, openFolder }: { versions: Version[]; openF
   }
 
   async function addProject() {
-    const dir = await open({ directory: true, multiple: false, title: "选择项目文件夹" });
+    const dir = await open({ directory: true, multiple: false, title: translateText("选择项目文件夹") });
     if (!dir || typeof dir !== "string") return;
     add([dir]);
     const info = await inspect(dir);
@@ -188,7 +189,7 @@ export function VenvPanel({ versions, openFolder }: { versions: Version[]; openF
       </div>
       {projects.length === 0 && (
         <div className="banner gray"><i className="ti ti-info-circle lead" /><div className="bt">
-          每个项目用自己的环境装依赖，互不影响，也不会弄乱默认 Python。这里管两种：项目里的虚拟环境（.venv），以及随项目分发、自带 pythonXY._pth 的嵌入式 Python。可以扫描本机找出来，也可以直接添加项目文件夹。
+          每个项目用自己的环境装依赖，互不影响，也不影响默认 Python。此处管理两类：项目里的虚拟环境（.venv），以及随项目分发、自带 pythonXY._pth 的嵌入式 Python。可以扫描本机找出来，也可以直接添加项目文件夹。
         </div></div>
       )}
       {projects.map((project) => {

@@ -438,7 +438,7 @@ pub(crate) fn install_or_update_kiro_cli(
     let manifest: serde_json::Value = serde_json::from_str(&crate::agents::detect::fetch_text(
         crate::agents::detect::KIRO_CLI_MANIFEST,
     )?)
-    .map_err(|e| format!("Kiro 的发布清单读不懂：{e}"))?;
+    .map_err(|e| format!("Kiro 的发布清单解析失败：{e}"))?;
     let (url, sha256) = kiro_msi(&manifest).ok_or("Kiro 的发布清单里没有 Windows 安装包")?;
     // Kiro's MSI refuses to reinstall its own version (RegisterProduct, 1603); an install
     // already at the listed version has nothing to update.

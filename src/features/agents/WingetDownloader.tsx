@@ -7,7 +7,7 @@ import { useI18n } from "../../i18n";
 type Downloader = { value: string; path: string; available: boolean; backedUp: boolean };
 
 const ERRORS: Record<string, string> = {
-  E_WINGET_SETTINGS: "WinGet 的设置文件格式不对，没有改动。可以用 winget settings 打开检查。",
+  E_WINGET_SETTINGS: "WinGet 的设置文件格式无效，未做修改。可运行 winget settings 打开检查。",
   E_NO_WINGET: "本机没有找到 WinGet。",
 };
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "./invoke";
+import { translateText } from "./i18n";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { Modal, ConfirmModal, useBusy, useBusyRead, useToast } from "./ui";
 import { Select } from "./Select";
@@ -266,7 +267,7 @@ export function SourceManagerModal({ onClose, onChanged }: { onClose: () => void
 
   async function exportSources() {
     try {
-      const path = await save({ defaultPath: "stacker-sources.json", filters: [{ name: "Stacker 源配置", extensions: ["json"] }] });
+      const path = await save({ defaultPath: "stacker-sources.json", filters: [{ name: translateText("Stacker 源配置"), extensions: ["json"] }] });
       if (!path) return;
       await invoke("source_catalog_export", { path, includeServer: false });
       toast("源配置已导出，已包含内置源快照和本地源", "ok");
@@ -277,7 +278,7 @@ export function SourceManagerModal({ onClose, onChanged }: { onClose: () => void
 
   async function importSources() {
     try {
-      const path = await open({ multiple: false, directory: false, filters: [{ name: "Stacker 源配置", extensions: ["json"] }] });
+      const path = await open({ multiple: false, directory: false, filters: [{ name: translateText("Stacker 源配置"), extensions: ["json"] }] });
       if (!path || typeof path !== "string") return;
       const r = await invoke<{ local_added: number; local_skipped: number; server_imported: boolean; builtin_tools: number; builtin_mirrors: number }>("source_catalog_import", { path, importServer: true });
       await load();

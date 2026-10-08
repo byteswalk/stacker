@@ -42,7 +42,7 @@ const SYSTEM_STATE: Record<SystemState, { label: string; on: boolean; hint: stri
   on: { label: "系统代理已开启", on: true, hint: "下面各处写入时都用这个地址；系统代理关掉后一并撤销。" },
   off: { label: "系统代理未开启", on: false, hint: "没有可写入的地址。下面仍写着代理的位置应该撤销，否则请求会发去一个没人监听的端口。" },
   stale: { label: "系统代理设置残留", on: false, hint: "注册表里还写着地址，但连接记录说直连；新启动的程序不会走它。" },
-  unknown: { label: "读不到系统代理", on: false, hint: "读不到 Windows 的代理设置。" },
+  unknown: { label: "无法读取系统代理", on: false, hint: "无法读取 Windows 的代理设置。" },
 };
 
 const LOCATION_INFO: Record<string, { name: string; detail: string; icon: string }> = {
@@ -61,7 +61,7 @@ const ERRORS: Record<string, string> = {
   E_PROXY_ADDR: "Windows 没有开启系统代理，没有可写入的地址。",
   E_EXTERNAL_FILE: "settings.xml 是你自己维护的文件，Stacker 不会改写它，请手动编辑。",
   E_NOT_INSTALLED: "这台机器上没有这个程序，Stacker 不会替它创建配置。",
-  E_BROKEN_JSON: "这个 JSON 文件读不通，Stacker 不会覆盖它，请先修好。",
+  E_BROKEN_JSON: "这个 JSON 文件无法解析，Stacker 不会覆盖它，请先修复。",
   E_TARGET_ID: "标识只能用字母、数字、- 和 _，且不能为空。",
   E_TARGET_BUILTIN: "这个标识是内置项占用的，请换一个。",
   E_TARGET_FIELDS: "名称和文件路径都要填。",
@@ -249,7 +249,7 @@ export default function Proxy() {
           <i className="ti ti-plug-connected-x" />
           <span>连不上？</span>
           <input className="ip" value={probeUrl} placeholder="https://api.openai.com" onChange={(e) => setProbeUrl(e.target.value)} />
-          <AiButton label="测一下再让 AI 诊断" title="先直连和经系统代理各访问一次这个地址，再把结果和上面各处状态交给 AI"
+          <AiButton label="测试后由 AI 诊断" title="先直连和经系统代理各访问一次这个地址，再把结果和上面各处状态交给 AI"
             disabled={!probeUrl.trim()} onClick={() => setDiagnosing(true)} />
         </div>
       </div>

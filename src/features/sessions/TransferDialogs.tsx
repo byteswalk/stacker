@@ -82,7 +82,7 @@ export function TransferExport({ ids, onClose }: { ids: string[]; onClose: () =>
   }
 
   async function run() {
-    const dest = await save({ title: tr("保存会话迁移包"), defaultPath: `Stacker-会话迁移-${today()}.zip`, filters: [{ name: tr("会话迁移包"), extensions: ["zip"] }] });
+    const dest = await save({ title: tr("保存会话迁移包"), defaultPath: `Stacker-${tr("会话迁移").replace(/\s+/g, "-")}-${today()}.zip`, filters: [{ name: tr("会话迁移包"), extensions: ["zip"] }] });
     if (!dest) return;
     setBusy(true);
     try {

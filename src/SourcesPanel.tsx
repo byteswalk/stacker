@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "./invoke";
+import { translateText } from "./i18n";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useBusy, useBusyRead, useToast } from "./ui";
 import { Select } from "./Select";
@@ -164,7 +165,8 @@ export function SourcesPanel({ toolIds, refresh }: { toolIds: string[]; refresh?
   const [sourceScopes, setSourceScopes] = useState<Record<string, "user" | "system">>({ go: "user" });
   const [sourceProxy, setSourceProxy] = useState<Record<string, boolean>>({});
   const [customConfigState, setCustomConfigState] = useState<Record<string, SourceFileState>>({});
-  const [proxyAddr, setProxyAddr] = useState<{ host: string; port: number }>({ host: "127.0.0.1", port: 7890 });
+  // The proxy the machine has, as Network Proxy reads it; none known means no toggle to turn on.
+  const [proxyAddr, setProxyAddr] = useState<{ host: string; port: number } | null>(null);
   const [busy, setBusy] = useState("");
   const [pings, setPings] = useState<Record<string, number | null>>({});
   const [testing, setTesting] = useState(false);
@@ -179,10 +181,8 @@ export function SourcesPanel({ toolIds, refresh }: { toolIds: string[]; refresh?
     setTools(mine);
     if (mine.some((t) => t.id === "maven" || t.id === "gradle")) {
       invoke<ProxyStatus>("proxy_status").then((ps) => {
-        setProxyAddr({
-          host: ps.host || "127.0.0.1",
-          port: ps.port || ps.detected_port || 7890,
-        });
+        const port = ps.port || ps.detected_port || 0;
+        setProxyAddr(port ? { host: ps.host || "127.0.0.1", port } : null);
       }).catch(() => {});
       const rows: Array<{ toolId: string; path?: string }> = [];
       mine.forEach((t) => {
@@ -275,9 +275,9 @@ export function SourcesPanel({ toolIds, refresh }: { toolIds: string[]; refresh?
           await invoke("apply_source", {
             toolId: id,
             mirrorId: sel[id],
-            proxyEnabled: !!sourceProxy[rowProxyKey(id)],
-            proxyHost: proxyAddr.host,
-            proxyPort: proxyAddr.port,
+            proxyEnabled: !!sourceProxy[rowProxyKey(id)] && !!proxyAddr,
+            proxyHost: proxyAddr?.host ?? "",
+            proxyPort: proxyAddr?.port ?? 0,
           });
         } else {
           await invoke("apply_source", { toolId: id, mirrorId: sel[id] });
@@ -311,8 +311,8 @@ export function SourcesPanel({ toolIds, refresh }: { toolIds: string[]; refresh?
           toolId: t.id,
           mirrorId: "official",
           proxyEnabled: false,
-          proxyHost: proxyAddr.host,
-          proxyPort: proxyAddr.port,
+          proxyHost: proxyAddr?.host ?? "",
+          proxyPort: proxyAddr?.port ?? 0,
         });
         await load();
       });
@@ -455,7 +455,7 @@ export function SourcesPanel({ toolIds, refresh }: { toolIds: string[]; refresh?
       multiple: false,
       filters: toolId === "maven"
         ? [{ name: "settings.xml", extensions: ["xml"] }]
-        : [{ name: "Gradle 初始化脚本", extensions: ["gradle"] }],
+        : [{ name: translateText("Gradle 初始化脚本"), extensions: ["gradle"] }],
     });
     if (!file || typeof file !== "string") return;
     const name = file.split(/[\\/]/).pop()?.toLowerCase();
@@ -500,9 +500,9 @@ export function SourcesPanel({ toolIds, refresh }: { toolIds: string[]; refresh?
         toolId: t.id,
         path,
         mirrorId: sel[key] ?? sel[t.id],
-        proxyEnabled: !!sourceProxy[customRowProxyKey(t.id, path)],
-        proxyHost: proxyAddr.host,
-        proxyPort: proxyAddr.port,
+        proxyEnabled: !!sourceProxy[customRowProxyKey(t.id, path)] && !!proxyAddr,
+        proxyHost: proxyAddr?.host ?? "",
+        proxyPort: proxyAddr?.port ?? 0,
       }));
       setCustomConfigState((s) => ({
         ...s,
@@ -594,7 +594,7 @@ export function SourcesPanel({ toolIds, refresh }: { toolIds: string[]; refresh?
       scopes.push({
         id: "custom",
         kind: "custom",
-        name: "自选 pip.ini",
+        name: translateText("自选 pip.ini"),
         path: customPipPath,
         exists: false,
         configured: false,
@@ -686,8 +686,10 @@ export function SourcesPanel({ toolIds, refresh }: { toolIds: string[]; refresh?
     if (toolId !== "maven" && toolId !== "gradle") return null;
     const k = stateKey ?? rowProxyKey(toolId);
     return (
-      <label className="ck" title={`启用后写入 JVM 工具代理：${proxyAddr.host}:${proxyAddr.port}，可在「设置」中修改代理地址。`}>
-        <input type="checkbox" disabled={disabled} checked={!!sourceProxy[k]} onChange={(e) => setSourceProxy((s) => ({ ...s, [k]: e.target.checked }))} />
+      <label className="ck" title={proxyAddr
+        ? `启用后写入 JVM 工具代理：${proxyAddr.host}:${proxyAddr.port}，代理地址在「网络代理」页查看和修改。`
+        : "没有检测到本机代理：先在「网络代理」页开启系统代理或代理软件。"}>
+        <input type="checkbox" disabled={disabled || (!proxyAddr && !sourceProxy[k])} checked={!!sourceProxy[k]} onChange={(e) => setSourceProxy((s) => ({ ...s, [k]: e.target.checked }))} />
         代理
       </label>
     );
@@ -698,7 +700,7 @@ export function SourcesPanel({ toolIds, refresh }: { toolIds: string[]; refresh?
       {anyInstalled && (
         <div className="srctoolbar">
           <div className="mt">
-            <div className="s dim" title={hasJvmProxyTools ? "测速会根据连接延迟预选更快的镜像；Maven / Gradle 的代理开关会写入对应配置文件，代理地址在「设置」中维护；所有配置点击「应用」后生效。" : "测速会根据连接延迟预选更快的镜像；配置在点击「应用」后写入。"}>
+            <div className="s dim" title={hasJvmProxyTools ? "测速会根据连接延迟预选更快的镜像；Maven / Gradle 的代理开关会写入对应配置文件，代理地址取自「网络代理」页；所有配置点击「应用」后生效。" : "测速会根据连接延迟预选更快的镜像；配置在点击「应用」后写入。"}>
               {hasJvmProxyTools ? "测速后预选镜像；代理开关随「应用」写入配置。" : "测速后预选更快镜像；点击「应用」后生效。"}
             </div>
           </div>

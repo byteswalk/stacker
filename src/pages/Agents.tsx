@@ -145,7 +145,7 @@ export function SurfaceState({ surface }: { surface: VibeSurface }) {
           </span>
         )}
         {latestUnknown(surface) && (
-          <span className="surface-muted" title="这个应用没有公开的版本号查询渠道，更新由它自己检查。Stacker 不猜版本号。">
+          <span className="surface-muted" title="这个应用没有公开的版本号查询渠道，更新由它自己检查。Stacker 不推测版本号。">
             {" · 最新版本：无公开渠道"}
           </span>
         )}
@@ -357,7 +357,7 @@ export default function Agents() {
           <SurfaceState surface={surface} />
           {target === "cli" && tool.cli_id && surface.update_available && surface.version && surface.latest && (
             <div className="surface-ai">
-              <AiButton label="这次更新了什么" title="只根据官方更新日志总结，拿不到日志就不说"
+              <AiButton label="这次更新了什么" title="只根据官方更新日志总结；未获取到日志时不作答"
                 onClick={() => setNotesFor({ toolId: tool.cli_id!, product: surface.label, current: surface.version!, latest: surface.latest! })} />
             </div>
           )}

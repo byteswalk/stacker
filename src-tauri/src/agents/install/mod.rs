@@ -319,7 +319,7 @@ pub(crate) fn uninstall_cli_tool(
                 .ok_or("没找到 Kiro CLI 的卸载程序，请在系统“应用”设置里卸载。")?;
             // "MsiExec.exe /X{GUID}": the product code, removed quietly with one UAC prompt.
             let code = msi_product_code(&uninstall)
-                .ok_or("读不出 Kiro CLI 的安装产品码，请在系统“应用”设置里卸载。")?;
+                .ok_or("无法读取 Kiro CLI 的安装产品码，请在系统「应用」设置里卸载。")?;
             emit_progress(window, "正在卸载 Kiro CLI：请在弹出的 UAC 窗口中点「是」…");
             match run_elevated_wait(
                 "msiexec.exe",

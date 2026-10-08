@@ -72,6 +72,9 @@ export default function Settings() {
   const busy = useBusy();
   const read = useBusyRead();
   const notices = useNotifications();
+  // Typed freely; saved, at 1 GB or more, when the field is left.
+  const [cleanupThresholdDraft, setCleanupThresholdDraft] = useState(String(notices.prefs.cleanupThresholdGb));
+  useEffect(() => { setCleanupThresholdDraft(String(notices.prefs.cleanupThresholdGb)); }, [notices.prefs.cleanupThresholdGb]);
   const checkNotifications = notices.checkNow;
   const [noBackend, setNoBackend] = useState(false);
   const [appVersion, setAppVersion] = useState("…");
@@ -537,11 +540,12 @@ export default function Settings() {
         <span className="av st"><i className="ti ti-chart-histogram" /></span>
         <div className="mt">
           <div className="t">{tr("空间快照")}</div>
-          <div className="s dim" title={tr("仅保存扫描目标指纹和相对目录占用，不保存文件名或文件内容。")}>{tr("用于比较同一组扫描目标在不同时间的空间变化。")}</div>
+          <div className="s dim" title={tr("仅保存扫描目标路径、目标指纹和相对目录占用，不保存文件名或文件内容。")}>{tr("用于比较同一组扫描目标在不同时间的空间变化。")}</div>
         </div>
         <label className="ck"><input type="checkbox" checked={snapshotsEnabled} disabled={spaceAnalysisSaving || noBackend} onChange={(event) => setSnapshotsEnabled(event.target.checked)} /> {tr("启用")}</label>
         <span className="s dim">{tr("保留")}</span><input className="ip sm" type="number" min="1" max="365" value={snapshotRetentionDays} disabled={spaceAnalysisSaving || noBackend} aria-label={tr("快照保留天数")} onChange={(event) => setSnapshotRetentionDays(event.target.value)} /><span className="s dim">{tr("天")}</span>
         <span className="s dim">{tr("每组最多")}</span><input className="ip sm" type="number" min="2" max="100" value={snapshotMaxPerTarget} disabled={spaceAnalysisSaving || noBackend} aria-label={tr("每组目标最多快照数")} onChange={(event) => setSnapshotMaxPerTarget(event.target.value)} /><span className="s dim">{tr("份")}</span>
+        <button className="pr sm" disabled={spaceAnalysisSaving || noBackend} onClick={() => saveSpaceAnalysis()}><i className={spaceAnalysisSaving ? "ti ti-loader spin" : "ti ti-device-floppy"} /> {tr("保存")}</button>
       </div>
       <div className="srcrow space-common-directory-settings">
         <span className="av st"><i className="ti ti-folders" /></span>
@@ -549,7 +553,7 @@ export default function Settings() {
           <div className="t">{tr("常用扫描目录")}</div>
           <div className="s dim">{tr("保存常用目录后，可从磁盘清理页手动快速开始扫描。")}</div>
         </div>
-        <input className="ip space-common-dirs" value={commonScanDirectories} disabled={spaceAnalysisSaving || noBackend} aria-label={tr("常用扫描目录")} title={commonScanDirectories} placeholder={tr("多个目录以分号分隔")} onChange={(event) => setCommonScanDirectories(event.target.value)} />
+        <input className="ip space-common-dirs" value={commonScanDirectories} disabled={spaceAnalysisSaving || noBackend} aria-label={tr("常用扫描目录")} title={commonScanDirectories} translate="no" placeholder={tr("多个目录以分号分隔")} onChange={(event) => setCommonScanDirectories(event.target.value)} />
         <button className="pr sm" disabled={spaceAnalysisSaving || noBackend} onClick={() => saveSpaceAnalysis()}><i className={spaceAnalysisSaving ? "ti ti-loader spin" : "ti ti-device-floppy"} /> {tr("保存")}</button>
       </div>
 
@@ -587,8 +591,13 @@ export default function Settings() {
           <div className="s dim">可安全清理项超过阈值时，在「磁盘清理」菜单显示红点。</div>
           {notices.cleanupBytes > 0 && <div className="s mono">当前后台估算：{formatBytes(notices.cleanupBytes)}</div>}
         </div>
-        <input className="ip sm" value={String(notices.prefs.cleanupThresholdGb)}
-          onChange={(e) => updatePrefs({ cleanupThresholdGb: Number(e.target.value.replace(/[^\d]/g, "")) || 1 })} />
+        <input className="ip sm" value={cleanupThresholdDraft}
+          onChange={(e) => setCleanupThresholdDraft(e.target.value.replace(/[^\d]/g, ""))}
+          onBlur={() => {
+            const value = Math.max(1, Number(cleanupThresholdDraft) || notices.prefs.cleanupThresholdGb);
+            setCleanupThresholdDraft(String(value));
+            if (value !== notices.prefs.cleanupThresholdGb) updatePrefs({ cleanupThresholdGb: value });
+          }} />
         <span className="s dim">GB</span>
         <label className="sw sm2"><input type="checkbox" checked={notices.prefs.cleanup} onChange={(e) => updatePrefs({ cleanup: e.target.checked })} /><span className="tk" /></label>
       </div>
@@ -596,7 +605,7 @@ export default function Settings() {
       <div className="srcrow">
         <span className="av st"><i className="ti ti-hexagon-letter-s" /></span>
         <div className="mt"><div className="t">Stacker {appVersion} <span className="bd n">{tr("开源 · 无遥测")}</span>{activeAppUpdate && <span className="bd r">{tr("发现新版本")} v{activeAppUpdate.latest}</span>}</div>
-          <div className="s dim" title={tr("Windows 开发工作站管理器：统一管理运行时、AI 工作智能体、Git 账号、网络源与开发磁盘空间。")}>{tr("Windows 开发工作站管理器")} · github.com/byteswalk/stacker</div></div>
+          <div className="s dim" title={tr("Windows 开发工作站管理器：统一管理运行时、AI 智能体、Git 账号、网络源与开发磁盘空间。")}>{tr("Windows 开发工作站管理器")} · github.com/byteswalk/stacker</div></div>
         <button className="gh sm" onClick={() => openUrl("https://github.com/byteswalk/stacker")}>
           <i className="ti ti-brand-github" /> GitHub</button>
         <button className="gh sm" onClick={() => openUrl("https://gitee.com/shaxiong/stacker")}>

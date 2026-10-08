@@ -117,7 +117,7 @@ export function WorkstationGroups({ onOpen }: { onOpen: (page: Page) => void }) 
       add("disk", tight ? tight.tone : "idle", tight
         ? `${tight.root} ${t("剩余")} ${gb(tight.free)}（${t("已用")} ${Math.round(tight.ratio * 100)}%）`
           + (fixed.length > 1 ? ` · ${t("全部磁盘剩余")} ${gb(free)}` : "")
-        : t("读不到本机磁盘"));
+        : t("无法读取本机磁盘"));
     }).catch(fail("disk"));
 
     return () => { alive = false; };
@@ -127,7 +127,7 @@ export function WorkstationGroups({ onOpen }: { onOpen: (page: Page) => void }) 
     {SLOTS.map((slot) => {
       const group = lastSeen.get(slot.id);
       const state = group ? group.tone : failed.has(slot.id) ? "idle" : "wait";
-      const summary = group ? group.summary : t(failed.has(slot.id) ? "暂时读不到，点进去看" : "正在读取…");
+      const summary = group ? group.summary : t(failed.has(slot.id) ? "暂时无法读取，点击查看详情" : "正在读取…");
       return <button type="button" className={"ws-group " + state} key={slot.id} title={`${t(slot.label)}：${summary}`} onClick={() => onOpen(slot.page)}>
         <span className="ws-icon"><i className={"ti " + (group || failed.has(slot.id) ? slot.icon : "ti-loader spin")} /></span>
         <span className="ws-text">

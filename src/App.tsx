@@ -7,7 +7,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ToastProvider, ToastHost, useToast, Modal, ConfirmModal, BusyProvider, BusyHost, BackToTop } from "./ui";
 import { Select } from "./Select";
-import { useI18n } from "./i18n";
+import { useI18n, translateText } from "./i18n";
 import { NotificationProvider, useNotifications, formatBytes } from "./notifications";
 import { PAGE_IDS, readLastPage, saveLastPage, type Page } from "./pageState";
 import { resetMainWindowSize } from "./windowSize";
@@ -268,6 +268,7 @@ function Shell() {
   const [appVersion, setAppVersion] = useState("");
   const [closeChoiceOpen, setCloseChoiceOpen] = useState(false);
   const [closeChoiceBusy, setCloseChoiceBusy] = useState(false);
+  const [rememberClose, setRememberClose] = useState(true);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const cur = ALL_NAV_ITEMS.find((n) => n.id === page)!;
   const currentNoticeCount = page === "settings"
@@ -350,7 +351,7 @@ function Shell() {
 
   async function exportProfiles() {
     try {
-      const path = await save({ defaultPath: "stacker-config.json", filters: [{ name: "Stacker 配置", extensions: ["json"] }] });
+      const path = await save({ defaultPath: "stacker-config.json", filters: [{ name: translateText("Stacker 配置"), extensions: ["json"] }] });
       if (!path) return;
       await invoke("bundle_export", { path, frontendSettings: collectFrontendSettings() });
       toast("配置方案已导出；凭据不会写入导出文件", "ok");
@@ -361,7 +362,7 @@ function Shell() {
 
   async function importProfiles() {
     try {
-      const path = await open({ multiple: false, directory: false, filters: [{ name: "Stacker 配置", extensions: ["json"] }] });
+      const path = await open({ multiple: false, directory: false, filters: [{ name: translateText("Stacker 配置"), extensions: ["json"] }] });
       if (!path || typeof path !== "string") return;
       const r = await invoke<{ profiles: number; customs: number; frontend_settings: FrontendSettings }>("bundle_import", { path });
       restoreFrontendSettings(r.frontend_settings);
@@ -376,6 +377,13 @@ function Shell() {
   async function chooseCloseBehavior(behavior: "tray" | "exit") {
     setCloseChoiceBusy(true);
     try {
+      // Not remembered: this close only, and the question comes again next time.
+      if (!rememberClose) {
+        setCloseChoiceOpen(false);
+        setCloseChoiceBusy(false);
+        await invoke("app_close_once", { behavior });
+        return;
+      }
       await invoke("settings_set_close_behavior", { behavior });
       setCloseChoiceOpen(false);
       setCloseChoiceBusy(false);
@@ -538,7 +546,7 @@ function Shell() {
         <Modal
           title={tr("选择关闭方式")}
           icon="ti-logout"
-          sub={tr("选择将作为默认关闭行为保存，之后可在“设置”中修改。")}
+          sub={tr("勾选「记住我的选择」后不再询问，之后可在「偏好设置」中修改。")}
           onClose={() => !closeChoiceBusy && setCloseChoiceOpen(false)}
           footer={<>
             <button className="gh sm" disabled={closeChoiceBusy} onClick={() => setCloseChoiceOpen(false)}>{tr("取消")}</button>
@@ -553,6 +561,9 @@ function Shell() {
           <div style={{ fontSize: 13, lineHeight: 1.7, color: "var(--tx)" }}>
             {tr("尚未设置关闭按钮行为。你可以退出 Stacker，或让它继续在系统托盘运行后台任务。")}
           </div>
+          <label className="ck" style={{ marginTop: 10 }}>
+            <input type="checkbox" checked={rememberClose} disabled={closeChoiceBusy} onChange={(e) => setRememberClose(e.target.checked)} /> {tr("记住我的选择")}
+          </label>
         </Modal>
       )}
 

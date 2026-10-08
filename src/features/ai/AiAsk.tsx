@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { invoke } from "../../invoke";
-import { useI18n } from "../../i18n";
+import { getLocale, useI18n } from "../../i18n";
 import { Modal } from "../../ui";
 import { aiError } from "./AiSettings";
 
@@ -28,13 +28,13 @@ function savedAll(): Record<string, Saved> {
 
 /** The answer last given for this question, kept on this computer. */
 export function savedAnswer(key: string): Saved | null {
-  const item = savedAll()[key];
+  const item = savedAll()[`${getLocale()}:${key}`];
   return item && typeof item.answer === "string" ? item : null;
 }
 
 /** Keeps an answer, dropping the oldest once there are more than a few dozen. */
 export function saveAnswer(key: string, answer: string, at = Date.now()): void {
-  const all = { ...savedAll(), [key]: { answer, at } };
+  const all = { ...savedAll(), [`${getLocale()}:${key}`]: { answer, at } };
   const kept = Object.entries(all).sort((a, b) => b[1].at - a[1].at).slice(0, SAVED_LIMIT);
   try { localStorage.setItem(SAVED_KEY, JSON.stringify(Object.fromEntries(kept))); } catch { /* the answer is still on screen */ }
 }
@@ -65,7 +65,8 @@ export function AiAnswer({ answer, error, waiting }: { answer: string | null; er
       {needsAiSetup(error) && <div className="ai-explain-fix">{tr("Stacker 的 AI 功能都用「偏好设置 → AI 能力」里选的来源。")}</div>}
     </div>;
   }
-  if (answer !== null) return <div className="ai-explain">{answer}</div>;
+  // The answer comes in the interface's language already; the page translator must not rework it.
+  if (answer !== null) return <div className="ai-explain" translate="no">{answer}</div>;
   return <div className="ai-explain wait"><i className="ti ti-loader spin" /> {tr(waiting)}</div>;
 }
 

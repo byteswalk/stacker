@@ -130,7 +130,7 @@ function ExportDialog({ onClose }: { onClose: () => void }) {
   async function submit() {
     setBusy(true);
     try {
-      const dest = await save({ title: tr("导出加密备份"), defaultPath: `Stacker-保管库-${today()}.skv`, filters: backupFilters(tr) });
+      const dest = await save({ title: tr("导出加密备份"), defaultPath: `Stacker-${tr("密钥保管").replace(/\s+/g, "-")}-${today()}.skv`, filters: backupFilters(tr) });
       if (!dest) return;
       await vaultApi.exportBackup(password, dest);
       toast("已导出加密备份。", "ok");

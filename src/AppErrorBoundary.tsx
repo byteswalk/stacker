@@ -98,7 +98,7 @@ export default function AppErrorBoundary({ children }: { children: ReactNode }) 
       diagnosticLabel: tr("诊断编号："),
       openLogs: tr("打开日志目录"),
       reload: tr("重新加载界面"),
-      openLogsFailed: tr("无法打开日志目录。请重新加载界面后，从“设置”中打开日志目录。"),
+      openLogsFailed: tr("无法打开日志目录。请重新加载界面后，从「偏好设置」中打开日志目录。"),
     }}>
       {children}
     </Boundary>
