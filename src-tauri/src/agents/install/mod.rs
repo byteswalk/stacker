@@ -340,6 +340,7 @@ pub(crate) fn uninstall_cli_tool(
                 "msiexec.exe",
                 &format!("/x {code} /quiet /norestart"),
                 "Kiro CLI",
+                "卸载",
                 window,
             )? {
                 0 | 3010 => Ok("Kiro CLI 已卸载，登录配置和历史数据已保留。".into()),

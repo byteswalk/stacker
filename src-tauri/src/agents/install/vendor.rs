@@ -298,6 +298,7 @@ pub(crate) fn run_elevated_wait(
     program: &str,
     parameters: &str,
     name: &str,
+    action: &str,
     window: &Option<tauri::Window>,
 ) -> Result<u32, String> {
     use std::time::Instant;
@@ -326,7 +327,7 @@ pub(crate) fn run_elevated_wait(
             return Err(if error.raw_os_error() == Some(1223) {
                 format!("已取消：{name} 需要管理员授权")
             } else {
-                format!("无法启动 {name} 安装程序：{error}")
+                format!("无法启动 {name} {action}程序：{error}")
             });
         }
         let started = Instant::now();
@@ -336,7 +337,7 @@ pub(crate) fn run_elevated_wait(
                 let _ = TerminateProcess(info.hProcess, 1);
                 let _ = WaitForSingleObject(info.hProcess, 5_000);
                 CloseHandle(info.hProcess);
-                return Err(format!("已取消安装 {name}"));
+                return Err(format!("已取消{action} {name}"));
             }
             match WaitForSingleObject(info.hProcess, 250) {
                 0 => {
@@ -344,7 +345,7 @@ pub(crate) fn run_elevated_wait(
                     let read = GetExitCodeProcess(info.hProcess, &mut code);
                     CloseHandle(info.hProcess);
                     return if read == 0 {
-                        Err(format!("无法读取 {name} 安装程序的退出状态"))
+                        Err(format!("无法读取 {name} {action}程序的退出状态"))
                     } else {
                         Ok(code)
                     };
@@ -355,16 +356,16 @@ pub(crate) fn run_elevated_wait(
                         let _ = TerminateProcess(info.hProcess, 1);
                         let _ = WaitForSingleObject(info.hProcess, 5_000);
                         CloseHandle(info.hProcess);
-                        return Err(format!("{name} 安装超过 20 分钟，已停止等待"));
+                        return Err(format!("{name} {action}超过 20 分钟，已停止等待"));
                     }
                     if elapsed != last_reported {
                         last_reported = elapsed;
-                        emit_progress(window, format!("正在安装 {name} · 已 {elapsed} 秒"));
+                        emit_progress(window, format!("正在{action} {name} · 已 {elapsed} 秒"));
                     }
                 }
                 _ => {
                     CloseHandle(info.hProcess);
-                    return Err(format!("等待 {name} 安装程序时发生系统错误"));
+                    return Err(format!("等待 {name} {action}程序时发生系统错误"));
                 }
             }
         }
@@ -373,6 +374,7 @@ pub(crate) fn run_elevated_wait(
 
 #[cfg(not(windows))]
 pub(crate) fn run_elevated_wait(
+    _: &str,
     _: &str,
     _: &str,
     _: &str,
@@ -490,6 +492,7 @@ pub(crate) fn install_or_update_kiro_cli(
                 log.display()
             ),
             "Kiro CLI",
+            action,
             window,
         )?;
         match code {
