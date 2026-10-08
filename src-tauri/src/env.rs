@@ -660,17 +660,59 @@ fn is_managed_path(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-fn legacy_managed_root(kind: &str) -> Option<PathBuf> {
-    let folder = match kind {
+/// The folder an ecosystem's runtimes go in, under Stacker's runtimes folder.
+fn runtime_folder(kind: &str) -> Option<&'static str> {
+    Some(match kind {
         "java" => "jdk",
         "maven" => "maven",
         "gradle" => "gradle",
         "go" => "go",
         "php" => "php",
         _ => return None,
-    };
+    })
+}
+
+fn legacy_managed_root(kind: &str) -> Option<PathBuf> {
+    let folder = runtime_folder(kind)?;
     let base = PathBuf::from(crate::installer::app_dir());
     (!base.as_os_str().is_empty()).then(|| base.join(folder))
+}
+
+/// Where Stacker installs an ecosystem's runtimes now: `%LOCALAPPDATA%\Stacker\runtimes\gradle`.
+fn managed_runtime_root(kind: &str) -> Option<PathBuf> {
+    runtime_folder(kind).map(|folder| crate::installer::managed_runtimes_root().join(folder))
+}
+
+/// The complete runtimes in a folder that only Stacker installs into. These are Stacker's
+/// whatever its install list says: one moved there from a portable build's `data\` folder
+/// keeps its old path in that list, and would otherwise be listed only while it is the
+/// default, as someone else's install that cannot be removed.
+fn installs_under(kind: &str, root: &Path) -> Vec<PathBuf> {
+    let mut found: Vec<PathBuf> = std::fs::read_dir(root)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.is_dir() && has_runtime_marker(kind, path))
+        .collect();
+    found.sort();
+    found
+}
+
+fn managed_root_installs(kind: &str) -> Vec<PathBuf> {
+    managed_runtime_root(kind)
+        .map(|root| installs_under(kind, &root))
+        .unwrap_or_default()
+}
+
+fn is_under_managed_root(kind: &str, path: &Path) -> bool {
+    let Some(root) = managed_runtime_root(kind) else {
+        return false;
+    };
+    let (Ok(target), Ok(root)) = (path.canonicalize(), root.canonicalize()) else {
+        return false;
+    };
+    target != root && target.starts_with(&root) && has_runtime_marker(kind, path)
 }
 
 fn has_runtime_marker(kind: &str, path: &Path) -> bool {
@@ -704,7 +746,7 @@ fn is_legacy_managed_path(kind: &str, path: &Path) -> bool {
 }
 
 fn is_managed_install(kind: &str, path: &Path) -> bool {
-    is_managed_path(path) || is_legacy_managed_path(kind, path)
+    is_managed_path(path) || is_under_managed_root(kind, path) || is_legacy_managed_path(kind, path)
 }
 fn is_tool_bundled(path: &Path) -> bool {
     let value = path
@@ -1185,8 +1227,10 @@ pub(crate) fn env_state_blocking() -> Vec<SdkGroup> {
     ["java", "python", "node", "php", "go", "maven", "gradle"]
         .iter()
         .map(|k| {
-            // 合并「上次扫描缓存的安装根」+ 当前默认；build 会补当前默认、剔失效、标生效中
-            let homes = cache.get(*k).cloned().unwrap_or_default();
+            // 合并「上次扫描缓存的安装根」+ Stacker 运行时目录里的安装 + 当前默认；
+            // build 会补当前默认、剔失效、标生效中
+            let mut homes = cache.get(*k).cloned().unwrap_or_default();
+            homes.extend(managed_root_installs(k));
             let versions = build(k, homes);
             let desc = versions
                 .iter()
@@ -1385,4 +1429,43 @@ pub fn env_system_info() -> std::collections::HashMap<String, bool> {
             || has(&["%gradle_home%\\bin", "\\gradle\\bin", "\\gradle-"]),
     );
     m
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_complete_runtime_in_stackers_folder_is_listed_and_a_partial_one_is_not() {
+        let root = tempfile::tempdir().unwrap();
+        for (name, complete) in [
+            ("gradle-9.7.1", true),
+            ("gradle-9.8.0", true),
+            ("gradle-9.9.0", false),
+        ] {
+            let bin = root.path().join(name).join("bin");
+            std::fs::create_dir_all(&bin).unwrap();
+            if complete {
+                std::fs::write(bin.join("gradle.bat"), "@echo off").unwrap();
+            }
+        }
+        std::fs::write(root.path().join("stray.txt"), "x").unwrap();
+        let found: Vec<String> = installs_under("gradle", root.path())
+            .iter()
+            .map(|path| path.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(found, ["gradle-9.7.1", "gradle-9.8.0"]);
+        assert!(installs_under("gradle", &root.path().join("missing")).is_empty());
+    }
+
+    /// Live, read-only: `cargo test --lib live_env_state -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn live_env_state() {
+        for group in env_state_blocking() {
+            for v in &group.versions {
+                println!("{} {} current={} origin={} {}", group.kind, v.version, v.current, v.origin, v.path);
+            }
+        }
+    }
 }
