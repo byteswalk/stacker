@@ -89,7 +89,7 @@ export function EntryDetail({ entry, today, onEdit, onChanged, onClose }: {
       {entry.ssh && (
         <div className="vault-field">
           <span className="name">密钥信息</span>
-          <code>{entry.ssh.algorithm}{entry.ssh.bits ? ` · ${entry.ssh.bits} 位` : ""}{entry.ssh.fingerprint ? `\n${entry.ssh.fingerprint}` : ""}</code>
+          <code>{entry.ssh.algorithm}{entry.ssh.bits ? ` · ${tr("{bits} 位").replace("{bits}", String(entry.ssh.bits))}` : ""}{entry.ssh.fingerprint ? `\n${entry.ssh.fingerprint}` : ""}</code>
           <span className="vault-tags">{entry.ssh.risks.map((risk) => <span key={risk} className="vault-badge expired">{RISK_LABELS[risk] ?? risk}</span>)}</span>
         </div>
       )}

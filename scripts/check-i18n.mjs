@@ -117,6 +117,8 @@ function collectVisibleText(filePath) {
 
   function visit(node) {
     if (ts.isStringLiteralLike(node) || ts.isJsxText(node)) record(node, node.text);
+    // The fixed parts of `…${x}…`: each is shown as written and translated on its own.
+    if (ts.isTemplateHead(node) || ts.isTemplateMiddle(node) || ts.isTemplateTail(node)) record(node, node.text);
     ts.forEachChild(node, visit);
   }
 

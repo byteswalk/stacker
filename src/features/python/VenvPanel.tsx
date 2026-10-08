@@ -119,7 +119,7 @@ export function VenvPanel({ versions, openFolder }: { versions: Version[]; openF
     }
     try {
       const info = await runBusy(
-        { title: "创建虚拟环境", message: `正在用 Python ${pick[project] ?? fallback} 在 ${project} 下创建 .venv…` },
+        { title: "创建虚拟环境", message: translateText("正在用 Python {version} 在 {project} 下创建 .venv…").replace("{version}", pick[project] ?? fallback).replace("{project}", project) },
         () => invoke<VenvInfo>("python_venv_create", { project, python }),
       );
       setInfos((cur) => ({ ...cur, [project]: info }));
