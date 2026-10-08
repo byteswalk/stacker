@@ -5,6 +5,7 @@
 //! `stacker --dev-agents scan`
 //! `stacker --dev-agents install-desktop <product-id>`
 //! `stacker --dev-agents update-desktop <product-id>`
+//! `stacker --dev-agents install-cli|uninstall-cli|uninstall-desktop|repair-cli|tool <product-id>`
 
 use super::registry::spec_by_id;
 
@@ -14,6 +15,24 @@ pub(crate) fn run(args: &[String]) -> Option<i32> {
     let rest: Vec<&str> = args[at + 1..].iter().map(String::as_str).collect();
     Some(match rest.as_slice() {
         ["scan"] => scan(),
+        ["install-cli", id] => desktop(id, super::install::install_cli_tool),
+        ["uninstall-cli", id] => desktop(id, super::install::uninstall_cli_tool),
+        ["uninstall-desktop", id] => desktop(id, super::install::uninstall_desktop_tool),
+        ["repair-cli", id] => desktop(id, super::install::repair_cli_tool),
+        // One product as the page shows it, freshly detected: what a test checks after acting.
+        ["tool", id] => match super::fresh_tool(id, false) {
+            Some(tool) => {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&tool).unwrap_or_default()
+                );
+                0
+            }
+            None => {
+                eprintln!("no such product: {id}");
+                2
+            }
+        },
         ["install-desktop", id] => desktop(id, super::install::install_desktop_tool),
         ["update-desktop", id] => desktop(id, super::install::update_desktop_tool),
         ["winget", args @ ..] => winget(args),

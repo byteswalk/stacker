@@ -22,7 +22,17 @@ pub(crate) fn run_powershell_streamed(
 ) -> Result<String, String> {
     let program = resolve_command_including_windowsapps(&["powershell.exe", "powershell.cmd"])
         .unwrap_or_else(|| PathBuf::from("powershell.exe"));
-    run_command_streamed(&program, args, name, timeout, Duration::ZERO, window)
+    // A vendor script that asks a question ("Press Enter to exit" after a failure, as Kimi's
+    // does) fails at once instead of waiting out the timeout for an answer nobody can give.
+    let mut all: Vec<&str> = Vec::with_capacity(args.len() + 1);
+    if !args
+        .iter()
+        .any(|arg| arg.eq_ignore_ascii_case("-NonInteractive"))
+    {
+        all.push("-NonInteractive");
+    }
+    all.extend_from_slice(args);
+    run_command_streamed(&program, &all, name, timeout, Duration::ZERO, window)
 }
 
 pub(crate) fn ps_single_quoted(value: &str) -> String {
@@ -51,7 +61,11 @@ pub(crate) fn run_command_streamed(
     use std::sync::{Arc, Mutex};
 
     let mut cmd = command_for_path(program, args);
-    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    // Nobody can answer a prompt: an installer that asks reads end-of-input and goes on or
+    // fails, rather than waiting until the timeout.
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;

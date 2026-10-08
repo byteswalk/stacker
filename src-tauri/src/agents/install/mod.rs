@@ -632,7 +632,14 @@ pub(crate) fn uninstall_desktop_tool(
     if let Some(uninstall) = found.and_then(|f| f.uninstall) {
         emit_progress(window, format!("正在运行 {} 卸载程序…", spec.desktop.name));
         run_uninstall_string(&uninstall)?;
-        return Ok(format!("{} 卸载程序已启动", spec.desktop.name));
+        // An NSIS uninstaller copies itself away and exits at once; what counts is the app gone.
+        if !wait_for_desktop_removal(spec, window, Duration::from_secs(120)) {
+            return Ok(format!(
+                "{} 的卸载程序已启动，如果弹出了卸载窗口请在里面确认；稍后刷新即可看到结果",
+                spec.desktop.name
+            ));
+        }
+        return Ok(format!("{} 已卸载", spec.desktop.name));
     }
     Err(format!(
         "未找到 {} 的自动卸载入口。请在 Windows“已安装的应用”中卸载。",
@@ -848,15 +855,51 @@ pub(crate) fn msi_product_code(uninstall: &str) -> Option<String> {
     (code.len() == 38).then(|| code.to_string())
 }
 
+/// An uninstall command as Windows records it, split into the program and its arguments as
+/// written: `"C:\Apps\Kimi\Uninstall Kimi.exe" /currentuser /S` →
+/// (`C:\Apps\Kimi\Uninstall Kimi.exe`, `/currentuser /S`).
+pub(crate) fn split_command(command: &str) -> Option<(PathBuf, String)> {
+    let command = command.trim();
+    let (program, rest) = if let Some(quoted) = command.strip_prefix('"') {
+        let end = quoted.find('"')?;
+        (&quoted[..end], &quoted[end + 1..])
+    } else {
+        let lower = command.to_ascii_lowercase();
+        let end = lower
+            .find(".exe")
+            .map(|at| at + ".exe".len())
+            .or_else(|| command.find(char::is_whitespace))
+            .unwrap_or(command.len());
+        (&command[..end], &command[end..])
+    };
+    let program = program.trim();
+    (!program.is_empty()).then(|| (PathBuf::from(program), rest.trim().to_string()))
+}
+
+/// Runs a recorded uninstall command. Not through `cmd /c`: given a quoted path followed by
+/// arguments, cmd strips the outer quotes and the uninstaller never starts. The program is
+/// started directly with its arguments as recorded, and waited for (up to ten minutes).
 pub(crate) fn run_uninstall_string(uninstall: &str) -> Result<(), String> {
-    let mut cmd = Command::new("cmd.exe");
-    cmd.args(["/d", "/c", uninstall]);
+    let (program, args) = split_command(uninstall).ok_or("卸载命令格式无法识别")?;
+    let mut cmd = Command::new(&program);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
+        if !args.is_empty() {
+            cmd.raw_arg(&args);
+        }
         cmd.creation_flags(0x08000000);
     }
-    cmd.spawn().map_err(|e| format!("启动卸载程序失败：{e}"))?;
+    #[cfg(not(windows))]
+    cmd.args(args.split_whitespace());
+    let mut child = cmd.spawn().map_err(|e| format!("启动卸载程序失败：{e}"))?;
+    let started = Instant::now();
+    while started.elapsed() < Duration::from_secs(600) {
+        if child.try_wait().map_err(|e| e.to_string())?.is_some() {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(300));
+    }
     Ok(())
 }
 
@@ -1064,6 +1107,31 @@ mod tests {
         ));
         assert!(store_refused("Error code: 0x803FB005"));
         assert!(!store_refused("下载超时，请检查网络后重试"));
+    }
+
+    #[test]
+    fn an_uninstall_command_keeps_its_quoted_path_and_its_arguments() {
+        assert_eq!(
+            split_command(
+                r#""C:\Users\me\AppData\Local\Programs\Kimi\Uninstall Kimi.exe" /currentuser /S"#
+            ),
+            Some((
+                PathBuf::from(r"C:\Users\me\AppData\Local\Programs\Kimi\Uninstall Kimi.exe"),
+                "/currentuser /S".into()
+            ))
+        );
+        assert_eq!(
+            split_command(r"C:\Program Files\App\unins000.exe /SILENT"),
+            Some((
+                PathBuf::from(r"C:\Program Files\App\unins000.exe"),
+                "/SILENT".into()
+            ))
+        );
+        assert_eq!(
+            split_command("MsiExec.exe /X{1234}"),
+            Some((PathBuf::from("MsiExec.exe"), "/X{1234}".into()))
+        );
+        assert_eq!(split_command("   "), None);
     }
 
     #[test]
