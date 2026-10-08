@@ -694,7 +694,11 @@ pub(crate) fn uninstall_desktop_tool(
                 .and_then(|f| f.path.as_deref())
                 .and_then(squirrel_uninstall)
         });
-    if let Some(id) = spec.desktop.winget_id {
+    // WinGet starts the uninstaller of a package it lists as a plain exe without /S (GitHub
+    // Copilot's), and the NSIS window then waits for a click; given /S it runs on its own.
+    let nsis = uninstall.as_deref().and_then(silent_nsis_uninstall);
+    let uninstall = nsis.clone().or(uninstall);
+    if let Some(id) = spec.desktop.winget_id.filter(|_| nsis.is_none()) {
         emit_progress(
             window,
             format!("正在通过 WinGet 卸载 {}…", spec.desktop.name),
@@ -969,6 +973,32 @@ pub(crate) fn split_command(command: &str) -> Option<(PathBuf, String)> {
 /// Runs a recorded uninstall command. Not through `cmd /c`: given a quoted path followed by
 /// arguments, cmd strips the outer quotes and the uninstaller never starts. The program is
 /// started directly with its arguments as recorded, and waited for (up to ten minutes).
+/// The command with `/S` when its program is an NSIS uninstaller (every one takes it); None
+/// for any other kind.
+fn silent_nsis_uninstall(command: &str) -> Option<String> {
+    let (program, args) = split_command(command)?;
+    if !is_nsis_program(&program) {
+        return None;
+    }
+    if args.split_whitespace().any(|arg| arg == "/S") {
+        return Some(command.to_string());
+    }
+    Some(format!("{} /S", command.trim_end()))
+}
+
+/// NSIS stubs carry their name in the manifest (`Nullsoft.NSIS.exehead`) and version info.
+fn is_nsis_program(program: &Path) -> bool {
+    let Ok(meta) = std::fs::metadata(program) else {
+        return false;
+    };
+    if !meta.is_file() || meta.len() > 32 * 1024 * 1024 {
+        return false;
+    }
+    std::fs::read(program)
+        .map(|data| data.windows(8).any(|window| window == b"Nullsoft"))
+        .unwrap_or(false)
+}
+
 /// A Squirrel app's own uninstall command, for one whose registry entry is missing (Factory's
 /// was, after its install was cut short): `Update.exe` beside the `app-<version>` folders.
 fn squirrel_uninstall(path: &Path) -> Option<String> {
@@ -1126,6 +1156,28 @@ pub(crate) fn image_is_running(image: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn an_nsis_uninstaller_is_run_silently() {
+        let dir = std::env::temp_dir().join(format!("stacker nsis {}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let nsis = dir.join("uninstall.exe");
+        std::fs::write(&nsis, b"MZ...Nullsoft.NSIS.exehead...").unwrap();
+        let other = dir.join("unins000.exe");
+        std::fs::write(&other, b"MZ...Inno Setup...").unwrap();
+        let quoted = format!("\"{}\"", nsis.display());
+        assert_eq!(
+            silent_nsis_uninstall(&quoted).as_deref(),
+            Some(format!("{quoted} /S").as_str())
+        );
+        let already = format!("{quoted} /currentuser /S");
+        assert_eq!(silent_nsis_uninstall(&already), Some(already.clone()));
+        assert_eq!(
+            silent_nsis_uninstall(&format!("\"{}\"", other.display())),
+            None
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn a_squirrel_app_without_its_registry_entry_still_uninstalls() {
         let root = std::env::temp_dir().join(format!("stacker-squirrel-{}", std::process::id()));
