@@ -380,6 +380,14 @@ export function startQuickScan(): Promise<ScanStartResult> {
   return spaceScanStore.startQuickScan();
 }
 
+/** A quick scan for a page that sends the user to the cleanup list, unless a scan is already under way. */
+export function quickScanUnlessBusy(): Promise<ScanStartResult | null> {
+  const snapshot = spaceScanStore.getSnapshot();
+  const state = snapshot.progress?.state;
+  if (snapshot.pendingRequest || state === "queued" || state === "running" || state === "cancelling") return Promise.resolve(null);
+  return spaceScanStore.startQuickScan();
+}
+
 export function startScan(request: ScanRequest, options?: ScanStartOptions): Promise<ScanStartResult> {
   return spaceScanStore.startScan(request, options);
 }

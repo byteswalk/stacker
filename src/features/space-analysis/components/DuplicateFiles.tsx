@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { invoke } from "../../../invoke";
 import { useI18n } from "../../../i18n";
 import { useToast } from "../../../ui";
@@ -8,6 +8,39 @@ import { useDragPick } from "../../../dragPick";
 
 type DuplicateGroup = { bytes: number; wasted: number; paths: string[]; verified: boolean };
 type DuplicateReport = { groups: DuplicateGroup[]; wasted: number; complete: boolean };
+type FileTimes = { created: number; modified: number };
+
+/**
+ * The last search, kept outside the page: going to another tab and back shows it again, and a
+ * search still running when the tab is left lands here when it ends. A new scan starts afresh.
+ */
+type Search = { taskId: string; minBytes: number; report: DuplicateReport | null; busy: boolean; picked: Set<string>; times: Map<string, FileTimes> };
+let search: Search = { taskId: "", minBytes: 10 * 1024 * 1024, report: null, busy: false, picked: new Set(), times: new Map() };
+const listeners = new Set<() => void>();
+function setSearch(change: Partial<Search> | ((old: Search) => Partial<Search>)) {
+  const next = typeof change === "function" ? change(search) : change;
+  // Another scan's results never carry over.
+  const base = next.taskId && next.taskId !== search.taskId
+    ? { ...search, taskId: next.taskId, report: null, busy: false, picked: new Set<string>(), times: new Map<string, FileTimes>() }
+    : search;
+  search = { ...base, ...next };
+  listeners.forEach((listener) => listener());
+}
+function useSearch(taskId: string): Search {
+  const state = useSyncExternalStore((listener) => { listeners.add(listener); return () => { listeners.delete(listener); }; }, () => search);
+  return state.taskId === taskId ? state : { ...state, taskId, report: null, busy: false, picked: new Set(), times: new Map() };
+}
+/** Forgets the last search (for tests). */
+export function resetDuplicateSearch() {
+  search = { taskId: "", minBytes: 10 * 1024 * 1024, report: null, busy: false, picked: new Set(), times: new Map() };
+}
+
+function when(ms: number | undefined): string {
+  if (!ms) return "—";
+  const date = new Date(ms);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
 
 const SIZES: { value: number; label: string }[] = [
   { value: 1024 * 1024, label: "1 MB 以上" },
@@ -45,21 +78,28 @@ export function smartPick(group: DuplicateGroup, locked: Set<string>): string[] 
 export function DuplicateFiles({ taskId }: { taskId: string }) {
   const { tr: t } = useI18n();
   const toast = useToast();
-  const [minBytes, setMinBytes] = useState(SIZES[1].value);
-  const [report, setReport] = useState<DuplicateReport | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const { minBytes, report, busy, picked, times } = useSearch(taskId);
   const [verifying, setVerifying] = useState<[number, number] | null>(null);
   const locked = useProtectedPaths(report?.groups.flatMap((g) => g.paths) ?? []);
+  const setReport = (next: DuplicateReport | null) => setSearch({ taskId, report: next });
+  const setPicked = (next: Set<string> | ((old: Set<string>) => Set<string>)) =>
+    setSearch((old) => ({ taskId, picked: typeof next === "function" ? next(old.taskId === taskId ? old.picked : new Set()) : next }));
 
-  async function search(min: number) {
-    setBusy(true);
-    setMinBytes(min);
-    setPicked(new Set());
+  // The size only says what the next search looks at; nothing runs until the button is pressed.
+  async function find() {
+    const min = minBytes;
+    setSearch({ taskId, minBytes: min, busy: true, picked: new Set() });
     try {
-      setReport(await invoke<DuplicateReport>("space_duplicates", { taskId, minBytes: min }));
-    } catch (e) { toast(String(e), "err"); }
-    finally { setBusy(false); }
+      const found = await invoke<DuplicateReport>("space_duplicates", { taskId, minBytes: min });
+      if (search.taskId !== taskId) return;
+      setSearch({ report: found, busy: false });
+      const paths = found.groups.flatMap((group) => group.paths);
+      const read = await invoke<FileTimes[]>("space_file_times", { paths }).catch(() => [] as FileTimes[]);
+      if (search.taskId === taskId && search.report === found) setSearch({ times: new Map(paths.map((path, index) => [path, read[index]])) });
+    } catch (e) {
+      toast(String(e), "err");
+      if (search.taskId === taskId) setSearch({ busy: false });
+    }
   }
 
   const open = (path: string) => void invoke("space_open_directory", { path: path.replace(/[\\/][^\\/]+$/, "") })
@@ -88,6 +128,7 @@ export function DuplicateFiles({ taskId }: { taskId: string }) {
     let groups = report.groups;
     if (pending.length) {
       setVerifying([0, pending.length]);
+      const current = report;
       try {
         const settled = new Map<DuplicateGroup, DuplicateGroup[]>();
         for (const [index, group] of pending.entries()) {
@@ -96,7 +137,7 @@ export function DuplicateFiles({ taskId }: { taskId: string }) {
           setVerifying([index + 1, pending.length]);
         }
         groups = report.groups.flatMap((group) => settled.get(group) ?? [group]).sort((a, b) => b.wasted - a.wasted);
-        setReport({ ...report, groups, wasted: groups.reduce((sum, group) => sum + group.wasted, 0) });
+        setReport({ ...current, groups, wasted: groups.reduce((sum, group) => sum + group.wasted, 0) });
       } catch (e) {
         toast(String(e), "err");
       } finally {
@@ -109,13 +150,12 @@ export function DuplicateFiles({ taskId }: { taskId: string }) {
   function removed(paths: string[]) {
     const gone = new Set(paths);
     setPicked((old) => new Set([...old].filter((path) => !gone.has(path))));
-    setReport((current) => current && {
-      ...current,
-      groups: current.groups
-        .map((group) => ({ ...group, paths: group.paths.filter((path) => !gone.has(path)) }))
-        .filter((group) => group.paths.length > 1)
-        .map((group) => ({ ...group, wasted: group.bytes * (group.paths.length - 1) })),
-    });
+    if (!report) return;
+    const groups = report.groups
+      .map((group) => ({ ...group, paths: group.paths.filter((path) => !gone.has(path)) }))
+      .filter((group) => group.paths.length > 1)
+      .map((group) => ({ ...group, wasted: group.bytes * (group.paths.length - 1) }));
+    setReport({ ...report, groups, wasted: groups.reduce((sum, group) => sum + group.wasted, 0) });
   }
 
   const size = new Map((report?.groups ?? []).flatMap((group) => group.paths.map((path) => [path, group.bytes] as const)));
@@ -125,15 +165,19 @@ export function DuplicateFiles({ taskId }: { taskId: string }) {
     <div className="dupes-bar">
       <div className="seg sm">
         {SIZES.map((option) => <button key={option.value} className={minBytes === option.value ? "on" : ""}
-          disabled={busy} onClick={() => void search(option.value)}>{t(option.label)}</button>)}
+          disabled={busy} onClick={() => setSearch({ taskId, minBytes: option.value })}>{t(option.label)}</button>)}
       </div>
-      <button className="pr sm" disabled={busy} onClick={() => void search(minBytes)}>
+      <button className="pr sm" disabled={busy} onClick={() => void find()}>
         <i className={"ti " + (busy ? "ti-loader spin" : "ti-copy-check")} /> {t(busy ? "正在比对…" : "查找重复文件")}
       </button>
       {report && <span className="s dim">{t("可省出")} {bytes(report.wasted)} · {report.groups.length} {t("组")}</span>}
     </div>
     {!report && !busy && <p className="proxy-note">{t("按大小先筛，再逐字节比对内容；只列出内容完全相同的文件。大于 256 MB 的文件按大小和首尾片段判断，会单独标注。")}</p>}
     {report && !report.groups.length && <div className="space-analysis-state"><i className="ti ti-sparkles" /><span>{t("这次扫描范围里没有重复文件")}</span></div>}
+    {!!report?.groups.length && <div className="dupe-path dupe-columns" aria-hidden="true">
+      <span className="recycle-check" /><span className="dupe-col-path">{t("路径")}</span>
+      <span className="dupe-time">{t("创建时间")}</span><span className="dupe-time">{t("修改时间")}</span><span className="dupe-col-op" />
+    </div>}
     {report?.groups.map((group, index) => <div className="dupe-group" key={index}>
       <div className="dupe-head">
         <b>{bytes(group.bytes)} × {group.paths.length}</b>
@@ -146,6 +190,8 @@ export function DuplicateFiles({ taskId }: { taskId: string }) {
           : <input type="checkbox" className="recycle-check" checked={picked.has(path)} aria-label={t("选择")} title={t("按住拖过几行可以一起勾选；按住 Shift 点选一段")}
             {...pick.box(order.get(path) ?? -1)} onChange={(e) => pick.change(order.get(path) ?? -1, e.target.checked)} />}
         <code title={path}>{path}</code>
+        <span className="dupe-time" title={t("创建时间")}>{when(times.get(path)?.created)}</span>
+        <span className="dupe-time" title={t("修改时间")}>{when(times.get(path)?.modified)}</span>
         <button className="gh xs" title={t("打开所在目录")} onClick={() => open(path)}><i className="ti ti-folder-open" /></button>
       </div>)}
     </div>)}

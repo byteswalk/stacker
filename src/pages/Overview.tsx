@@ -4,6 +4,7 @@ import type { Page } from "../pageState";
 import { ConfirmModal, useBusy, useToast } from "../ui";
 import { useNotifications } from "../notifications";
 import { WorkstationGroups } from "../features/overview/WorkstationGroups";
+import { quickScanUnlessBusy } from "../features/space-analysis/store";
 import { AiAskModal, AiButton, askAi } from "../features/ai/AiAsk";
 
 type Mirror = { id: string; name: string; url: string; host: string };
@@ -188,6 +189,11 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
   const [rowBusy, setRowBusy] = useState<Record<string, boolean>>({});
   const [diagnosing, setDiagnosing] = useState(false);
   const [confirming, setConfirming] = useState<CheckItem | null>(null);
+  // Disk items open the cleanup list with a quick scan already started, so the details are there.
+  const openDetail = (page: Page) => {
+    if (page === "cleanup") void quickScanUnlessBusy().catch(() => undefined);
+    goto(page);
+  };
 
   useEffect(() => subscribeOverview((s) => {
     setTools(s.tools);
@@ -447,15 +453,19 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
               <div className="fh">{e.title} <span className={"bd " + (e.sev === "warn" ? "r" : e.sev === "mid" ? "w" : "b")}>{e.sev === "warn" ? "注意" : e.sev === "mid" ? "建议" : "提示"}</span></div>
               <div className="fs">{e.desc}</div>
             </div>
-            <button className={e.sev === "info" ? "gh sm" : "pr sm"} disabled={directBusy}
-              onClick={!fixer ? () => goto(e.page) : CONFIRM_EXTRA[e.id] ? () => setConfirming(e) : () => runExtra(e.id, fixer)}>
-              <i className={"ti " + (directBusy ? "ti-loader spin" : fixer ? "ti-broom" : "ti-arrow-right")} /> {directBusy ? "处理中…" : e.action}
-            </button>
+            <span className="fixrow-ops">
+              <button className={e.sev === "info" ? "gh sm" : "pr sm"} disabled={directBusy}
+                onClick={!fixer ? () => openDetail(e.page) : CONFIRM_EXTRA[e.id] ? () => setConfirming(e) : () => runExtra(e.id, fixer)}>
+                <i className={"ti " + (directBusy ? "ti-loader spin" : fixer ? "ti-broom" : "ti-arrow-right")} /> {directBusy ? "处理中…" : e.action}
+              </button>
+              {fixer && e.page === "cleanup" && <button className="gh sm" disabled={directBusy} title="打开磁盘清理，自动快速扫描，逐项查看再决定清哪些"
+                onClick={() => openDetail(e.page)}><i className="ti ti-list-search" /> 查看详情</button>}
+            </span>
           </div>
         );
       })}
 
-      {confirming && <ConfirmModal title={confirming.action} icon="ti-broom" danger confirmLabel={confirming.action}
+      {confirming && <ConfirmModal title={confirming.title} icon="ti-broom" danger confirmLabel={confirming.action}
         message={CONFIRM_EXTRA[confirming.id]}
         onClose={() => setConfirming(null)}
         onConfirm={() => { const item = confirming; setConfirming(null); const fixer = extraFixer(item.id); if (fixer) void runExtra(item.id, fixer); }} />}

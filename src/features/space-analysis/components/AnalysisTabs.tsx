@@ -111,7 +111,7 @@ export function AnalysisTabs({ taskId, request }: { taskId: string; request: Sca
           className={activeTab === tab ? "active" : ""} onClick={() => setActiveTab(tab)}>{labels[tab]}</button>)}
       </div>
       <div className="space-cleanup-toolbar">
-        <button className="gh sm" type="button" onClick={() => setMonitorOpen(true)} title={tr("追踪选定目录的空间变化")}><i className="ti ti-activity" /> {tr("实时追踪")}</button>
+        <button className="gh sm" type="button" onClick={() => setMonitorOpen(true)} title={tr("监控选定目录的空间变化")}><i className="ti ti-activity" /> {tr("磁盘实时监控")}</button>
       </div>
     </div>
     <div className="space-analysis-tab-panel" role="tabpanel">

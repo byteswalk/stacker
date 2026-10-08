@@ -85,7 +85,7 @@ export function SpaceMonitorModal({ roots, onClose }: { roots: string[]; onClose
   }
 
   return (
-    <Modal wide title={tr("空间实时追踪")} icon="ti-activity" sub={tr("只记录文件路径、大小和变更时间，不读取文件内容。")} onClose={() => void stop()}
+    <Modal wide title={tr("磁盘实时监控")} icon="ti-activity" sub={tr("只记录文件路径、大小和变更时间，不读取文件内容。")} onClose={() => void stop()}
       footer={<button className="gh sm" onClick={() => void stop()}><i className="ti ti-player-stop" /> {tr("停止追踪")}</button>}>
       <div className="space-monitor-roots">
         <strong>{tr("追踪范围")}</strong>

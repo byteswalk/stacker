@@ -7,15 +7,28 @@ const DAY_MS = 86_400_000;
 export type ExpiryState = "none" | "ok" | "soon" | "expired";
 export type ListFilter = {
   query: string; platform: string; soonOnly: boolean;
-  /** "" any kind, or one kind. */
-  kind?: "" | "other" | "ssh_key";
-  /** "" anywhere, "browser" imported from a browser (tagged 浏览器), "own" everything else. */
-  source?: "" | "browser" | "own";
+  /** "" any type, or one of the three the list tells apart. */
+  kind?: "" | Category;
   /** "" either way, "on" in Windows credentials, "off" not. */
   windows?: "" | "on" | "off";
 };
 
 export const BROWSER_TAG = "浏览器";
+
+/**
+ * What an entry is, as the list sorts it: an SSH key; a website password (a login with a web
+ * address, or one imported from a browser); or a general secret, which is everything else —
+ * API keys, tokens, access key pairs, database and other passwords.
+ */
+export type Category = "ssh" | "web" | "general";
+export const CATEGORY_ORDER: Category[] = ["web", "general", "ssh"];
+export const CATEGORY_LABELS: Record<Category, string> = { web: "网站密码", general: "通用密钥", ssh: "SSH 密钥" };
+
+export function categoryOf(entry: EntryView): Category {
+  if (entry.kind === "ssh_key") return "ssh";
+  const url = entry.fields.find((field) => field.name === "网址")?.value?.trim() ?? "";
+  return /^https?:\/\//i.test(url) || entry.tags.includes(BROWSER_TAG) ? "web" : "general";
+}
 
 function startOfDay(date: Date): number {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
@@ -47,8 +60,7 @@ export function filterEntries(entries: EntryView[], filter: ListFilter, today: D
   return entries
     .filter((entry) => !query || searchable(entry).includes(query))
     .filter((entry) => !filter.platform || entry.platform === filter.platform)
-    .filter((entry) => !filter.kind || (filter.kind === "ssh_key") === (entry.kind === "ssh_key"))
-    .filter((entry) => !filter.source || (filter.source === "browser") === entry.tags.includes(BROWSER_TAG))
+    .filter((entry) => !filter.kind || categoryOf(entry) === filter.kind)
     .filter((entry) => !filter.windows || (filter.windows === "on") === entry.windows)
     .filter((entry) => !filter.soonOnly || ["soon", "expired"].includes(expiryState(entry.expiresAt, today)))
     .sort((a, b) => b.updatedAt - a.updatedAt);

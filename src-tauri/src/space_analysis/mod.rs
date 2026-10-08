@@ -175,6 +175,14 @@ pub async fn space_verify_duplicates(paths: Vec<String>) -> Result<Vec<Vec<Strin
         .map_err(|e| e.to_string())
 }
 
+/// When each file was made and last changed, so the copies of a group can be told apart.
+#[tauri::command]
+pub async fn space_file_times(paths: Vec<String>) -> Result<Vec<duplicates::FileTimes>, String> {
+    tauri::async_runtime::spawn_blocking(move || duplicates::times(&paths))
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn space_cleanup_candidates(
     task_id: String,

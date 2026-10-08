@@ -71,11 +71,19 @@ pub fn prompt(kind: &str, payload: &Value) -> Result<String, String> {
             page = field(payload, "page"),
             items = json(payload.get("items").unwrap_or(&Value::Null)),
         ),
-        "disk_batch" => format!(
-            "你是 Windows 开发机的磁盘清理顾问。下面是占用最大的几个目录（路径和大小）：\n{items}\n\n\
-             逐个用一行说明：这个目录属于什么工具、存的是什么、能不能删（可以放心删 / 删前确认 / 不要删）。\
-             格式：`路径 —— 说明 —— 建议`。只凭路径判断，看不出来的就写“看不出来”。",
-            items = json(payload.get("items").unwrap_or(&Value::Null)),
+        "disk_directory" => format!(
+            "你是 Windows 开发机的磁盘空间顾问。下面是目录 {path}（实际占用 {size}）和它下一层占用最大的子目录\
+             （名称、实际占用、下面还有几个子目录；JSON）：\n{children}\n\n\
+             请给一个综合解读，用简体中文、不用 Markdown 标题、不超过 450 字，分四段：\n\
+             1. 一句话说这个目录整体是什么、属于哪个程序或工具；\n\
+             2. 空间主要花在哪几个子目录上，各自存的是什么；\n\
+             3. 哪些可以放心清理（缓存、日志、临时文件、构建产物、旧版本、安装包等），怎么清最好\
+             （有工具自带的清理命令就给命令，比如 npm cache clean --force、cargo clean）；\n\
+             4. 哪些删前要确认或不要删，为什么。\n\
+             只凭路径、名称和大小判断，看不出来的就直说“看不出来”，不要编。",
+            path = field(payload, "path"),
+            size = field(payload, "size"),
+            children = json(payload.get("children").unwrap_or(&Value::Null)),
         ),
         "gateway_error" => format!(
             "你是一个本机 AI 接口服务的排错助手。这个服务把本机已登录的 Codex / Claude 等命令行包装成 \
@@ -174,6 +182,59 @@ pub async fn ai_session_filter(
     tauri::async_runtime::spawn_blocking(move || {
         let reply = crate::ai_config::complete(&session_filter_prompt(&query, &agents, &projects))?;
         parse_session_filter(&reply, &agents, &projects)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// A search of the vault typed in plain words, turned into its list's filters. Only the
+/// words and the platform names go out — never a title, an account or a value.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct VaultFilter {
+    pub search: String,
+    /// "", "web", "general" or "ssh".
+    pub kind: String,
+    pub platform: String,
+    /// "", "on" or "off".
+    pub windows: String,
+    pub soon_only: bool,
+}
+
+fn vault_filter_prompt(query: &str, platforms: &[String]) -> String {
+    let platforms: Vec<&str> = platforms.iter().take(300).map(String::as_str).collect();
+    format!(
+        "把用户在密码保管库里找条目的一句话转换成筛选条件。只输出一个 JSON 对象，不要任何其他文字。\n\
+         字段：search（标题、网址、账号、标签或备注里会出现的关键词，尽量短，没有就空）、\
+         kind（web=网站密码，general=API 密钥、令牌等通用密钥，ssh=SSH 密钥，没说就空）、\
+         platform（下面列表里的一个，不确定就空）、windows（on=已放进 Windows 凭据管理器，off=没放进，没说就空）、\
+         soonOnly（是否只看 14 天内到期或已到期的）。\n\
+         可选平台：\n{platforms}\n\n用户的话：{query}",
+        platforms = platforms.join("\n"),
+    )
+}
+
+pub fn parse_vault_filter(text: &str, platforms: &[String]) -> Result<VaultFilter, String> {
+    let object = first_object(text).ok_or("E_AI_REPLY")?;
+    let mut filter: VaultFilter = serde_json::from_str(object).map_err(|_| "E_AI_REPLY")?;
+    if !["web", "general", "ssh"].contains(&filter.kind.as_str()) {
+        filter.kind.clear();
+    }
+    if !platforms.contains(&filter.platform) {
+        filter.platform.clear();
+    }
+    if !["on", "off"].contains(&filter.windows.as_str()) {
+        filter.windows.clear();
+    }
+    filter.search = filter.search.chars().take(60).collect();
+    Ok(filter)
+}
+
+#[tauri::command]
+pub async fn ai_vault_filter(query: String, platforms: Vec<String>) -> Result<VaultFilter, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let reply = crate::ai_config::complete(&vault_filter_prompt(&query, &platforms))?;
+        parse_vault_filter(&reply, &platforms)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -389,7 +450,7 @@ mod tests {
             "install_failure",
             "checkup",
             "toolchain",
-            "disk_batch",
+            "disk_directory",
             "gateway_error",
             "proxy",
         ] {
@@ -431,6 +492,31 @@ mod tests {
             parse_session_filter("no json here", &agents, &projects).unwrap_err(),
             "E_AI_REPLY"
         );
+    }
+
+    #[test]
+    fn a_vault_filter_keeps_only_what_the_list_can_filter_by() {
+        let platforms = vec!["GitHub".to_string(), "阿里云".to_string()];
+        let reply = r#"```json
+{"search":"root","kind":"web","platform":"阿里云","windows":"on","soonOnly":true}
+```"#;
+        let filter = parse_vault_filter(reply, &platforms).unwrap();
+        assert_eq!(filter.search, "root");
+        assert_eq!(filter.kind, "web");
+        assert_eq!(filter.platform, "阿里云");
+        assert_eq!(filter.windows, "on");
+        assert!(filter.soon_only);
+        let invented = parse_vault_filter(
+            r#"{"kind":"database","platform":"AWS","windows":"maybe"}"#,
+            &platforms,
+        )
+        .unwrap();
+        assert!(
+            invented.kind.is_empty() && invented.platform.is_empty() && invented.windows.is_empty()
+        );
+        // What goes out is the words and the platform names, nothing else.
+        let prompt = vault_filter_prompt("阿里云的 root", &platforms);
+        assert!(prompt.contains("阿里云的 root") && prompt.contains("GitHub"));
     }
 
     #[test]

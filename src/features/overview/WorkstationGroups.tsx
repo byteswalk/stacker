@@ -48,12 +48,27 @@ export function agentTally(tools: VibeTool[]): { installed: number; total: numbe
   return { installed, total: tools.length, updates };
 }
 
+/**
+ * How one disk is doing, by the room it has left: a big disk 90% full still has hundreds of
+ * gigabytes, which is plenty, while a small one with a few left is a problem whatever its share.
+ */
+export function diskTone(free: number, ratio: number): GroupTone {
+  if (free < 10 * GB) return "bad";
+  if (free < 30 * GB || (ratio >= 0.95 && free < 100 * GB)) return "warn";
+  return "ok";
+}
+
+const TONE_RANK: Record<GroupTone, number> = { bad: 0, warn: 1, ok: 2, idle: 3 };
+
 /** The disk under the most pressure, which is the one worth saying something about. */
-export function tightestVolume(volumes: VolumeInfo[]): { root: string; ratio: number } | null {
+export function tightestVolume(volumes: VolumeInfo[]): { root: string; ratio: number; free: number; tone: GroupTone } | null {
   const fixed = volumes.filter((v) => v.fixed && v.totalBytes > 0);
   if (!fixed.length) return null;
-  const scored = fixed.map((v) => ({ root: v.root.replace(/\\$/, ""), ratio: (v.totalBytes - v.freeBytes) / v.totalBytes }));
-  return scored.sort((a, b) => b.ratio - a.ratio)[0];
+  const scored = fixed.map((v) => {
+    const ratio = (v.totalBytes - v.freeBytes) / v.totalBytes;
+    return { root: v.root.replace(/\\$/, ""), ratio, free: v.freeBytes, tone: diskTone(v.freeBytes, ratio) };
+  });
+  return scored.sort((a, b) => TONE_RANK[a.tone] - TONE_RANK[b.tone] || b.ratio - a.ratio)[0];
 }
 
 /** Four lines about the machine, each one click from the page that acts on it. */
@@ -96,9 +111,12 @@ export function WorkstationGroups({ onOpen }: { onOpen: (page: Page) => void }) 
 
     void invoke<VolumeInfo[]>("space_fixed_volumes").then((volumes) => {
       const tight = tightestVolume(volumes);
-      const free = volumes.filter((v) => v.fixed).reduce((sum, v) => sum + v.freeBytes, 0);
-      add("disk", !tight ? "idle" : tight.ratio >= 0.9 ? "bad" : tight.ratio >= 0.75 ? "warn" : "ok", tight
-        ? `${tight.root} ${t("已用")} ${Math.round(tight.ratio * 100)}% · ${t("本机剩余")} ${gb(free)}`
+      const fixed = volumes.filter((v) => v.fixed);
+      const free = fixed.reduce((sum, v) => sum + v.freeBytes, 0);
+      // The disk's own room first; the total only when there is more than one disk.
+      add("disk", tight ? tight.tone : "idle", tight
+        ? `${tight.root} ${t("剩余")} ${gb(tight.free)}（${t("已用")} ${Math.round(tight.ratio * 100)}%）`
+          + (fixed.length > 1 ? ` · ${t("全部磁盘剩余")} ${gb(free)}` : "")
         : t("读不到本机磁盘"));
     }).catch(fail("disk"));
 

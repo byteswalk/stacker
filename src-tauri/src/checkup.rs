@@ -1278,7 +1278,7 @@ fn cleanup_check_items() -> Vec<CheckItem> {
                 safe as f64 / GB as f64
             ),
             page: "cleanup".into(),
-            action: if can_clean_directly { "清理安全项".into() } else { "查看详情".into() },
+            action: if can_clean_directly { "一键清理".into() } else { "查看详情".into() },
         });
     }
     if history_total > 0 {
@@ -1291,7 +1291,7 @@ fn cleanup_check_items() -> Vec<CheckItem> {
                 history_total as f64 / GB as f64
             ),
             page: "cleanup".into(),
-            action: "清理历史版本".into(),
+            action: "一键清理".into(),
         });
     }
     if temp_total > 0 {
@@ -1304,7 +1304,7 @@ fn cleanup_check_items() -> Vec<CheckItem> {
                 temp_total as f64 / GB as f64
             ),
             page: "cleanup".into(),
-            action: "清理临时文件".into(),
+            action: "一键清理".into(),
         });
     }
     out

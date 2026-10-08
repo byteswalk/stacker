@@ -100,6 +100,8 @@ button{ font-family:inherit; }
 /* 15px on every side, the scrollbar included: its 10px are kept free on the right whether it shows or not. */
 .a .content{ padding:15px 5px 15px 15px; scrollbar-gutter:stable; display:flex; flex-direction:column; gap:2px; overflow:auto; }
 .a .content > *{ min-width:0; max-width:100%; flex-shrink:0; }
+/* Text with no size of its own reads at the size of the rest of the page, not the browser's 16px. */
+.a .content, .a .modalbody{ font-size:12.5px; }
 .a .page-loading-slot{ min-height:calc(100vh - 126px); display:flex; align-items:center; justify-content:center; gap:8px;
   color:var(--mut); font-size:12px; }
 .a .page-loading-slot i{ font-size:17px; color:var(--acc); animation:spin .9s linear infinite; }
@@ -545,6 +547,7 @@ button{ font-family:inherit; }
 .a .fixrow.trace-card{ --trace-radius:11px; min-height:60px; flex-shrink:0; }
 .a .fixrow .fdot{ width:9px; height:9px; border-radius:50%; flex-shrink:0; }
 .a .fixrow .fdot.warn{ background:#e2625b; } .a .fixrow .fdot.mid{ background:#e4b450; } .a .fixrow .fdot.info{ background:#6aa3f5; }
+.a .fixrow-ops{ display:flex; gap:8px; flex-shrink:0; }
 .a .fixrow .ft{ flex:1; min-width:0; }
 .a .fixrow .fh{ font-size:13.5px; font-weight:500; display:flex; align-items:center; gap:8px; }
 .a .fixrow .fs{ font-size:12px; color:var(--mut); margin-top:2px; line-height:1.5; }
@@ -1049,6 +1052,8 @@ button{ font-family:inherit; }
 .a .sw.lg .tk:before{ width:22px; height:22px; }
 .a .sw.lg input:checked + .tk:before{ transform:translateX(22px); }
 .a .pxcard{ background:var(--card); border:.5px solid var(--bd); border-radius:12px; padding:15px; margin-bottom:12px; }
+/* The last card of a page ends 15px from the bottom, as everything else does. */
+.a .content > .pxcard:last-child{ margin-bottom:0; }
 .a .pxsec{ font-size:13px; font-weight:600; display:flex; align-items:center; gap:8px; margin-bottom:11px; }
 .a .pxsec i{ color:var(--mut); } .a .pxsec .pxhint{ font-size:11px; color:var(--mut); font-weight:400; }
 
@@ -1176,9 +1181,9 @@ button{ font-family:inherit; }
 @media(max-width:700px){.a .space-monitor-metrics,.a .space-monitor-directories{grid-template-columns:1fr}}
 .a .space-change-summary{display:grid;grid-template-columns:minmax(180px,.7fr) minmax(260px,1.3fr);gap:10px;margin-bottom:10px}.a .space-change-summary>div{display:flex;flex-direction:column;gap:5px;min-height:62px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--card)}.a .space-change-summary span{color:var(--mut);font-size:10.5px}.a .space-change-summary b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}.a .space-change-list{display:flex;flex-direction:column;gap:5px}.a .space-change-list>div{display:grid;grid-template-columns:minmax(0,1fr) 180px 90px;align-items:center;gap:12px;min-height:42px;padding:7px 10px;border:1px solid var(--line);border-radius:7px;background:var(--card)}.a .space-change-list span,.a .space-change-list small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.a .space-change-list span{font-family:var(--mono);font-size:10.5px}.a .space-change-list small{color:var(--mut);text-align:right}.a .space-change-list b{text-align:right}.a .grow{color:var(--red)!important}.a .shrink{color:var(--green)!important}@media(max-width:760px){.a .space-change-summary{grid-template-columns:1fr}.a .space-change-list>div{grid-template-columns:minmax(0,1fr) 80px}.a .space-change-list small{display:none}}
 .a .space-snapshot-settings{flex-wrap:wrap}.a .space-common-directory-settings{flex-wrap:wrap}.a .space-common-directory-settings .space-common-dirs{min-width:240px;flex:1 1 280px}.a .scan-common-directories{display:flex;align-items:center;gap:7px;flex-wrap:wrap;width:100%;padding-top:2px}.a .scan-common-directories>span{color:var(--mut);font-size:10.5px}.a .scan-common-directories button{max-width:min(320px,100%)}.a .scan-common-directories button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.a .space-cleanup-row{grid-template-columns:20px 36px minmax(0,1fr) 112px 28px}
+.a .space-cleanup-row{grid-template-columns:20px 36px minmax(0,1fr) 112px 28px 28px}
 .a .space-cleanup-plan-item{grid-template-columns:10px minmax(0,1fr) 84px 28px}
-@media(max-width:760px){.a .space-cleanup-row{grid-template-columns:20px 36px minmax(0,1fr) 28px}.a .space-cleanup-meta{grid-column:3;align-items:flex-start}}
+@media(max-width:760px){.a .space-cleanup-row{grid-template-columns:20px 36px minmax(0,1fr) 28px 28px}.a .space-cleanup-meta{grid-column:3;align-items:flex-start}}
 
 /* ---------- 智能体工作区 ---------- */
 .a .agent-workspace-tabs{display:flex;align-items:center;gap:4px;margin-bottom:14px;padding:4px;border:.5px solid var(--bd);border-radius:8px;background:var(--card);overflow-x:auto;scrollbar-width:thin}
@@ -1591,6 +1596,9 @@ button{ font-family:inherit; }
 .a .clean-history-items b{text-align:right;font-weight:500}
 .a .dupe-path{display:flex;align-items:center;gap:8px;padding:3px 0}
 .a .dupe-path code{font-size:11.5px;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+.a .dupe-time{flex:0 0 112px;color:var(--mut);font-size:11px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.a .dupe-columns{padding:0 13px;color:var(--mut);font-size:11px}
+.a .dupe-columns .dupe-col-path{flex:1;min-width:0}.a .dupe-columns .recycle-check{width:15px;flex:0 0 15px}.a .dupe-columns .dupe-col-op{flex:0 0 26px}
 
 /* Tool relocation: what moves from an old portable folder, and which variables follow. */
 .a .reloc{ display:flex; flex-direction:column; gap:12px; font-size:13px; }
@@ -1719,7 +1727,7 @@ button{ font-family:inherit; }
 .a .back-top:hover{ border-color:var(--acc); color:var(--acc); }
 @keyframes back-top-in{ from{ opacity:0; transform:translateY(6px); } to{ opacity:1; transform:none; } }
 /* A list's actions, kept in sight at the bottom of the page however far the list runs. */
-.a .float-bar{ position:sticky; bottom:12px; z-index:6; margin:12px 0 0; padding:10px 15px; border:1px solid var(--bdh, var(--bd)); border-radius:10px;
+.a .float-bar{ position:sticky; bottom:15px; z-index:6; margin:12px 0 0; padding:10px 15px; border:1px solid var(--bdh, var(--bd)); border-radius:10px;
   background:var(--cardh); box-shadow:0 10px 28px rgba(0,0,0,.45),0 0 0 1px rgba(0,0,0,.25); }
 .a .vault-batch.float-bar{ border-color:rgba(245,130,31,.45); }
 .a .space-cleanup-action{ display:flex; align-items:center; justify-content:flex-end; gap:12px; color:var(--mut); font-size:12px; }

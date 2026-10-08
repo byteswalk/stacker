@@ -3,8 +3,7 @@ import { useColumns, type Column } from "../../columns";
 import { useDragPick } from "../../dragPick";
 import { ConfirmModal, useToast } from "../../ui";
 import { vaultApi, vaultError, type EntryView } from "./api";
-import { KIND_LABELS } from "./labels";
-import { accountOf, daysUntil, expiryState, formatTime, groupEntries, type EntryGroup } from "./vaultView";
+import { CATEGORY_LABELS, accountOf, categoryOf, daysUntil, expiryState, formatTime, groupEntries, type EntryGroup } from "./vaultView";
 import { useI18n } from "../../i18n";
 import { aiBrief } from "./aiBrief";
 import { publicKeyOf } from "./SshKeys";
@@ -139,8 +138,8 @@ export function EntryList({ entries, today, onView, onEdit, onChanged }: {
     const publicKey = entry.kind === "ssh_key" ? publicKeyOf(entry) : "";
     const account = accountOf(entry);
     const name = inGroup && account ? account : entry.title;
+    // The platform alone; a note stays in the details and the search.
     const where = inGroup ? urlOf(entry) || entry.title : entry.platform;
-    const second = entry.note || where || "—";
     return (
       <div key={entry.id} role="listitem" className={"vault-row" + (picked.has(entry.id) ? " picked" : "") + (inGroup ? " child" : "")}
         onClick={() => onView(entry)} {...pick.row(index)}>
@@ -153,8 +152,8 @@ export function EntryList({ entries, today, onView, onEdit, onChanged }: {
         <span className="title" translate="no" title={inGroup && account ? `${account}\n${entry.title}` : entry.title}>{name}
           {entry.windows && <i className="ti ti-brand-windows vault-win" title="已放进 Windows 凭据管理器，本机的其他程序可以按名字取用" />}
         </span>
-        <span className="mut" translate="no" title={[entry.note, where].filter(Boolean).join("\n") || undefined}>{second}</span>
-        <span className="mut">{KIND_LABELS[entry.kind]}</span>
+        <span className="mut" translate="no" title={where || undefined}>{where || "—"}</span>
+        <span className="mut">{tr(CATEGORY_LABELS[categoryOf(entry)])}</span>
         <ExpiryBadge expiresAt={entry.expiresAt} today={today} />
         <span className="mut">{formatTime(entry.updatedAt).slice(0, 10)}</span>
         <span className="ops" onClick={(event) => event.stopPropagation()}>
@@ -176,7 +175,6 @@ export function EntryList({ entries, today, onView, onEdit, onChanged }: {
     const expanded = open.has(group.key);
     const extra = group.duplicates.reduce((sum, set) => sum + set.length - 1, 0);
     const newest = Math.max(...group.entries.map((entry) => entry.updatedAt));
-    const note = group.entries.find((entry) => entry.note)?.note ?? "";
     const count = tr("{count} 条").replace("{count}", String(group.entries.length));
     return <div key={`g:${group.key}`} className={"vault-row group" + (expanded ? " open" : "")} onClick={() => flip(group.key)} {...pick.row(index)}>
       <span className="vault-pick-cell" onClick={(event) => event.stopPropagation()} {...pick.box(index)}>
@@ -184,7 +182,7 @@ export function EntryList({ entries, today, onView, onEdit, onChanged }: {
       </span>
       <i className={"ti " + (expanded ? "ti-chevron-down" : "ti-chevron-right")} aria-hidden="true" />
       <span className="title" translate="no" title={group.key}>{group.key}</span>
-      <span className="mut" title={note ? `${count}\n${note}` : count}>{count}{note ? <span translate="no"> · {note}</span> : null}</span>
+      <span className="mut">{count}</span>
       <span className="mut">{group.entries.some((entry) => entry.windows) ? <i className="ti ti-brand-windows vault-win" title="其中有条目放进了 Windows 凭据管理器" /> : ""}</span>
       <span />
       <span className="mut">{formatTime(newest).slice(0, 10)}</span>
@@ -204,7 +202,7 @@ export function EntryList({ entries, today, onView, onEdit, onChanged }: {
         <input type="checkbox" className="vault-pick" aria-label="全选" checked={allPicked} disabled={pickable.length === 0}
           onChange={() => setPicked(allPicked ? new Set() : new Set(pickable.map((entry) => entry.id)))} />
         <span />
-        <span className="col-cell">标题{columns.handle("title")}</span><span className="col-cell">平台 / 备注{columns.handle("site")}</span><span className="col-cell">类型{columns.handle("kind")}</span><span className="col-cell">到期{columns.handle("expiry")}</span><span className="col-cell">更新于{columns.handle("updated")}</span><span className="ops">操作</span>
+        <span className="col-cell">标题{columns.handle("title")}</span><span className="col-cell">平台{columns.handle("site")}</span><span className="col-cell">类型{columns.handle("kind")}</span><span className="col-cell">到期{columns.handle("expiry")}</span><span className="col-cell">更新于{columns.handle("updated")}</span><span className="ops">操作</span>
       </div>
       {lines.map((line, index) => line.group ? groupRow(line.group, index) : row(line.entry, line.inGroup, index))}
       {groups.length > shown && <div className="vault-more">

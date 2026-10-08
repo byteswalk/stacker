@@ -144,6 +144,32 @@ pub fn find(files: &[LargeFileRow], token: &CancellationToken, min_bytes: u64) -
     report
 }
 
+/// When a file was made and last changed, as milliseconds since 1970; what cannot be read is 0.
+#[derive(Clone, Debug, Default, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct FileTimes {
+    pub created: i64,
+    pub modified: i64,
+}
+
+pub fn times(paths: &[String]) -> Vec<FileTimes> {
+    let ms = |time: std::io::Result<std::time::SystemTime>| {
+        time.ok()
+            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+            .map_or(0, |since| since.as_millis() as i64)
+    };
+    paths
+        .iter()
+        .map(|path| match std::fs::metadata(path) {
+            Ok(meta) => FileTimes {
+                created: ms(meta.created()),
+                modified: ms(meta.modified()),
+            },
+            Err(_) => FileTimes::default(),
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -233,5 +259,19 @@ mod tests {
         assert!(find(&files, &CancellationToken::default(), 1024)
             .groups
             .is_empty());
+    }
+
+    #[test]
+    fn a_file_says_when_it_was_made_and_changed_and_a_missing_one_says_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("a.bin");
+        write(&file, b"x");
+        let missing = dir.path().join("gone.bin");
+        let found = times(&[
+            file.to_string_lossy().into_owned(),
+            missing.to_string_lossy().into_owned(),
+        ]);
+        assert!(found[0].created > 0 && found[0].modified > 0);
+        assert_eq!(found[1], FileTimes::default());
     }
 }

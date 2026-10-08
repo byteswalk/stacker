@@ -1,5 +1,5 @@
 import type { CredentialTarget, EntryView, EnvHolder, SshLocal } from "./api";
-import { KIND_LABELS } from "./labels";
+import { CATEGORY_LABELS, categoryOf } from "./vaultView";
 import { firstServer, parseTarget, publicKeyOf, serversOf, SERVERS_FIELD } from "./SshKeys";
 
 type Tr = (text: string) => string;
@@ -26,7 +26,7 @@ function sshTarget(entry: EntryView): { target: string; port: string } {
  * Windows Credential Manager, with the command that reads it.
  */
 export function aiBrief(entry: EntryView, local: SshLocal | null, tr: Tr, holders: EnvHolder[] = [], credentials: CredentialTarget[] = []): string {
-  const lines = [`${tr("名称")}: ${entry.title}`, `${tr("类型")}: ${tr(KIND_LABELS[entry.kind])}`];
+  const lines = [`${tr("名称")}: ${entry.title}`, `${tr("类型")}: ${tr(CATEGORY_LABELS[categoryOf(entry)])}`];
   if (entry.platform) lines.push(`${tr("平台")}: ${entry.platform}`);
 
   if (entry.kind === "ssh_key") {

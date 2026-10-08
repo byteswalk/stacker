@@ -65,7 +65,7 @@ export function BrowserImport({ onClose, onChanged }: { onClose: () => void; onC
       <div className="vault-import-steps">{STEPS.map(([name, step]) => <div key={name}><b>{name}</b><span>{tr(step)}</span></div>)}</div>
       <div className="vault-bar" style={{ margin: 0 }}>
         <button className="gh sm" disabled={busy} onClick={() => void choose()}><i className={"ti " + (busy && !stats ? "ti-loader spin" : "ti-folder-open")} /> 选择 CSV 文件</button>
-        <span className="mut grow" translate="no">{src}</span>
+        <span className="vault-import-path" translate="no" title={src || undefined}>{src || "未选择文件"}</span>
       </div>
       {stats && <div className="callout" style={{ margin: 0 }}><i className="ti ti-info-circle" /><div>
         {tr("新增 {added} 条，已在保管库 {same} 条，没有密码的 {empty} 行跳过。").replace("{added}", String(stats.added)).replace("{same}", String(stats.same)).replace("{empty}", String(stats.empty))}

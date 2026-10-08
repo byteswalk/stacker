@@ -83,16 +83,17 @@ describe("vault view helpers", () => {
     expect(groups[0].duplicates.map((set) => set.map((e) => e.title))).toEqual([["router", "again"]]);
   });
 
-  it("filters by kind, source and Windows credentials", () => {
+  it("filters by type and Windows credentials", () => {
     const entries = [
       entry({ title: "ssh", kind: "ssh_key" }),
       entry({ title: "web", tags: ["浏览器"] }),
+      entry({ title: "typed", fields: [{ name: "网址", value: "https://example.com/login", secret: false, filled: true }] }),
       entry({ title: "token", windows: true }),
     ];
     const all = { query: "", platform: "", soonOnly: false };
-    expect(filterEntries(entries, { ...all, kind: "ssh_key" }, today).map((e) => e.title)).toEqual(["ssh"]);
-    expect(filterEntries(entries, { ...all, source: "browser" }, today).map((e) => e.title)).toEqual(["web"]);
-    expect(filterEntries(entries, { ...all, source: "own" }, today).map((e) => e.title)).toEqual(["ssh", "token"]);
+    expect(filterEntries(entries, { ...all, kind: "ssh" }, today).map((e) => e.title)).toEqual(["ssh"]);
+    expect(filterEntries(entries, { ...all, kind: "web" }, today).map((e) => e.title)).toEqual(["web", "typed"]);
+    expect(filterEntries(entries, { ...all, kind: "general" }, today).map((e) => e.title)).toEqual(["token"]);
     expect(filterEntries(entries, { ...all, windows: "on" }, today).map((e) => e.title)).toEqual(["token"]);
   });
 

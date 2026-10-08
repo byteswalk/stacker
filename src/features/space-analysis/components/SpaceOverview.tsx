@@ -5,6 +5,7 @@ import { useBusyRead, useToast } from "../../../ui";
 import { layoutTreemap } from "../treemap";
 import type { AnalysisSummary, DirectoryNode, Paged } from "../types";
 import { DirectoryRanking } from "./DirectoryRanking";
+import { DirectoryAi } from "./DirectoryAi";
 
 /** How the overview shows the space: blocks sized by use, or the directories as a ranked tree. */
 type OverviewView = "chart" | "list";
@@ -53,7 +54,9 @@ export function SpaceOverview({
   const { tr } = useI18n();
   const toast = useToast();
   const read = useBusyRead();
-  const treemapRef = useRef<HTMLDivElement>(null);
+  // A state, not a ref: the chart comes and goes with the view, and each new one is measured.
+  const [treemapElement, setTreemapElement] = useState<HTMLDivElement | null>(null);
+  const [explaining, setExplaining] = useState<DirectoryNode | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const requestGeneration = useRef(0);
   const [treemapWidth, setTreemapWidth] = useState(800);
@@ -81,15 +84,19 @@ export function SpaceOverview({
   }, [taskId, summary]);
 
   useEffect(() => {
-    const element = treemapRef.current;
+    const element = treemapElement;
     if (!element) return;
-    const update = () => setTreemapWidth(Math.max(1, Math.round(element.getBoundingClientRect().width)));
+    const update = () => {
+      const width = Math.round(element.getBoundingClientRect().width);
+      // A chart not laid out yet measures 0; it keeps the last width until it is.
+      if (width > 0) setTreemapWidth(width);
+    };
     update();
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(update);
     observer.observe(element);
     return () => observer.disconnect();
-  }, []);
+  }, [treemapElement]);
 
   useEffect(() => {
     if (!contextMenu) return;
@@ -187,7 +194,7 @@ export function SpaceOverview({
       <div className="space-analysis-section-heading">
         <div>
           <strong>{tr("扫描范围占用")}</strong>
-          <span>{tr(view === "chart" ? "矩形面积按实际磁盘占用计算；单击下钻目录，右键可打开目录。" : "按实际占用从大到小排列，展开可以看下一层。")}</span>
+          <span>{tr(view === "chart" ? "矩形面积按实际磁盘占用计算；单击下钻目录，右键可打开目录或请 AI 解读。" : "按实际占用从大到小排列，展开可以看下一层。")}</span>
         </div>
         <div className="space-overview-view">
           <span>{summary.directoryCount.toLocaleString()} {tr("个目录")} · {summary.fileCount.toLocaleString()} {tr("个文件")}</span>
@@ -209,7 +216,7 @@ export function SpaceOverview({
             <button type="button" title={level.node.path} onClick={() => showLevel(index + 1)}>{level.node.name}</button>
           </span>)}
         </div>
-        <div ref={treemapRef} className="space-treemap" style={{ height: TREEMAP_HEIGHT }} aria-busy={loadingNodeId !== null}>
+        <div ref={setTreemapElement} className="space-treemap" style={{ height: TREEMAP_HEIGHT }} aria-busy={loadingNodeId !== null}>
           {rectangles.map((rectangle, index) => {
             const node = nodesById.get(rectangle.id);
             if (!node) return null;
@@ -230,7 +237,7 @@ export function SpaceOverview({
                   setContextMenu({
                     node,
                     x: Math.max(8, Math.min(event.clientX, window.innerWidth - 168)),
-                    y: Math.max(8, Math.min(event.clientY, window.innerHeight - 54)),
+                    y: Math.max(8, Math.min(event.clientY, window.innerHeight - 88)),
                   });
                 }}
                 style={{
@@ -259,9 +266,15 @@ export function SpaceOverview({
             setContextMenu(null);
             void openDirectory(path);
           }}><i className="ti ti-folder-open" /> {tr("打开目录")}</button>
+          <button type="button" role="menuitem" onClick={() => {
+            const node = contextMenu.node;
+            setContextMenu(null);
+            setExplaining(node);
+          }}><i className="ti ti-sparkles" /> {tr("AI 解读")}</button>
         </div>}
         </>
       )}
+      {explaining && <DirectoryAi taskId={taskId} node={explaining} onClose={() => setExplaining(null)} />}
     </div>
   );
 }

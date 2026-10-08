@@ -67,11 +67,12 @@ describe("vault entry list", () => {
     expect(host.textContent).toContain("已选 3 条");
   });
 
-  it("shows a note in place of the site and says the full text on hover", async () => {
+  it("shows the platform alone, never the note, and the type a website password is", async () => {
     await render(entries);
-    const second = rows()[1].querySelectorAll<HTMLElement>(".mut")[0];
-    expect(second.textContent).toBe("B 公司后台");
-    expect(second.title).toContain("b.example.net");
+    const [platform, type] = rows()[1].querySelectorAll<HTMLElement>(".mut");
+    expect(platform.textContent).toBe("b.example.net");
+    expect(platform.title).toBe("b.example.net");
+    expect(type.textContent).toBe("网站密码");
   });
 
   it("lists what a merge would do before doing it", async () => {
