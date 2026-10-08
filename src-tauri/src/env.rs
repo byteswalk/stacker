@@ -1464,7 +1464,10 @@ mod tests {
     fn live_env_state() {
         for group in env_state_blocking() {
             for v in &group.versions {
-                println!("{} {} current={} origin={} {}", group.kind, v.version, v.current, v.origin, v.path);
+                println!(
+                    "{} {} current={} origin={} {}",
+                    group.kind, v.version, v.current, v.origin, v.path
+                );
             }
         }
     }
