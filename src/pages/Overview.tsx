@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { invoke } from "../invoke";
+import { translateText } from "../i18n";
 import type { Page } from "../pageState";
 import { ConfirmModal, useBusy, useToast } from "../ui";
 import { useNotifications } from "../notifications";
@@ -146,6 +147,64 @@ function subscribeOverview(fn: (s: OverviewCache) => void) {
   return () => { overviewListeners.delete(fn); };
 }
 
+/**
+ * The ecosystem cards' own data (each tool's state and its download source), read when the
+ * page opens so the cards are there before any checkup; the score waits for「开始体检」.
+ */
+let statusRun: Promise<void> | null = null;
+function loadEcosystemStatus() {
+  if (statusRun || overviewRun || overviewCache.tools !== null) return statusRun ?? overviewRun ?? Promise.resolve();
+  statusRun = (async () => {
+    const [toolsResult, ecosystemResult] = await Promise.allSettled([
+      invoke<ToolState[]>("list_sources"),
+      invoke<CodingEcosystemCheck>("coding_ecosystem_check"),
+    ]);
+    // A full checkup that finished meanwhile has fresher data.
+    if (!overviewCache.checked) {
+      publishOverview({
+        tools: toolsResult.status === "fulfilled" ? toolsResult.value : overviewCache.tools,
+        ecosystem: ecosystemResult.status === "fulfilled" ? ecosystemResult.value : overviewCache.ecosystem,
+      });
+    }
+  })().finally(() => { statusRun = null; });
+  return statusRun;
+}
+
+/** Puts one tool on one of its sources, keeping Maven's and Gradle's proxy switch as it is. */
+async function applyMirror(tool: ToolState, mirrorId: string, proxy: { host: string; port: number; maven: boolean; gradle: boolean }) {
+  const storageKey = RUNTIME_SOURCE_KEYS[tool.id];
+  if (storageKey) {
+    localStorage.setItem(storageKey, mirrorId);
+  } else if (tool.id === "go") {
+    await invoke("apply_source_scoped", { toolId: tool.id, mirrorId, scope: "user" });
+  } else if (tool.id === "maven" || tool.id === "gradle") {
+    await invoke("apply_source", {
+      toolId: tool.id,
+      mirrorId,
+      proxyEnabled: tool.id === "maven" ? proxy.maven : proxy.gradle,
+      proxyHost: proxy.host,
+      proxyPort: proxy.port,
+    });
+  } else {
+    await invoke("apply_source", { toolId: tool.id, mirrorId });
+  }
+}
+
+async function currentProxy() {
+  const [proxyStatus, maven, gradle] = await Promise.all([
+    invoke<ProxyStatus>("proxy_status").catch(() => ({} as ProxyStatus)),
+    invoke<boolean>("source_proxy_state", { toolId: "maven", path: null }).catch(() => false),
+    invoke<boolean>("source_proxy_state", { toolId: "gradle", path: null }).catch(() => false),
+  ]);
+  return { host: proxyStatus.host || "127.0.0.1", port: proxyStatus.port || proxyStatus.detected_port || 0, maven, gradle };
+}
+
+/** The source a tool is on now: the page's own choice for download sources, else its config. */
+function currentSource(tool: ToolState) {
+  const storageKey = RUNTIME_SOURCE_KEYS[tool.id];
+  return storageKey ? (localStorage.getItem(storageKey) || "official") : tool.current;
+}
+
 function runOverviewCheck() {
   if (overviewRun) return overviewRun;
   publishOverview({ checking: true });
@@ -189,6 +248,7 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
   const [rowBusy, setRowBusy] = useState<Record<string, boolean>>({});
   const [diagnosing, setDiagnosing] = useState(false);
   const [confirming, setConfirming] = useState<CheckItem | null>(null);
+  const [confirmOfficial, setConfirmOfficial] = useState(false);
   // Disk items open the cleanup list with a quick scan already started, so the details are there.
   const openDetail = (page: Page) => {
     if (page === "cleanup") void quickScanUnlessBusy().catch(() => undefined);
@@ -202,6 +262,8 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
     setChecking(s.checking);
     setChecked(s.checked);
   }), []);
+  const [statusRead, setStatusRead] = useState(overviewCache.ecosystem !== null);
+  useEffect(() => { void loadEcosystemStatus().catch(() => undefined).finally(() => setStatusRead(true)); }, []);
 
   async function load() {
     return runOverviewCheck();
@@ -220,7 +282,9 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
 
   const batchExtra = extra.filter((e) => BATCH_EXTRA.has(e.id));
   const optimizeCount = batchExtra.length;
-  const hasChecked = checked || tools !== null || ecosystem !== null;
+  // The score is the checkup's; the cards below show as soon as their data is read.
+  const hasChecked = checked;
+  const offOfficial = (tools ?? []).filter((tool) => tool.installed && tool.mirrors.some((m) => m.id === "official") && currentSource(tool) !== "official");
   const installedCount = (tools ?? []).filter((t) => !(t.id in RUNTIME_SOURCE_KEYS) && t.installed).length;
   const availableCommands = (ecosystem?.ecosystems ?? []).filter((item) => item.status === "ok").length;
   const emptySetup = hasChecked && tools !== null && installedCount === 0 && availableCommands === 0;
@@ -332,37 +396,15 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
             : undefined;
           if (!selected.length && !fastestJava) return { applied: 0, available: false, tools: null as ToolState[] | null };
 
-          const [proxyStatus, mavenProxy, gradleProxy] = await Promise.all([
-            invoke<ProxyStatus>("proxy_status").catch(() => ({} as ProxyStatus)),
-            invoke<boolean>("source_proxy_state", { toolId: "maven", path: null }).catch(() => false),
-            invoke<boolean>("source_proxy_state", { toolId: "gradle", path: null }).catch(() => false),
-          ]);
-          const proxyHost = proxyStatus.host || "127.0.0.1";
-          const proxyPort = proxyStatus.port || proxyStatus.detected_port || 7890;
+          const proxy = await currentProxy();
           let applied = 0;
           if (fastestJava && localStorage.getItem(JAVA_VENDOR_STORAGE) !== fastestJava.id) {
             localStorage.setItem(JAVA_VENDOR_STORAGE, fastestJava.id);
             applied++;
           }
           for (const { tool, mirror } of selected) {
-            const storageKey = RUNTIME_SOURCE_KEYS[tool.id];
-            const current = storageKey ? (localStorage.getItem(storageKey) || "official") : tool.current;
-            if (current === mirror.id) continue;
-            if (storageKey) {
-              localStorage.setItem(storageKey, mirror.id);
-            } else if (tool.id === "go") {
-              await invoke("apply_source_scoped", { toolId: tool.id, mirrorId: mirror.id, scope: "user" });
-            } else if (tool.id === "maven" || tool.id === "gradle") {
-              await invoke("apply_source", {
-                toolId: tool.id,
-                mirrorId: mirror.id,
-                proxyEnabled: tool.id === "maven" ? mavenProxy : gradleProxy,
-                proxyHost,
-                proxyPort,
-              });
-            } else {
-              await invoke("apply_source", { toolId: tool.id, mirrorId: mirror.id });
-            }
+            if (currentSource(tool) === mirror.id) continue;
+            await applyMirror(tool, mirror.id, proxy);
             applied++;
           }
           return { applied, available: true, tools: await invoke<ToolState[]>("list_sources") };
@@ -377,6 +419,31 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
           : "当前配置已是本次测速的优选结果", result.available ? "ok" : "info");
     } catch (error) {
       toast("智能优选源未完成。已完成的配置已自动备份，原因：" + error, "err");
+    } finally {
+      setSourceBusy(false);
+    }
+  }
+
+  // Every installed tool back on its official source (with a proxy, the official ones are
+  // the most complete and current); each change is backed up as usual.
+  async function restoreOfficial() {
+    setSourceBusy(true);
+    try {
+      const changed = await runBusy({ title: "恢复官方源", message: "正在把各生态的下载源与仓库镜像改回官方源，现有配置会自动备份。" }, async () => {
+        const proxy = await currentProxy();
+        const failed: string[] = [];
+        let done = 0;
+        for (const tool of offOfficial) {
+          try { await applyMirror(tool, "official", proxy); done++; } catch (error) { failed.push(`${tool.name}：${error}`); }
+        }
+        publishOverview({ tools: await invoke<ToolState[]>("list_sources") });
+        if (failed.length) throw new Error(failed.join("；"));
+        return done;
+      });
+      notices.checkNow("source-changed").catch(() => undefined);
+      toast(translateText("已把 {count} 项恢复为官方源").replace("{count}", String(changed)), "ok");
+    } catch (error) {
+      toast("恢复官方源未全部完成：" + error, "err");
     } finally {
       setSourceBusy(false);
     }
@@ -470,15 +537,26 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
         onClose={() => setConfirming(null)}
         onConfirm={() => { const item = confirming; setConfirming(null); const fixer = extraFixer(item.id); if (fixer) void runExtra(item.id, fixer); }} />}
 
-      {hasChecked && <div className="grouphd" style={{ marginTop: 18 }}>
+      <div className="grouphd" style={{ marginTop: 18 }}>
         <span className="gt"><i className="ti ti-stack-2" /> 编程生态</span>
         <div className="ghr">
+          <button className="gh sm" disabled={sourceBusy || checkingAll || !offOfficial.length} onClick={() => setConfirmOfficial(true)}
+            title={offOfficial.length ? translateText("把 {count} 项非官方源改回官方源；挂代理时官方源最全、最新").replace("{count}", String(offOfficial.length)) : "已安装的工具都在用官方源"}>
+            <i className="ti ti-world" /> 全部恢复官方源{offOfficial.length ? `（${offOfficial.length}）` : ""}
+          </button>
           <button className="pr sm" disabled={sourceBusy || checkingAll || !tools?.length} onClick={optimizeSources} title="统一测试已安装生态的下载源与仓库镜像，并应用响应更快的可用源">
-            <i className={"ti " + (sourceBusy ? "ti-loader spin" : "ti-route-alt-left")} /> {sourceBusy ? "优选中…" : "智能优选源"}
+            <i className={"ti " + (sourceBusy ? "ti-loader spin" : "ti-route-alt-left")} /> {sourceBusy ? "处理中…" : "智能优选源"}
           </button>
         </div>
-      </div>}
-      {hasChecked && <div className="ecocards">{(ecosystem?.ecosystems ?? []).map((item) => {
+      </div>
+      {!ecosystem && (statusRead && !checkingAll
+        ? <div className="space-analysis-state"><i className="ti ti-alert-circle" /> 暂时读不到各生态的状态，点「开始体检」再试一次。</div>
+        : <div className="space-analysis-state"><i className="ti ti-loader spin" /> 正在读取各生态的状态和下载源…</div>)}
+      {confirmOfficial && <ConfirmModal title="全部恢复官方源" icon="ti-world" confirmLabel="恢复官方源"
+        message={<>{translateText("将把下面 {count} 项改回官方源，现有配置会自动备份：").replace("{count}", String(offOfficial.length))}<br />{offOfficial.map((tool) => tool.name).join("、")}<br />没有代理时官方源可能较慢，可以随时再用「智能优选源」换回镜像。</>}
+        onClose={() => setConfirmOfficial(false)}
+        onConfirm={() => { setConfirmOfficial(false); void restoreOfficial(); }} />}
+      {ecosystem && <div className="ecocards">{(ecosystem?.ecosystems ?? []).map((item) => {
         const eco = item.id;
         const meta = ECO_META[eco];
         const sourceTool = (ECOSYSTEM_SOURCE_TOOLS[eco] ?? [])

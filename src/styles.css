@@ -1043,6 +1043,7 @@ button{ font-family:inherit; }
   display:flex; align-items:center; justify-content:center; font-size:23px; flex-shrink:0; }
 .a .pxhero.on .pxic{ background:rgba(107,207,134,.16); color:#6bcf86; }
 .a .pxhero .pxt{ flex:1; min-width:0; }
+.a .pxhero-ops{ display:flex; gap:8px; flex-shrink:0; }
 .a .pxhero .pxname{ font-size:16px; font-weight:600; display:flex; align-items:center; gap:9px; }
 .a .pxhero .pxstat{ font-size:11.5px; padding:2px 9px; border-radius:7px; font-weight:500; }
 .a .pxhero .pxstat.off{ background:rgba(255,255,255,.08); color:var(--mut); }
