@@ -163,6 +163,8 @@ export default function Cleanup() {
   }
 
   async function refreshAfterCleanup() {
+    // The cleanup reminder is recounted now, not at the next background sweep.
+    void notices.checkNow("cleanup-done").catch(() => undefined);
     try {
       await startQuickScan();
     } catch {

@@ -6,6 +6,7 @@ import { Select } from "../Select";
 import { ConfirmModal, ErrorState, Loading, Modal, useBusy, useBusyRead, useToast } from "../ui";
 import { remoteRepositoryCreationHint, supportsRemoteRepositoryCreation } from "../gitCapabilities";
 import { translateText } from "../i18n";
+import { useNotifications } from "../notifications";
 
 type Shells = { powershell: boolean; gitbash: boolean; cmd: boolean };
 type GitStatus = {
@@ -104,6 +105,7 @@ function tokenExpiry(account: GitAccountProfile) {
 
 export default function Git() {
   const toast = useToast();
+  const notices = useNotifications();
   const runBusy = useBusy();
   const read = useBusyRead();
   const [status, setStatus] = useState<GitStatus | null>(null);
@@ -237,6 +239,7 @@ export default function Git() {
     setDownloadSource(pendingDownloadSource);
     localStorage.setItem(GIT_SOURCE_KEY, pendingDownloadSource);
     setUpdateInfo(null);
+    void notices.checkNow("git-download-source").catch(() => undefined);
     toast(`已应用 Git 下载源：${sourceName(pendingDownloadSource)}`, "ok");
   }
 
@@ -334,6 +337,8 @@ export default function Git() {
         },
       );
       setUpdateInfo(null);
+      // The page's red dot and the sidebar count go with the update, not at the next sweep.
+      void notices.checkNow("git-install").catch(() => undefined);
       toast(result || (updating ? "Git for Windows 已更新" : "Git for Windows 已安装"), "ok");
     } catch (error) {
       const detail = String(error);

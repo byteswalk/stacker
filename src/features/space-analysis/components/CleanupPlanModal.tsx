@@ -4,6 +4,7 @@ import { useI18n } from "../../../i18n";
 import { dismissCleanupPlan, startCleanup, useCleanupStore } from "../cleanupStore";
 import { candidateImpact, formatSpaceBytes } from "./DevelopmentArtifacts";
 import { invoke } from "../../../invoke";
+import { useNotifications } from "../../../notifications";
 
 export function CleanupPlanModal() {
   const { tr } = useI18n();
@@ -15,6 +16,14 @@ export function CleanupPlanModal() {
   useEffect(() => {
     setConfirmed(false);
   }, [plan?.planId]);
+  // A finished cleanup recounts the cleanup reminder at once.
+  const notices = useNotifications();
+  const finished = cleanup.result !== null && cleanup.result !== undefined;
+  useEffect(() => {
+    if (finished) void notices.checkNow("cleanup-space").catch(() => undefined);
+    // Only the moment a result arrives counts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [finished]);
   if (!plan || cleanup.result) return null;
   const destructive = plan.items.some((item) => item.safety !== "safe");
   async function openDirectory(path: string) {
