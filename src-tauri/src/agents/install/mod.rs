@@ -685,6 +685,15 @@ pub(crate) fn uninstall_desktop_tool(
             spec.desktop.name
         ));
     }
+    let uninstall = found
+        .as_ref()
+        .and_then(|f| f.uninstall.clone())
+        .or_else(|| {
+            found
+                .as_ref()
+                .and_then(|f| f.path.as_deref())
+                .and_then(squirrel_uninstall)
+        });
     if let Some(id) = spec.desktop.winget_id {
         emit_progress(
             window,
@@ -706,21 +715,10 @@ pub(crate) fn uninstall_desktop_tool(
             }
             // An app installed from its own package (Factory's, when WinGet could not reach
             // its source) is unknown to WinGet; its own uninstaller still knows it.
-            Err(err)
-                if is_query_miss(&err) && found.as_ref().is_some_and(|f| f.uninstall.is_some()) => {
-            }
+            Err(err) if is_query_miss(&err) && uninstall.is_some() => {}
             Err(err) => return Err(err),
         }
     }
-    let uninstall = found
-        .as_ref()
-        .and_then(|f| f.uninstall.clone())
-        .or_else(|| {
-            found
-                .as_ref()
-                .and_then(|f| f.path.as_deref())
-                .and_then(squirrel_uninstall)
-        });
     if let Some(uninstall) = uninstall {
         emit_progress(window, format!("正在运行 {} 卸载程序…", spec.desktop.name));
         run_uninstall_string(&uninstall)?;
