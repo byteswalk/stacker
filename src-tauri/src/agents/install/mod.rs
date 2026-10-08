@@ -869,6 +869,36 @@ pub(crate) fn repair_cli_tool(
     if !tool.cli.can_repair {
         return Err("当前没有可自动修复的损坏入口".into());
     }
+    if tool.cli.repair_kind.as_deref() == Some("command") {
+        let program = tool
+            .cli
+            .path
+            .clone()
+            .map(PathBuf::from)
+            .ok_or("当前没有可自动修复的损坏入口")?;
+        let args = tool
+            .cli
+            .broken_reason
+            .as_deref()
+            .and_then(|reason| suggested_repair(reason, spec.cli.command))
+            .ok_or("当前没有可自动修复的损坏入口")?;
+        if spec.vendor == Vendor::Hermes {
+            hermes_not_busy()?;
+        }
+        let line = format!("{} {}", spec.cli.command, args.join(" "));
+        emit_progress(window, format!("正在运行 {line}…"));
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        run_command_streamed(
+            &program,
+            &args,
+            &line,
+            Duration::from_secs(1800),
+            Duration::ZERO,
+            window,
+        )?;
+        verify_cli_present(spec, window)?;
+        return Ok(format!("{} 已修复，可以正常运行", spec.cli.name));
+    }
     if tool.cli.repair_kind.as_deref() == Some("reinstall") {
         let package = spec.cli.npm_package.ok_or("当前没有可自动修复的损坏入口")?;
         let program = resolve_command(spec.cli.candidates);

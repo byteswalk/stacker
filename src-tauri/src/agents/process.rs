@@ -743,6 +743,29 @@ pub(crate) fn looks_passing(text: &str) -> bool {
     .any(|needle| lower.contains(needle))
 }
 
+/// The command a broken CLI's own error tells the user to run to mend it — "run `hermes pm
+/// repair`" — when it is that CLI's own command made only of plain words. Nothing else is run.
+pub(crate) fn suggested_repair(text: &str, command: &str) -> Option<Vec<String>> {
+    let lower = text.to_lowercase();
+    let at = lower.find("run `")? + "run `".len();
+    let end = text[at..].find('`')? + at;
+    let words: Vec<String> = text[at..end]
+        .split_whitespace()
+        .map(str::to_string)
+        .collect();
+    let plain = |word: &str| {
+        !word.is_empty()
+            && word
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'))
+    };
+    (words.len() >= 2
+        && words.len() <= 5
+        && words[0].eq_ignore_ascii_case(command)
+        && words.iter().all(|word| plain(word)))
+    .then(|| words[1..].to_vec())
+}
+
 /// What a failed run says went wrong. A stack trace starts with where it was thrown
 /// (`node:internal/child_process:458`); the line that says what happened (`Error: spawn
 /// EBUSY`) comes after, so that one is taken when there is one.
@@ -908,6 +931,24 @@ pub(crate) fn is_meaningful_output_line(line: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_cli_that_names_its_own_repair_command_gets_it_and_nothing_else_runs() {
+        use super::suggested_repair;
+        let hermes = "hermes: no dependency environment is committed for this install; run `hermes pm repair`";
+        assert_eq!(
+            suggested_repair(hermes, "hermes"),
+            Some(vec!["pm".into(), "repair".into()])
+        );
+        // Another program, a shell trick, or a bare name is not run.
+        assert_eq!(suggested_repair("run `npm install -g x`", "hermes"), None);
+        assert_eq!(
+            suggested_repair("run `hermes pm repair && del x`", "hermes"),
+            None
+        );
+        assert_eq!(suggested_repair("run `hermes`", "hermes"), None);
+        assert_eq!(suggested_repair("something broke", "hermes"), None);
+    }
+
     #[test]
     fn a_launcher_that_could_not_start_its_binary_says_why_and_may_pass() {
         let node = "node:internal/child_process:458\n    throw new ErrnoException(err, 'spawn');\n    ^\n\nError: spawn EBUSY\n    at ChildProcess.spawn (node:internal/child_process:420:11)\n  errno: -4082,\n  code: 'EBUSY',\n";

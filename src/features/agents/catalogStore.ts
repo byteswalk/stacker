@@ -29,7 +29,9 @@ export type VibeSurface = {
   other_installs?: InstallInfo[];
   can_repair?: boolean;
   /** switch: use another healthy install; reinstall: install it again the same way. */
-  repair_kind?: "switch" | "reinstall" | null;
+  repair_kind?: "switch" | "reinstall" | "command" | null;
+  /** For "command": what is run, as the CLI's own error named it. */
+  repair_command?: string | null;
   latest_error?: string | null;
   /** Where `latest` came from: WinGet, npm, the vendor's own feed… */
   latest_source?: string | null;
