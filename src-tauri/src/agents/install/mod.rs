@@ -217,15 +217,14 @@ pub(crate) fn uninstall_cli_tool(
     window: &Option<tauri::Window>,
 ) -> Result<String, String> {
     emit_progress(window, "正在检测当前安装来源…");
-    let program = resolve_command(spec.cli.candidates)
-        .filter(|path| !(spec.vendor == Vendor::Qoder && super::detect::is_qoder_dispatcher(path)))
-        .or_else(|| {
-            // Past Qoder's dispatcher, the npm command it would hand over to.
-            (spec.vendor == Vendor::Qoder)
-                .then(|| resolve_command(&[&format!("{}.cmd", spec.cli.command)]))
-                .flatten()
-                .filter(|path| !super::detect::is_qoder_dispatcher(path))
-        });
+    let program = if spec.vendor == Vendor::Qoder {
+        // Qoder's dispatcher comes first on PATH; the CLI is the npm command behind it.
+        super::health::enumerate_candidates(&command_dirs(), spec.cli.candidates)
+            .into_iter()
+            .find(|path| !super::detect::is_qoder_dispatcher(path))
+    } else {
+        resolve_command(spec.cli.candidates)
+    };
     let method = detect_install_method(spec, program.as_deref());
     if spec.vendor == Vendor::Qoder && method.as_deref() == Some("npm") {
         let pkg = spec.cli.npm_package.ok_or("Qoder CLI 缺少 npm 包信息。")?;

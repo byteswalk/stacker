@@ -201,6 +201,17 @@ pub(crate) fn download_desktop_installer(
     // A stable name, so a download interrupted by a cancel or a closed Stacker leaves a
     // .part file the next run can continue from.
     let target = std::env::temp_dir().join(format!("stacker-{}-{}", spec.id, installer.file_name));
+    // An installer window left open by an earlier run (one that had to ask the user) holds
+    // the file: the new download could not replace it ("拒绝访问").
+    if target
+        .file_name()
+        .is_some_and(|name| image_is_running(&name.to_string_lossy()))
+    {
+        return Err(format!(
+            "{} 的安装程序已经在运行，请在已打开的安装窗口中完成安装（或关闭它）后再试",
+            spec.desktop.name
+        ));
+    }
     drop_timestamped_leftovers(spec.id);
     let proxy = crate::agents::net::stacker_proxy();
     if let Some(proxy) = &proxy {
