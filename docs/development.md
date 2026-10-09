@@ -14,8 +14,11 @@
 | 编程生态与安装 | `src/pages/*`、`src/VersionManager.tsx` | `installer.rs`、`versions.rs`、各生态模块 | 发现、安装、切换和验证运行时及构建工具 |
 | 依赖存储位置 | `src/StorageLocations.tsx` | `storage.rs`、`storage/maven.rs` | 管理 Maven、Gradle、npm、pnpm、pip、Composer、Go、Cargo、rustup 存储位置 |
 | 智能体管理 · 安装更新 | `src/pages/Agents.tsx`、`src/features/agents`、`src/features/agent-tasks` | `agents/` | 注册表（`agents/registry.rs` 是智能体的唯一数据源）、健康检查、安装更新卸载修复、后台任务、一键更新 |
-| 智能体管理 · 会话数据 | `src/pages/AgentData.tsx`、`src/features/sessions` | `sessions/` | 读取 Codex、Claude 会话元数据，项目归类，收藏，精简导出与批量删除 |
-| 磁盘分析 | `src/features/space-analysis` | `space_analysis/` | 后台扫描、项目识别、空间变化、清理计划和提权执行 |
+| 智能体管理 · 会话数据 | `src/pages/AgentData.tsx`、`src/features/sessions` | `sessions/`、`webchat/`、`distill/` | 读取 Codex、Claude、CodeBuddy、WorkBuddy、Qoder、Kimi、MiMo 及桌面端自带的会话；项目归类、收藏、摘要与交接、精简导出、批量删除、跨电脑迁移、占用统计与数据目录迁移；网页对话与知识提炼 |
+| 智能体管理 · 接口服务 | `src/pages/Gateway.tsx`、`src/pages/GatewayLogPage.tsx`、`src/features/gateway` | `gateway/`、`runner/` | 把已登录的智能体 CLI 以 OpenAI / Anthropic 风格接口提供给本机（可选局域网），见 [gateway.md](gateway.md) |
+| 密钥保管 | `src/pages/Vault.tsx`、`src/features/vault` | `vault/` | 本机加密保管库（Argon2id + XChaCha20-Poly1305），恢复密钥、凭据管理器同步、SSH 密钥放置，配合浏览器插件保存网站密码 |
+| Stacker AI | `src/features/ai` | `ai_config.rs`、`ai_features.rs` | 全局 AI 来源与推理强度；各页面的 AI 诊断、搜索与解释 |
+| 磁盘清理 | `src/pages/Cleanup.tsx`、`src/features/space-analysis` | `space_analysis/`、`cleanup.rs`、`project_junk.rs` | 后台扫描、磁盘占用图、项目识别、大文件与重复文件、文件压缩、空间变化、清理计划、清理历史和提权执行 |
 | 代理、源与设置 | `src/pages/Proxy.tsx`、`src/pages/Settings.tsx` | `proxy.rs`、`sources.rs`、`settings.rs` | 只管理明确选择的终端和开发工具配置，不检测或配置 TUN/VPN |
 | 桌面生命周期 | `src/App.tsx`、`src/main.tsx` | `lib.rs`、`logging.rs` | 单实例、窗口恢复、托盘、首次关闭选择、统一日志和错误边界 |
 
@@ -120,8 +123,11 @@ gh release create v0.3.4 (Get-ChildItem release\v0.3.4 -File | ForEach-Object Fu
 - 智能体厂商的安装入口、注册表名称和版本源会变化，产品检测需要持续用真实安装样本回归。
 - 智能体安装、更新、卸载、修复已作为后台任务并行执行（`agents/tasks`），有一键更新与完成提示；其他生态页面的安装仍使用单任务弹窗。
 - 新增或调整智能体只改 `agents/registry.rs`：产品、共享 CLI、版本、图标、进程特征和数据目录都在这里登记。
-- WorkBuddy 中国版 / 国际版官网没有可静默安装的稳定直链，桌面端只提供官网下载；两版共用 CodeBuddy CLI。
-- 会话摘要当前使用用户明确配置并批准的兼容接口。直接选择本机已安装智能体执行摘要尚未实现，也不能读取其他智能体的登录凭据。
+- WorkBuddy 中国版 / 国际版共用 CodeBuddy CLI。
+- 不能完全无人值守的安装：Qoder 桌面端安装器拒绝静默安装，会自动改为弹出安装窗口；Hermes 桌面端没有静默模式，需要点 Install，克隆与本地构建约 40 分钟（窗口安装的时限为 60 分钟）；Kiro CLI 与 OpenClaw 桌面端（VC++ 运行库）需要 UAC 授权。
+- MiniMax Code 国际版桌面端只在 Microsoft Store 发布，Windows 区域为中国时商店不提供，会提示改区域或从官网安装。
+- 很多安装包来自 GitHub Release（`release-assets.githubusercontent.com`），下载速度取决于代理软件对该域名的分流；Stacker 不做国内地址绕行，这属于代理软件的职责。
+- 会话摘要可以使用用户配置的兼容接口，也可以无状态地调用本机已登录的智能体 CLI；Stacker 不读取、不复制任何智能体的登录凭据。
 - Claude 来源目前按已识别的本地记录只读处理；云端账号间迁移、厂商私有项目结构和完整原生删除语义不在当前能力范围。
 - Stacker 可以导出会话、摘要和项目路径作为可阅读交接资料，但不能把一个厂商账号的云端会话无损写入另一个账号或另一个厂商。
 - 正式发布前仍需在真实 Windows 桌面完成多 DPI、多显示器、断网、代理切换、休眠恢复、安装失败和升级回滚验收。
