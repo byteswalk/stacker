@@ -1,5 +1,8 @@
 param(
-    [switch]$SkipChecks
+    [switch]$SkipChecks,
+    # The build's number, e.g. r74: shown next to the version in the app (`v0.3.4 (r74)`) and
+    # used for the output folder (release\v0.3.4-r74), so builds of one version tell apart.
+    [string]$Revision = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -57,7 +60,14 @@ if (-not $SkipChecks) {
 }
 
 Invoke-Checked "Browser extension build" { & npm.cmd run ext:build }
-Invoke-Checked "Windows release build" { & npm.cmd run tauri -- build --config src-tauri/tauri.bundle.conf.json }
+if ($Revision -and $Revision -notmatch '^r\d+$') { throw "Revision must look like r74, got: $Revision" }
+# Vite reads VITE_* variables at build time into the frontend.
+$env:VITE_STACKER_REVISION = $Revision
+try {
+    Invoke-Checked "Windows release build" { & npm.cmd run tauri -- build --config src-tauri/tauri.bundle.conf.json }
+} finally {
+    Remove-Item Env:VITE_STACKER_REVISION -ErrorAction SilentlyContinue
+}
 
 $ReleaseExe = Join-Path $Root "src-tauri\target\release\stacker.exe"
 $NsisSource = Join-Path $Root "src-tauri\target\release\bundle\nsis\Stacker_${Version}_x64-setup.exe"
@@ -68,7 +78,7 @@ $BundledExtension = Join-Path $Root "src-tauri\target\release\extension"
 if (-not (Test-Path (Join-Path $BundledExtension "manifest.json"))) { throw "Browser extension was not bundled: $BundledExtension" }
 if (-not (Test-Path (Join-Path $BundledExtension "chunks"))) { throw "Browser extension subfolders were not bundled: $BundledExtension" }
 
-$Output = Join-Path $Root "release\v$Version"
+$Output = Join-Path $Root ("release\v$Version" + $(if ($Revision) { "-$Revision" } else { "" }))
 $PortableStage = Join-Path $Output "portable"
 if (Test-Path $Output) { Remove-Item $Output -Recurse -Force }
 New-Item $PortableStage -ItemType Directory -Force | Out-Null

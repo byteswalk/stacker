@@ -3,6 +3,7 @@ import { invoke, reportFrontendError, reportFrontendWarning } from "./invoke";
 import { collectFrontendSettings, restoreFrontendSettings, type FrontendSettings } from "./frontendSettings";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { getVersion } from "@tauri-apps/api/app";
+import { versionLabel } from "./buildLabel";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ToastProvider, ToastHost, useToast, Modal, ConfirmModal, BusyProvider, BusyHost, BackToTop } from "./ui";
@@ -424,7 +425,7 @@ function Shell() {
               </svg>
             </span>}
           <span className="brand-text">Stacker</span>
-          {appVersion && <span className="brand-version" title={`Stacker v${appVersion}`}>v{appVersion}</span>}
+          {appVersion && <span className="brand-version" title={`Stacker v${versionLabel(appVersion)}`}>v{versionLabel(appVersion)}</span>}
         </div>
         <nav>
           {NAV_SECTIONS.map((section, index) => (

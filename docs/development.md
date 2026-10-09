@@ -60,7 +60,7 @@ cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 
 ## 构建、发布与清理
 
-`npm run release:windows` 会校验版本元数据和国际化、执行前后端测试与 Clippy，并生成安装版、便携 ZIP 和 `SHA256SUMS.txt`。正式发布前必须同步更新 `package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json`、`resources/latest.json`，再将同一提交、标签、说明、资产和校验文件发布到 GitHub 与 Gitee。
+`npm run release:windows` 会校验版本元数据和国际化、执行前后端测试与 Clippy，并生成安装版、便携 ZIP 和 `SHA256SUMS.txt`。内部测试包加轮次号：`npm run release:windows -- -Revision r74`，界面版本号显示为 `v0.3.4 (r74)`，产物放在 `release/v0.3.4-r74/`，同一版本号的多轮构建就能分清；不加则显示纯版本号（从源码运行时显示 `(dev)`）。正式发布前必须同步更新 `package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json`、`resources/latest.json`，再将同一提交、标签、说明、资产和校验文件发布到 GitHub 与 Gitee。
 
 ### 更新包校验与签名（必须）
 

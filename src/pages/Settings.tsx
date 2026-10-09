@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AiSettings } from "../features/ai/AiSettings";
 import { WingetDownloader } from "../features/agents/WingetDownloader";
 import { getVersion } from "@tauri-apps/api/app";
+import { versionLabel } from "../buildLabel";
 import { invoke } from "../invoke";
 import { enable as autostartEnable, disable as autostartDisable, isEnabled as autostartIsEnabled } from "@tauri-apps/plugin-autostart";
 import { ConfirmModal, Modal, useBusy, useBusyRead, useToast } from "../ui";
@@ -604,7 +605,7 @@ export default function Settings() {
       <div className="grouphd" style={{ marginTop: 18 }}><span className="gt"><i className="ti ti-info-circle" /> {tr("关于")}</span></div>
       <div className="srcrow">
         <span className="av st"><i className="ti ti-hexagon-letter-s" /></span>
-        <div className="mt"><div className="t">Stacker {appVersion} <span className="bd n">{tr("开源 · 无遥测")}</span>{activeAppUpdate && <span className="bd r">{tr("发现新版本")} v{activeAppUpdate.latest}</span>}</div>
+        <div className="mt"><div className="t">Stacker {versionLabel(appVersion)} <span className="bd n">{tr("开源 · 无遥测")}</span>{activeAppUpdate && <span className="bd r">{tr("发现新版本")} v{activeAppUpdate.latest}</span>}</div>
           <div className="s dim" title={tr("Windows 开发工作站管理器：统一管理运行时、AI 智能体、Git 账号、网络源与开发磁盘空间。")}>{tr("Windows 开发工作站管理器")} · github.com/byteswalk/stacker</div></div>
         <button className="gh sm" onClick={() => openUrl("https://github.com/byteswalk/stacker")}>
           <i className="ti ti-brand-github" /> GitHub</button>
