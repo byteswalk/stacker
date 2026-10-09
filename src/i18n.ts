@@ -1291,6 +1291,8 @@ Object.assign(CURATED_EN, {
   "锁定密钥保管": "Lock the key vault",
   "密钥保管已锁定": "Key vault is locked",
   "前往": "Go to",
+  "已隐去": "hidden",
+  "（备注里像密钥的内容已隐去）": "(What looked like a secret in the note was hidden)",
   "读取 Path 失败，未做修改：{e}": "Could not read Path; nothing was changed: {e}",
   "压缩完成，省出 {size}；原文件在回收站，清空回收站后才真正释放": "Compression done, {size} saved; the originals are in the Recycle Bin, and the space is freed once it is emptied",
   "这个目录里还有其他项目，不能整个删除": "This folder holds other projects, so it cannot be removed whole",

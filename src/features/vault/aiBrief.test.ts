@@ -54,5 +54,22 @@ describe("the text handed to an AI", () => {
     expect(text).toContain("Base URL: https://ark.example/v1");
     expect(text).toContain("备注: 绑定 work 邮箱");
     expect(text).not.toContain("套餐");
+    expect(text).not.toContain("已隐去");
+  });
+
+  it("hides what looks like a secret in the note, which people paste whole commands into", () => {
+    // A made-up token of the usual shape.
+    const token = "cfat_" + "0000Fake1111Token2222Shape3333Only4444Test";
+    const entry: EntryView = {
+      ...ssh, kind: "api_key", title: "R2", platform: "Cloudflare R2", ssh: null, expiresAt: null, fields: [],
+      note: `curl -X GET "https://api.example.com/v4/tokens/verify" -H "Authorization: Bearer ${token}"\napi_key=sk-abc123def456ghi789jkl012mno\n10G 免费`,
+    };
+    const text = aiBrief(entry, null, same);
+    expect(text).not.toContain(token);
+    expect(text).not.toContain("sk-abc123def456ghi789jkl012mno");
+    expect(text).toContain("Authorization: Bearer <已隐去>");
+    expect(text).toContain("api_key=<已隐去>");
+    expect(text).toContain("10G 免费");
+    expect(text).toContain("（备注里像密钥的内容已隐去）");
   });
 });

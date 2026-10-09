@@ -14,6 +14,21 @@ export function credentialCommand(target: string): string {
   return `$a=Add-Type -Name Cred -Namespace StackerWin -PassThru -MemberDefinition '[DllImport("advapi32.dll",CharSet=CharSet.Unicode,SetLastError=true)]public static extern bool CredReadW(string target,int type,int flags,out IntPtr cred);[DllImport("advapi32.dll")]public static extern void CredFree(IntPtr cred);'; $p=[IntPtr]::Zero; if($a::CredReadW('${name}',1,0,[ref]$p)){ $m=[Runtime.InteropServices.Marshal]; $secret=$m::PtrToStringUni($m::ReadIntPtr($p,40),$m::ReadInt32($p,32)/2); $a::CredFree($p) }`;
 }
 
+/**
+ * A note as it may go to an AI. A note is the user's free text, and people paste whole
+ * commands into it (a curl with its `Authorization: Bearer …`): what looks like a secret is
+ * hidden, so the brief keeps its promise that no secret value is in it.
+ */
+export function redactNote(note: string, hidden: string): { text: string; redacted: boolean } {
+  const mark = `<${hidden}>`;
+  const text = note
+    .replace(/(\bBearer\s+)[^\s"'\\]+/gi, `$1${mark}`)
+    .replace(/(\b(?:api[_-]?key|access[_-]?key|secret(?:[_-]?key)?|private[_-]?key|token|password|passwd|pwd|authorization)\s*[:=]\s*["']?)(?!<|Bearer\b|Basic\b)[^\s"',;]+/gi, `$1${mark}`)
+    // Long random-looking runs: keys, tokens, account ids.
+    .replace(/\b(?=[A-Za-z0-9_-]*\d)(?=[A-Za-z0-9_-]*[A-Za-z])[A-Za-z0-9_-]{24,}\b/g, mark);
+  return { text, redacted: text !== note };
+}
+
 /** `user@host` and its port, for a command line; empty when the entry does not say. */
 function sshTarget(entry: EntryView): { target: string; port: string } {
   const { user, host, port } = parseTarget(firstServer(entry));
@@ -63,7 +78,11 @@ export function aiBrief(entry: EntryView, local: SshLocal | null, tr: Tr, holder
   }
   if (entry.expiresAt) lines.push(`${tr("到期")}: ${entry.expiresAt}`);
   if (entry.tags.length) lines.push(`${tr("标签")}: ${entry.tags.join(", ")}`);
-  if (entry.note.trim()) lines.push(`${tr("备注")}: ${entry.note.trim()}`);
+  if (entry.note.trim()) {
+    const note = redactNote(entry.note.trim(), tr("已隐去"));
+    lines.push(`${tr("备注")}: ${note.text}`);
+    if (note.redacted) lines.push(tr("（备注里像密钥的内容已隐去）"));
+  }
   if (entry.kind !== "ssh_key" && credentials.length) {
     lines.push(`${tr("取值命令（PowerShell，把值读进变量 $secret；换别的凭据只改命令里的凭据名）")}:`);
     lines.push(credentialCommand(credentials[0].target));
