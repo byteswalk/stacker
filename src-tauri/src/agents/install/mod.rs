@@ -837,6 +837,11 @@ pub(crate) fn uninstall_desktop_tool(
                 spec.desktop.name
             ));
         }
+        // `--gui` removes the app but leaves its Desktop and Start menu shortcuts behind,
+        // pointing at nothing.
+        if let Some(exe) = found.as_ref().and_then(|f| f.path.as_deref()) {
+            remove_dangling_shortcuts(exe, "hermes");
+        }
         return Ok(format!(
             "{} 已卸载，Hermes CLI 和用户数据保留",
             spec.desktop.name
@@ -1156,6 +1161,48 @@ fn is_nsis_program(program: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// Removes the user's Desktop and Start menu shortcuts (named with `name`) that start `exe`,
+/// once `exe` is gone. A shortcut to anything else, or to a program still there, stays.
+fn remove_dangling_shortcuts(exe: &Path, name: &str) {
+    let mut roots: Vec<PathBuf> = super::detect::start_menu_roots();
+    roots.extend(dirs::desktop_dir());
+    remove_dangling_shortcuts_in(roots, exe, name);
+}
+
+fn remove_dangling_shortcuts_in(roots: Vec<PathBuf>, exe: &Path, name: &str) {
+    if exe.exists() {
+        return;
+    }
+    let wanted = exe.to_string_lossy().to_lowercase();
+    let mut stack: Vec<(PathBuf, usize)> = roots.into_iter().map(|root| (root, 0)).collect();
+    while let Some((dir, depth)) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
+            if kind.is_dir() {
+                if depth < 3 {
+                    stack.push((path, depth + 1));
+                }
+                continue;
+            }
+            let file = entry.file_name().to_string_lossy().to_lowercase();
+            if !file.ends_with(".lnk") || !file.contains(name) {
+                continue;
+            }
+            let points_there = super::detect::shortcut_target(&path)
+                .is_some_and(|target| target.to_string_lossy().to_lowercase() == wanted);
+            if points_there {
+                let _ = std::fs::remove_file(&path);
+            }
+        }
+    }
+}
+
 /// A Squirrel app's own uninstall command, for one whose registry entry is missing (Factory's
 /// was, after its install was cut short): `Update.exe` beside the `app-<version>` folders.
 fn squirrel_uninstall(path: &Path) -> Option<String> {
@@ -1331,6 +1378,37 @@ pub(crate) fn image_is_running(image: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(windows)]
+    #[test]
+    fn only_a_shortcut_to_the_removed_program_goes() {
+        let dir = std::env::temp_dir().join(format!("stacker-lnk-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let gone = dir.join("gone").join("Hermes.exe");
+        let make = |lnk: &Path, target: &str| {
+            let script = format!(
+                "$s=(New-Object -ComObject WScript.Shell).CreateShortcut('{}'); $s.TargetPath='{}'; $s.Save()",
+                lnk.display(),
+                target
+            );
+            let status = std::process::Command::new("powershell.exe")
+                .args(["-NoProfile", "-Command", &script])
+                .status()
+                .unwrap();
+            assert!(status.success());
+        };
+        make(&dir.join("Hermes.lnk"), &gone.to_string_lossy());
+        let notepad = r"C:\Windows\System32\notepad.exe";
+        make(&dir.join("Hermes Notes.lnk"), notepad);
+        remove_dangling_shortcuts_in(vec![dir.clone()], &gone, "hermes");
+        assert!(!dir.join("Hermes.lnk").exists(), "the dangling one goes");
+        assert!(
+            dir.join("Hermes Notes.lnk").exists(),
+            "one to a program that is there stays"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn the_hermes_checkout_left_behind_is_removed_read_only_files_and_all() {
         let home = std::env::temp_dir().join(format!("stacker-hermes-{}", std::process::id()));

@@ -1049,7 +1049,7 @@ pub(crate) fn desktop_start_menu_shortcut(spec: &DesktopSpec) -> Option<DesktopF
 
 /// The program a `.lnk` shortcut starts.
 #[cfg(windows)]
-fn shortcut_target(shortcut: &Path) -> Option<PathBuf> {
+pub(crate) fn shortcut_target(shortcut: &Path) -> Option<PathBuf> {
     let path = ps_single_quoted(&shortcut.to_string_lossy());
     let script = format!(
         "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; (New-Object -ComObject WScript.Shell).CreateShortcut({path}).TargetPath"
@@ -1071,7 +1071,7 @@ fn shortcut_target(shortcut: &Path) -> Option<PathBuf> {
 }
 
 #[cfg(not(windows))]
-fn shortcut_target(_: &Path) -> Option<PathBuf> {
+pub(crate) fn shortcut_target(_: &Path) -> Option<PathBuf> {
     None
 }
 
