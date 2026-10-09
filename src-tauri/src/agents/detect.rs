@@ -329,8 +329,12 @@ pub(crate) fn detect_install_method(spec: &ToolSpec, program: Option<&Path>) -> 
     {
         return Some("native".into());
     }
+    // The official installer puts its command folder under `Programs\OpenAI\Codex\bin`, a
+    // junction into `.codex\packages\standalone`.
     if spec.vendor == Vendor::Codex
-        && (p.contains("\\.codex\\") || p.contains("\\.local\\bin\\codex"))
+        && (p.contains("\\.codex\\")
+            || p.contains("\\.local\\bin\\codex")
+            || p.contains("\\programs\\openai\\codex\\bin\\"))
     {
         return Some("native".into());
     }

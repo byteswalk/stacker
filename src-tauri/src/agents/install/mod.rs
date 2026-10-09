@@ -348,6 +348,14 @@ pub(crate) fn uninstall_cli_tool(
                 other => Err(format!("Kiro CLI 卸载程序退出代码 {other}")),
             }
         }
+        Some("native")
+            if spec.vendor == Vendor::Codex
+                && program.as_deref().is_some_and(is_codex_standalone) =>
+        {
+            emit_progress(window, "正在移除 Codex CLI 的命令入口和程序文件…");
+            remove_codex_standalone()?;
+            Ok("Codex CLI 已卸载，登录配置和历史数据（.codex）已保留。".into())
+        }
         Some("native") => {
             let program = program.ok_or_else(|| "未找到可卸载的命令入口。".to_string())?;
             remove_cli_binary(&program, spec.cli.command)?;
@@ -361,6 +369,62 @@ pub(crate) fn uninstall_cli_tool(
             spec.cli.name
         )),
     }
+}
+
+/// A Codex CLI from the official installer (`chatgpt.com/codex/install.ps1`).
+fn is_codex_standalone(program: &Path) -> bool {
+    let p = program.to_string_lossy().replace('/', "\\").to_lowercase();
+    p.contains("\\programs\\openai\\codex\\bin\\") || p.contains("\\packages\\standalone\\")
+}
+
+/// The official installer's layout: the command folder `%LOCALAPPDATA%\Programs\OpenAI\Codex
+/// \bin`, on the user PATH, is a junction into `%CODEX_HOME%\packages\standalone\current\bin`,
+/// which holds every release it downloaded. The rest of `.codex` is the user's: kept.
+fn remove_codex_standalone() -> Result<(), String> {
+    let local = std::env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .ok_or("无法定位 LOCALAPPDATA 目录")?;
+    let programs = local.join("Programs").join("OpenAI");
+    let bin = programs.join("Codex").join("bin");
+    let home = std::env::var_os("CODEX_HOME")
+        .map(PathBuf::from)
+        .or_else(|| dirs::home_dir().map(|home| home.join(".codex")))
+        .ok_or("无法定位 Codex 目录")?;
+    let standalone = home.join("packages").join("standalone");
+    if let Ok(meta) = std::fs::symlink_metadata(&bin) {
+        if !is_reparse_point(&meta) {
+            return Err(format!(
+                "{} 不是官方安装器创建的目录链接，为避免误删文件已取消卸载",
+                bin.display()
+            ));
+        }
+        // On a junction, remove_dir removes the link and never what it points to.
+        std::fs::remove_dir(&bin).map_err(|e| format!("移除 Codex 命令目录失败：{e}"))?;
+    }
+    // Each only once empty.
+    let _ = std::fs::remove_dir(programs.join("Codex"));
+    let _ = std::fs::remove_dir(&programs);
+    let _ = crate::winenv::remove_path_in(crate::winenv::Hive::User, &bin.to_string_lossy());
+    crate::winenv::broadcast_change();
+    match std::fs::remove_dir_all(&standalone) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!(
+            "codex 命令已移除，但程序文件 {} 没能删干净（可能还有 Codex 在运行）：{e}",
+            standalone.display()
+        )),
+    }
+}
+
+#[cfg(windows)]
+fn is_reparse_point(meta: &std::fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    meta.file_attributes() & 0x400 != 0
+}
+
+#[cfg(not(windows))]
+fn is_reparse_point(meta: &std::fs::Metadata) -> bool {
+    meta.file_type().is_symlink()
 }
 
 /// Qoder's `qoder` dispatcher, once the CLI is gone: removed with its PATH entry unless the
@@ -1160,6 +1224,27 @@ pub(crate) fn image_is_running(image: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_self_updated_portable_package_is_recognised() {
+        assert!(super::winget::portable_modified(
+            "Unable to remove Portable package as it has been modified; to override this check use --force"
+        ));
+        assert!(!super::winget::portable_modified("Successfully installed"));
+    }
+
+    #[test]
+    fn the_official_codex_install_is_told_apart() {
+        assert!(is_codex_standalone(Path::new(
+            r"C:\Users\u\AppData\Local\Programs\OpenAI\Codex\bin\codex.exe"
+        )));
+        assert!(is_codex_standalone(Path::new(
+            r"C:\Users\u\.codex\packages\standalone\current\bin\codex.exe"
+        )));
+        assert!(!is_codex_standalone(Path::new(
+            r"C:\Users\u\AppData\Roaming\npm\codex.cmd"
+        )));
+    }
+
     #[test]
     fn an_nsis_uninstaller_is_run_silently() {
         let dir = std::env::temp_dir().join(format!("stacker nsis {}", std::process::id()));

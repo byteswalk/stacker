@@ -198,7 +198,7 @@ pub(crate) fn install_or_update_antigravity_cli(
     action: &str,
 ) -> Result<String, String> {
     emit_progress(window, format!("正在通过官方脚本{action} Antigravity CLI…"));
-    run_powershell_streamed(
+    let output = run_powershell_streamed(
         &[
             "-NoProfile",
             "-ExecutionPolicy",
@@ -210,6 +210,17 @@ pub(crate) fn install_or_update_antigravity_cli(
         Duration::from_secs(900),
         window,
     )?;
+    // The script installs through WinGet and exits 0 even when WinGet refused to replace a
+    // copy that updated itself; the old version stayed.
+    if super::winget::portable_modified(&output) {
+        emit_progress(
+            window,
+            "WinGet 拒绝替换已自行更新过的 Antigravity CLI，正在强制重新安装…",
+        );
+        let mut args = super::winget::winget_args("install", "Google.AntigravityCLI", None, true);
+        args.push("--force".into());
+        super::winget::run_winget_owned(args, Duration::from_secs(900), window)?;
+    }
     Ok(format!("Antigravity CLI 已{action}"))
 }
 

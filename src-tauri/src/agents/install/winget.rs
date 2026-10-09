@@ -123,8 +123,23 @@ pub(crate) fn run_winget_owned(
         Err(error) if refs.first() == Some(&"upgrade") && winget_found_no_upgrade(&error) => {
             Ok("已是最新版本".into())
         }
+        // A portable package whose files changed since WinGet put them there (a CLI that
+        // updated itself, as Antigravity's did) is neither removed nor replaced without
+        // --force, which WinGet itself names; the user asked for exactly that change.
+        Err(error) if portable_modified(&error) && !args.iter().any(|arg| arg == "--force") => {
+            let mut forced = args.clone();
+            forced.push("--force".into());
+            run_winget_owned(forced, timeout, window)
+        }
         other => other,
     }
+}
+
+/// WinGet refusing to touch a portable package that has been modified, in English or Chinese.
+pub(crate) fn portable_modified(text: &str) -> bool {
+    let text = text.to_lowercase();
+    (text.contains("portable package") && text.contains("modified"))
+        || (text.contains("可移植") && text.contains("修改"))
 }
 
 /// WinGet's "nothing to upgrade" message, in English or Chinese.
