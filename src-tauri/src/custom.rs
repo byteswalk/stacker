@@ -300,11 +300,19 @@ fn npmrc_set(key: &str, value: &str) -> Result<(), String> {
     std::fs::write(&p, out).map_err(|e| e.to_string())
 }
 
-/// 把 user:pass 凭据嵌进 URL 的 scheme 之后（用于 pip / go）。
-fn embed_creds(url: &str, creds: &str) -> String {
-    if creds.is_empty() {
+/// 把 user:pass 凭据嵌进 URL 的 scheme 之后（用于 pip / go）。用户名和密码各自百分号编码：
+/// 密码里的 `@ : /` 不编码会把 URL 拆错。
+fn embed_creds(url: &str, username: &str, password: &str) -> String {
+    use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
+    if username.is_empty() && password.is_empty() {
         return url.to_string();
     }
+    let encode = |part: &str| utf8_percent_encode(part, NON_ALPHANUMERIC).to_string();
+    let creds = if username.is_empty() {
+        encode(password)
+    } else {
+        format!("{}:{}", encode(username), encode(password))
+    };
     for scheme in ["sparse+https://", "sparse+http://", "https://", "http://"] {
         if let Some(rest) = url.strip_prefix(scheme) {
             return format!("{scheme}{creds}@{rest}");
@@ -368,13 +376,8 @@ pub fn apply_auth(handler: &str, mirror: &sources::Mirror) -> Result<(), String>
         }
         "go_env" => {
             // 凭据嵌进 GOPROXY（Go 支持 https://user:pass@host）
-            let creds = if c.username.is_empty() {
-                pass.clone()
-            } else {
-                format!("{}:{}", c.username, pass)
-            };
             backup::backup_env(winenv::Hive::User, "go-source", &["GOPROXY"]);
-            winenv::set_user("GOPROXY", &embed_creds(&c.url, &creds))
+            winenv::set_user("GOPROXY", &embed_creds(&c.url, &c.username, &pass))
         }
         "maven_settings" => {
             // 覆盖 settings.xml：mirror + 同 id 的 server 凭据
@@ -489,5 +492,22 @@ gradle.projectsLoaded {{ gradle ->\n\
         }
         // go/cargo/maven/gradle 私有源的鉴权格式各异，暂仅 URL（待确认后再接）
         _ => Ok(()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn credentials_are_encoded_into_the_url() {
+        assert_eq!(
+            embed_creds("https://proxy.example/go", "me@corp", "p@ss:w/rd"),
+            "https://me%40corp:p%40ss%3Aw%2Frd@proxy.example/go"
+        );
+        assert_eq!(
+            embed_creds("https://proxy.example", "", ""),
+            "https://proxy.example"
+        );
     }
 }

@@ -51,19 +51,26 @@ impl Default for GatewayConfig {
     }
 }
 
+/// 32 bytes from the system's secure random source, as hex. (A hash of the clock is not a
+/// secret; this key is all that stands between the LAN and the user's agent accounts.)
 fn new_token() -> String {
-    use std::hash::{BuildHasher, Hasher};
-    let part = || {
-        let mut h = std::collections::hash_map::RandomState::new().build_hasher();
-        h.write_u128(
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0),
-        );
-        h.finish()
-    };
-    format!("sk-stacker-{:016x}{:016x}", part(), part())
+    let mut bytes = [0u8; 32];
+    if getrandom::getrandom(&mut bytes).is_err() {
+        // No secure randomness: a key nobody can guess is better than a weak one.
+        use std::hash::{BuildHasher, Hasher};
+        for chunk in bytes.chunks_mut(8) {
+            let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+            h.write_u128(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_nanos())
+                    .unwrap_or(0),
+            );
+            chunk.copy_from_slice(&h.finish().to_le_bytes()[..chunk.len()]);
+        }
+    }
+    let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    format!("sk-stacker-{hex}")
 }
 
 pub(crate) fn load() -> GatewayConfig {

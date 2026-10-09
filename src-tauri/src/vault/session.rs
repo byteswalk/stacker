@@ -255,7 +255,7 @@ impl Vault {
             return Ok(0);
         }
         let captured: Vec<_> = items.iter().map(|(_, item)| item.clone()).collect();
-        self.mutate(|body| {
+        self.mutate_as(false, |body| {
             let found = super::logins::changes(body, &captured);
             super::logins::apply(body, found, now_ms())
         })?;
@@ -806,18 +806,39 @@ impl Vault {
         &self,
         f: impl FnOnce(&mut Open) -> Result<T, String>,
     ) -> Result<T, String> {
+        self.with_unlocked_as(true, f)
+    }
+
+    /// `user`: whether this is the user at work. Background work (the inbox the browser
+    /// extension fills, a scan's status polled every few seconds) must not count as activity,
+    /// or an unattended open vault never locks when idle.
+    fn with_unlocked_as<T>(
+        &self,
+        user: bool,
+        f: impl FnOnce(&mut Open) -> Result<T, String>,
+    ) -> Result<T, String> {
         let mut inner = self.inner();
-        inner.last_activity = Instant::now();
+        if user {
+            inner.last_activity = Instant::now();
+        }
         match &mut inner.phase {
             Phase::Unlocked(open) => f(open),
             _ => Err(LOCKED.into()),
         }
     }
 
+    fn mutate<T>(&self, f: impl FnOnce(&mut Body) -> Result<T, String>) -> Result<T, String> {
+        self.mutate_as(true, f)
+    }
+
     /// Changes a copy, saves it, and only then swaps it in, so a failed save leaves memory
     /// and disk agreeing.
-    fn mutate<T>(&self, f: impl FnOnce(&mut Body) -> Result<T, String>) -> Result<T, String> {
-        self.with_unlocked(|open| {
+    fn mutate_as<T>(
+        &self,
+        user: bool,
+        f: impl FnOnce(&mut Body) -> Result<T, String>,
+    ) -> Result<T, String> {
+        self.with_unlocked_as(user, |open| {
             let mut next = open.body.clone();
             let out = match f(&mut next) {
                 Ok(out) => out,
@@ -1038,7 +1059,7 @@ impl Vault {
     }
 
     pub(crate) fn digest_sets(&self) -> Result<Digests, String> {
-        self.with_unlocked(|open| Ok(model::digests(&open.body)))
+        self.with_unlocked_as(false, |open| Ok(model::digests(&open.body)))
     }
 
     pub(crate) fn add_entries(&self, inputs: Vec<EntryInput>) -> Result<usize, String> {

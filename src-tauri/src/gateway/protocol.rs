@@ -7,6 +7,9 @@ use std::time::Duration;
 
 /// Largest single image or document, decoded or downloaded.
 pub const MAX_ATTACHMENT: usize = 20 * 1024 * 1024;
+/// Attachments (and downloads) one request may carry: a body full of URLs to large files
+/// would otherwise be fetched and held in memory one after another.
+pub const MAX_ATTACHMENTS: usize = 20;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ModelSpec {
@@ -89,9 +92,20 @@ pub type Fetch<'a> = &'a dyn Fn(&str) -> Result<(String, Vec<u8>), ApiError>;
 /// Downloads an image or document URL a request names, capped at `MAX_ATTACHMENT`.
 pub fn download(url: &str) -> Result<(String, Vec<u8>), ApiError> {
     use std::io::Read;
+    // Only the public internet: a caller with the key must not make the gateway read this
+    // machine's or the LAN's own services (a proxy's controller, a router page) and get them
+    // back through the model.
+    if !public_host(url) {
+        return Err(invalid(
+            "Attachment URLs must point to a public internet address.",
+        ));
+    }
+    let failed = || invalid(format!("Could not download {url}."));
     let mut builder = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(10))
-        .timeout(Duration::from_secs(60));
+        .timeout(Duration::from_secs(60))
+        // A redirect could lead from a public address to a private one.
+        .redirects(0);
     if let Some(proxy) = crate::agents::net::stacker_proxy() {
         if let Ok(proxy) = ureq::Proxy::new(&proxy) {
             builder = builder.proxy(proxy);
@@ -102,7 +116,11 @@ pub fn download(url: &str) -> Result<(String, Vec<u8>), ApiError> {
         .get(url)
         .set("User-Agent", "Stacker")
         .call()
-        .map_err(|e| invalid(format!("Could not download {url}: {e}")))?;
+        // No reason given: refused, timed out and HTTP errors told apart are a port scan.
+        .map_err(|_| failed())?;
+    if !(200..300).contains(&response.status()) {
+        return Err(failed());
+    }
     let too_large = || {
         invalid(format!(
             "{url} is larger than {} MB.",
@@ -121,11 +139,85 @@ pub fn download(url: &str) -> Result<(String, Vec<u8>), ApiError> {
         .into_reader()
         .take(MAX_ATTACHMENT as u64 + 1)
         .read_to_end(&mut body)
-        .map_err(|e| invalid(format!("Could not download {url}: {e}")))?;
+        .map_err(|_| failed())?;
     if body.len() > MAX_ATTACHMENT {
         return Err(too_large());
     }
     Ok((content_type, body))
+}
+
+/// Whether every address the URL's host resolves to is a public one.
+fn public_host(url: &str) -> bool {
+    use std::net::{IpAddr, ToSocketAddrs};
+    let Some(rest) = url.split_once("://").map(|(_, rest)| rest) else {
+        return false;
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let host_port = authority.rsplit('@').next().unwrap_or_default();
+    let (host, port) = if let Some(v6) = host_port.strip_prefix('[') {
+        let Some((host, after)) = v6.split_once(']') else {
+            return false;
+        };
+        (
+            host.to_string(),
+            after.strip_prefix(':').and_then(|p| p.parse().ok()),
+        )
+    } else {
+        match host_port.rsplit_once(':') {
+            Some((host, port)) => (host.to_string(), port.parse().ok()),
+            None => (host_port.to_string(), None),
+        }
+    };
+    let port = port.unwrap_or(if url.to_ascii_lowercase().starts_with("https") {
+        443
+    } else {
+        80
+    });
+    let Ok(addresses) = (host.as_str(), port).to_socket_addrs() else {
+        return false;
+    };
+    let public = |ip: IpAddr| match ip {
+        IpAddr::V4(v4) => {
+            !(v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.is_unspecified()
+                || v4.is_broadcast()
+                || v4.is_documentation()
+                || v4.octets()[0] == 100 && (64..128).contains(&v4.octets()[1])
+                || v4.octets()[0] == 0)
+        }
+        IpAddr::V6(v6) => {
+            let first = v6.segments()[0];
+            !(v6.is_loopback()
+                || v6.is_unspecified()
+                || (first & 0xfe00) == 0xfc00
+                || (first & 0xffc0) == 0xfe80
+                || v6.to_ipv4_mapped().is_some_and(|v4| !v4.is_global_like()))
+        }
+    };
+    let mut any = false;
+    for address in addresses {
+        any = true;
+        if !public(address.ip()) {
+            return false;
+        }
+    }
+    any
+}
+
+/// The IPv4 checks above, for an address mapped into IPv6.
+trait GlobalLike {
+    fn is_global_like(&self) -> bool;
+}
+impl GlobalLike for std::net::Ipv4Addr {
+    fn is_global_like(&self) -> bool {
+        !(self.is_loopback()
+            || self.is_private()
+            || self.is_link_local()
+            || self.is_unspecified()
+            || self.is_broadcast())
+    }
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -195,6 +287,7 @@ fn base64(data: &str) -> Result<Vec<u8>, ApiError> {
 struct Parts<'a> {
     attachments: Vec<Attachment>,
     fetch: Fetch<'a>,
+    downloads: std::cell::Cell<usize>,
 }
 
 impl Parts<'_> {
@@ -204,7 +297,15 @@ impl Parts<'_> {
         let scheme = url.split_once(':').map(|(s, _)| s.to_ascii_lowercase());
         match scheme.as_deref() {
             Some("data") => data_url(url),
-            Some("http") | Some("https") => (self.fetch)(url),
+            Some("http") | Some("https") => {
+                if self.downloads.get() >= MAX_ATTACHMENTS {
+                    return Err(invalid(format!(
+                        "A request may download at most {MAX_ATTACHMENTS} attachments."
+                    )));
+                }
+                self.downloads.set(self.downloads.get() + 1);
+                (self.fetch)(url)
+            }
             _ => Err(invalid(
                 "Image and file URLs must be data: URLs or http(s) URLs.",
             )),
@@ -223,6 +324,11 @@ impl Parts<'_> {
             return Err(invalid(format!(
                 "Attachments may be at most {} MB each.",
                 MAX_ATTACHMENT / 1024 / 1024
+            )));
+        }
+        if self.attachments.len() >= MAX_ATTACHMENTS {
+            return Err(invalid(format!(
+                "A request may carry at most {MAX_ATTACHMENTS} attachments."
             )));
         }
         let media_type = media_type.trim().to_ascii_lowercase();
@@ -379,6 +485,7 @@ fn text_document(name: Option<&str>, text: &str) -> String {
 fn system_text(content: &Value) -> Result<String, ApiError> {
     let mut parts = Parts {
         attachments: Vec::new(),
+        downloads: std::cell::Cell::new(0),
         fetch: &|_: &str| Err(unsupported("attachments in the system prompt")),
     };
     let text = parts.content(content)?;
@@ -430,6 +537,7 @@ pub fn parse_openai_with(v: &Value, fetch: Fetch) -> Result<ChatRequest, ApiErro
         .ok_or_else(|| invalid("messages is required"))?;
     let mut parts = Parts {
         attachments: Vec::new(),
+        downloads: std::cell::Cell::new(0),
         fetch,
     };
     let mut system = Vec::new();
@@ -483,6 +591,7 @@ pub fn parse_anthropic_with(v: &Value, fetch: Fetch) -> Result<ChatRequest, ApiE
         .ok_or_else(|| invalid("messages is required"))?;
     let mut parts = Parts {
         attachments: Vec::new(),
+        downloads: std::cell::Cell::new(0),
         fetch,
     };
     let mut turns = Vec::new();
@@ -707,6 +816,23 @@ pub fn models_list(created: u64, ids: &[String]) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn attachment_urls_may_only_reach_the_public_internet() {
+        for url in [
+            "http://127.0.0.1:9090/configs",
+            "http://localhost/",
+            "http://169.254.169.254/latest/meta-data",
+            "http://10.0.0.1/",
+            "http://192.168.1.1/admin",
+            "http://[::1]:8080/",
+            "http://user@127.0.0.1/",
+            "file:///C:/Windows/win.ini",
+        ] {
+            assert!(!public_host(url), "{url}");
+        }
+        assert!(public_host("https://1.1.1.1/image.png"));
+    }
 
     /// 1×1 PNG.
     const PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";

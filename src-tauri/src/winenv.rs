@@ -85,6 +85,25 @@ pub fn get_path_in(hive: Hive) -> Vec<String> {
         .collect()
 }
 
+/// The hive's Path for a change to it: only a missing value counts as empty. Any other read
+/// failure is an error, never an empty list that the write would then put in place of the
+/// user's whole Path.
+#[cfg(windows)]
+fn read_path_for_edit(hive: Hive) -> Result<Vec<String>, String> {
+    use winreg::enums::KEY_READ;
+    let key = open(hive, KEY_READ)?;
+    let value: String = match key.get_value("Path") {
+        Ok(value) => value,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(format!("读取 Path 失败，未做修改：{e}")),
+    };
+    Ok(value
+        .split(';')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect())
+}
+
 #[cfg(windows)]
 pub fn set_path_in(hive: Hive, entries: &[String]) -> Result<(), String> {
     set_in(hive, "Path", &entries.join(";"))
@@ -96,9 +115,11 @@ pub fn prepend_path_in(hive: Hive, dir: &str) -> Result<(), String> {
     if dir.is_empty() {
         return Ok(());
     }
-    let mut entries: Vec<String> = get_path_in(hive)
+    // `C:\x` and `C:\x\` are the same entry.
+    let bare = dir.trim_end_matches('\\');
+    let mut entries: Vec<String> = read_path_for_edit(hive)?
         .into_iter()
-        .filter(|e| !e.eq_ignore_ascii_case(dir))
+        .filter(|e| !e.trim_end_matches('\\').eq_ignore_ascii_case(bare))
         .collect();
     entries.insert(0, dir.to_string());
     set_path_in(hive, &entries)
@@ -108,7 +129,7 @@ pub fn prepend_path_in(hive: Hive, dir: &str) -> Result<(), String> {
 pub fn remove_path_in(hive: Hive, dir: &str) -> Result<(), String> {
     // `C:\x` and `C:\x\` are the same entry.
     let dir = dir.trim().trim_end_matches('\\');
-    let before = get_path_in(hive);
+    let before = read_path_for_edit(hive)?;
     let after: Vec<String> = before
         .iter()
         .filter(|e| !e.trim().trim_end_matches('\\').eq_ignore_ascii_case(dir))

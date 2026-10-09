@@ -1016,9 +1016,37 @@ fn trim(p: &str) -> &str {
     p.trim_end_matches(['\\', '/'])
 }
 
+/// The bin folders of GOPATH (each entry of `GOPATH`, by default `%USERPROFILE%\go`): where
+/// `go install` puts gopls, dlv and the like. Not an SDK, so never dropped with one.
+fn gopath_bins() -> Vec<String> {
+    let mut roots: Vec<String> = std::env::var("GOPATH")
+        .unwrap_or_default()
+        .split(';')
+        .map(str::trim)
+        .filter(|root| !root.is_empty())
+        .map(str::to_string)
+        .collect();
+    if let Some(home) = dirs::home_dir() {
+        roots.push(home.join("go").to_string_lossy().into_owned());
+    }
+    let mut bins: Vec<String> = roots
+        .iter()
+        .map(|root| {
+            format!("{}\\bin", trim(root))
+                .replace('/', "\\")
+                .to_lowercase()
+        })
+        .collect();
+    bins.extend(["%gopath%\\bin".into(), "%userprofile%\\go\\bin".into()]);
+    bins
+}
+
 fn is_related_path(kind: &str, entry: &str, siblings: &[String]) -> bool {
     let raw = entry.trim();
     let low = raw.replace('/', "\\").to_lowercase();
+    if kind == "go" && gopath_bins().iter().any(|bin| trim(&low) == bin) {
+        return false;
+    }
     if siblings.iter().any(|s| {
         let bin = format!("{}\\bin", trim(s))
             .replace('/', "\\")
@@ -1434,6 +1462,16 @@ pub fn env_system_info() -> std::collections::HashMap<String, bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn switching_go_keeps_the_gopath_bin_on_path() {
+        let home = dirs::home_dir().unwrap();
+        let gopath_bin = home.join("go").join("bin").to_string_lossy().into_owned();
+        assert!(!is_related_path("go", &gopath_bin, &[]));
+        assert!(!is_related_path("go", r"%USERPROFILE%\go\bin", &[]));
+        assert!(is_related_path("go", r"C:\Program Files\Go\bin", &[]));
+        assert!(is_related_path("go", r"%GOROOT%\bin", &[]));
+    }
 
     #[test]
     fn every_complete_runtime_in_stackers_folder_is_listed_and_a_partial_one_is_not() {

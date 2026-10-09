@@ -122,6 +122,26 @@ fn hive_from_name(name: &str) -> Result<winenv::Hive, String> {
 }
 
 /// 备份一个环境切换快照：当前 PATH + 相关 HOME 变量。
+/// A URL's `user:password@` is left out of a plain-text backup: a GOPROXY written with the
+/// mirror's credentials would otherwise keep the password on disk, unprotected, after the
+/// mirror is gone. (Stacker writes the credentials again when the mirror is applied.)
+fn redact_userinfo(value: &str) -> String {
+    value
+        .split(',')
+        .map(|part| match part.split_once("://") {
+            Some((scheme, rest)) => {
+                let authority_end = rest.find('/').unwrap_or(rest.len());
+                match rest[..authority_end].rfind('@') {
+                    Some(at) => format!("{scheme}://{}", &rest[at + 1..]),
+                    None => part.to_string(),
+                }
+            }
+            None => part.to_string(),
+        })
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
 pub fn backup_env(hive: winenv::Hive, kind: &str, vars: &[&str]) -> Option<PathBuf> {
     let hive_s = hive_name(hive);
     let origin = format!("env://{hive_s}/{kind}");
@@ -133,7 +153,12 @@ pub fn backup_env(hive: winenv::Hive, kind: &str, vars: &[&str]) -> Option<PathB
         hive: hive_s.to_string(),
         vars: vars
             .iter()
-            .map(|name| (name.to_string(), winenv::get_raw_in(hive, name)))
+            .map(|name| {
+                (
+                    name.to_string(),
+                    winenv::get_raw_in(hive, name).map(|value| redact_userinfo(&value)),
+                )
+            })
             .collect(),
         path: winenv::get_path_in(hive),
         created: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
@@ -541,6 +566,18 @@ pub fn restore(backup_path: &str, origin: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_env_backup_keeps_no_password_from_a_url() {
+        assert_eq!(
+            redact_userinfo("https://me:s3cret@goproxy.example/go,direct"),
+            "https://goproxy.example/go,direct"
+        );
+        assert_eq!(
+            redact_userinfo("https://goproxy.cn,direct"),
+            "https://goproxy.cn,direct"
+        );
+    }
 
     #[test]
     fn test_backups_stay_inside_the_test_root() {

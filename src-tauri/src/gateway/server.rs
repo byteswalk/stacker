@@ -47,6 +47,8 @@ pub struct Shared {
     pub recent: Mutex<VecDeque<LogEntry>>,
     in_flight: AtomicUsize,
     slots: (Mutex<usize>, Condvar),
+    /// When a request turned away before its key was checked was last logged.
+    last_rejection_logged: std::sync::atomic::AtomicU64,
 }
 
 impl Shared {
@@ -64,6 +66,7 @@ impl Shared {
             recent: Mutex::new(VecDeque::new()),
             in_flight: AtomicUsize::new(0),
             slots: (Mutex::new(0), Condvar::new()),
+            last_rejection_logged: std::sync::atomic::AtomicU64::new(0),
         })
     }
 
@@ -198,7 +201,22 @@ fn authorized(req: &Request, token: &str) -> bool {
     let bearer = header(req, "authorization")
         .and_then(|v| v.strip_prefix("Bearer ").map(|t| t.trim().to_string()));
     let key = header(req, "x-api-key").map(|v| v.trim().to_string());
-    bearer.as_deref() == Some(token) || key.as_deref() == Some(token)
+    [bearer, key]
+        .iter()
+        .flatten()
+        .any(|given| same_secret(given.as_bytes(), token.as_bytes()))
+}
+
+/// Compares in time that does not depend on where the first difference is.
+fn same_secret(given: &[u8], expected: &[u8]) -> bool {
+    if given.len() != expected.len() {
+        return false;
+    }
+    given
+        .iter()
+        .zip(expected)
+        .fold(0u8, |diff, (a, b)| diff | (a ^ b))
+        == 0
 }
 
 fn json_response(status: u16, body: &Value) -> Response<std::io::Cursor<Vec<u8>>> {
@@ -327,7 +345,8 @@ fn handle(mut req: Request, shared: &Shared) {
         }
         shared.log(LogEntry {
             at: now(),
-            endpoint: path.clone(),
+            // The raw path is the client's to choose; a log row holds the start of it.
+            endpoint: path.chars().take(200).collect(),
             model: model.to_string(),
             status,
             elapsed_ms: started.elapsed().as_millis() as u64,
@@ -339,13 +358,34 @@ fn handle(mut req: Request, shared: &Shared) {
         let _ = req.respond(resp);
         log(status, model);
     };
+    // Requests turned away before the key is known are logged at most once every 2 seconds:
+    // one is worth seeing (someone is trying keys), a flood of them must not fill the disk.
+    let reject = |req: Request, resp: Response<std::io::Cursor<Vec<u8>>>| {
+        let last_logged = &shared.last_rejection_logged;
+        let at = now();
+        let last = last_logged.load(std::sync::atomic::Ordering::Relaxed);
+        if at.saturating_sub(last) >= 2
+            && last_logged
+                .compare_exchange(
+                    last,
+                    at,
+                    std::sync::atomic::Ordering::Relaxed,
+                    std::sync::atomic::Ordering::Relaxed,
+                )
+                .is_ok()
+        {
+            respond(req, resp, "");
+        } else {
+            let _ = req.respond(resp);
+        }
+    };
 
     if method == Method::Get && path == "/health" {
         return respond(req, Response::from_string("ok"), "");
     }
     // Browsers send Origin; web pages must not reach the gateway through localhost.
     if header(&req, "origin").is_some() {
-        return respond(
+        return reject(
             req,
             error(
                 style,
@@ -355,17 +395,15 @@ fn handle(mut req: Request, shared: &Shared) {
                     "Browser requests are not accepted.",
                 ),
             ),
-            "",
         );
     }
     if !authorized(&req, &shared.token) {
-        return respond(
+        return reject(
             req,
             error(
                 style,
                 &ApiError::new(401, "authentication_error", "Invalid or missing API key."),
             ),
-            "",
         );
     }
     match (method, path.as_str()) {
@@ -758,6 +796,30 @@ mod tests {
             .map(|(_, b)| b.to_string())
             .unwrap_or_default();
         (status, body)
+    }
+
+    #[test]
+    fn a_claimed_petabyte_body_without_a_key_is_answered_and_the_app_stays_up() {
+        let server = start(0, false, fake()).unwrap();
+        let port = server.port;
+        let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        s.set_read_timeout(Some(std::time::Duration::from_secs(3)))
+            .unwrap();
+        s.write_all(
+            b"POST /v1/messages HTTP/1.1\r\nHost: x\r\nContent-Length: 1000000000000000\r\n\r\n",
+        )
+        .unwrap();
+        let mut out = Vec::new();
+        let _ = s.read_to_end(&mut out);
+        let out = String::from_utf8_lossy(&out);
+        assert!(out.starts_with("HTTP/1.1 401"), "{out}");
+        // Still serving: the drain of the claimed body no longer allocates its size at once.
+        let (status, _) = http(
+            port,
+            "GET /health HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n",
+        );
+        assert_eq!(status, 200);
+        server.stop();
     }
 
     fn post(port: u16, path: &str, auth: &str, extra: &str, body: &str) -> (u16, String) {

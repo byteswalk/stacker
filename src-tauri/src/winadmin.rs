@@ -16,12 +16,68 @@ struct SysReq {
     token: String,
 }
 
+/// A request's name and proof: 16 bytes from the secure random source, not the process id and
+/// the clock, which another program of the user's could guess.
 fn request_id() -> String {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or_default();
-    format!("{}-{nanos}", std::process::id())
+    let mut bytes = [0u8; 16];
+    if getrandom::getrandom(&mut bytes).is_err() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or_default();
+        return format!("{}-{nanos}", std::process::id());
+    }
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Variables an elevated `__setenv` never writes, whoever asks: the request file sits where
+/// any program of the user's can write, so the elevated side decides what it will touch.
+const PROTECTED_SYSTEM_VARS: &[&str] = &[
+    "PATHEXT",
+    "ComSpec",
+    "SystemRoot",
+    "windir",
+    "SystemDrive",
+    "PSModulePath",
+    "TEMP",
+    "TMP",
+    "ProgramData",
+    "ProgramFiles",
+    "ProgramFiles(x86)",
+    "ProgramW6432",
+    "CommonProgramFiles",
+    "DriverData",
+    "NUMBER_OF_PROCESSORS",
+    "OS",
+    "PROCESSOR_ARCHITECTURE",
+    "USERNAME",
+];
+
+/// Whether an elevated `__setenv` request stays within what Stacker asks for: no protected
+/// variable, and the system Path only loses entries (a relocation drops stale ones), never
+/// gains one, so a forged request cannot put a folder in front of every admin process.
+#[cfg(windows)]
+fn setenv_allowed(vars: &HashMap<String, String>) -> bool {
+    let key = |entry: &str| entry.trim().trim_end_matches('\\').to_ascii_lowercase();
+    vars.iter().all(|(name, value)| {
+        if PROTECTED_SYSTEM_VARS
+            .iter()
+            .any(|protected| protected.eq_ignore_ascii_case(name))
+        {
+            return false;
+        }
+        if !name.eq_ignore_ascii_case("Path") {
+            return true;
+        }
+        let current: Vec<String> = crate::winenv::get_path_in(crate::winenv::Hive::System)
+            .iter()
+            .map(|entry| key(entry))
+            .collect();
+        value
+            .split(';')
+            .filter(|entry| !entry.trim().is_empty())
+            .all(|entry| current.contains(&key(entry)))
+    })
 }
 
 fn req_file(token: &str) -> PathBuf {
@@ -232,6 +288,8 @@ pub fn apply_from_file(file: &str, token: &str) -> i32 {
         run_netsh(&["winhttp", "reset", "proxy"])
     } else if let Some(kind) = req.kind.strip_prefix("__clear_sdk:") {
         crate::env::clear_default(crate::winenv::Hive::System, kind, &req.siblings)
+    } else if req.kind.starts_with("__setenv:") && !setenv_allowed(&req.vars) {
+        Err("refused: the request changes a protected variable or adds to the system Path".into())
     } else if req.kind.starts_with("__setenv:") {
         let names: Vec<&str> = req.vars.keys().map(String::as_str).collect();
         crate::backup::backup_env(crate::winenv::Hive::System, &req.kind, &names);
@@ -313,4 +371,24 @@ pub fn set_env_system(_: &str, _: Vec<(String, String)>) -> Result<(), String> {
 #[cfg(not(windows))]
 pub fn apply_from_file(_: &str, _: &str) -> i32 {
     1
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_forged_setenv_cannot_touch_protected_variables_or_grow_the_system_path() {
+        let one = |name: &str, value: &str| HashMap::from([(name.to_string(), value.to_string())]);
+        assert!(setenv_allowed(&one("JAVA_HOME", r"D:\jdk")));
+        assert!(!setenv_allowed(&one("PATHEXT", ".EXE;.EVIL")));
+        assert!(!setenv_allowed(&one("comspec", r"C:\evil.exe")));
+        let current = crate::winenv::get_path_in(crate::winenv::Hive::System);
+        // Dropping entries is what a relocation does.
+        assert!(setenv_allowed(&one("Path", &current[1..].join(";"))));
+        // Adding one is not.
+        let mut grown = vec![r"C:\Users\Public\evil".to_string()];
+        grown.extend(current);
+        assert!(!setenv_allowed(&one("Path", &grown.join(";"))));
+    }
 }

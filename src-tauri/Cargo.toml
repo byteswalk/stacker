@@ -83,3 +83,9 @@ incremental = false
 
 [dev-dependencies]
 minisign = "0.9.1"
+
+# tiny_http 0.12.0 with two fixes (vendor/tiny_http, marked "Stacker patch"): an unread body is
+# drained in fixed pieces instead of one allocation of its claimed size, which let one request
+# abort the process; and request lines and header counts are bounded.
+[patch.crates-io]
+tiny_http = { path = "vendor/tiny_http" }
