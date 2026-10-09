@@ -160,7 +160,7 @@ pub async fn space_duplicates(
     min_bytes: u64,
     manager: tauri::State<'_, SpaceTaskManager>,
 ) -> Result<duplicates::DuplicateReport, String> {
-    let files = manager.all_files(&task_id)?;
+    let files = manager.all_files(&task_id, min_bytes.max(1))?;
     tauri::async_runtime::spawn_blocking(move || {
         duplicates::find(&files, &walker::CancellationToken::default(), min_bytes)
     })

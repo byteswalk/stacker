@@ -7,7 +7,9 @@ use super::model::{
     AnalysisSummary, DevelopmentProject, DirectoryNode, LargeFileRow, Paged, ProjectKind,
     ScanErrorSummary, SkippedPathEntry,
 };
-use super::windows_fs::{allocated_size, display_path, file_identity, FileIdentity};
+use super::windows_fs::{
+    allocated_size, display_path, file_identity, file_identity_and_links, FileIdentity,
+};
 use chrono::{DateTime, Utc};
 use jwalk::{Parallelism, WalkDir};
 use serde::{Deserialize, Serialize};
@@ -24,6 +26,14 @@ use std::time::{Duration, Instant};
 
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(120);
 const MAX_PAGE_SIZE: u64 = 200;
+/// Files smaller than this get no row of their own, only their share of their folder's size.
+/// Every reader of file rows wants files at least this big (large files from 1 GiB, duplicates
+/// from 1 MiB); a row for each of the millions of small files on a full drive cost gigabytes.
+#[cfg(not(test))]
+pub const FILE_ROW_FLOOR: u64 = 1024 * 1024;
+/// Tests keep their fixtures small; the rule is the same.
+#[cfg(test)]
+pub const FILE_ROW_FLOOR: u64 = 10;
 const MAX_SKIPPED_PATH_ENTRIES: usize = 2_000;
 const VIEW_ONLY: &str = "ViewOnly";
 
@@ -315,6 +325,16 @@ impl IndexedScanResult {
         })
     }
 
+    /// Every file row of at least `min_logical` bytes, unpaged: duplicates have to see them
+    /// all (through the page size they saw only the 200 largest files of the whole scan).
+    pub(crate) fn files_at_least(&self, min_logical: u64) -> Vec<LargeFileRow> {
+        self.large_files
+            .iter()
+            .filter(|row| row.logical_bytes >= min_logical)
+            .cloned()
+            .collect()
+    }
+
     pub(crate) fn large_files(
         &self,
         min_bytes: u64,
@@ -487,8 +507,13 @@ where
                         visitor.directory(entry.path().as_path());
                     }
                     Ok(metadata) if metadata.is_file() => {
-                        match file_identity(entry.path().as_path()) {
-                            Ok(identity) if !accounting.file_ids.insert(identity) => {
+                        // Only a file with more than one name can be met twice, so only those
+                        // are remembered: one identity per file on a drive of millions was
+                        // hundreds of megabytes held through the whole walk.
+                        match file_identity_and_links(entry.path().as_path()) {
+                            Ok((identity, links))
+                                if links > 1 && !accounting.file_ids.insert(identity) =>
+                            {
                                 record_skip(stats, entry.path().as_path(), "duplicateFile");
                             }
                             Ok(_) => {
@@ -696,6 +721,9 @@ impl WalkVisitor for IndexBuilder {
             }
         }
 
+        if allocated_bytes.max(logical_bytes) < FILE_ROW_FLOOR {
+            return;
+        }
         let modified_at = metadata
             .modified()
             .ok()
@@ -915,6 +943,7 @@ pub(crate) fn is_link_or_reparse_point(metadata: &Metadata) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use std::time::Duration;
 
     #[test]
@@ -1041,12 +1070,32 @@ mod tests {
     }
 
     #[test]
+    fn a_file_under_the_floor_has_no_row_but_still_counts_in_its_folder() {
+        let fixture = tempfile::tempdir().unwrap();
+        std::fs::write(fixture.path().join("tiny.bin"), vec![0u8; 4]).unwrap();
+        std::fs::write(fixture.path().join("big.bin"), vec![0u8; 40]).unwrap();
+        let result = build_indexed_result(
+            &[fixture.path().to_path_buf()],
+            &CancellationToken::default(),
+            |_| {},
+        )
+        .unwrap();
+        assert_eq!(result.summary().root_nodes[0].logical_bytes, 44);
+        let rows = result.large_files(0, 0, 10);
+        assert_eq!(rows.total, 1);
+        assert_eq!(rows.items[0].name, "big.bin");
+        // Duplicates read every row at or above their own size, with no page limit.
+        assert_eq!(result.files_at_least(41).len(), 0);
+        assert_eq!(result.files_at_least(40).len(), 1);
+    }
+
+    #[test]
     fn paging_is_bounded_and_large_files_are_sorted() {
         let fixture = tempfile::tempdir().unwrap();
         for index in 0..205 {
             let child = fixture.path().join(format!("child-{index:03}"));
             std::fs::create_dir(&child).unwrap();
-            std::fs::write(child.join("file.bin"), vec![0u8; index + 1]).unwrap();
+            std::fs::write(child.join("file.bin"), vec![0u8; index + 10]).unwrap();
         }
 
         let result = build_indexed_result(

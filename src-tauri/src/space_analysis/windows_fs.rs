@@ -17,6 +17,12 @@ pub(crate) struct FileIdentity(pub(crate) u64, pub(crate) u64);
 
 #[cfg(windows)]
 pub(crate) fn file_identity(path: &Path) -> io::Result<FileIdentity> {
+    file_identity_and_links(path).map(|(identity, _)| identity)
+}
+
+/// The file's identity and how many names (hard links) it has, from one open.
+#[cfg(windows)]
+pub(crate) fn file_identity_and_links(path: &Path) -> io::Result<(FileIdentity, u32)> {
     use std::fs::OpenOptions;
     use std::mem::MaybeUninit;
     use std::os::windows::fs::OpenOptionsExt;
@@ -43,9 +49,9 @@ pub(crate) fn file_identity(path: &Path) -> io::Result<FileIdentity> {
     let information = unsafe { information.assume_init() };
     let file_index =
         (u64::from(information.nFileIndexHigh) << 32) | u64::from(information.nFileIndexLow);
-    Ok(FileIdentity(
-        u64::from(information.dwVolumeSerialNumber),
-        file_index,
+    Ok((
+        FileIdentity(u64::from(information.dwVolumeSerialNumber), file_index),
+        information.nNumberOfLinks,
     ))
 }
 
@@ -84,6 +90,17 @@ pub(crate) fn file_identity(path: &Path) -> io::Result<FileIdentity> {
 
     let metadata = path.metadata()?;
     Ok(FileIdentity(metadata.dev(), metadata.ino()))
+}
+
+#[cfg(unix)]
+pub(crate) fn file_identity_and_links(path: &Path) -> io::Result<(FileIdentity, u32)> {
+    use std::os::unix::fs::MetadataExt;
+
+    let metadata = path.metadata()?;
+    Ok((
+        FileIdentity(metadata.dev(), metadata.ino()),
+        metadata.nlink().min(u64::from(u32::MAX)) as u32,
+    ))
 }
 
 #[cfg(unix)]
