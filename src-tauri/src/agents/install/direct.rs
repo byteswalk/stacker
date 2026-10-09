@@ -587,6 +587,10 @@ fn run_installer_once(
     let job = ProcessJob::attach(&child);
     let started = Instant::now();
     let mut last_reported = u64::MAX;
+    // An installer run with its window is the user's to watch and close. Hermes-Setup clones
+    // its repository, installs Python and builds the desktop app in there: past 20 minutes
+    // on a slow line, and stopping it then leaves a half-made install.
+    let limit_minutes = if args.is_empty() { 60 } else { 20 };
     loop {
         if crate::installer::op_cancelled() {
             stop_command(&mut child, job.as_ref());
@@ -603,11 +607,11 @@ fn run_installer_once(
             }
             Ok(None) => {
                 let elapsed = started.elapsed().as_secs();
-                if elapsed >= 1200 {
+                if elapsed >= limit_minutes * 60 {
                     stop_command(&mut child, job.as_ref());
                     let _ = child.wait();
                     return Err(format!(
-                        "{} 安装超过 20 分钟，已停止操作。",
+                        "{} 安装超过 {limit_minutes} 分钟，已停止操作。",
                         spec.desktop.name
                     ));
                 }
