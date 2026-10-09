@@ -753,6 +753,30 @@ pub(crate) fn uninstall_desktop_tool(
             spec.desktop.name
         ));
     }
+    // Hermes Desktop is built inside the Hermes Agent checkout and has no uninstall entry;
+    // the CLI removes it on its own and leaves the agent in place.
+    if spec.vendor == Vendor::Hermes {
+        let program = resolve_command(spec.cli.candidates)
+            .ok_or_else(|| "未检测到 Hermes CLI，无法卸载 Hermes 桌面端。".to_string())?;
+        hermes_not_busy()?;
+        emit_progress(window, "正在运行 hermes uninstall --gui…");
+        run_command_text(
+            &program,
+            &["uninstall", "--gui", "--yes"],
+            "hermes uninstall --gui",
+            Duration::from_secs(600),
+        )?;
+        if !wait_for_desktop_removal(spec, window, Duration::from_secs(60)) {
+            return Err(format!(
+                "hermes uninstall --gui 已完成，但仍检测到 {}。可在终端运行 hermes uninstall --gui 查看详细输出",
+                spec.desktop.name
+            ));
+        }
+        return Ok(format!(
+            "{} 已卸载，Hermes CLI 和用户数据保留",
+            spec.desktop.name
+        ));
+    }
     let uninstall = found
         .as_ref()
         .and_then(|f| f.uninstall.clone())
