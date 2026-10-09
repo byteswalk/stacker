@@ -60,6 +60,7 @@ export function SpaceOverview({
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const requestGeneration = useRef(0);
   const [treemapWidth, setTreemapWidth] = useState(800);
+  const [treemapHeight, setTreemapHeight] = useState(TREEMAP_HEIGHT);
   const [levels, setLevels] = useState<Array<{ node: DirectoryNode; nodes: DirectoryNode[] }>>([]);
   const [loadingNodeId, setLoadingNodeId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ node: DirectoryNode; x: number; y: number } | null>(null);
@@ -74,9 +75,9 @@ export function SpaceOverview({
   const rectangles = useMemo(() => layoutTreemap(
     visibleNodes.map((node) => ({ id: node.nodeId, value: node.allocatedBytes })),
     treemapWidth,
-    TREEMAP_HEIGHT,
+    treemapHeight,
     rootLevel ? "input" : "value",
-  ), [rootLevel, visibleNodes, treemapWidth]);
+  ), [rootLevel, visibleNodes, treemapWidth, treemapHeight]);
   useEffect(() => {
     requestGeneration.current += 1;
     setLevels([]);
@@ -87,9 +88,13 @@ export function SpaceOverview({
     const element = treemapElement;
     if (!element) return;
     const update = () => {
-      const width = Math.round(element.getBoundingClientRect().width);
-      // A chart not laid out yet measures 0; it keeps the last width until it is.
+      // The tiles sit inside the chart's border: laid out to its outer size, the right and
+      // bottom ones ran a pixel past it and lost their hover outline to the clipping.
+      const width = element.clientWidth;
+      const height = element.clientHeight;
+      // A chart not laid out yet measures 0; it keeps the last size until it is.
       if (width > 0) setTreemapWidth(width);
+      if (height > 0) setTreemapHeight(height);
     };
     update();
     if (typeof ResizeObserver === "undefined") return;
@@ -220,7 +225,7 @@ export function SpaceOverview({
           {rectangles.map((rectangle, index) => {
             const node = nodesById.get(rectangle.id);
             if (!node) return null;
-            const areaRatio = (rectangle.width * rectangle.height) / (treemapWidth * TREEMAP_HEIGHT);
+            const areaRatio = (rectangle.width * rectangle.height) / (treemapWidth * treemapHeight);
             const hideLabel = treemapWidth < 480 && areaRatio < 0.07;
             const title = `${node.path}\n${tr("实际占用")}: ${formatSpaceBytes(node.allocatedBytes)}\n${tr("逻辑大小")}: ${formatSpaceBytes(node.logicalBytes)}`;
             return (
