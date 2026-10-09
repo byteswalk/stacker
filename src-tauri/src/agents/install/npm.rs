@@ -85,9 +85,20 @@ pub(crate) fn npm_uninstall(
     let npm = npm_for_program(installed_program)
         .or_else(|| resolve_command(&["npm.cmd", "npm.exe", "npm.bat"]))
         .ok_or_else(|| "未检测到 npm。".to_string())?;
+    // The npm found may serve another global prefix than the install being removed (the
+    // default %APPDATA%\npm has no npm.cmd of its own); naming the install's own prefix keeps
+    // a repair from uninstalling the healthy copy and leaving the broken one.
+    let prefix = installed_program
+        .and_then(Path::parent)
+        .filter(|dir| dir.join("node_modules").join(package).is_dir())
+        .map(|dir| dir.to_string_lossy().into_owned());
+    let mut args = vec!["uninstall", "-g", package, "--loglevel=http"];
+    if let Some(prefix) = prefix.as_deref() {
+        args.extend(["--prefix", prefix]);
+    }
     run_command_streamed(
         &npm,
-        &["uninstall", "-g", package, "--loglevel=http"],
+        &args,
         "npm uninstall",
         Duration::from_secs(900),
         Duration::ZERO,

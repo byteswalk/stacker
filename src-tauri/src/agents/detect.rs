@@ -1156,10 +1156,14 @@ pub(crate) fn normalize_desktop_version(value: &str) -> Option<String> {
     Some(parts.join("."))
 }
 
+/// A keyword matches anywhere in the name, or only at its start when written `^keyword`: a
+/// word as common as "factory" otherwise matches Format Factory, which then gets uninstalled.
 pub(crate) fn desktop_name_matches(name: &str, keywords: &[&str], excludes: &[&str]) -> bool {
     let lower = name.to_lowercase();
-    keywords.iter().any(|k| lower.contains(&k.to_lowercase()))
-        && !excludes.iter().any(|k| lower.contains(&k.to_lowercase()))
+    keywords.iter().any(|k| match k.strip_prefix('^') {
+        Some(start) => lower.starts_with(&start.to_lowercase()),
+        None => lower.contains(&k.to_lowercase()),
+    }) && !excludes.iter().any(|k| lower.contains(&k.to_lowercase()))
 }
 
 pub(crate) fn parse_registered_file(value: &str) -> Option<PathBuf> {
@@ -1224,10 +1228,12 @@ pub(crate) fn find_exe_in_dir(dir: &Path, keywords: &[&str], excludes: &[&str]) 
             .unwrap_or_default()
             .to_lowercase()
             .replace([' ', '-', '_'], "");
-        if keywords
-            .iter()
-            .any(|keyword| stem == keyword.to_lowercase().replace([' ', '-', '_'], ""))
-        {
+        if keywords.iter().any(|keyword| {
+            stem == keyword
+                .trim_start_matches('^')
+                .to_lowercase()
+                .replace([' ', '-', '_'], "")
+        }) {
             return Some(path);
         }
         fallback.get_or_insert(path);
@@ -1495,6 +1501,27 @@ pub(crate) fn npm_latest(package: &str) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_anchored_keyword_does_not_match_another_app_that_contains_it() {
+        let excludes = &["satisfactory"];
+        assert!(desktop_name_matches("Factory", &["^factory"], excludes));
+        assert!(desktop_name_matches(
+            "factory-desktop.exe",
+            &["^factory"],
+            excludes
+        ));
+        assert!(!desktop_name_matches(
+            "Format Factory 5.18",
+            &["^factory"],
+            excludes
+        ));
+        assert!(desktop_name_matches(
+            "Format Factory 5.18",
+            &["factory"],
+            excludes
+        ));
+    }
 
     #[test]
     fn the_community_grok_is_not_taken_for_xai_s() {

@@ -1291,6 +1291,8 @@ Object.assign(CURATED_EN, {
   "锁定密钥保管": "Lock the key vault",
   "密钥保管已锁定": "Key vault is locked",
   "前往": "Go to",
+  "发布信息里的安装包文件名无效，已停止安装。": "The installer file name in the release information is invalid; installation stopped.",
+  "卸载程序": "uninstaller",
   "旧密钥会立即失效，正在使用它的工具都要换成新密钥。确定要重新生成吗？": "The old key stops working at once, and every tool using it needs the new one. Generate a new key?",
   "删除可以直接清理的开发工具缓存（包管理器下载缓存等），之后用到时会重新下载；删除后不能恢复。": "Deletes the developer tool caches that are safe to clear (package manager download caches and the like); they are downloaded again when needed. This cannot be undone.",
   "刷新 Rust 状态失败。请稍后重试。原因：": "Could not refresh the Rust status. Try again later. Reason: ",

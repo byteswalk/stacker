@@ -200,7 +200,15 @@ pub(crate) fn download_desktop_installer(
 ) -> Result<PathBuf, String> {
     // A stable name, so a download interrupted by a cancel or a closed Stacker leaves a
     // .part file the next run can continue from.
-    let target = std::env::temp_dir().join(format!("stacker-{}-{}", spec.id, installer.file_name));
+    // The name comes from a vendor's release feed: only its last component is used, so a feed
+    // naming `..\..\x.exe` cannot write (and later delete) a file outside the temp folder.
+    let file_name = installer
+        .file_name
+        .rsplit(['/', '\\'])
+        .next()
+        .filter(|name| !name.is_empty() && *name != "." && *name != ".." && !name.contains(':'))
+        .ok_or("发布信息里的安装包文件名无效，已停止安装。")?;
+    let target = std::env::temp_dir().join(format!("stacker-{}-{}", spec.id, file_name));
     // An installer window left open by an earlier run (one that had to ask the user) holds
     // the file: the new download could not replace it ("拒绝访问").
     if target

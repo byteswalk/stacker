@@ -244,7 +244,11 @@ pub(crate) fn uninstall_cli_tool(
         )?;
         // Hermes means to remove its code checkout, but stops at git's read-only pack files
         // ("[WinError 5]") and leaves the 2 GB checkout behind.
-        if let Some(checkout) = hermes_checkout_left(&program) {
+        let managed_home = dirs::data_local_dir().map(|dir| dir.join("hermes"));
+        if let Some(checkout) = managed_home
+            .as_deref()
+            .and_then(|home| hermes_checkout_left(&program, home))
+        {
             emit_progress(window, "正在清理 Hermes 未删干净的代码目录…");
             if let Err(e) = remove_dir_all_forced(&checkout) {
                 return Ok(format!(
@@ -384,7 +388,7 @@ pub(crate) fn uninstall_cli_tool(
 
 /// The Hermes Agent code checkout still there after `hermes uninstall`: `<home>\hermes-agent`
 /// beside the `<home>\bin` the command lived in, recognised by its `.git` and `hermes_cli`.
-fn hermes_checkout_left(program: &Path) -> Option<PathBuf> {
+fn hermes_checkout_left(program: &Path, managed_home: &Path) -> Option<PathBuf> {
     let bin = program.parent()?;
     if !bin
         .file_name()?
@@ -393,7 +397,19 @@ fn hermes_checkout_left(program: &Path) -> Option<PathBuf> {
     {
         return None;
     }
-    let checkout = bin.parent()?.join("hermes-agent");
+    // Only Hermes' own home (%LOCALAPPDATA%\hermes): a developer's `~\bin\hermes.cmd` beside
+    // their own `~\hermes-agent` clone must never lead to deleting that clone.
+    let home = bin.parent()?;
+    let same = |a: &Path, b: &Path| {
+        let a = a.to_string_lossy();
+        let b = b.to_string_lossy();
+        a.trim_end_matches('\\')
+            .eq_ignore_ascii_case(b.trim_end_matches('\\'))
+    };
+    if !same(home, managed_home) {
+        return None;
+    }
+    let checkout = home.join("hermes-agent");
     (checkout.join(".git").is_dir() && checkout.join("hermes_cli").is_dir()).then_some(checkout)
 }
 
@@ -1164,7 +1180,25 @@ pub(crate) fn run_uninstall_string(uninstall: &str) -> Result<(), String> {
     }
     #[cfg(not(windows))]
     cmd.args(args.split_whitespace());
-    let mut child = cmd.spawn().map_err(|e| format!("启动卸载程序失败：{e}"))?;
+    let mut child = match cmd.spawn() {
+        Ok(child) => child,
+        // ERROR_ELEVATION_REQUIRED: an uninstaller marked for administrators (an install made
+        // for all users) starts only through the shell, with one UAC prompt.
+        #[cfg(windows)]
+        Err(e) if e.raw_os_error() == Some(740) => {
+            return vendor::run_elevated_wait(
+                &program.to_string_lossy(),
+                &args,
+                "卸载程序",
+                "卸载",
+                &None,
+            )
+            .map(|_| ())
+        }
+        Err(e) => return Err(format!("启动卸载程序失败：{e}")),
+    };
+    // Not killed when it outlasts the wait: a non-silent uninstaller may still be waiting for
+    // the user's click, and stopping it half-way can leave the app half removed.
     let started = Instant::now();
     while started.elapsed() < Duration::from_secs(600) {
         if child.try_wait().map_err(|e| e.to_string())?.is_some() {
@@ -1310,14 +1344,22 @@ mod tests {
         permissions.set_readonly(true);
         std::fs::set_permissions(&pack, permissions).unwrap();
         let program = home.join("bin").join("hermes.exe");
-        assert_eq!(hermes_checkout_left(&program), Some(checkout.clone()));
         assert_eq!(
-            hermes_checkout_left(&home.join("other").join("hermes.exe")),
+            hermes_checkout_left(&program, &home),
+            Some(checkout.clone())
+        );
+        // A clone beside some other `bin` is not Hermes' own.
+        assert_eq!(
+            hermes_checkout_left(&program, &home.join("elsewhere")),
+            None
+        );
+        assert_eq!(
+            hermes_checkout_left(&home.join("other").join("hermes.exe"), &home),
             None
         );
         remove_dir_all_forced(&checkout).unwrap();
         assert!(!checkout.exists());
-        assert_eq!(hermes_checkout_left(&program), None);
+        assert_eq!(hermes_checkout_left(&program, &home), None);
         let _ = std::fs::remove_dir_all(&home);
     }
 

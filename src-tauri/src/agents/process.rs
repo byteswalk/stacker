@@ -706,7 +706,16 @@ pub(crate) fn command_for_path(program: &Path, args: &[&str]) -> Command {
         .to_lowercase();
     if matches!(ext.as_str(), "bat" | "cmd") {
         let mut cmd = Command::new("cmd.exe");
-        cmd.args(["/d", "/c", "call"]).arg(program);
+        cmd.args(["/d", "/c", "call"]);
+        // Always quoted: Rust quotes only paths with spaces, and cmd splits an unquoted
+        // `C:\Users\R&D\…\npm.cmd` at the `&`.
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.raw_arg(format!("\"{}\"", program.display()));
+        }
+        #[cfg(not(windows))]
+        cmd.arg(program);
         cmd.args(args);
         hide_console(&mut cmd);
         cmd
@@ -760,7 +769,9 @@ pub(crate) fn looks_passing(text: &str) -> bool {
 /// The command a broken CLI's own error tells the user to run to mend it — "run `hermes pm
 /// repair`" — when it is that CLI's own command made only of plain words. Nothing else is run.
 pub(crate) fn suggested_repair(text: &str, command: &str) -> Option<Vec<String>> {
-    let lower = text.to_lowercase();
+    // ASCII lowercase keeps every byte where it was, so its offsets index `text` safely;
+    // full Unicode lowercasing can change lengths (Turkish İ) and cut inside a character.
+    let lower = text.to_ascii_lowercase();
     let at = lower.find("run `")? + "run `".len();
     let end = text[at..].find('`')? + at;
     let words: Vec<String> = text[at..end]
@@ -885,10 +896,47 @@ pub(crate) fn command_output_timeout_named(
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("启动 {name} 命令失败：{e}"))?;
+    // Both pipes are read while it runs: a pipe holds 4 KB, and a CLI printing more (a usage
+    // dump, a long banner) would otherwise block on writing and look hung.
+    let drain = |pipe: Option<Box<dyn std::io::Read + Send>>| {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            if let Some(mut pipe) = pipe {
+                let _ = std::io::Read::read_to_end(&mut pipe, &mut bytes);
+            }
+            let _ = sender.send(bytes);
+        });
+        receiver
+    };
+    let stdout = drain(
+        child
+            .stdout
+            .take()
+            .map(|p| Box::new(p) as Box<dyn std::io::Read + Send>),
+    );
+    let stderr = drain(
+        child
+            .stderr
+            .take()
+            .map(|p| Box::new(p) as Box<dyn std::io::Read + Send>),
+    );
     let start = Instant::now();
     loop {
         match child.try_wait() {
-            Ok(Some(_)) => return child.wait_with_output().map_err(|e| e.to_string()),
+            Ok(Some(status)) => {
+                // A process it left behind can hold the pipes open; what arrived is enough.
+                let collect = |receiver: std::sync::mpsc::Receiver<Vec<u8>>| {
+                    receiver
+                        .recv_timeout(Duration::from_secs(5))
+                        .unwrap_or_default()
+                };
+                return Ok(Output {
+                    status,
+                    stdout: collect(stdout),
+                    stderr: collect(stderr),
+                });
+            }
             Ok(None) => {
                 if start.elapsed() >= timeout {
                     let _ = child.kill();
@@ -945,6 +993,33 @@ pub(crate) fn is_meaningful_output_line(line: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(windows)]
+    #[test]
+    fn a_batch_file_under_a_path_with_an_ampersand_runs() {
+        let dir = std::env::temp_dir().join(format!("stacker R&D {}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let script = dir.join("hello.cmd");
+        std::fs::write(&script, "@echo hello-from-cmd\r\n").unwrap();
+        let out = super::command_output_timeout_named(
+            super::command_for_path(&script, &[]),
+            "hello",
+            Duration::from_secs(10),
+        )
+        .expect("runs");
+        assert!(String::from_utf8_lossy(&out.stdout).contains("hello-from-cmd"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_command_printing_more_than_a_pipe_holds_still_finishes() {
+        let mut command = Command::new("cmd.exe");
+        command.args(["/d", "/c", "for /l %i in (1,1,700) do @echo 0123456789"]);
+        let out = super::command_output_timeout_named(command, "echo", Duration::from_secs(10))
+            .expect("finishes");
+        assert!(out.stdout.len() > 4096, "{}", out.stdout.len());
+    }
+
     #[test]
     fn a_cli_that_names_its_own_repair_command_gets_it_and_nothing_else_runs() {
         use super::suggested_repair;

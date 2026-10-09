@@ -95,10 +95,13 @@ pub(crate) fn bar_percent(line: &str) -> Option<u32> {
         return None;
     }
     let number = line.trim_end().strip_suffix('%')?;
-    let start = number
-        .rfind(|c: char| !c.is_ascii_digit())
-        .map_or(0, |i| i + 1);
-    number[start..].parse::<u32>().ok().filter(|p| *p <= 100)
+    // The digits at the end, taken by characters: a bar glyph (3 bytes) right before them,
+    // as when the console skips blanks with a cursor move, once put the cut inside it.
+    let head = number.trim_end_matches(|c: char| c.is_ascii_digit());
+    number[head.len()..]
+        .parse::<u32>()
+        .ok()
+        .filter(|p| *p <= 100)
 }
 
 /// The line the task log and the progress bar understand.
@@ -364,6 +367,12 @@ mod imp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_percent_right_after_a_bar_glyph_reads_without_panicking() {
+        assert_eq!(bar_percent("\u{2588}\u{2588}\u{2592}\u{2592}45%"), Some(45));
+        assert_eq!(bar_percent("\u{2588}\u{2588}  100%"), Some(100));
+    }
 
     #[test]
     fn console_output_loses_its_control_sequences_and_keeps_the_taskbar_percent() {

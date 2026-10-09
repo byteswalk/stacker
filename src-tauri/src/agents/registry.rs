@@ -1228,7 +1228,8 @@ pub(crate) static PRODUCTS: &[ProductSpec] = &[
             appx_names: &[],
             install_url: "https://factory.ai/",
             docs_url: "https://docs.factory.ai/factory-app/quickstart",
-            keywords: &["factory"],
+            // Its name starts with "Factory" (DisplayName, Factory.lnk, factory-desktop.exe).
+            keywords: &["^factory"],
             excludes: &["pdffactory", "pdf factory", "satisfactory", "setup factory", "quotation"],
             install_unavailable_reason: None,
             reject_sibling_files: &[],

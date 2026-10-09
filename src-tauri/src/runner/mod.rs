@@ -232,14 +232,36 @@ pub(crate) fn run_program_lines(
             return Err(code.into());
         }
     };
-    // Whatever the process printed right before it exited.
-    for line in lines.iter() {
-        take(line, &mut stdout);
+    // Whatever the process printed right before it exited — for a few seconds at most: a
+    // process it left behind (a background updater) can hold the pipes open for good.
+    let drained_by = Instant::now() + Duration::from_secs(3);
+    loop {
+        let left = drained_by.saturating_duration_since(Instant::now());
+        match lines.recv_timeout(left) {
+            Ok(line) => take(line, &mut stdout),
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                child.stop();
+                break;
+            }
+        }
     }
-    let _ = writer.join();
-    let _ = out_reader.join();
+    while !err_reader.is_finished() && Instant::now() < drained_by {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let stderr = if err_reader.is_finished() {
+        err_reader.join().unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    if writer.is_finished() {
+        let _ = writer.join();
+    }
+    if out_reader.is_finished() {
+        let _ = out_reader.join();
+    }
     let stdout = String::from_utf8_lossy(&stdout).into_owned();
-    let stderr = String::from_utf8_lossy(&err_reader.join().unwrap_or_default()).into_owned();
+    let stderr = String::from_utf8_lossy(&stderr).into_owned();
     Ok((status, stdout, stderr))
 }
 

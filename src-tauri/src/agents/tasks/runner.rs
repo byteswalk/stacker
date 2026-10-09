@@ -134,6 +134,15 @@ impl TaskRunner for ProductionRunner {
                 Ok(message)
             }
             (Ok(_), Err(reason)) => Err(reason),
+            // An update that failed counts only if the version really moved: with the latest
+            // version unknown (offline), an unchanged install would pass the check.
+            (Err(error), Ok(()))
+                if request.action == Action::Update
+                    && surface_of(&after, request.surface).version.as_deref()
+                        == before.as_deref() =>
+            {
+                Err(error)
+            }
             (Err(error), Ok(())) if request.action != Action::Uninstall => {
                 crate::installer::task_log(&format!("安装器返回错误：{error}"));
                 Ok("已完成（安装器返回错误，但复检通过）".into())
