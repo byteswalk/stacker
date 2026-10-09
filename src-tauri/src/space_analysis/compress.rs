@@ -42,7 +42,8 @@ const VIDEO: &[&str] = &[
     "mp4", "mkv", "mov", "avi", "wmv", "flv", "m4v", "webm", "ts", "mts", "m2ts", "3gp", "mpg",
     "mpeg",
 ];
-const IMAGE: &[&str] = &["jpg", "jpeg", "png", "bmp", "tif", "tiff"];
+// No TIFF: a scan is often many pages, and the encoder keeps only the first.
+const IMAGE: &[&str] = &["jpg", "jpeg", "png", "bmp"];
 /// Formats that are compressed already: transparent compression saves next to nothing on them.
 const PACKED: &[&str] = &[
     "zip", "7z", "rar", "gz", "tgz", "xz", "bz2", "zst", "lz4", "cab", "msi", "jar", "apk", "mp3",
@@ -425,6 +426,9 @@ pub struct Probe {
     pub width: u32,
     pub height: u32,
     pub audio: Option<String>,
+    /// Streams besides the first video and the audio: subtitles, data (GPS telemetry),
+    /// timecode, further video. An MP4 re-encode maps none of them.
+    pub others: usize,
 }
 
 pub fn parse_probe(json: &str) -> Option<Probe> {
@@ -444,11 +448,16 @@ pub fn parse_probe(json: &str) -> Option<Probe> {
                 .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
         })
     };
+    let audio_streams = streams
+        .iter()
+        .filter(|s| s.get("codec_type").and_then(|t| t.as_str()) == Some("audio"))
+        .count();
     Some(Probe {
         duration: number(value.get("format").and_then(|f| f.get("duration"))).unwrap_or(0.0),
         width: number(video.get("width")).unwrap_or(0.0) as u32,
         height: number(video.get("height")).unwrap_or(0.0) as u32,
         audio,
+        others: streams.len().saturating_sub(audio_streams + 1),
     })
 }
 
@@ -629,6 +638,25 @@ pub fn image_args(path: &Path, options: &Options) -> Option<(Vec<String>, &'stat
     Some((args, ext))
 }
 
+/// An APNG names its animation (`acTL`) before the first image data (`IDAT`).
+fn is_animated_png(path: &Path) -> bool {
+    if extension(path) != "png" {
+        return false;
+    }
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return false;
+    };
+    let mut head = vec![0u8; 64 * 1024];
+    let n = std::io::Read::read(&mut file, &mut head).unwrap_or(0);
+    let head = &head[..n];
+    let at = |tag: &[u8]| head.windows(4).position(|w| w == tag);
+    match (at(b"acTL"), at(b"IDAT")) {
+        (Some(actl), Some(idat)) => actl < idat,
+        (Some(_), None) => true,
+        _ => false,
+    }
+}
+
 /// Copies the photo's EXIF and colour profile into the new file (JPEG and WebP hold them).
 fn carry_metadata(from: &Path, to: &Path) {
     use img_parts::{Bytes, DynImage, ImageEXIF, ImageICC};
@@ -645,8 +673,16 @@ fn carry_metadata(from: &Path, to: &Path) {
     if old.icc_profile().is_some() {
         new.set_icc_profile(old.icc_profile());
     }
-    if let Ok(file) = std::fs::File::create(to) {
-        let _ = new.encoder().write_to(std::io::BufWriter::new(file));
+    // Built in memory and swapped in whole: truncating the file and writing it in place left
+    // a cut-off image whenever a write failed (a nearly full disk), and that image then
+    // replaced the original.
+    let mut bytes = Vec::new();
+    if new.encoder().write_to(&mut bytes).is_err() {
+        return;
+    }
+    let staged = to.with_extension("stacker-meta");
+    if std::fs::write(&staged, &bytes).is_err() || std::fs::rename(&staged, to).is_err() {
+        let _ = std::fs::remove_file(&staged);
     }
 }
 
@@ -858,6 +894,9 @@ fn estimate_video(path: &Path, options: &Options, size: u64) -> Result<u64, Stri
 
 fn encode_image(path: &Path, options: &Options, out: &Path) -> Result<(), String> {
     let (args, ext) = image_args(path, options).ok_or("keepPng")?;
+    if is_animated_png(path) {
+        return Err("动画 PNG 压缩后只剩第一帧，已跳过".into());
+    }
     // EXIF keeps the orientation for JPEG and WebP, so their pixels stay as stored; AVIF
     // loses EXIF, so its pixels are turned upright instead.
     let input: Vec<String> = if ext == "avif" {
@@ -870,6 +909,16 @@ fn encode_image(path: &Path, options: &Options, out: &Path) -> Result<(), String
     encode(&input, path, &args, out, 0.0, &mut |_| {})?;
     if ext != "avif" {
         carry_metadata(path, out);
+    }
+    // Decoded again before the original goes: a file that does not open, or opens at another
+    // size, never replaces it.
+    let unreadable = || "压缩后的图片无法正常读取，已放弃，原图保留".to_string();
+    let before = probe(path).map_err(|_| unreadable())?;
+    let after = probe(out).map_err(|_| unreadable())?;
+    let same = (after.width, after.height) == (before.width, before.height)
+        || (after.width, after.height) == (before.height, before.width);
+    if after.width == 0 || !same {
+        return Err(unreadable());
     }
     Ok(())
 }
@@ -1021,6 +1070,12 @@ fn run_one(
         outcome.status = "changed".into();
         return outcome;
     };
+    // Replacing one name of a hard-linked file keeps the old data under the others and adds
+    // the new file on top: the disk only fills further.
+    if super::windows_fs::file_link_count(&path).is_ok_and(|links| links > 1) {
+        outcome.status = "这个文件还有其他硬链接，替换它不会省出空间，已跳过".into();
+        return outcome;
+    }
     // Written beside the original, so the swap is a rename on the same disk.
     let (ext, made) = if kind == Kind::Video {
         let info = match probe(&path) {
@@ -1031,6 +1086,15 @@ fn run_one(
             }
         };
         let container = video_container(&path);
+        // The length is how the new file is checked: without it nothing proves it whole.
+        if info.duration <= 0.0 {
+            outcome.status = "读不出视频时长，无法核对压缩结果，已跳过".into();
+            return outcome;
+        }
+        if container == "mp4" && info.others > 0 {
+            outcome.status = "视频带有字幕、数据或多条视频流，转成 MP4 会丢失，已跳过".into();
+            return outcome;
+        }
         let out = sibling(&path, ".stacker-compressing", container);
         let made = encode(
             &[],
@@ -1043,10 +1107,11 @@ fn run_one(
         .and_then(|_| {
             // Checked by playing it back: a new file much shorter than the old is broken.
             let again = probe(&out)?;
-            if info.duration > 0.0
-                && (again.duration - info.duration).abs() > (info.duration * 0.02).max(1.5)
-            {
+            if (again.duration - info.duration).abs() > (info.duration * 0.02).max(1.5) {
                 return Err("压缩后的视频时长不对，已放弃".into());
+            }
+            if info.audio.is_some() && again.audio.is_none() {
+                return Err("压缩后的视频没有声音，已放弃".into());
             }
             Ok(out)
         });
@@ -1062,6 +1127,8 @@ fn run_one(
     let out = match made {
         Ok(out) => out,
         Err(error) => {
+            // Encoded but failed its check (or stopped): the full-size working file goes.
+            let _ = std::fs::remove_file(sibling(&path, ".stacker-compressing", ext));
             outcome.status = error;
             return outcome;
         }
@@ -1204,6 +1271,7 @@ mod tests {
             width: 3840,
             height: 2160,
             audio: Some("wmav2".into()),
+            others: 0,
         };
         let args = video_args(&options, &probe, "mp4").join(" ");
         assert!(
@@ -1222,6 +1290,7 @@ mod tests {
             },
             &Probe {
                 audio: Some("dts".into()),
+                others: 0,
                 ..probe
             },
             "mkv",
@@ -1266,10 +1335,15 @@ mod tests {
                 duration: 12.5,
                 width: 1920,
                 height: 1080,
-                audio: Some("aac".into())
+                audio: Some("aac".into()),
+                others: 0,
             })
         );
         assert_eq!(parse_probe(r#"{"streams":[],"format":{}}"#), None);
+        // A subtitle and a data track are what an MP4 re-encode would drop.
+        let json = r#"{"streams":[{"codec_type":"video","width":1,"height":1},{"codec_type":"audio"},
+            {"codec_type":"subtitle"},{"codec_type":"data"}],"format":{"duration":"3"}}"#;
+        assert_eq!(parse_probe(json).unwrap().others, 2);
     }
 
     #[test]

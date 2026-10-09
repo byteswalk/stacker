@@ -665,6 +665,15 @@ fn delete_validated_path(
     token: &CancellationToken,
 ) -> DeleteOutcome {
     let remove_root = cleanup_kind == CleanupKind::WholeDirectory;
+    // Every folder listed and every file removed is checked to still resolve inside the
+    // artifact: a folder swapped for a junction between the link check and the listing
+    // (by a user-level process, while the elevated helper deletes) would otherwise lead the
+    // deletion outside it.
+    let root_real = fs::canonicalize(path).ok();
+    let stays_inside = |entry: &Path| match (&root_real, fs::canonicalize(entry)) {
+        (Some(root), Ok(real)) => real.starts_with(root),
+        _ => false,
+    };
     let mut stack = vec![DeleteEntry {
         path: path.to_path_buf(),
         expanded: false,
@@ -718,6 +727,12 @@ fn delete_validated_path(
                 }
                 continue;
             }
+            if !stays_inside(&entry.path) {
+                return DeleteOutcome {
+                    released_bytes,
+                    reason_key: Some(REASON_LINK),
+                };
+            }
             stack.push(DeleteEntry {
                 path: entry.path.clone(),
                 expanded: true,
@@ -751,6 +766,12 @@ fn delete_validated_path(
                 });
             }
         } else {
+            if !stays_inside(&entry.path) {
+                return DeleteOutcome {
+                    released_bytes,
+                    reason_key: Some(REASON_LINK),
+                };
+            }
             let released = if file_link_count(&entry.path).unwrap_or(1) <= 1 {
                 allocated_size(&entry.path, &metadata)
             } else {

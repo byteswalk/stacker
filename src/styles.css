@@ -1705,6 +1705,9 @@ button{ font-family:inherit; }
 .a .space-large-file-row.picked{ border-color:color-mix(in srgb,var(--acc) 55%,var(--bd)); }
 .a .recycle-permanent{ display:flex; align-items:center; gap:7px; margin-top:12px; font-size:12.5px; color:var(--mut); cursor:pointer; }
 .a .recycle-permanent input{ accent-color:#d6463d; }
+.a .recycle-confirm-paths{ margin:10px 0 0; padding:8px 10px; max-height:160px; overflow:auto; list-style:none; border:.5px solid var(--bdh); border-radius:6px; background:var(--card); }
+.a .recycle-confirm-paths li{ font-size:12px; line-height:1.7; color:var(--mut); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.a .recycle-confirm-paths code{ font-size:12px; color:var(--tx); }
 .a .dupe-path .recycle-lock{ width:15px; }
 .a .dupe-path.picked code{ color:var(--acc); text-decoration:line-through; text-decoration-color:color-mix(in srgb,var(--acc) 60%,transparent); }
 /* A header cell whose column can be dragged wider: the handle sits on its right edge. */

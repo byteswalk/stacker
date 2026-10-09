@@ -383,8 +383,8 @@ pub(crate) fn split_command(command: &str) -> Option<(String, Vec<String>)> {
 pub(crate) fn recycle(dir: &Path) -> Result<(), String> {
     use std::os::windows::ffi::OsStrExt;
     use winapi::um::shellapi::{
-        SHFileOperationW, FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FOF_NOERRORUI, FOF_SILENT, FO_DELETE,
-        SHFILEOPSTRUCTW,
+        SHFileOperationW, FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FOF_NOERRORUI, FOF_SILENT,
+        FOF_WANTNUKEWARNING, FO_DELETE, SHFILEOPSTRUCTW,
     };
     let from: Vec<u16> = dir.as_os_str().encode_wide().chain([0, 0]).collect();
     let mut op = SHFILEOPSTRUCTW {
@@ -392,7 +392,15 @@ pub(crate) fn recycle(dir: &Path) -> Result<(), String> {
         wFunc: FO_DELETE as u32,
         pFrom: from.as_ptr(),
         pTo: std::ptr::null(),
-        fFlags: FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_SILENT,
+        // Without FOF_WANTNUKEWARNING, FOF_NOCONFIRMATION answers "delete permanently?" with
+        // yes whenever an item cannot be recycled (larger than the bin allows, or the bin is
+        // off on that drive): a "recycled" file was gone for good. With it the user is asked,
+        // and a no aborts the whole operation.
+        fFlags: FOF_ALLOWUNDO
+            | FOF_NOCONFIRMATION
+            | FOF_NOERRORUI
+            | FOF_SILENT
+            | FOF_WANTNUKEWARNING,
         fAnyOperationsAborted: 0,
         hNameMappings: std::ptr::null_mut(),
         lpszProgressTitle: std::ptr::null(),
@@ -400,9 +408,11 @@ pub(crate) fn recycle(dir: &Path) -> Result<(), String> {
     // SAFETY: `from` is a double-NUL-terminated path that outlives the call.
     let code = unsafe { SHFileOperationW(&mut op) };
     if code != 0 || op.fAnyOperationsAborted != 0 {
-        return Err(format!(
-            "移到回收站失败（代码 {code}），可能有程序正在使用其中的文件"
-        ));
+        return Err(if op.fAnyOperationsAborted != 0 {
+            "没有移到回收站，文件保留未删除（可能超过回收站容量，或该盘关闭了回收站）".to_string()
+        } else {
+            format!("移到回收站失败（代码 {code}），可能有程序正在使用其中的文件")
+        });
     }
     Ok(())
 }

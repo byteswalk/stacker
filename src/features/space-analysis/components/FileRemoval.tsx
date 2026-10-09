@@ -53,6 +53,13 @@ const WORDS = {
 };
 
 /** The bar under a list: how much is picked, and the one button that moves it to the Recycle Bin. */
+/**
+ * Files or folders that left the disk (removed here, or replaced by a compressed copy). Other
+ * lists drop them: the duplicates list must not still count a copy that is gone as the one
+ * that stays.
+ */
+export const FILES_GONE = "stacker-space-files-gone";
+
 export function RecycleBar({ files, extra, onDone, folders = false }: {
   files: FileToRemove[];
   /** Controls of the list's own, shown before the count (select all, smart select). */
@@ -77,8 +84,10 @@ export function RecycleBar({ files, extra, onDone, folders = false }: {
         ? await invoke<RemovalResult>("space_recycle_folders", { folders: files, permanent })
         : await invoke<RemovalResult>("space_recycle_files", { files, permanent });
       const failed = new Set(result.failures.map((f) => f.path));
-      onDone(files.map((f) => f.path).filter((path) => !failed.has(path)));
+      const gone = files.map((f) => f.path).filter((path) => !failed.has(path));
+      onDone(gone);
       window.dispatchEvent(new Event(VOLUMES_CHANGED));
+      window.dispatchEvent(new CustomEvent<string[]>(FILES_GONE, { detail: gone }));
       if (!result.failures.length) {
         toast(tr(permanent ? words.deleted : words.recycled)
           .replace("{count}", String(result.removed)).replace("{size}", formatSpaceBytes(result.releasedBytes)), "ok");
@@ -100,7 +109,7 @@ export function RecycleBar({ files, extra, onDone, folders = false }: {
     <span className="recycle-bar-count">{files.length
       ? tr(words.picked).replace("{count}", String(files.length)).replace("{size}", formatSpaceBytes(total))
       : tr(words.none)}</span>
-    <button className="pr sm" disabled={!files.length || busy} onClick={() => setConfirming(true)}>
+    <button className="pr sm" disabled={!files.length || busy} onClick={() => { setPermanent(false); setConfirming(true); }}>
       <i className={"ti " + (busy ? "ti-loader spin" : "ti-trash")} /> {tr("删除所选")}{files.length ? ` (${files.length})` : ""}
     </button>
     {confirming && <ConfirmModal title={tr(permanent ? "彻底删除" : "移到回收站")} icon="ti-trash" danger busy={busy}
@@ -108,6 +117,11 @@ export function RecycleBar({ files, extra, onDone, folders = false }: {
       message={<>
         <div>{tr(permanent ? words.confirmDelete : words.confirmRecycle)
           .replace("{count}", String(files.length)).replace("{size}", formatSpaceBytes(total))}</div>
+        {/* Whole folders are named: a count alone does not show that a project is a parent folder. */}
+        {folders && <ul className="recycle-confirm-paths">
+          {files.slice(0, 8).map((file) => <li key={file.path}><code title={file.path}>{file.path}</code></li>)}
+          {files.length > 8 && <li>{tr("…另有 {count} 个").replace("{count}", String(files.length - 8))}</li>}
+        </ul>}
         <label className="recycle-permanent">
           <input type="checkbox" checked={permanent} onChange={(e) => setPermanent(e.target.checked)} />
           {tr("直接彻底删除（不进回收站，立即释放空间）")}

@@ -5,7 +5,7 @@ import { useI18n } from "../../../i18n";
 import { Modal, useBusy, useToast } from "../../../ui";
 import { Select } from "../../../Select";
 import { formatSpaceBytes } from "./SpaceOverview";
-import type { FileToRemove } from "./FileRemoval";
+import { FILES_GONE, type FileToRemove } from "./FileRemoval";
 
 type MediaTools = { ffmpeg: string | null; version: string; videoEncoders: string[]; imageFormats: string[] };
 type Quality = "high" | "standard" | "small";
@@ -14,7 +14,8 @@ export type Outcome = { path: string; newPath: string; method: "packed" | "video
 type Progress = { done: number; total: number; path: string; percent: number };
 
 const VIDEO = ["mp4", "mkv", "mov", "avi", "wmv", "flv", "m4v", "webm", "ts", "mts", "m2ts", "3gp", "mpg", "mpeg"];
-const IMAGE = ["jpg", "jpeg", "png", "bmp", "tif", "tiff"];
+// No TIFF, as on the Rust side: a multi-page scan would keep only its first page.
+const IMAGE = ["jpg", "jpeg", "png", "bmp"];
 
 export function mediaKind(path: string): "video" | "image" | "packed" {
   const ext = path.split(".").pop()?.toLowerCase() ?? "";
@@ -122,7 +123,12 @@ export function CompressDialog({ files, onClose, onDone }: {
       if (run) {
         onDone(found);
         const saved = found.filter((row) => row.status === "ok").reduce((sum, row) => sum + row.before - row.after, 0);
-        toast(tr("压缩完成，省出 {size}").replace("{size}", formatSpaceBytes(Math.max(0, saved))), "ok");
+        // Re-encoded originals sit in the Recycle Bin: until it is emptied the disk holds both.
+        const replaced = found.some((row) => row.status === "ok" && row.method !== "packed");
+        const originals = found.filter((row) => row.status === "ok" && row.method !== "packed").map((row) => row.path);
+        if (originals.length) window.dispatchEvent(new CustomEvent<string[]>(FILES_GONE, { detail: originals }));
+        toast(tr(replaced ? "压缩完成，省出 {size}；原文件在回收站，清空回收站后才真正释放" : "压缩完成，省出 {size}")
+          .replace("{size}", formatSpaceBytes(Math.max(0, saved))), "ok");
       }
     } catch (error) {
       setMode("idle");

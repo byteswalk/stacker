@@ -101,12 +101,18 @@ fn remove_one(
     if !meta.is_file() || meta.len() != file.bytes {
         return Err(fail("changed"));
     }
+    // A file with other hard links (a pnpm store, say) keeps its data under those names:
+    // removing this one frees nothing, and saying otherwise would mislead the next choice.
+    let freed = match super::windows_fs::file_link_count(path) {
+        Ok(links) if links > 1 => 0,
+        _ => meta.len(),
+    };
     if permanent {
         std::fs::remove_file(path).map_err(|error| fail(&error.to_string()))?;
     } else {
         recycle(path).map_err(|error| fail(&error))?;
     }
-    Ok(meta.len())
+    Ok(freed)
 }
 
 pub fn remove(files: &[FileToRemove], permanent: bool) -> RemovalResult {
@@ -166,7 +172,38 @@ fn folder_off_limits(path: &Path, roots: &[PathBuf], home: Option<&Path>) -> boo
         let home = normalized(home);
         home == p || home.starts_with(&format!("{p}\\"))
     });
-    drive_root || p.matches('\\').count() == 0 || above_home || is_protected_with(path, roots)
+    drive_root
+        || p.matches('\\').count() == 0
+        || above_home
+        || is_user_folder(&p)
+        || is_protected_with(path, roots)
+}
+
+/// The user's own folders themselves (Desktop, Documents, Downloads, Pictures, Videos, Music,
+/// OneDrive): a marker file lying in one (a requirements.txt on the Desktop) makes it look
+/// like a project, and removing that "project" would take the whole folder.
+fn is_user_folder(normalized_path: &str) -> bool {
+    let known = [
+        dirs::desktop_dir(),
+        dirs::document_dir(),
+        dirs::download_dir(),
+        dirs::picture_dir(),
+        dirs::video_dir(),
+        dirs::audio_dir(),
+    ];
+    if known
+        .iter()
+        .flatten()
+        .any(|dir| normalized(dir) == normalized_path)
+    {
+        return true;
+    }
+    dirs::home_dir().is_some_and(|home| {
+        let home = normalized(&home);
+        normalized_path
+            .strip_prefix(&format!("{home}\\"))
+            .is_some_and(|rest| !rest.contains('\\') && rest.starts_with("onedrive"))
+    })
 }
 
 fn remove_folder(
@@ -201,8 +238,30 @@ pub fn remove_folders(folders: &[FileToRemove], permanent: bool) -> RemovalResul
     let home = dirs::home_dir();
     let mut result = RemovalResult::default();
     let mut history = Vec::new();
-    for folder in folders {
+    // Outermost first; a folder inside one already removed went with it, and its size was
+    // already counted there.
+    let mut ordered: Vec<&FileToRemove> = folders.iter().collect();
+    ordered.sort_by_key(|folder| normalized(Path::new(&folder.path)).len());
+    let mut taken: Vec<String> = Vec::new();
+    for folder in ordered {
+        let inside = {
+            let p = normalized(Path::new(&folder.path));
+            taken.iter().any(|t| p.starts_with(&format!("{t}\\")))
+        };
+        if inside {
+            result.removed += 1;
+            history.push(super::history::HistoryItem {
+                path: folder.path.clone(),
+                state: CleanupItemState::Completed,
+                released_bytes: 0,
+                reason_key: Some(if permanent { "deleted" } else { "recycled" }.into()),
+            });
+            continue;
+        }
         let outcome = remove_folder(&folder.path, &roots, home.as_deref(), permanent);
+        if outcome.is_ok() {
+            taken.push(normalized(Path::new(&folder.path)));
+        }
         history.push(super::history::HistoryItem {
             path: folder.path.clone(),
             state: if outcome.is_ok() {
@@ -265,6 +324,30 @@ pub async fn space_recycle_files(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_users_own_folders_are_never_removed_whole() {
+        let roots: Vec<PathBuf> = Vec::new();
+        let home = dirs::home_dir().unwrap();
+        if let Some(desktop) = dirs::desktop_dir() {
+            assert!(folder_off_limits(&desktop, &roots, Some(&home)));
+            assert!(!folder_off_limits(
+                &desktop.join("my-app"),
+                &roots,
+                Some(&home)
+            ));
+        }
+        assert!(folder_off_limits(
+            &home.join("OneDrive - Contoso"),
+            &roots,
+            Some(&home)
+        ));
+        assert!(!folder_off_limits(
+            &home.join("OneDrive").join("app"),
+            &roots,
+            Some(&home)
+        ));
+    }
 
     fn roots() -> Vec<PathBuf> {
         vec![

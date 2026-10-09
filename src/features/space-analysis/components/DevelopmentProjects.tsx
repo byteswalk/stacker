@@ -55,7 +55,14 @@ export function DevelopmentProjects({ projects }: { projects: DevelopmentProject
     if (!keyword) return present;
     return present.filter((project) => `${project.name}\n${project.path}\n${project.kinds.join(" ")}\n${project.agentTraces.join(" ")}`.toLocaleLowerCase().includes(keyword));
   }, [projects, query, gone, narrow, now]);
-  const locked = useProtectedPaths(filtered.map((project) => project.path));
+  const protectedPaths = useProtectedPaths(filtered.map((project) => project.path));
+  // A "project" that holds other projects (a scan root with a package.json, a workspace
+  // folder) is never removed whole from here: it would take every project inside with it.
+  const holders = useMemo(() => {
+    const lower = projects.map((project) => project.path.toLowerCase().replace(/\\+$/, ""));
+    return new Set(projects.filter((_, i) => lower.some((other, j) => j !== i && other.startsWith(lower[i] + "\\"))).map((project) => project.path));
+  }, [projects]);
+  const locked = useMemo(() => new Set([...protectedPaths, ...holders]), [protectedPaths, holders]);
   const pick = useDragPick(filtered.map((project) => locked.has(project.path) ? [] : [project.path]), (path) => picked.has(path),
     (paths, on) => setPicked((old) => setInSet(old, paths, on)));
   const pickable = filtered.filter((project) => !locked.has(project.path));
@@ -122,7 +129,7 @@ export function DevelopmentProjects({ projects }: { projects: DevelopmentProject
         return <article className={`space-project-card${picked.has(project.path) ? " picked" : ""}`} key={project.projectId} {...pick.row(index)}>
           <div className="space-project-main">
             {lockedHere
-              ? <span className="recycle-lock" title={tr("系统或程序目录里的项目不能在这里删除")}><i className="ti ti-lock" /></span>
+              ? <span className="recycle-lock" title={tr(holders.has(project.path) ? "这个目录里还有其他项目，不能整个删除" : "系统或程序目录里的项目不能在这里删除")}><i className="ti ti-lock" /></span>
               : <input type="checkbox" className="recycle-check" checked={picked.has(project.path)} aria-label={tr("选择")}
                 title={tr("按住拖过几行可以一起勾选；按住 Shift 点选一段")} {...pick.box(index)} onChange={(event) => pick.change(index, event.target.checked)} />}
             <span className="space-project-icon"><i className="ti ti-code-dots" /></span>

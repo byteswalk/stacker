@@ -3,7 +3,7 @@ import { invoke } from "../../../invoke";
 import { useI18n } from "../../../i18n";
 import { useToast } from "../../../ui";
 import { formatSpaceBytes as bytes } from "./SpaceOverview";
-import { RecycleBar, useProtectedPaths } from "./FileRemoval";
+import { FILES_GONE, RecycleBar, useProtectedPaths } from "./FileRemoval";
 import { useDragPick } from "../../../dragPick";
 
 type DuplicateGroup = { bytes: number; wasted: number; paths: string[]; verified: boolean };
@@ -25,6 +25,27 @@ function setSearch(change: Partial<Search> | ((old: Search) => Partial<Search>))
     : search;
   search = { ...base, ...next };
   listeners.forEach((listener) => listener());
+}
+/** Drops files (or everything under folders) that left the disk, wherever that happened. */
+function forget(paths: string[]) {
+  if (!paths.length) return;
+  const gone = paths.map((path) => path.toLowerCase());
+  const isGone = (path: string) => {
+    const lower = path.toLowerCase();
+    return gone.some((g) => lower === g || lower.startsWith(g.endsWith("\\") ? g : g + "\\"));
+  };
+  setSearch((old) => {
+    const picked = new Set([...old.picked].filter((path) => !isGone(path)));
+    if (!old.report) return { picked };
+    const groups = old.report.groups
+      .map((group) => ({ ...group, paths: group.paths.filter((path) => !isGone(path)) }))
+      .filter((group) => group.paths.length > 1)
+      .map((group) => ({ ...group, wasted: group.bytes * (group.paths.length - 1) }));
+    return { picked, report: { ...old.report, groups, wasted: groups.reduce((sum, group) => sum + group.wasted, 0) } };
+  });
+}
+if (typeof window !== "undefined") {
+  window.addEventListener(FILES_GONE, (event) => forget((event as CustomEvent<string[]>).detail ?? []));
 }
 function useSearch(taskId: string): Search {
   const state = useSyncExternalStore((listener) => { listeners.add(listener); return () => { listeners.delete(listener); }; }, () => search);
@@ -108,7 +129,7 @@ export function DuplicateFiles({ taskId }: { taskId: string }) {
   // One copy of every group always stays: the last unpicked one cannot be picked, however it is pressed.
   const flat = (report?.groups ?? []).flatMap((group) => group.paths.map((path) => ({ group, path })));
   const order = new Map(flat.map((item, index) => [item.path, index]));
-  const pick = useDragPick(flat.map(({ path }) => locked.has(path) ? [] : [path]), (path) => picked.has(path), (paths, on) => setPicked((old) => {
+  const pick = useDragPick(flat.map(({ path, group }) => locked.has(path) || !group.verified ? [] : [path]), (path) => picked.has(path), (paths, on) => setPicked((old) => {
     const next = new Set(old);
     let kept = false;
     for (const path of paths) {
@@ -187,6 +208,8 @@ export function DuplicateFiles({ taskId }: { taskId: string }) {
       {group.paths.map((path) => <div className={"dupe-path" + (picked.has(path) ? " picked" : "")} key={path} {...pick.row(order.get(path) ?? -1)}>
         {locked.has(path)
           ? <span className="recycle-lock" title={t("系统或程序目录里的文件不能在这里删除")}><i className="ti ti-lock" /></span>
+          : !group.verified
+          ? <span className="recycle-lock" title={t("只比对过首尾片段，先点「智能勾选」逐字节核对，确认完全一致后才能选")}><i className="ti ti-lock-question" /></span>
           : <input type="checkbox" className="recycle-check" checked={picked.has(path)} aria-label={t("选择")} title={t("按住拖过几行可以一起勾选；按住 Shift 点选一段")}
             {...pick.box(order.get(path) ?? -1)} onChange={(e) => pick.change(order.get(path) ?? -1, e.target.checked)} />}
         <code title={path}>{path}</code>
