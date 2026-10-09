@@ -77,7 +77,10 @@ export function TransferExport({ ids, onClose }: { ids: string[]; onClose: () =>
     setInclude((old) => { const next = new Set(old); if (on) next.add(path); else next.delete(path); return next; });
     if (on && !sizes[path]) {
       setSizes((old) => ({ ...old, [path]: "counting" }));
-      void invoke<[number, number]>("sessions_transfer_size", { path }).then((size) => setSizes((old) => ({ ...old, [path]: size })));
+      // A failed count is forgotten, so ticking the project again retries it.
+      void invoke<[number, number]>("sessions_transfer_size", { path })
+        .then((size) => setSizes((old) => ({ ...old, [path]: size })))
+        .catch((e) => { setSizes((old) => { const next = { ...old }; delete next[path]; return next; }); toast(errorText(e, tr), "err"); });
     }
   }
 

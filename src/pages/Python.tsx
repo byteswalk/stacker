@@ -262,6 +262,7 @@ export default function Python() {
     try {
       await fetchInstallList(onlyStable);
     } catch (e) {
+      setRemote([]);
       toast("获取 Python 版本列表失败。请切换下载源或稍后重试。原因：" + e, "err");
     }
   }
@@ -274,6 +275,7 @@ export default function Python() {
     try {
       await fetchInstallList(next);
     } catch (e) {
+      setRemote([]);
       toast("获取 Python 版本列表失败。请切换下载源或稍后重试。原因：" + e, "err");
     }
   }

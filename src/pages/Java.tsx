@@ -76,8 +76,10 @@ export default function Java() {
   // 默认安装到「工具目录\jdk\<发行版>-<版本>-<位数>」，位数分目录避免同名覆盖
   const destFor = (v: string, vd: string = vendor, a: string = arch) =>
     (appDir ? `${appDir}\\jdk\\${vd}-${v}-${archSuffix(a)}` : `D:\\Environments\\${vd}-${v}-${archSuffix(a)}`);
+  // The folder is named after the vendor that will actually be downloaded (the saved one, not
+  // always Temurin): a Zulu build extracted into a temurin-* folder overwrote that JDK.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { invoke<string>("managed_runtime_dir").then((d) => { setAppDir(d); setDlDest((d ? `${d}\\jdk\\` : "D:\\Environments\\") + `temurin-${dlVer}-x64`); }).catch(() => {}); }, []);
+  useEffect(() => { invoke<string>("managed_runtime_dir").then((d) => { setAppDir(d); setDlDest((d ? `${d}\\jdk\\` : "D:\\Environments\\") + `${vendor}-${dlVer}-${archSuffix(arch)}`); }).catch(() => {}); }, []);
   function pickVer(v: string) {
     const a = supportsX32(v, vendor) ? arch : "x64";
     setDlVer(v); setArch(a); setDlDest(destFor(v, vendor, a));

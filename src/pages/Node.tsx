@@ -184,7 +184,8 @@ export default function Node() {
       }, () => invoke<string[]>("fnm_ls_remote", { ltsOnly: v, source }));
       setRemote(rows);
     }
-    catch (e) { toast("获取 Node 版本列表失败。请切换下载源或稍后重试。原因：" + e, "err"); }
+    // Empty, not null: null keeps the dialog saying it is still loading.
+    catch (e) { setRemote([]); toast("获取 Node 版本列表失败。请切换下载源或稍后重试。原因：" + e, "err"); }
   }
 
   async function speedtestSources() {

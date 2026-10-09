@@ -124,10 +124,11 @@ export default function Proxy() {
     return () => { disposed = true; stop?.(); };
   }, [load]);
 
+  /** True when the change went through; a form waits for it before closing. */
   async function run(key: string, task: () => Promise<unknown>, ok: string) {
     setBusy(key);
-    try { await runBusy({ title: "正在应用代理设置" }, async () => { await task(); await load(); }); toast(ok, "ok"); }
-    catch (e) { toast(errorText(e), "err"); await load().catch(() => undefined); }
+    try { await runBusy({ title: "正在应用代理设置" }, async () => { await task(); await load(); }); toast(ok, "ok"); return true; }
+    catch (e) { toast(errorText(e), "err"); await load().catch(() => undefined); return false; }
     finally { setBusy(""); }
   }
 
@@ -229,7 +230,7 @@ export default function Proxy() {
                 <i className={"ti " + (busy === row.id ? "ti-loader spin" : "ti-pencil")} /> 写入
               </button>
               <button className="gh sm" disabled={!!busy || !(row.value ?? "").trim()}
-                onClick={() => service ? void setService(null) : (row.owner === "external" ? setConfirmClear(row) : void clear(row))}>
+                onClick={() => row.owner === "external" ? setConfirmClear(row) : (service ? void setService(null) : void clear(row))}>
                 <i className="ti ti-eraser" /> 清除
               </button>
               {row.target && !row.target.builtin && <button className="gh sm" title="删除这个自定义项"
@@ -286,7 +287,7 @@ export default function Proxy() {
       {confirmClear && <ConfirmModal title={`清除 ${LOCATION_INFO[confirmClear.id]?.name ?? confirmClear.id} 代理`} icon="ti-eraser" danger
         message={`这是你或其他工具设置的代理（${confirmClear.value}），不是 Stacker 写入的。确定要清除吗？`}
         confirmLabel="清除"
-        onConfirm={() => { const row = confirmClear; setConfirmClear(null); void clear(row); }}
+        onConfirm={() => { const row = confirmClear; setConfirmClear(null); void (row.id === "winhttp" ? setService(null) : clear(row)); }}
         onClose={() => setConfirmClear(null)} />}
 
       {draft && <Modal title={draft.id && !draft.builtin ? "编辑自定义程序" : "添加其他程序"} icon="ti-plus"
@@ -295,7 +296,12 @@ export default function Proxy() {
         footer={<>
           <button className="gh sm" onClick={() => setDraft(null)}>取消</button>
           <button className="pr sm" disabled={!!busy || !draft.name.trim() || !draft.writer.path.trim() || !draft.writer.entries[0]?.key.trim()}
-            onClick={() => { const target = { ...draft, id: draft.id.trim() || slug(draft.name) }; setDraft(null); void saveTarget(target); }}>
+            onClick={() => {
+              // The form stays open until the save is accepted: a path or key it refuses is
+              // fixed in place, not retyped.
+              const target = { ...draft, id: draft.id.trim() || slug(draft.name) };
+              void saveTarget(target).then((saved) => { if (saved) setDraft(null); });
+            }}>
             <i className="ti ti-device-floppy" /> 保存
           </button>
         </>}>

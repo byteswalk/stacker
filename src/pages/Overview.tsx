@@ -97,6 +97,7 @@ function extraFixer(id: string): null | (() => Promise<string>) {
 const BATCH_EXTRA = new Set(["fnm_no_integration"]);
 // Deleting from the overview is asked about first: what goes, and that it does not come back.
 const CONFIRM_EXTRA: Record<string, string> = {
+  cache_safe_high: "删除可以直接清理的开发工具缓存（包管理器下载缓存等），之后用到时会重新下载；删除后不能恢复。",
   windows_temp_high: "清空 Windows 和当前用户的临时目录。正在被程序占用的文件会自动跳过；删除后不能恢复。",
   jetbrains_history: "删除旧版 JetBrains IDE / Android Studio 的数据目录，每个产品保留最新的一个版本；删除后不能恢复。",
 };
@@ -521,7 +522,8 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
               <div className="fs">{e.desc}</div>
             </div>
             <span className="fixrow-ops">
-              <button className={e.sev === "info" ? "gh sm" : "pr sm"} disabled={directBusy}
+              {/* A checkup that set out before the fix would put the fixed item back. */}
+              <button className={e.sev === "info" ? "gh sm" : "pr sm"} disabled={directBusy || (!!fixer && checkingAll)}
                 onClick={!fixer ? () => openDetail(e.page) : CONFIRM_EXTRA[e.id] ? () => setConfirming(e) : () => runExtra(e.id, fixer)}>
                 <i className={"ti " + (directBusy ? "ti-loader spin" : fixer ? "ti-broom" : "ti-arrow-right")} /> {directBusy ? "处理中…" : e.action}
               </button>

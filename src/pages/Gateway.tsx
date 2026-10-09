@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "../invoke";
 import { useI18n } from "../i18n";
-import { useToast, ErrorState, Loading } from "../ui";
+import { useToast, ErrorState, Loading, ConfirmModal } from "../ui";
 import { GatewayAgents } from "../features/gateway/GatewayAgents";
 import { FoldCard } from "../features/gateway/Fold";
 import { LanAddresses, type LanAddress } from "../features/gateway/LanAddresses";
@@ -18,6 +18,10 @@ export default function Gateway() {
   const [port, setPort] = useState("");
   const [busy, setBusy] = useState(false);
   const [showKey, setShowKey] = useState(false);
+  const [confirmRegenerate, setConfirmRegenerate] = useState(false);
+  // Bumped by every change: a poll that set out before it must not put back what it replaced
+  // (a regenerated key, a switched toggle).
+  const generation = useRef(0);
   const [example, setExample] = useState<"curl" | "openai" | "anthropic">("curl");
   const [loadErr, setLoadErr] = useState(false);
 
@@ -30,7 +34,10 @@ export default function Gateway() {
   }, [load]);
   useEffect(() => {
     if (!status?.running) return;
-    const timer = window.setInterval(() => { void invoke<Status>("gateway_status").then(setStatus).catch(() => {}); }, 3000);
+    const timer = window.setInterval(() => {
+      const asked = generation.current;
+      void invoke<Status>("gateway_status").then((next) => { if (generation.current === asked) setStatus(next); }).catch(() => {});
+    }, 3000);
     return () => clearInterval(timer);
   }, [status?.running]);
 
@@ -38,6 +45,7 @@ export default function Gateway() {
     const p = Number(port);
     if (!Number.isInteger(p) || p < 1024 || p > 65535) { toast(t("端口需在 1024–65535 之间"), "info"); return; }
     setBusy(true);
+    generation.current += 1;
     try {
       const next = await invoke<Status>("gateway_set", { enabled, port: p });
       setStatus(next);
@@ -56,6 +64,7 @@ export default function Gateway() {
   }
   async function setLan(enabled: boolean) {
     setBusy(true);
+    generation.current += 1;
     try {
       setStatus(await invoke<Status>("gateway_set_lan", { enabled }));
     } catch (e) { toast(String(e), "err"); }
@@ -64,6 +73,7 @@ export default function Gateway() {
 
   async function regenerate() {
     setBusy(true);
+    generation.current += 1;
     try { setStatus(await invoke<Status>("gateway_new_token")); toast(t("已生成新密钥，旧密钥立即失效"), "ok"); }
     catch (e) { toast(String(e), "err"); }
     finally { setBusy(false); }
@@ -108,7 +118,7 @@ export default function Gateway() {
           <div className="gw-wide"><span>API Key</span><code>{key}</code>
             <button className="gh sm" onClick={() => setShowKey(!showKey)}><i className={"ti " + (showKey ? "ti-eye-off" : "ti-eye")} /></button>
             <button className="gh sm" onClick={() => void copy(status.token)}><i className="ti ti-copy" /></button>
-            <button className="gh sm" disabled={busy} onClick={() => void regenerate()}><i className="ti ti-refresh" /> {t("重新生成")}</button>
+            <button className="gh sm" disabled={busy} onClick={() => setConfirmRegenerate(true)}><i className="ti ti-refresh" /> {t("重新生成")}</button>
           </div>
         </div>
         <div className="gw-lan">
@@ -166,6 +176,11 @@ export default function Gateway() {
           : <><b>{t("仅供本机自用")}</b> {t("服务只监听 127.0.0.1，拒绝浏览器网页发起的请求，每个请求都需要上面的密钥。调用会消耗你在对应智能体中登录账号的额度；请勿把端口或密钥提供给他人。")}</>}
         </div>
       </div>
+      {confirmRegenerate && <ConfirmModal title={t("重新生成密钥")} icon="ti-refresh" danger
+        message={t("旧密钥会立即失效，正在使用它的工具都要换成新密钥。确定要重新生成吗？")}
+        confirmLabel={t("重新生成")}
+        onConfirm={() => { setConfirmRegenerate(false); void regenerate(); }}
+        onClose={() => setConfirmRegenerate(false)} />}
     </>
   );
 }

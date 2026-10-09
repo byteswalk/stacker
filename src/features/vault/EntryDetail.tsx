@@ -32,10 +32,11 @@ export function EntryDetail({ entry, today, onEdit, onChanged, onClose }: {
   // Revealed values belong to one saved version of one entry.
   useEffect(() => { currentId.current = entry.id; clear(); }, [entry.id, entry.updatedAt, clear]);
 
+  /** True when the action went through, so a dialog closes only on success. */
   async function run(action: () => Promise<unknown>, done?: string) {
     setBusy(true);
-    try { await action(); if (done) toast(done, "ok"); onChanged(); }
-    catch (error) { toast(vaultError(error), "err"); }
+    try { await action(); if (done) toast(done, "ok"); onChanged(); return true; }
+    catch (error) { toast(vaultError(error), "err"); return false; }
     finally { setBusy(false); }
   }
   async function reveal(field: string) {
@@ -120,7 +121,7 @@ export function EntryDetail({ entry, today, onEdit, onChanged, onClose }: {
       {confirmDelete && (
         <ConfirmModal title="删除条目" danger message={`删除「${entry.title}」？可在回收站保留 30 天。`} confirmLabel="删除条目" busy={busy}
           onClose={() => setConfirmDelete(false)}
-          onConfirm={() => { setConfirmDelete(false); void run(() => vaultApi.remove(entry.id), "已移入回收站。").then(onClose); }} />
+          onConfirm={() => { setConfirmDelete(false); void run(() => vaultApi.remove(entry.id), "已移入回收站。").then((ok) => { if (ok) onClose(); }); }} />
       )}
       {exportPath !== null && (
         <ConfirmModal title="导出私钥" danger message="私钥将以明文写入所选位置，请确认路径安全。" confirmLabel="导出" busy={busy}

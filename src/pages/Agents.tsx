@@ -317,7 +317,10 @@ export default function Agents() {
       .filter((tool) => !keyword || `${tool.name} ${tool.description} ${tool.edition_label}`.toLocaleLowerCase().includes(keyword)), sort);
   }, [edition, query, sort, status, tools]);
 
-  function SurfaceRow({ tool, target, surface }: { tool: VibeTool; target: "cli" | "desktop"; surface: VibeSurface }) {
+  // A render helper, not a component: declared in here, a component would be a new type on
+  // every render (task events arrive 4 times a second) and its buttons would be remounted
+  // between mousedown and mouseup, swallowing clicks.
+  function renderSurface(tool: VibeTool, target: "cli" | "desktop", surface: VibeSurface) {
     if (!surface.available) return <UnavailableSurface target={target} surface={surface} />;
     const installed = surfaceDetected(surface);
     // Not scanned yet: nothing is known about this install, so no action is offered on a guess.
@@ -441,8 +444,8 @@ export default function Agents() {
                   </button>
                 </div>
               </div>
-              <SurfaceRow tool={tool} target="cli" surface={tool.cli} />
-              <SurfaceRow tool={tool} target="desktop" surface={tool.desktop} />
+              {renderSurface(tool, "cli", tool.cli)}
+              {renderSurface(tool, "desktop", tool.desktop)}
             </div>
     );
   }
