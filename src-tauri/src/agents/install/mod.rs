@@ -242,6 +242,17 @@ pub(crate) fn uninstall_cli_tool(
             "hermes uninstall",
             Duration::from_secs(900),
         )?;
+        // Hermes means to remove its code checkout, but stops at git's read-only pack files
+        // ("[WinError 5]") and leaves the 2 GB checkout behind.
+        if let Some(checkout) = hermes_checkout_left(&program) {
+            emit_progress(window, "正在清理 Hermes 未删干净的代码目录…");
+            if let Err(e) = remove_dir_all_forced(&checkout) {
+                return Ok(format!(
+                    "Hermes CLI 已卸载，用户配置和会话数据已保留；代码目录 {} 没能删干净：{e}",
+                    checkout.display()
+                ));
+            }
+        }
         return Ok("Hermes CLI 已卸载，用户配置和会话数据已保留".into());
     }
     if spec.vendor == Vendor::OpenClaw {
@@ -369,6 +380,44 @@ pub(crate) fn uninstall_cli_tool(
             spec.cli.name
         )),
     }
+}
+
+/// The Hermes Agent code checkout still there after `hermes uninstall`: `<home>\hermes-agent`
+/// beside the `<home>\bin` the command lived in, recognised by its `.git` and `hermes_cli`.
+fn hermes_checkout_left(program: &Path) -> Option<PathBuf> {
+    let bin = program.parent()?;
+    if !bin
+        .file_name()?
+        .to_string_lossy()
+        .eq_ignore_ascii_case("bin")
+    {
+        return None;
+    }
+    let checkout = bin.parent()?.join("hermes-agent");
+    (checkout.join(".git").is_dir() && checkout.join("hermes_cli").is_dir()).then_some(checkout)
+}
+
+/// remove_dir_all that first clears the read-only flag Windows puts on files git writes.
+fn remove_dir_all_forced(path: &Path) -> std::io::Result<()> {
+    fn clear_readonly(path: &Path) -> std::io::Result<()> {
+        for entry in std::fs::read_dir(path)? {
+            let entry = entry?;
+            let kind = entry.file_type()?;
+            if kind.is_dir() {
+                clear_readonly(&entry.path())?;
+            } else if kind.is_file() {
+                let mut permissions = entry.metadata()?.permissions();
+                if permissions.readonly() {
+                    #[allow(clippy::permissions_set_readonly_false)]
+                    permissions.set_readonly(false);
+                    std::fs::set_permissions(entry.path(), permissions)?;
+                }
+            }
+        }
+        Ok(())
+    }
+    clear_readonly(path)?;
+    std::fs::remove_dir_all(path)
 }
 
 /// A Codex CLI from the official installer (`chatgpt.com/codex/install.ps1`).
@@ -1248,6 +1297,30 @@ pub(crate) fn image_is_running(image: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_hermes_checkout_left_behind_is_removed_read_only_files_and_all() {
+        let home = std::env::temp_dir().join(format!("stacker-hermes-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        let checkout = home.join("hermes-agent");
+        std::fs::create_dir_all(checkout.join(".git").join("objects")).unwrap();
+        std::fs::create_dir_all(checkout.join("hermes_cli")).unwrap();
+        let pack = checkout.join(".git").join("objects").join("pack.idx");
+        std::fs::write(&pack, b"x").unwrap();
+        let mut permissions = std::fs::metadata(&pack).unwrap().permissions();
+        permissions.set_readonly(true);
+        std::fs::set_permissions(&pack, permissions).unwrap();
+        let program = home.join("bin").join("hermes.exe");
+        assert_eq!(hermes_checkout_left(&program), Some(checkout.clone()));
+        assert_eq!(
+            hermes_checkout_left(&home.join("other").join("hermes.exe")),
+            None
+        );
+        remove_dir_all_forced(&checkout).unwrap();
+        assert!(!checkout.exists());
+        assert_eq!(hermes_checkout_left(&program), None);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
     #[test]
     fn a_self_updated_portable_package_is_recognised() {
         assert!(super::winget::portable_modified(
