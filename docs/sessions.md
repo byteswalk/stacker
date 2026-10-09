@@ -1,6 +1,6 @@
 # 智能体管理：会话数据
 
-「会话数据」页直接读取 Codex 和 Claude 自己的会话元数据，列出你在两个客户端里实际看到的会话，按项目归类，并支持批量删除。Stacker 不再维护会话全量索引。
+「会话数据」页直接读取各智能体自己的会话记录（Codex、Claude、CodeBuddy、WorkBuddy 中国版与国际版、Qoder 国际版与中国版、Kimi Code、MiMo Code、TRAE CLI、Antigravity，以及 Qoder 等桌面端自己保存的对话），列出你在客户端里实际看到的会话，按项目归类，并支持批量删除。Stacker 不再维护会话全量索引。下文的分类、删除和占用规则以 Codex、Claude 为例写得最细，其他智能体按各自的记录格式套用同样的边界。
 
 ## 数据来源
 
@@ -9,6 +9,13 @@
 | Codex | 「设置 → 高级：读取位置」中的自定义路径 → 用户环境变量 `CODEX_HOME` → `~/.codex` | 只读打开最新的 `state_<n>.sqlite`：`threads`、`thread_spawn_edges`、`projects`、`project_roots`；正文读取 rollout JSONL |
 | Claude | 自定义路径 → `CLAUDE_CONFIG_DIR` → `~/.claude` | `projects/<项目>/<会话>.jsonl` 的开头 256 行（1 MB）和末尾 256 KB；`<会话>/subagents/`、`custom-title.json`、`file-history/<会话>`、`session-env/<会话>` 只统计大小 |
 | Claude 桌面端索引 | 自定义路径 → `%APPDATA%\Claude\claude-code-sessions` | `<账号>/<组织>/local_*.json`：侧栏标题、归档状态、最后活动时间 |
+| CodeBuddy | 自定义路径 → `~/.codebuddy` | `projects/<项目>/<会话>.jsonl`（与 Claude 同构，`summary` 行为标题） |
+| WorkBuddy 中国版 / 国际版 | 自定义路径 → `~/.workbuddy` / `~/.workbuddy-ai` | 同 CodeBuddy 的会话文件；只读打开 `workbuddy.db` 取应用显示的标题、工作目录、自动化标记和「已在应用中删除」标记 |
+| Qoder 国际版 / 中国版 | 自定义路径 → `~/.qoder` / `~/.qoder-cn` | CLI 的会话文件；桌面端的对话列表来自编辑器自己的 `state.vscdb` |
+| Kimi Code | 自定义路径 → `~/.kimi-code` | `sessions/wd_<工作区>/session_<id>/`：`state.json` 与 `agents/<智能体>/wire.jsonl` |
+| MiMo Code | 自定义路径 → `~/.local/share/mimocode` | 只读打开 SQLite：`session`、`message`、`part` 表 |
+| TRAE CLI | 自定义路径 → `%LOCALAPPDATA%\trae-cli\sessions` | 会话目录 |
+| Antigravity | 自定义路径 → `~/.gemini/antigravity` | 只读展示，不支持删除 |
 
 Claude 桌面端的 Code 页与 CLI 共用 `~/.claude/projects`，Codex 桌面端、CLI 与 IDE 共用 `~/.codex`，因此按智能体而不是按客户端区分来源。每条会话带一个客户端标签：桌面端、终端、IDE、自动化、SDK。
 
@@ -42,12 +49,13 @@ Claude 桌面端的 Code 页与 CLI 共用 `~/.claude/projects`，Codex 桌面�
 - 单次最多 500 条。
 - Claude：只删除不在桌面端侧栏中的会话。仍在侧栏中的会话会被阻止，请先在 Claude 桌面端删除。最近 2 分钟内有写入的会话视为正在使用并阻止。删除范围为 `projects/<项目>/<会话>.jsonl`、`projects/<项目>/<会话>/`、`file-history/<会话>/`、`session-env/<会话>`。
 - Codex：要求 Codex 桌面端与 CLI 已完全退出，并确认本机 Codex 支持安全删除接口；通过 Codex App Server 的 `thread/delete` 先删除子线程再删除父会话，完成后核对记录文件已不存在。
+- 其他智能体：CodeBuddy、WorkBuddy、Qoder、Kimi Code、TRAE CLI 删除各自根目录内的会话文件；MiMo Code 删除数据库中的该会话；Antigravity 只读，会被阻止。
 - 不跟随符号链接或目录联接；所有路径必须位于对应智能体根目录内。
 - 删除只影响智能体的会话记录，不删除项目源码、工作树或构建缓存。
 
 ## 占用
 
-「占用」标签统计 Codex 与 Claude 在磁盘上的全部数据，每一项归入四类：
+「占用」标签统计每个已安装智能体在磁盘上的全部数据（同一文件经硬链接或重定向出现多次时只计一次）。下表以 Codex 与 Claude 为例，每一项归入四类：
 
 | 类别 | 内容 | 操作 |
 | --- | --- | --- |
