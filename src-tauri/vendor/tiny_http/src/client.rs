@@ -34,6 +34,9 @@ pub struct ClientConnection {
 
     // true if the connection goes through SSL
     secure: bool,
+
+    // Stacker patch: when the request head being read must be complete by.
+    head_deadline: Option<std::time::Instant>,
 }
 
 /// Error that can happen when reading a request.
@@ -65,6 +68,7 @@ impl ClientConnection {
             next_header_source: first_header,
             no_more_requests: false,
             secure,
+            head_deadline: None,
         }
     }
 
@@ -88,6 +92,14 @@ impl ClientConnection {
             if buf.len() > MAX_LINE {
                 return Err(IoError::new(ErrorKind::InvalidData, "Header line too long"));
             }
+            // Stacker patch: a client trickling a byte now and then (slowloris) still has to
+            // finish the request line and headers within the deadline.
+            if self
+                .head_deadline
+                .is_some_and(|deadline| std::time::Instant::now() > deadline)
+            {
+                return Err(IoError::new(ErrorKind::TimedOut, "Request head too slow"));
+            }
             let byte = self.next_header_source.by_ref().bytes().next();
 
             let byte = match byte {
@@ -110,6 +122,8 @@ impl ClientConnection {
     /// Reads a request from the stream.
     /// Blocks until the header has been read.
     fn read(&mut self) -> Result<Request, ReadError> {
+        // Stacker patch: 15 seconds for the request line and every header together.
+        self.head_deadline = Some(std::time::Instant::now() + std::time::Duration::from_secs(15));
         let (method, path, version, headers) = {
             // reading the request line
             let (method, path, version) = {

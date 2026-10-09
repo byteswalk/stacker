@@ -822,6 +822,33 @@ mod tests {
         server.stop();
     }
 
+    #[test]
+    fn one_address_cannot_hold_more_than_its_share_of_connections() {
+        let server = start(0, false, fake()).unwrap();
+        let port = server.port;
+        // Idle connections that never send a request (slowloris), up to the per-address cap.
+        let idle: Vec<TcpStream> = (0..16)
+            .map(|_| TcpStream::connect(("127.0.0.1", port)).unwrap())
+            .collect();
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        let mut extra = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        extra
+            .set_read_timeout(Some(std::time::Duration::from_secs(3)))
+            .unwrap();
+        let _ = extra.write_all(b"GET /health HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n");
+        let mut out = Vec::new();
+        let _ = extra.read_to_end(&mut out);
+        assert!(out.is_empty(), "the 17th connection is closed unanswered");
+        drop(idle);
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let (status, _) = http(
+            port,
+            "GET /health HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n",
+        );
+        assert_eq!(status, 200, "slots come back when the connections close");
+        server.stop();
+    }
+
     fn post(port: u16, path: &str, auth: &str, extra: &str, body: &str) -> (u16, String) {
         http(port, &format!(
             "POST {path} HTTP/1.1\r\nHost: localhost\r\n{auth}{extra}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",

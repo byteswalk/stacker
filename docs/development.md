@@ -22,7 +22,7 @@
 | 代理、源与设置 | `src/pages/Proxy.tsx`、`src/pages/Settings.tsx` | `proxy.rs`、`sources.rs`、`settings.rs` | 只管理明确选择的终端和开发工具配置，不检测或配置 TUN/VPN |
 | 桌面生命周期 | `src/App.tsx`、`src/main.tsx` | `lib.rs`、`logging.rs` | 单实例、窗口恢复、托盘、首次关闭选择、统一日志和错误边界 |
 
-第三方依赖补丁：`src-tauri/vendor/tiny_http` 是 tiny_http 0.12.0 的副本，经 `Cargo.toml` 的 `[patch.crates-io]` 生效，改动处标有 “Stacker patch”（未读完的请求体按固定小块丢弃并设上限、请求行与请求头数量设上限），用来防止一个伪造 Content-Length 的请求让接口服务所在进程崩溃。升级 tiny_http 时需确认上游已修复或把补丁移植过去。
+第三方依赖补丁：`src-tauri/vendor/tiny_http` 是 tiny_http 0.12.0 的副本，经 `Cargo.toml` 的 `[patch.crates-io]` 生效，改动处标有 “Stacker patch”（未读完的请求体按固定小块丢弃并设上限；请求行与请求头数量设上限；请求头须在 15 秒内读完；连接空闲读超时 20 秒、写超时 30 秒；同时最多 64 个连接、同一地址最多 16 个），用来防止伪造 Content-Length 的请求让进程崩溃，以及慢速连接（slowloris）占满线程。升级 tiny_http 时需确认上游已修复或把补丁移植过去。
 
 IPC 命令集中注册在 `src-tauri/src/lib.rs`。新命令需要同时补充 Rust 错误语义、`src/invoke.ts` 调用、前端失败恢复和国际化文案。耗时扫描、清理和会话任务必须继续使用后台任务状态，不得阻塞 WebView。
 

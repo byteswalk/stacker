@@ -290,12 +290,24 @@ impl Server {
         thread::spawn(move || {
             // a tasks pool is used to dispatch the connections into threads
             let tasks_pool = util::TaskPool::new();
+            // Stacker patch: at most 64 connections at once and 16 from one address, so idle
+            // or trickling connections cannot pile up a thread each without end.
+            let open = Arc::new(std::sync::Mutex::new(OpenConnections::default()));
 
             log::debug!("Running accept thread");
             while !inside_close_trigger.load(Relaxed) {
                 let new_client = match server.accept() {
-                    Ok((sock, _)) => {
+                    Ok((sock, addr)) => {
                         use util::RefinedTcpStream;
+                        // Stacker patch: refuse past the limits; give reads and writes a timeout.
+                        let Some(slot) = OpenConnections::take(&open, addr.map(|a| a.ip())) else {
+                            drop(sock);
+                            continue;
+                        };
+                        if let connection::Connection::Tcp(ref stream) = sock {
+                            let _ = stream.set_read_timeout(Some(Duration::from_secs(20)));
+                            let _ = stream.set_write_timeout(Some(Duration::from_secs(30)));
+                        }
                         let (read_closable, write_closable) = match ssl {
                             None => RefinedTcpStream::new(sock),
                             #[cfg(any(feature = "ssl-openssl", feature = "ssl-rustls"))]
@@ -313,16 +325,19 @@ impl Server {
                             Some(ref _ssl) => unreachable!(),
                         };
 
-                        Ok(ClientConnection::new(write_closable, read_closable))
+                        Ok((ClientConnection::new(write_closable, read_closable), slot))
                     }
                     Err(e) => Err(e),
                 };
 
                 match new_client {
-                    Ok(client) => {
+                    Ok((client, slot)) => {
                         let messages = inside_messages.clone();
                         let mut client = Some(client);
+                        let mut slot = Some(slot);
                         tasks_pool.spawn(Box::new(move || {
+                            // Freed when the connection is done.
+                            let _slot = slot.take();
                             if let Some(client) = client.take() {
                                 // Synchronization is needed for HTTPS requests to avoid a deadlock
                                 if client.secure() {
@@ -441,6 +456,62 @@ impl Drop for Server {
         if let ListenAddr::Unix(addr) = &self.listening_addr {
             if let Some(path) = addr.as_pathname() {
                 let _ = std::fs::remove_file(path);
+            }
+        }
+    }
+}
+
+/// Stacker patch: open connections, in all and per client address.
+#[derive(Default)]
+struct OpenConnections {
+    total: usize,
+    by_ip: std::collections::HashMap<std::net::IpAddr, usize>,
+}
+
+impl OpenConnections {
+    const MAX_TOTAL: usize = 64;
+    const MAX_PER_IP: usize = 16;
+
+    fn take(
+        open: &Arc<std::sync::Mutex<OpenConnections>>,
+        ip: Option<std::net::IpAddr>,
+    ) -> Option<ConnectionSlot> {
+        let mut state = open.lock().ok()?;
+        if state.total >= Self::MAX_TOTAL {
+            return None;
+        }
+        if let Some(ip) = ip {
+            let count = state.by_ip.entry(ip).or_insert(0);
+            if *count >= Self::MAX_PER_IP {
+                return None;
+            }
+            *count += 1;
+        }
+        state.total += 1;
+        Some(ConnectionSlot {
+            open: open.clone(),
+            ip,
+        })
+    }
+}
+
+/// Stacker patch: one counted connection, given back when dropped.
+struct ConnectionSlot {
+    open: Arc<std::sync::Mutex<OpenConnections>>,
+    ip: Option<std::net::IpAddr>,
+}
+
+impl Drop for ConnectionSlot {
+    fn drop(&mut self) {
+        if let Ok(mut state) = self.open.lock() {
+            state.total = state.total.saturating_sub(1);
+            if let Some(ip) = self.ip {
+                if let Some(count) = state.by_ip.get_mut(&ip) {
+                    *count = count.saturating_sub(1);
+                    if *count == 0 {
+                        state.by_ip.remove(&ip);
+                    }
+                }
             }
         }
     }
