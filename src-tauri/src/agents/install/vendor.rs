@@ -139,13 +139,16 @@ pub(crate) fn install_hermes(window: &Option<tauri::Window>) -> Result<String, S
             "-ExecutionPolicy",
             "Bypass",
             "-Command",
-            "iex (irm https://hermes-agent.nousresearch.com/install.ps1)",
+            // Its last stages run `hermes setup` and the gateway service, which need a
+            // console and answers; without one the wizard dies with a traceback. The
+            // installer's own -NonInteractive skips exactly those.
+            "& ([scriptblock]::Create((irm https://hermes-agent.nousresearch.com/install.ps1))) -NonInteractive",
         ],
         "Hermes Windows Installer",
         Duration::from_secs(1200),
         window,
     )?;
-    Ok("Hermes CLI 已通过官方安装器安装".into())
+    Ok("Hermes CLI 已通过官方安装器安装。首次使用请在终端运行 hermes setup 完成配置".into())
 }
 
 pub(crate) fn run_codex_installer(window: &Option<tauri::Window>) -> Result<String, String> {
