@@ -261,8 +261,8 @@ export function BackToTop({ scroller, after = 900 }: { scroller: { current: HTML
     window.addEventListener("resize", schedule);
     return () => { element.removeEventListener("scroll", schedule); window.removeEventListener("resize", schedule); if (frame) cancelAnimationFrame(frame); };
   }, [scroller, after]);
-  // It fades away after a few seconds without any mouse, keyboard or scroll activity, and
-  // comes back with the next one. Not while the pointer rests on it.
+  // It fades away after a few seconds without the page moving, and comes back only when the
+  // page scrolls again (mouse moves and clicks do not count). Not while the pointer rests on it.
   const [idle, setIdle] = useState(false);
   const hovered = useRef(false);
   const shown = place !== null;
@@ -274,14 +274,11 @@ export function BackToTop({ scroller, after = 900 }: { scroller: { current: HTML
       timer = window.setTimeout(() => { if (hovered.current) arm(); else setIdle(true); }, BACK_TOP_IDLE_MS);
     };
     const wake = () => { setIdle(false); arm(); };
-    const events = ["mousemove", "pointerdown", "wheel", "keydown", "touchstart"] as const;
-    for (const name of events) window.addEventListener(name, wake, { passive: true });
     const element = scroller.current;
     element?.addEventListener("scroll", wake, { passive: true });
     wake();
     return () => {
       window.clearTimeout(timer);
-      for (const name of events) window.removeEventListener(name, wake);
       element?.removeEventListener("scroll", wake);
     };
   }, [shown, scroller]);

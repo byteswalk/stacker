@@ -192,7 +192,7 @@ describe("BackToTop", () => {
     return <div ref={scroller} id="scroller"><BackToTop scroller={scroller} /></div>;
   }
 
-  it("fades away after 5 seconds without activity and comes back with the next one, not while hovered", () => {
+  it("fades away after 5 seconds without the page moving and comes back only when it scrolls, not while hovered", () => {
     act(() => root.render(<Page />));
     const scroller = container.querySelector<HTMLDivElement>("#scroller")!;
     act(() => { scroller.scrollTop = 1200; scroller.dispatchEvent(new Event("scroll")); });
@@ -203,7 +203,13 @@ describe("BackToTop", () => {
     expect(button()!.classList.contains("idle")).toBe(false);
     act(() => { vi.advanceTimersByTime(200); });
     expect(button()!.classList.contains("idle")).toBe(true);
-    act(() => { window.dispatchEvent(new MouseEvent("mousemove")); });
+    act(() => {
+      window.dispatchEvent(new MouseEvent("mousemove"));
+      window.dispatchEvent(new MouseEvent("pointerdown"));
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "a" }));
+    });
+    expect(button()!.classList.contains("idle"), "moving the mouse or clicking does not count").toBe(true);
+    act(() => { scroller.scrollTop = 1300; scroller.dispatchEvent(new Event("scroll")); });
     expect(button()!.classList.contains("idle")).toBe(false);
     act(() => { button()!.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })); });
     act(() => { vi.advanceTimersByTime(12000); });
