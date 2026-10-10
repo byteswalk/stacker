@@ -1,18 +1,19 @@
 {
     "version":  "0.3.4",
-    "released_at":  "2026-09-22T11:00:00+08:00",
+    "released_at":  "2026-10-10T10:30:18+08:00",
     "release_url":  "https://github.com/byteswalk/stacker/releases/tag/v0.3.4",
     "installer_url":  "https://github.com/byteswalk/stacker/releases/download/v0.3.4/Stacker-0.3.4-setup-windows-x64.exe",
-    "installer_sha256":  "778137d8c868ee3a72609a4853834616f692f79289399d5da19f1ac7c4e09a95",
+    "installer_sha256":  "fe05eaa9409423727a76ca069a9deb5cf2673220c37dbbad3adec7a0e61faf04",
     "portable_url":  "https://github.com/byteswalk/stacker/releases/download/v0.3.4/Stacker-0.3.4-portable-windows-x64.zip",
-    "portable_sha256":  "0db3a0b3c4a0b7e247e4304f0c3422155682abe7b34a12a85184941cffadc7c3",
+    "portable_sha256":  "c4cd3c21981f0e63e1f2c5085d4896bdd151b55d6ce8d545bc6a75f4faf21fc3",
     "notes":  [
-                  "Added the browser extension for ChatGPT, Claude, Gemini, Grok and DeepSeek: browse, search, export and clean up web chats, and sync them into Stacker.",
-                  "Added distillation of web chats, local sessions and excerpts into reusable results and skill drafts.",
-                  "Added a local OpenAI- and Anthropic-style gateway over agent CLIs, per-agent API service settings, and session summaries with project handoffs.",
-                  "Agent latest versions now come from each vendor\u0027s own update service, labelled with their source; MiMo Desktop and the moved OpenClaw Windows companion are supported.",
-                  "Parallel agent tasks with waiting reasons, real download progress and clearable history.",
-                  "Updates are now signed and verified with a built-in public key before they are installed."
+                  "The agent catalog now covers 22 products, from Claude Code and Codex to Grok Build, GitHub Copilot, Cursor, Factory, Kiro, MiniMax Code, Xiaomi MiMo and Agnes Code; installs, updates, uninstalls and repairs run as background tasks.",
+                  "Session data reads Codex, Claude, CodeBuddy, WorkBuddy, Qoder, Kimi Code, MiMo Code and the desktop apps, with summaries, project handoffs, transfer to another computer and moving data folders.",
+                  "An API service offers signed-in agent CLIs to your tools through OpenAI- and Anthropic-style endpoints, with images, PDF, streaming and an optional LAN switch.",
+                  "A local encrypted key vault for API keys, tokens, SSH keys and website logins.",
+                  "Disk cleanup adds a space map, duplicate files, compression of large files and whole-project removal.",
+                  "The browser extension manages ChatGPT, Claude, Gemini, Grok and DeepSeek web chats and syncs them into Stacker.",
+                  "Updates are signed and verified before they install, and a full review fixed many safety and reliability issues."
               ],
-    "installer_signature":  "untrusted comment: Stacker release\nRURFeBheM9RE7hLNAFstw5Fs4H35NxO25QQYsYQtk8hWIijwThjVAaiNBzH39dNaQAg8ABnPo3YPpZZLnXuUfuVHSL7S6cL1MQ8=\ntrusted comment: Stacker-0.3.4-setup-windows-x64.exe\nJ0Rc9jIiaFFYX6SRNoBKWAHQ8LcLuaa7k6rC7BVJv3t3mCptTSOQly0d1cwDFy/SM0DMnl5uqbwEas6o1xYnBQ=="
+    "installer_signature":  "untrusted comment: Stacker release\nRURFeBheM9RE7lnrvft/47FYzngU6hRrwL3UG/zZ/IuQTDbCfM6w9O3I/1j40I9mQ7OnCLEZAV3gnX0S7MJdM136S6XmIbnzmAk=\ntrusted comment: Stacker-0.3.4-setup-windows-x64.exe\nuokPwsAtQ+JVsQ9uUr8bMqD6cb49NRLmBX7uOx7PcFxMFD1/e5Y89f3y3Wkh/7Ww5u9Ajc4tuyHYfeciLE+9BQ=="
 }
