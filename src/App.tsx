@@ -14,7 +14,7 @@ import { PAGE_IDS, readLastPage, saveLastPage, type Page } from "./pageState";
 import { resetMainWindowSize } from "./windowSize";
 import { TOOLCHAIN_PAGES, ToolchainAsk } from "./features/ai/ToolchainAsk";
 import { ToolRelocation } from "./features/relocation/ToolRelocation";
-import { ALL_NAV_ITEMS, NAV_FOOT, NAV_SECTIONS, initialCollapsedSections, sectionKeyOf, toggleSection, type NavItem, type NavSection } from "./navigation";
+import { ALL_NAV_ITEMS, NAV_FOOT, NAV_SECTIONS, initialCollapsedSections, openOnly, sectionKeyOf, toggleSection, type NavItem, type NavSection } from "./navigation";
 import { TaskCenter } from "./features/agent-tasks/TaskCenter";
 import { useTaskToasts } from "./features/agent-tasks/useTaskToasts";
 import { GOTO_EVENT } from "./features/ai/AiAsk";
@@ -251,10 +251,10 @@ function Shell() {
       .then((unlisten) => { if (disposed) unlisten(); else stopTray = unlisten; });
     return () => { disposed = true; stopTray?.(); window.removeEventListener(GOTO_EVENT, open); };
   }, []);
-  // Opening a page inside a collapsed section expands that section.
+  // Opening a page inside a collapsed section expands that section (and closes the others).
   useEffect(() => {
     const key = sectionKeyOf(page);
-    if (key) setCollapsedSections((current) => current.includes(key) ? toggleSection(current, key) : current);
+    if (key) setCollapsedSections((current) => current.includes(key) ? openOnly(key) : current);
   }, [page]);
   const [profile, setProfile] = useState("");
   const [applying, setApplying] = useState(false);

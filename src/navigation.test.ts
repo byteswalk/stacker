@@ -27,9 +27,12 @@ describe("sidebar navigation", () => {
     const collapsed = initialCollapsedSections();
     expect(collapsed).not.toContain("nav.section.agents");
     expect(collapsed).toEqual(expect.arrayContaining(["nav.section.devEnv", "nav.section.system"]));
+    // One section open at a time: opening 开发工具链 closes 智能体管理.
     const next = toggleSection(collapsed, "nav.section.devEnv");
     expect(next).not.toContain("nav.section.devEnv");
-    expect(toggleSection(next, "nav.section.devEnv")).toContain("nav.section.devEnv");
+    expect(next).toEqual(expect.arrayContaining(["nav.section.agents", "nav.section.system"]));
+    // Closing the open one leaves all closed.
+    expect(toggleSection(next, "nav.section.devEnv")).toEqual(expect.arrayContaining(["nav.section.agents", "nav.section.devEnv", "nav.section.system"]));
     expect(sectionKeyOf("rust")).toBe("nav.section.devEnv");
     expect(sectionKeyOf("overview")).toBeNull();
   });

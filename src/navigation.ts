@@ -55,11 +55,17 @@ export const OPEN_SECTION = "nav.section.agents";
 
 /** Collapsed sections at launch: all but 智能体管理. Toggles last for the session only. */
 export function initialCollapsedSections(): string[] {
-  return NAV_SECTIONS.flatMap((section) => section.labelKey && section.labelKey !== OPEN_SECTION ? [section.labelKey] : []);
+  return openOnly(OPEN_SECTION);
 }
 
+/** The collapsed list that leaves only `key` open. */
+export function openOnly(key: string): string[] {
+  return NAV_SECTIONS.flatMap((section) => section.labelKey && section.labelKey !== key ? [section.labelKey] : []);
+}
+
+/** Sections open one at a time: opening one closes the others; closing it leaves all closed. */
 export function toggleSection(collapsed: string[], key: string): string[] {
-  return collapsed.includes(key) ? collapsed.filter((item) => item !== key) : [...collapsed, key];
+  return collapsed.includes(key) ? openOnly(key) : [...collapsed, key];
 }
 
 export function sectionKeyOf(page: Page): string | null {
