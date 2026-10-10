@@ -261,10 +261,37 @@ export function BackToTop({ scroller, after = 900 }: { scroller: { current: HTML
     window.addEventListener("resize", schedule);
     return () => { element.removeEventListener("scroll", schedule); window.removeEventListener("resize", schedule); if (frame) cancelAnimationFrame(frame); };
   }, [scroller, after]);
+  // It fades away after a few seconds without any mouse, keyboard or scroll activity, and
+  // comes back with the next one. Not while the pointer rests on it.
+  const [idle, setIdle] = useState(false);
+  const hovered = useRef(false);
+  const shown = place !== null;
+  useEffect(() => {
+    if (!shown) return;
+    let timer = 0;
+    const arm = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => { if (hovered.current) arm(); else setIdle(true); }, BACK_TOP_IDLE_MS);
+    };
+    const wake = () => { setIdle(false); arm(); };
+    const events = ["mousemove", "pointerdown", "wheel", "keydown", "touchstart"] as const;
+    for (const name of events) window.addEventListener(name, wake, { passive: true });
+    const element = scroller.current;
+    element?.addEventListener("scroll", wake, { passive: true });
+    wake();
+    return () => {
+      window.clearTimeout(timer);
+      for (const name of events) window.removeEventListener(name, wake);
+      element?.removeEventListener("scroll", wake);
+    };
+  }, [shown, scroller]);
   if (!place) return null;
-  return <button type="button" className="back-top" style={place} title={tr("回到顶部")} aria-label={tr("回到顶部")}
+  return <button type="button" className={"back-top" + (idle ? " idle" : "")} style={place} title={tr("回到顶部")} aria-label={tr("回到顶部")}
+    onMouseEnter={() => { hovered.current = true; }} onMouseLeave={() => { hovered.current = false; }}
     onClick={() => scroller.current?.scrollTo({ top: 0, behavior: "smooth" })}><i className="ti ti-arrow-bar-to-up" /></button>;
 }
+
+const BACK_TOP_IDLE_MS = 5000;
 
 /** A thin bar running along the top of a list that is being read again: what is shown stays usable. */
 export function ListProgress() {

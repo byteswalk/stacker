@@ -1727,8 +1727,9 @@ button{ font-family:inherit; }
 /* Back to the top of a long page: a round button floating at its bottom-right. */
 .a .back-top{ position:fixed; z-index:30; width:38px; height:38px; border-radius:50%; display:flex; align-items:center; justify-content:center;
   border:.5px solid var(--bd); background:var(--card); color:var(--tx); font-size:17px; cursor:pointer;
-  box-shadow:0 6px 18px rgba(0,0,0,.35); animation:back-top-in .16s ease-out; }
+  box-shadow:0 6px 18px rgba(0,0,0,.35); animation:back-top-in .16s ease-out; transition:opacity .2s ease-out; }
 .a .back-top:hover{ border-color:var(--acc); color:var(--acc); }
+.a .back-top.idle{ opacity:0; pointer-events:none; transition-duration:.4s; }
 @keyframes back-top-in{ from{ opacity:0; transform:translateY(6px); } to{ opacity:1; transform:none; } }
 /* A list's actions, kept in sight at the bottom of the page however far the list runs. */
 .a .float-bar{ position:sticky; bottom:15px; z-index:6; margin:12px 0 0; padding:10px 15px; border:1px solid var(--bdh, var(--bd)); border-radius:10px;

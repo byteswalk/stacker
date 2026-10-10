@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-import { act, useState } from "react";
+import { act, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { BUSY_READ_DELAY, BusyHost, BusyProvider, ConfirmModal, Modal, ToastHost, ToastProvider, useBusy, useBusyRead, useToast } from "./ui";
+import { BUSY_READ_DELAY, BackToTop, BusyHost, BusyProvider, ConfirmModal, Modal, ToastHost, ToastProvider, useBusy, useBusyRead, useToast } from "./ui";
 import { StorageLocations } from "./StorageLocations";
 import { invoke, reportFrontendWarning } from "./invoke";
 import { listen } from "@tauri-apps/api/event";
@@ -183,5 +183,33 @@ describe("storage mutation lifecycle", () => {
     await act(async () => container.querySelector<HTMLButtonElement>(".storage-actions .pr")!.click());
     expect(container.querySelector(".toast.err")?.textContent).toContain("dialog unavailable");
     expect(container.querySelector("[role='dialog']")).toBeNull();
+  });
+});
+
+describe("BackToTop", () => {
+  function Page() {
+    const scroller = useRef<HTMLDivElement | null>(null);
+    return <div ref={scroller} id="scroller"><BackToTop scroller={scroller} /></div>;
+  }
+
+  it("fades away after 5 seconds without activity and comes back with the next one, not while hovered", () => {
+    act(() => root.render(<Page />));
+    const scroller = container.querySelector<HTMLDivElement>("#scroller")!;
+    act(() => { scroller.scrollTop = 1200; scroller.dispatchEvent(new Event("scroll")); });
+    const button = () => container.querySelector<HTMLButtonElement>(".back-top");
+    expect(button()).not.toBeNull();
+    expect(button()!.classList.contains("idle")).toBe(false);
+    act(() => { vi.advanceTimersByTime(4900); });
+    expect(button()!.classList.contains("idle")).toBe(false);
+    act(() => { vi.advanceTimersByTime(200); });
+    expect(button()!.classList.contains("idle")).toBe(true);
+    act(() => { window.dispatchEvent(new MouseEvent("mousemove")); });
+    expect(button()!.classList.contains("idle")).toBe(false);
+    act(() => { button()!.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })); });
+    act(() => { vi.advanceTimersByTime(12000); });
+    expect(button()!.classList.contains("idle")).toBe(false);
+    act(() => { button()!.dispatchEvent(new MouseEvent("mouseout", { bubbles: true })); });
+    act(() => { vi.advanceTimersByTime(5100); });
+    expect(button()!.classList.contains("idle")).toBe(true);
   });
 });
