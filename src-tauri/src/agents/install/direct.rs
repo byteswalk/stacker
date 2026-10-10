@@ -14,6 +14,7 @@ pub(crate) fn install_desktop_from_official_package(
     );
     let resolved = resolve_installer(installer)?;
     let path = download_desktop_installer(spec, &resolved, window)?;
+    let mut verified = false;
     let result = (|| {
         if installer.signed {
             emit_progress(window, "正在验证安装程序数字签名…");
@@ -32,6 +33,7 @@ pub(crate) fn install_desktop_from_official_package(
                 "安装包未签名，已按官方发布的 SHA-512 校验通过（可确认文件完整，但无法确认发布者身份）",
             );
         }
+        verified = true;
         run_downloaded_desktop_installer(spec, installer, &resolved, &path, window)?;
 
         emit_progress(window, format!("正在确认 {} 安装状态…", spec.desktop.name));
@@ -47,8 +49,68 @@ pub(crate) fn install_desktop_from_official_package(
             spec.desktop.name
         ))
     })();
-    let _ = std::fs::remove_file(&path);
+    // A verified installer whose run failed stays for the retry: Qoder's is over 200 MB.
+    if result.is_ok() || !verified {
+        forget_kept_installer(&path);
+    }
     result
+}
+
+/// The note beside a downloaded installer naming the product and the address it came from,
+/// which is what lets a retry use the file instead of downloading it again.
+fn kept_note(target: &Path) -> PathBuf {
+    PathBuf::from(format!("{}.source", target.display()))
+}
+
+fn forget_kept_installer(target: &Path) {
+    let _ = std::fs::remove_file(target);
+    let _ = std::fs::remove_file(kept_note(target));
+}
+
+/// Whether the installer left by an earlier failed run is the one `installer` names. With a
+/// published checksum the file has to match it; without one (a fixed "latest" link) only a
+/// recent download counts, since the same address may serve a newer version later. The
+/// signature check before the run still applies either way.
+fn kept_installer_matches(id: &str, target: &Path, installer: &ResolvedInstaller) -> bool {
+    let Ok(note) = std::fs::read_to_string(kept_note(target)) else {
+        return false;
+    };
+    let mut lines = note.lines();
+    if lines.next() != Some(id) || lines.next() != Some(installer.url.as_str()) {
+        return false;
+    }
+    match &installer.sha512 {
+        Some(expected) => sha512_base64(target).is_ok_and(|actual| &actual == expected),
+        None => std::fs::metadata(target)
+            .and_then(|meta| meta.modified())
+            .ok()
+            .and_then(|modified| modified.elapsed().ok())
+            .is_some_and(|age| age < Duration::from_secs(24 * 3600)),
+    }
+}
+
+/// Installers this product kept from earlier failed runs under another name (an older
+/// version's file). Only files whose note names this product go: `qoder` must not take
+/// `qoder-cn`'s.
+fn drop_other_kept_installers(id: &str, keep: &Path) {
+    let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let note = entry.path();
+        let Some(target) = note
+            .to_str()
+            .and_then(|path| path.strip_suffix(".source"))
+            .map(PathBuf::from)
+        else {
+            continue;
+        };
+        let ours = entry.file_name().to_string_lossy().starts_with("stacker-")
+            && std::fs::read_to_string(&note).is_ok_and(|text| text.lines().next() == Some(id));
+        if ours && target != keep {
+            forget_kept_installer(&target);
+        }
+    }
 }
 
 /// Download location and optional published checksum of an installer.
@@ -221,6 +283,11 @@ pub(crate) fn download_desktop_installer(
         ));
     }
     drop_timestamped_leftovers(spec.id);
+    drop_other_kept_installers(spec.id, &target);
+    if target.is_file() && kept_installer_matches(spec.id, &target, installer) {
+        emit_progress(window, "使用上次已下载的安装包，无需重新下载");
+        return Ok(target);
+    }
     let proxy = crate::agents::net::stacker_proxy();
     if let Some(proxy) = &proxy {
         emit_progress(
@@ -240,7 +307,13 @@ pub(crate) fn download_desktop_installer(
             1_048_576,
             |message| emit_progress(window, message),
         ) {
-            Ok(_) => return Ok(target),
+            Ok(_) => {
+                let _ = std::fs::write(
+                    kept_note(&target),
+                    format!("{}\n{}\n", spec.id, installer.url),
+                );
+                return Ok(target);
+            }
             Err(err)
                 if attempt == 1 && !crate::installer::op_cancelled() && !err.contains("取消") =>
             {
@@ -329,9 +402,8 @@ fn run_installer_elevated(
     spec: &ToolSpec,
     path: &Path,
     args: &[&str],
-    log_path: &Path,
     window: &Option<tauri::Window>,
-) -> Result<(), String> {
+) -> Result<InstallerExit, String> {
     use std::os::windows::ffi::OsStrExt;
     use winapi::um::handleapi::CloseHandle;
     use winapi::um::processthreadsapi::{GetExitCodeProcess, TerminateProcess};
@@ -380,6 +452,7 @@ fn run_installer_elevated(
         }
         let started = Instant::now();
         let mut last_reported = u64::MAX;
+        let limit_minutes = installer_limit_minutes(args);
         loop {
             if crate::installer::op_cancelled() {
                 let _ = TerminateProcess(info.hProcess, 1);
@@ -393,20 +466,25 @@ fn run_installer_elevated(
                     let mut code: u32 = 0;
                     let read = GetExitCodeProcess(info.hProcess, &mut code);
                     CloseHandle(info.hProcess);
-                    return if read != 0 && code != 0 {
-                        Err(installer_failure_logged(spec, code as i32, log_path, path))
+                    return Ok(if read != 0 && code != 0 {
+                        InstallerExit::Failed {
+                            code: code as i32,
+                            elapsed: started.elapsed(),
+                        }
                     } else {
-                        Ok(())
-                    };
+                        InstallerExit::Done
+                    });
                 }
                 // WAIT_TIMEOUT: still running.
                 258 => {
                     let elapsed = started.elapsed().as_secs();
-                    if elapsed >= 1200 {
+                    if elapsed >= limit_minutes * 60 {
                         let _ = TerminateProcess(info.hProcess, 1);
                         let _ = WaitForSingleObject(info.hProcess, 5_000);
                         CloseHandle(info.hProcess);
-                        return Err(format!("{name} 安装超过 20 分钟，已停止操作。"));
+                        return Err(format!(
+                            "{name} 安装超过 {limit_minutes} 分钟，已停止操作。"
+                        ));
                     }
                     if elapsed != last_reported {
                         last_reported = elapsed;
@@ -531,10 +609,11 @@ pub(crate) fn run_downloaded_desktop_installer(
             ),
         );
     }
-    match run_installer_once(spec, path, &args, &log_path, window)? {
+    match run_installer_once(spec, path, &args, window)? {
         InstallerExit::Done => Ok(()),
         // Qoder's installer (from 0.4.3) quits at once with code 22 under `/S` and installs
-        // fine from its window: a silent run refused outright is handed to the user.
+        // fine from its window, and Qoder CN's per-machine one (0.4.4) quits with 21 after
+        // the UAC prompt: a silent run refused outright is handed to the user.
         InstallerExit::Failed { code, elapsed }
             if !args.is_empty() && elapsed < Duration::from_secs(20) && !cancel_code(code) =>
         {
@@ -545,7 +624,7 @@ pub(crate) fn run_downloaded_desktop_installer(
                     spec.desktop.name
                 ),
             );
-            match run_installer_once(spec, path, &[], &log_path, window)? {
+            match run_installer_once(spec, path, &[], window)? {
                 InstallerExit::Done => Ok(()),
                 InstallerExit::Failed { code, .. } => Err(installer_failure(spec, code)),
             }
@@ -567,11 +646,21 @@ fn cancel_code(code: i32) -> bool {
     matches!(code, 2 | 5 | 1602)
 }
 
+/// An installer run with its window is the user's to watch and close. Hermes-Setup clones
+/// its repository, installs Python and builds the desktop app in there: past 20 minutes on a
+/// slow line, and stopping it then leaves a half-made install.
+fn installer_limit_minutes(args: &[&str]) -> u64 {
+    if args.is_empty() {
+        60
+    } else {
+        20
+    }
+}
+
 fn run_installer_once(
     spec: &ToolSpec,
     path: &Path,
     args: &[&str],
-    log_path: &Path,
     window: &Option<tauri::Window>,
 ) -> Result<InstallerExit, String> {
     let mut command = Command::new(path);
@@ -587,18 +676,14 @@ fn run_installer_once(
         // which only the shell can ask for. Qoder's system-wide updater is one of these.
         #[cfg(windows)]
         Err(e) if e.raw_os_error() == Some(740) => {
-            return run_installer_elevated(spec, path, args, log_path, window)
-                .map(|()| InstallerExit::Done)
+            return run_installer_elevated(spec, path, args, window)
         }
         Err(e) => return Err(format!("启动 {} 安装程序失败：{e}", spec.desktop.name)),
     };
     let job = ProcessJob::attach(&child);
     let started = Instant::now();
     let mut last_reported = u64::MAX;
-    // An installer run with its window is the user's to watch and close. Hermes-Setup clones
-    // its repository, installs Python and builds the desktop app in there: past 20 minutes
-    // on a slow line, and stopping it then leaves a half-made install.
-    let limit_minutes = if args.is_empty() { 60 } else { 20 };
+    let limit_minutes = installer_limit_minutes(args);
     loop {
         if crate::installer::op_cancelled() {
             stop_command(&mut child, job.as_ref());
@@ -659,6 +744,53 @@ mod tests {
         assert!(detail.contains("OpenClaw.Tray.WinUI.exe"), "{detail}");
         assert!(detail.contains("MoveFile failed"), "{detail}");
         assert_eq!(inno_failure_detail("nothing to see here"), None);
+    }
+
+    #[test]
+    fn a_kept_installer_is_reused_only_for_the_same_product_address_and_checksum() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir
+            .path()
+            .join("stacker-qoder-cn-Qoder-CN-win-x64-system.exe");
+        std::fs::write(&target, b"abc").unwrap();
+        let url =
+            "https://static.qoder.com.cn/qoder-app/releases/0.4.4/Qoder-CN-win-x64-system.exe";
+        let installer = |sha512: Option<&str>| ResolvedInstaller {
+            url: url.into(),
+            file_name: "Qoder-CN-win-x64-system.exe".into(),
+            sha512: sha512.map(Into::into),
+            silent_args: None,
+        };
+        let abc = "3a81oZNherrMQXNJriBBMRLm+k6JqX6iCp7u5ktV05ohkpkqJ0/BqDa6PCOj/uu9RU1EI2Q86A4qmslPpUyknw==";
+        assert!(
+            !kept_installer_matches("qoder-cn", &target, &installer(Some(abc))),
+            "no note"
+        );
+        std::fs::write(kept_note(&target), format!("qoder-cn\n{url}\n")).unwrap();
+        assert!(kept_installer_matches(
+            "qoder-cn",
+            &target,
+            &installer(Some(abc))
+        ));
+        assert!(
+            kept_installer_matches("qoder-cn", &target, &installer(None)),
+            "recent"
+        );
+        assert!(!kept_installer_matches(
+            "qoder-cn",
+            &target,
+            &installer(Some("AAA=="))
+        ));
+        assert!(!kept_installer_matches(
+            "qoder",
+            &target,
+            &installer(Some(abc))
+        ));
+        let mut other = installer(Some(abc));
+        other.url = url.replace("0.4.4", "0.4.5");
+        assert!(!kept_installer_matches("qoder-cn", &target, &other));
+        forget_kept_installer(&target);
+        assert!(!target.exists() && !kept_note(&target).exists());
     }
 
     #[test]

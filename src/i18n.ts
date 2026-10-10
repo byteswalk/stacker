@@ -1291,6 +1291,8 @@ Object.assign(CURATED_EN, {
   "锁定密钥保管": "Lock the key vault",
   "密钥保管已锁定": "Key vault is locked",
   "前往": "Go to",
+  "使用上次已下载的安装包，无需重新下载": "Using the installer downloaded last time; no need to download it again",
+  "{name} 安装超过 {limit_minutes} 分钟，已停止操作。": "{name} took more than {limit_minutes} minutes to install; stopped.",
   "已隐去": "hidden",
   "（备注里像密钥的内容已隐去）": "(What looked like a secret in the note was hidden)",
   "读取 Path 失败，未做修改：{e}": "Could not read Path; nothing was changed: {e}",
