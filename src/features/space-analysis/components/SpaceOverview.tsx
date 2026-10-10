@@ -15,6 +15,8 @@ const readView = (): OverviewView => {
 };
 
 const TREEMAP_HEIGHT = 300;
+/** The chart's corner radius (8px) less its 1px border: what a tile in a corner follows. */
+const TREEMAP_CORNER = 7;
 const TREEMAP_COLORS = [
   "#397bbf",
   "#2f8f78",
@@ -227,6 +229,13 @@ export function SpaceOverview({
             if (!node) return null;
             const areaRatio = (rectangle.width * rectangle.height) / (treemapWidth * treemapHeight);
             const hideLabel = treemapWidth < 480 && areaRatio < 0.07;
+            // A tile in one of the chart's rounded corners takes the same rounding: square, its
+            // hover outline was cut off by the corner.
+            const left = rectangle.x < 1;
+            const top = rectangle.y < 1;
+            const right = rectangle.x + rectangle.width > treemapWidth - 1;
+            const bottom = rectangle.y + rectangle.height > treemapHeight - 1;
+            const corner = (on: boolean) => (on ? TREEMAP_CORNER : 0);
             const title = `${node.path}\n${tr("实际占用")}: ${formatSpaceBytes(node.allocatedBytes)}\n${tr("逻辑大小")}: ${formatSpaceBytes(node.logicalBytes)}`;
             return (
               <button
@@ -250,6 +259,10 @@ export function SpaceOverview({
                   top: rectangle.y,
                   width: rectangle.width,
                   height: rectangle.height,
+                  borderTopLeftRadius: corner(top && left),
+                  borderTopRightRadius: corner(top && right),
+                  borderBottomLeftRadius: corner(bottom && left),
+                  borderBottomRightRadius: corner(bottom && right),
                   background: TREEMAP_COLORS[index % TREEMAP_COLORS.length],
                 }}
               >
