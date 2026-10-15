@@ -303,10 +303,8 @@ pub struct UpdateInfo {
     pub has_update: bool,
     pub release_url: Option<String>,
     pub installer_url: Option<String>,
-    pub portable_url: Option<String>,
-    /// 安装包与免安装包的 SHA-256（小写十六进制）。没有校验值就不会自动安装。
+    /// 安装包的 SHA-256（小写十六进制）。没有校验值就不会自动安装。
     pub installer_sha256: Option<String>,
-    pub portable_sha256: Option<String>,
     /// 安装包的 minisign 签名（.minisig 全文）。没有签名同样不会自动安装。
     pub installer_signature: Option<String>,
     pub published_at: Option<String>,
@@ -346,10 +344,6 @@ fn fill_checksums_with(info: &mut UpdateInfo, read: impl Fn(&str) -> Result<Stri
         if hash.is_some() {
             if info.installer_sha256.is_none() {
                 info.installer_sha256 = hash;
-                info.portable_sha256 = file
-                    .portable_sha256
-                    .map(|h| h.trim().to_ascii_lowercase())
-                    .filter(|h| is_sha256_hex(h));
             }
             info.installer_signature = file.installer_signature;
             return;
@@ -596,15 +590,11 @@ struct LatestFile {
     #[serde(default)]
     installer_url: Option<String>,
     #[serde(default)]
-    portable_url: Option<String>,
-    #[serde(default)]
     published_at: Option<String>,
     #[serde(default)]
     released_at: Option<String>,
     #[serde(default)]
     installer_sha256: Option<String>,
-    #[serde(default)]
-    portable_sha256: Option<String>,
     #[serde(default)]
     installer_signature: Option<String>,
     #[serde(default)]
@@ -624,26 +614,18 @@ fn notes_from_body(body: &str) -> Vec<String> {
         .collect()
 }
 
-fn pick_asset(assets: &[GitHubAsset], portable: bool) -> Option<String> {
+/// Stacker ships one package, the setup exe; updates install only that.
+fn pick_installer(assets: &[GitHubAsset]) -> Option<String> {
     assets
         .iter()
         .find(|a| {
             let name = a.name.to_ascii_lowercase();
-            if portable {
-                name.ends_with(".zip") && (name.contains("portable") || name.contains("免安装"))
-            } else {
-                name.ends_with(".exe") && (name.contains("setup") || name.contains("install"))
-            }
+            name.ends_with(".exe") && (name.contains("setup") || name.contains("install"))
         })
         .or_else(|| {
-            assets.iter().find(|a| {
-                let name = a.name.to_ascii_lowercase();
-                if portable {
-                    name.ends_with(".zip")
-                } else {
-                    name.ends_with(".exe")
-                }
-            })
+            assets
+                .iter()
+                .find(|a| a.name.to_ascii_lowercase().ends_with(".exe"))
         })
         .map(|a| a.browser_download_url.clone())
 }
@@ -676,30 +658,24 @@ fn file_name_of(url: &str) -> Option<&str> {
     url.rsplit('/').next().filter(|name| !name.is_empty())
 }
 
-/// 从发布产物里读出安装包与免安装包的校验值；读不到就返回两个 None，
+/// 从发布产物里读出安装包的校验值；读不到就返回 None，
 /// 届时「立即更新」会拒绝自动安装，让用户去发布页手动下载。
-fn checksums_of(
-    assets: &[GitHubAsset],
-    installer: &Option<String>,
-    portable: &Option<String>,
-) -> (Option<String>, Option<String>) {
+fn checksum_of(assets: &[GitHubAsset], installer: &Option<String>) -> Option<String> {
     let Some(sums_url) = pick_checksums(assets) else {
         log::warn!(target: "stacker::update", "release has no SHA256SUMS.txt asset");
-        return (None, None);
+        return None;
     };
     let text = match fetch(&sums_url) {
         Ok(text) => text,
         Err(error) => {
             log::warn!(target: "stacker::update", "cannot read {sums_url}: {error}");
-            return (None, None);
+            return None;
         }
     };
-    let of = |url: &Option<String>| {
-        url.as_deref()
-            .and_then(file_name_of)
-            .and_then(|name| sha256_from_sums(&text, name))
-    };
-    (of(installer), of(portable))
+    installer
+        .as_deref()
+        .and_then(file_name_of)
+        .and_then(|name| sha256_from_sums(&text, name))
 }
 
 fn github_latest_release(repo: &str, current: &str) -> Result<UpdateInfo, String> {
@@ -714,19 +690,15 @@ fn github_latest_release(repo: &str, current: &str) -> Result<UpdateInfo, String
     let release: GitHubRelease =
         serde_json::from_str(&body).map_err(|e| format!("GitHub Release 格式错误：{e}"))?;
     let latest = release.tag_name.trim_start_matches('v').trim().to_string();
-    let installer_url = pick_asset(&release.assets, false);
-    let portable_url = pick_asset(&release.assets, true);
-    let (installer_sha256, portable_sha256) =
-        checksums_of(&release.assets, &installer_url, &portable_url);
+    let installer_url = pick_installer(&release.assets);
+    let installer_sha256 = checksum_of(&release.assets, &installer_url);
     Ok(UpdateInfo {
         has_update: ver_lt(current, &latest),
         current: current.into(),
         latest,
         release_url: release.html_url,
         installer_url,
-        portable_url,
         installer_sha256,
-        portable_sha256,
         installer_signature: None,
         published_at: release.published_at,
         notes: release
@@ -750,10 +722,8 @@ fn gitee_latest_release(repo: &str, current: &str) -> Result<UpdateInfo, String>
     let release: GiteeRelease =
         serde_json::from_str(&body).map_err(|error| format!("Gitee Release 格式错误：{error}"))?;
     let latest = release.tag_name.trim_start_matches('v').trim().to_string();
-    let installer_url = pick_asset(&release.assets, false);
-    let portable_url = pick_asset(&release.assets, true);
-    let (installer_sha256, portable_sha256) =
-        checksums_of(&release.assets, &installer_url, &portable_url);
+    let installer_url = pick_installer(&release.assets);
+    let installer_sha256 = checksum_of(&release.assets, &installer_url);
     Ok(UpdateInfo {
         has_update: ver_lt(current, &latest),
         current: current.into(),
@@ -762,10 +732,8 @@ fn gitee_latest_release(repo: &str, current: &str) -> Result<UpdateInfo, String>
             "https://gitee.com/{repo}/releases/tag/{}",
             release.tag_name
         )),
-        installer_url: installer_url.clone(),
-        portable_url: portable_url.clone(),
+        installer_url,
         installer_sha256,
-        portable_sha256,
         installer_signature: None,
         published_at: release.created_at,
         notes: release
@@ -787,9 +755,7 @@ fn latest_json_update_from(url: &str, current: &str) -> Result<UpdateInfo, Strin
         latest,
         release_url: file.release_url,
         installer_url: file.installer_url,
-        portable_url: file.portable_url,
         installer_sha256: file.installer_sha256.map(|h| h.trim().to_ascii_lowercase()),
-        portable_sha256: file.portable_sha256.map(|h| h.trim().to_ascii_lowercase()),
         installer_signature: file.installer_signature,
         published_at: file.published_at.or(file.released_at),
         notes: file.notes,
@@ -1020,9 +986,7 @@ mod tests {
             installer_url: Some(
                 "https://example.invalid/Stacker-0.3.4-setup-windows-x64.exe".into(),
             ),
-            portable_url: None,
             installer_sha256: None,
-            portable_sha256: None,
             installer_signature: None,
             published_at: None,
             notes: Vec::new(),
@@ -1030,10 +994,7 @@ mod tests {
     }
 
     fn manifest(version: &str, installer: &str) -> String {
-        format!(
-            r#"{{"version":"{version}","installer_sha256":"{installer}","portable_sha256":"{}"}}"#,
-            "b".repeat(64)
-        )
+        format!(r#"{{"version":"{version}","installer_sha256":"{installer}"}}"#)
     }
 
     #[test]
@@ -1042,10 +1003,6 @@ mod tests {
         let hex = "a".repeat(64);
         super::fill_checksums_with(&mut info, |_| Ok(manifest("v0.3.4", &hex)));
         assert_eq!(info.installer_sha256.as_deref(), Some(hex.as_str()));
-        assert_eq!(
-            info.portable_sha256.as_deref(),
-            Some("b".repeat(64).as_str())
-        );
     }
 
     #[test]

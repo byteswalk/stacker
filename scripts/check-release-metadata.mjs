@@ -26,11 +26,9 @@ if (mismatches.length > 0) {
 
 const expectedTag = `/v${version}`;
 const expectedInstaller = `Stacker-${version}-setup-windows-x64.exe`;
-const expectedPortable = `Stacker-${version}-portable-windows-x64.zip`;
 const urlChecks = [
   ["release_url", latestMeta.release_url, expectedTag],
   ["installer_url", latestMeta.installer_url, `${expectedTag}/${expectedInstaller}`],
-  ["portable_url", latestMeta.portable_url, `${expectedTag}/${expectedPortable}`],
 ];
 
 for (const [field, value, expected] of urlChecks) {
@@ -41,7 +39,7 @@ for (const [field, value, expected] of urlChecks) {
 
 // The app refuses to install an update it cannot check, so the manifest must carry the hashes
 // that release-windows.ps1 writes, and SHA256SUMS.txt must be uploaded with the release.
-for (const field of ["installer_sha256", "portable_sha256"]) {
+for (const field of ["installer_sha256"]) {
   const value = latestMeta[field];
   if (typeof value !== "string" || !/^[0-9a-f]{64}$/.test(value)) {
     throw new Error(`latest.json ${field} must be a lowercase 64-character SHA-256`);

@@ -8,11 +8,9 @@ Stacker 把现代软件开发依赖的本机基础设施集中到一个控制界
 
 [English](README.md)
 
-## 代码签名策略
+## 发布签名
 
-代码签名的适用范围、构建与审批流程、项目角色、隐私行为和版本校验方式见 [Code signing policy](CODE_SIGNING.md)。
-
-计划使用的签名服务（申请审核中）：Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/)。Stacker `v0.3.2` 及更早版本目前尚未签名。
+Stacker 没有、也不会做 Windows 代码签名（Authenticode）。每个版本附带 SHA-256 校验值和 minisign 签名，应用内更新会先核对两者再安装，详见 [发布签名与校验](CODE_SIGNING.md)。
 
 **下载 Stacker：** [Gitee 发行版](https://gitee.com/shaxiong/stacker/releases) · [GitHub 备用下载](https://github.com/byteswalk/stacker/releases/latest)
 
@@ -100,8 +98,7 @@ Stacker 管理的正是这一层，并且不要求接入大模型，也不会上
 
 国内网络建议从 [Gitee 发行版](https://gitee.com/shaxiong/stacker/releases) 下载；也可以使用 [GitHub Releases](https://github.com/byteswalk/stacker/releases/latest) 备用入口。
 
-- **安装版**：适合日常桌面使用。
-- **免安装版**：适合临时使用或便携工具盘。
+- **安装版**（`Stacker-<版本>-setup-windows-x64.exe`）：唯一的发布包，应用内更新也只装它。免安装版到 v0.3.4 为止。
 - **`SHA256SUMS.txt`**：用于校验发布文件。
 
 ## 系统要求
@@ -129,7 +126,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 ```
 
-生成 Windows 安装版、免安装版和校验文件：
+生成 Windows 安装版和校验文件：
 
 ```powershell
 npm run release:windows

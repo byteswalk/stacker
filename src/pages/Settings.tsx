@@ -44,9 +44,7 @@ type UpdateInfo = {
   has_update: boolean;
   release_url?: string | null;
   installer_url?: string | null;
-  portable_url?: string | null;
   installer_sha256?: string | null;
-  portable_sha256?: string | null;
   installer_signature?: string | null;
   published_at?: string | null;
   notes: string[];
@@ -626,7 +624,6 @@ export default function Settings() {
         <Modal title="发现新版本" icon="ti-cloud-download" onClose={() => setUpdateInfo(null)}
           footer={<>
             {updateInfo.installer_url && <button className="pr sm" disabled={appUpdBusy} onClick={installAppUpdate}><i className="ti ti-download" /> 立即更新</button>}
-            {updateInfo.portable_url && <button className="gh sm" onClick={() => openUrl(updateInfo.portable_url)}><i className="ti ti-file-zip" /> 下载免安装版</button>}
             <button className="gh sm" onClick={() => openUrl(updateInfo.release_url)}><i className="ti ti-external-link" /> 查看发布页</button>
             <button className="gh sm" onClick={() => setUpdateInfo(null)}>关闭</button>
           </>}>

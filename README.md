@@ -92,16 +92,13 @@ Storage-location controls are available where the ecosystem provides a stable us
 
 ## Code Signing Policy
 
-See the project [code signing policy](CODE_SIGNING.md) for the signing scope, build and approval process, project roles, privacy behavior, and release verification guidance.
-
-Planned signing service (application pending): Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/). Stacker `v0.3.2` and earlier releases are currently unsigned.
+Stacker is not Authenticode-signed and will not be. Each release carries SHA-256 checksums and a minisign signature that the built-in updater checks before installing; see [release signing and verification](CODE_SIGNING.md).
 
 ## Download
 
 Download the latest build from [GitHub Releases](https://github.com/byteswalk/stacker/releases/latest). If GitHub is slow or unavailable on your network, use the [Gitee release mirror](https://gitee.com/shaxiong/stacker/releases).
 
-- **Installer** for regular desktop use.
-- **Portable package** for temporary or removable-tool use.
+- **Installer** (`Stacker-<version>-setup-windows-x64.exe`), the only package; updates install it in place. Portable packages ended with v0.3.4.
 - **`SHA256SUMS.txt`** for artifact verification.
 
 ## Requirements
@@ -129,7 +126,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 ```
 
-Build the Windows installer, portable package, and checksum file:
+Build the Windows installer and checksum file:
 
 ```powershell
 npm run release:windows

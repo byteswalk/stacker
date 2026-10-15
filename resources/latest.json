@@ -4,8 +4,6 @@
     "release_url":  "https://github.com/byteswalk/stacker/releases/tag/v0.3.4",
     "installer_url":  "https://github.com/byteswalk/stacker/releases/download/v0.3.4/Stacker-0.3.4-setup-windows-x64.exe",
     "installer_sha256":  "fe05eaa9409423727a76ca069a9deb5cf2673220c37dbbad3adec7a0e61faf04",
-    "portable_url":  "https://github.com/byteswalk/stacker/releases/download/v0.3.4/Stacker-0.3.4-portable-windows-x64.zip",
-    "portable_sha256":  "c4cd3c21981f0e63e1f2c5085d4896bdd151b55d6ce8d545bc6a75f4faf21fc3",
     "notes":  [
                   "The agent catalog now covers 22 products, from Claude Code and Codex to Grok Build, GitHub Copilot, Cursor, Factory, Kiro, MiniMax Code, Xiaomi MiMo and Agnes Code; installs, updates, uninstalls and repairs run as background tasks.",
                   "Session data reads Codex, Claude, CodeBuddy, WorkBuddy, Qoder, Kimi Code, MiMo Code and the desktop apps, with summaries, project handoffs, transfer to another computer and moving data folders.",

@@ -28,7 +28,7 @@ IPC 命令集中注册在 `src-tauri/src/lib.rs`。新命令需要同时补充 R
 
 ## 本地数据与安全边界
 
-- 日志、设置、备份、会话索引和任务报告使用 Tauri 解析出的应用数据目录；便携版使用程序旁的数据目录。不要把用户数据写进源码目录。
+- 日志、设置、备份、会话索引和任务报告使用 Tauri 解析出的应用数据目录。不要把用户数据写进源码目录。
 - 会话列表直接读取智能体自己的元数据，Stacker 只保存收藏、摘要和数据来源设置。分类规则与删除边界见 [sessions.md](sessions.md)。
 - Git 凭据使用 Windows 凭据管理器；兼容摘要接口的可选密钥使用 Windows DPAPI。日志和诊断不得记录聊天正文、访问令牌、密钥或授权头。
 - 存储位置迁移先备份配置，再复制到空目录，最后写入配置。旧目录始终保留，不能自动删除。
@@ -60,7 +60,7 @@ cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 
 ## 构建、发布与清理
 
-`npm run release:windows` 会校验版本元数据和国际化、执行前后端测试与 Clippy，并生成安装版、便携 ZIP 和 `SHA256SUMS.txt`。内部测试包加轮次号：`npm run release:windows -- -Revision r74`，界面版本号显示为 `v0.3.4 (r74)`，产物放在 `release/v0.3.4-r74/`，同一版本号的多轮构建就能分清；不加则显示纯版本号（从源码运行时显示 `(dev)`）。正式发布前必须同步更新 `package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json`、`resources/latest.json`，再将同一提交、标签、说明、资产和校验文件发布到 GitHub 与 Gitee。
+`npm run release:windows` 会校验版本元数据和国际化、执行前后端测试与 Clippy，并生成安装版和 `SHA256SUMS.txt`（只发安装版，不再出便携 ZIP，应用内更新也只认安装版）。内部测试包加轮次号：`npm run release:windows -- -Revision r74`，界面版本号显示为 `v0.3.4 (r74)`，产物放在 `release/v0.3.4-r74/`，同一版本号的多轮构建就能分清，测试包不改 `resources/latest.json`；不加则显示纯版本号（从源码运行时显示 `(dev)`）。正式发布前必须同步更新 `package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json`、`resources/latest.json`，再将同一提交、标签、说明、资产和校验文件发布到 GitHub 与 Gitee。
 
 ### 更新包校验与签名（必须）
 
@@ -96,7 +96,7 @@ cargo test --manifest-path src-tauri/Cargo.toml -- --ignored the_local_release_k
 gh release create v0.3.4 (Get-ChildItem release\v0.3.4 -File | ForEach-Object FullName) --title "Stacker v0.3.4" --generate-notes
 ```
 
-还没做的是 Windows 代码签名证书（Authenticode）。没有它，首次安装仍会触发 SmartScreen 提示；上面这套签名只保护自动更新，不解决 SmartScreen。
+Windows 代码签名证书（Authenticode）已决定不做：首次安装仍会触发 SmartScreen 提示，上面这套签名只保护自动更新。
 
 以下目录全部可重建，不得提交：
 
@@ -104,7 +104,7 @@ gh release create v0.3.4 (Get-ChildItem release\v0.3.4 -File | ForEach-Object Fu
 - `dist/`：`npm run build` 恢复。
 - `src-tauri/target/`：Cargo 编译缓存，删除后首次 Rust 构建会重新编译。
 - 根目录 `target/`：Codex App Server 协议生成结果，只是开发检查产物。
-- `release/`：本地发行产物；只有明确需要交付时才保留安装包、便携 ZIP 和校验文件。
+- `release/`：本地发行产物；只有明确需要交付时才保留安装包和校验文件。
 - `.idea/`、`src-tauri/gen/`、日志和各类 `*.tmp`：本机或生成内容。
 
 不要清理用户配置目录、会话备份目录、项目工作树或未确认的扫描结果。对 Windows 路径执行批量删除前应先解析并核对绝对路径。

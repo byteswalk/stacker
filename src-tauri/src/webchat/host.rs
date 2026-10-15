@@ -204,7 +204,7 @@ pub fn pick_extension_dir(candidates: &[PathBuf]) -> Option<PathBuf> {
         .cloned()
 }
 
-/// Installed and portable Stacker ship the unpacked extension next to stacker.exe;
+/// Installed Stacker ships the unpacked extension next to stacker.exe;
 /// development builds also look at `<repo>/extension/dist`.
 fn extension_candidates() -> Vec<PathBuf> {
     let mut list = Vec::new();

@@ -2,8 +2,7 @@ param(
     [switch]$SkipChecks,
     # The build's number, e.g. r74: shown next to the version in the app (`v0.3.4 (r74)`) and
     # used for the output folder (release\v0.3.4-r74), so builds of one version tell apart.
-    # A numbered build is a test build: it makes only the installer and leaves
-    # resources\latest.json alone. The portable archive belongs to official releases only.
+    # A numbered build is a test build: it leaves resources\latest.json alone.
     [string]$Revision = ""
 )
 
@@ -81,36 +80,18 @@ if (-not (Test-Path (Join-Path $BundledExtension "manifest.json"))) { throw "Bro
 if (-not (Test-Path (Join-Path $BundledExtension "chunks"))) { throw "Browser extension subfolders were not bundled: $BundledExtension" }
 
 $Output = Join-Path $Root ("release\v$Version" + $(if ($Revision) { "-$Revision" } else { "" }))
-$PortableStage = Join-Path $Output "portable"
-$WithPortable = -not $Revision
 if (Test-Path $Output) { Remove-Item $Output -Recurse -Force }
 New-Item $Output -ItemType Directory -Force | Out-Null
 
 $InstallerName = "Stacker-$Version-setup-windows-x64.exe"
-$PortableName = "Stacker-$Version-portable-windows-x64.zip"
 $InstallerPath = Join-Path $Output $InstallerName
-$PortablePath = Join-Path $Output $PortableName
 
+# The setup exe is the only package Stacker ships; updates install only that.
 Copy-Item $NsisSource $InstallerPath
-if ($WithPortable) {
-    New-Item $PortableStage -ItemType Directory -Force | Out-Null
-    Copy-Item $ReleaseExe (Join-Path $PortableStage "Stacker.exe")
-    Copy-Item (Join-Path $Root "LICENSE") (Join-Path $PortableStage "LICENSE")
-    Copy-Item (Join-Path $Root "resources\PORTABLE_README.txt") (Join-Path $PortableStage "README.txt")
-    Copy-Item (Join-Path $Root "extension\dist") (Join-Path $PortableStage "extension") -Recurse
-    New-Item (Join-Path $PortableStage "portable.flag") -ItemType File -Force | Out-Null
-    Compress-Archive -Path (Join-Path $PortableStage "*") -DestinationPath $PortablePath -CompressionLevel Optimal
-    Remove-Item $PortableStage -Recurse -Force
-}
 
 $ChecksumPath = Join-Path $Output "SHA256SUMS.txt"
 $InstallerHash = Get-Sha256Hex $InstallerPath
-$Checksums = @("$InstallerHash *$InstallerName")
-if ($WithPortable) {
-    $PortableHash = Get-Sha256Hex $PortablePath
-    $Checksums += "$PortableHash *$PortableName"
-}
-$Checksums | Set-Content $ChecksumPath -Encoding ascii
+@("$InstallerHash *$InstallerName") | Set-Content $ChecksumPath -Encoding ascii
 
 # 用发布私钥给安装包签名。私钥只在本机，路径由 STACKER_SIGNING_KEY 指定，
 # 默认 %USERPROFILE%\.stacker\release-signing.key。私钥有密码时会交互式询问。
@@ -123,12 +104,6 @@ $InstallerSig = & cargo run -q --manifest-path (Join-Path $Root "src-tauri\Cargo
 if ($LASTEXITCODE -ne 0 -or -not $InstallerSig) { throw "Signing the installer failed" }
 $InstallerSig = ($InstallerSig -join "`n").Trim()
 Set-Content "$InstallerPath.minisig" -Value $InstallerSig -Encoding ascii
-if ($WithPortable) {
-    $PortableSig = & cargo run -q --manifest-path (Join-Path $Root "src-tauri\Cargo.toml") --example release-key -- sign $KeyPath $PortablePath
-    if ($LASTEXITCODE -ne 0 -or -not $PortableSig) { throw "Signing the portable archive failed" }
-    $PortableSig = ($PortableSig -join "`n").Trim()
-    Set-Content "$PortablePath.minisig" -Value $PortableSig -Encoding ascii
-}
 
 # 自动更新把校验值和签名写回发布清单：应用下载更新后先比校验值再验签，任一不符就拒绝安装。
 # SHA256SUMS.txt 必须与安装包一起上传到 Release，走 Releases 接口的检查会读它。
@@ -141,7 +116,6 @@ if ($Revision) {
 $LatestPath = Join-Path $Root "resources\latest.json"
 $Latest = Get-Content $LatestPath -Raw -Encoding utf8 | ConvertFrom-Json
 $Latest.installer_sha256 = $InstallerHash
-$Latest.portable_sha256 = $PortableHash
 $Latest | Add-Member -NotePropertyName installer_signature -NotePropertyValue $InstallerSig -Force
 # Set-Content -Encoding utf8 在 Windows PowerShell 下会写 BOM，JSON 解析器不吃，必须绕开。
 $Utf8NoBom = New-Object System.Text.UTF8Encoding $false

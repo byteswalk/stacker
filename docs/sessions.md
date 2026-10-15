@@ -103,7 +103,7 @@ Claude 桌面端的 Code 页与 CLI 共用 `~/.claude/projects`，Codex 桌面�
 
 「设置 → 浏览器插件」：
 
-- 插件文件夹：安装版与免安装版在 `stacker.exe` 所在目录下的 `extension`；开发时为仓库的 `extension\dist`（先运行 `npm run ext:build`）。「打开文件夹」在资源管理器中打开它。
+- 插件文件夹：安装版在 `stacker.exe` 所在目录下的 `extension`；开发时为仓库的 `extension\dist`（先运行 `npm run ext:build`）。「打开文件夹」在资源管理器中打开它。
 - 安装步骤：在 `chrome://extensions` 或 `edge://extensions` 打开「开发者模式」，「加载已解压的扩展程序」选择插件文件夹，再点下方的「连接」并重新加载插件。
 - 「连接」（先确认）在当前用户注册表写入 `HKCU\Software\Google\Chrome\NativeMessagingHosts\com.stacker.webchat` 或 `HKCU\Software\Microsoft\Edge\NativeMessagingHosts\com.stacker.webchat`，值为登记文件 `%LOCALAPPDATA%\Stacker\<dev|stable>\conversations\native-messaging\com.stacker.webchat.json` 的路径；登记文件指向当前的 `stacker.exe`，只允许固定 ID 的插件连接。「断开」删除注册表项，两个浏览器都断开后删除登记文件。
 - 状态：已连接 / 未连接 / 「登记指向其他位置」（例如换了安装位置，或开发版与正式版互相覆盖），后者点「连接」即可更新。
