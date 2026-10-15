@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { AiSettings } from "../features/ai/AiSettings";
+import { StoragePlaces } from "../features/settings/StoragePlaces";
 import { WingetDownloader } from "../features/agents/WingetDownloader";
 import { getVersion } from "@tauri-apps/api/app";
 import { versionLabel } from "../buildLabel";
@@ -614,6 +615,8 @@ export default function Settings() {
         <button className="gh sm" disabled={appUpdBusy} onClick={checkAppUpdate}>
           <i className={"ti " + (appUpdBusy ? "ti-loader spin" : "ti-refresh")} /> {appUpdBusy ? "检查中…" : "检查更新"}</button>
       </div>
+      <div className="grouphd" style={{ marginTop: 18 }}><span className="gt"><i className="ti ti-folders" /> {tr("存储位置")}</span></div>
+      <StoragePlaces />
 
       {clearLogConfirm && <ConfirmModal title="清理历史日志" icon="ti-eraser" danger busy={clearLogBusy}
         message="将删除日志目录内除今天之外的全部日志文件。今天正在使用的日志不会受到影响。"

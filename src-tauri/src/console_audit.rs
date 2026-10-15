@@ -20,6 +20,7 @@ const VISIBLE_ON_PURPOSE: &[&str] = &[
     "agents/mod.rs",
     "space_analysis/mod.rs",
     "sessions/commands.rs",
+    "storage_places.rs",
 ];
 
 /// How a spawn says it is hidden, directly or through a helper that hides it.

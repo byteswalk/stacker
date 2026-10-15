@@ -36,6 +36,7 @@ mod settings;
 mod sources;
 mod space_analysis;
 mod storage;
+mod storage_places;
 mod tool_relocation;
 mod tray;
 pub mod update;
@@ -505,6 +506,8 @@ pub fn run() {
             settings::settings_set_log_retention_days,
             settings::settings_set_space_analysis,
             settings::settings_open_logs_dir,
+            storage_places::storage_places,
+            storage_places::storage_place_open,
             settings::settings_open_log_window,
             settings::settings_read_log,
             settings::settings_clear_old_logs,
