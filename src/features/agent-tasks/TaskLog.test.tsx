@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "../../invoke";
 import { ToastHost, ToastProvider } from "../../ui";
-import { TaskRepairDialog } from "./TaskLog";
+import { TaskRepairDialog, WinInetRetry } from "./TaskLog";
 import type { AgentTask } from "./taskStore";
 
 vi.mock("../../invoke", () => ({ invoke: vi.fn(), reportFrontendWarning: vi.fn(), reportFrontendError: vi.fn() }));
@@ -25,6 +25,31 @@ afterEach(() => { act(() => root.unmount()); host.remove(); });
 const repairers = (list: unknown[]) => vi.mocked(invoke).mockImplementation(async (command) => command === "agent_repairers" ? list : undefined);
 const render = (onClose = vi.fn()) => act(async () => root.render(<ToastProvider><TaskRepairDialog task={task} onClose={onClose} /><ToastHost /></ToastProvider>));
 const button = (label: string) => [...host.querySelectorAll("button")].find((item) => item.textContent?.includes(label));
+
+describe("WinInetRetry", () => {
+  const timedOut = { ...task, message: "WinGet 执行超时，请检查网络后重试" } as AgentTask;
+  const answers = (value: string) => vi.mocked(invoke).mockImplementation(async (command) => command === "winget_downloader" ? { value, available: true } : undefined);
+  const show = (shown: AgentTask) => act(async () => root.render(<ToastProvider><WinInetRetry task={shown} /><ToastHost /></ToastProvider>));
+
+  it("switches the downloader and retries the task, in that order", async () => {
+    answers("default");
+    await show(timedOut);
+    await act(async () => button("改用 WinINet")!.click());
+    const calls = vi.mocked(invoke).mock.calls.map(([command]) => command);
+    expect(calls.indexOf("winget_downloader_set")).toBeLessThan(calls.indexOf("agent_task_retry"));
+    expect(invoke).toHaveBeenCalledWith("winget_downloader_set", { value: "wininet" });
+    expect(invoke).toHaveBeenCalledWith("agent_task_retry", { id: "task-7" });
+  });
+
+  it("is not offered when WinINet is already the setting, or for another failure", async () => {
+    answers("wininet");
+    await show(timedOut);
+    expect(button("改用 WinINet")).toBeUndefined();
+    answers("default");
+    await show({ ...task, message: "安装包校验失败" } as AgentTask);
+    expect(button("改用 WinINet")).toBeUndefined();
+  });
+});
 
 describe("TaskRepairDialog", () => {
   it("opens the agent for this task, says what comes next, and closes", async () => {

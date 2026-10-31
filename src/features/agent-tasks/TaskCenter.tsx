@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useToast } from "../../ui";
 import { formatAge } from "../sessions/sessionsView";
 import { parseProgress } from "./progress";
-import { RepairButton, TaskFailureAsk, TaskLogModal, TaskRepairDialog } from "./TaskLog";
+import { RepairButton, TaskFailureAsk, TaskLogModal, TaskRepairDialog, WinInetRetry } from "./TaskLog";
 import { AiButton } from "../ai/AiAsk";
 import { ACTION_TEXT } from "./useTaskToasts";
 import {
@@ -134,6 +134,7 @@ export function TaskCenter() {
         </div>
         <div className="task-actions">
           {task.state === "failed" && <AiButton label="AI 诊断" title="把这次任务的日志交给 AI，看是哪里出的错、怎么处理" onClick={() => setAskId(task.id)} />}
+          <WinInetRetry task={task} />
           {task.state === "failed" && <RepairButton onClick={() => setRepairId(task.id)} />}
           {(task.state === "failed" || task.state === "cancelled") && (
             <button className="gh sm" onClick={() => void retryAgentTask(task.id).catch(fail)}>重试</button>

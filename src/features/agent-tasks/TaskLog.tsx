@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { invoke } from "../../invoke";
 import { Modal, useToast } from "../../ui";
 import { Select } from "../../Select";
-import { agentRepairers, agentTaskLog, isOpenTask, startAgentRepair, type AgentTask, type Repairer } from "./taskStore";
+import { agentRepairers, agentTaskLog, isOpenTask, retryAgentTask, startAgentRepair, type AgentTask, type Repairer } from "./taskStore";
 import { AiAskModal, AiButton, askAi } from "../ai/AiAsk";
 import { ACTION_TEXT } from "./useTaskToasts";
 
@@ -18,6 +19,48 @@ export function TaskFailureAsk({ task, lines, onClose, onSetup }: {
       message: task.message ?? task.lastLine ?? "", log: (lines ?? await agentTaskLog(task.id)).join("\n"),
     })}
     saveAs={`task:${task.id}`} onClose={onClose} onSetup={onSetup} />;
+}
+
+/** A WinGet download that ran out of time, which WinGet's own downloader may yet finish. */
+export function wingetTimedOut(task: AgentTask): boolean {
+  return task.state === "failed" && /WinGet\s*执行超时/.test(task.message ?? "");
+}
+
+/**
+ * Offered once WinGet's download has failed: Delivery Optimization ignores the proxy and can
+ * crawl or stop short, and WinINet goes through the system proxy. Hidden once that is the setting.
+ */
+export function WinInetRetry({ task }: { task: AgentTask }) {
+  const toast = useToast();
+  const [offered, setOffered] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const relevant = wingetTimedOut(task);
+  useEffect(() => {
+    if (!relevant) return;
+    let alive = true;
+    invoke<{ value: string; available: boolean }>("winget_downloader").then(
+      (state) => { if (alive) setOffered(state.available && state.value !== "wininet"); },
+      () => undefined,
+    );
+    return () => { alive = false; };
+  }, [relevant]);
+  if (!relevant || !offered) return null;
+
+  async function run() {
+    setBusy(true);
+    try {
+      await invoke("winget_downloader_set", { value: "wininet" });
+      await retryAgentTask(task.id);
+      toast("WinGet 下载器已设为 WinINet，正在重试。", "ok");
+    } catch (error) {
+      toast("改用 WinINet 失败：" + error, "err");
+      setBusy(false);
+    }
+  }
+
+  return <button className="gh sm" disabled={busy} title="不再用 Windows 传递优化，改由 WinGet 自己经系统代理下载，然后重试" onClick={() => void run()}>
+    <i className="ti ti-download" /> 改用 WinINet 重试
+  </button>;
 }
 
 /** The button beside 「AI 诊断」 on a failed task. */
