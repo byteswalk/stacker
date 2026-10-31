@@ -15,6 +15,7 @@ use std::path::PathBuf;
 const REPAIRERS: [&str; 2] = ["codex", "claude"];
 
 const MAX_LOG_CHARS: usize = 12_000;
+const MAX_PROMPT_ERROR_CHARS: usize = 300;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Repairer {
@@ -100,10 +101,28 @@ fn brief_path(task: &AgentTask) -> PathBuf {
     std::env::temp_dir().join(format!("stacker-repair-{id}.md"))
 }
 
+/// What the agent is told first. The failure itself is on the command line: an agent whose own
+/// tools do not work (Codex's sandbox can fail to start) can still say what it makes of it.
+fn opening_prompt(task: &AgentTask, brief: &str) -> String {
+    let action = action_text(task.action);
+    let message = task.message.as_deref().unwrap_or("（没有报错信息）");
+    let message: String = hide_secrets(message)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(MAX_PROMPT_ERROR_CHARS)
+        .collect();
+    format!(
+        "Stacker {action} {} 失败，报错：{message}。详细日志和处理要求在文件 {brief} ，请读取后照做。\
+         如果读不了这个文件，或者你的命令执行不了，不要反复重试，直接根据这条报错告诉用户最可能的原因和下一步。",
+        task.product_name
+    )
+}
+
 /// PowerShell that starts the agent on the brief, with whatever approvals it normally asks for.
 /// The agent needs the same proxy Stacker's own agent runs get: a new terminal has none of it.
-fn launch_command(program: &str, brief: &str, proxy: Option<&str>) -> String {
-    let prompt = format!("请读取文件 {brief} ，按里面的要求处理。");
+fn launch_command(program: &str, prompt: &str, proxy: Option<&str>) -> String {
     let proxy_lines = proxy
         .into_iter()
         .flat_map(proxy_env)
@@ -112,7 +131,7 @@ fn launch_command(program: &str, brief: &str, proxy: Option<&str>) -> String {
         "{}& {} {}",
         proxy_lines.collect::<String>(),
         ps_single_quoted(program),
-        ps_single_quoted(&prompt)
+        ps_single_quoted(prompt)
     )
 }
 
@@ -131,7 +150,7 @@ pub(crate) fn start(task: &AgentTask, log: &[String], agent: &str) -> Result<(),
     crate::installer::open_agent_terminal(
         &launch_command(
             &program.to_string_lossy(),
-            &path.to_string_lossy(),
+            &opening_prompt(task, &path.to_string_lossy()),
             stacker_proxy().as_deref(),
         ),
         "Stacker Repair",
@@ -187,7 +206,8 @@ mod tests {
 
     #[test]
     fn the_agent_starts_on_the_brief_with_no_approval_turned_off() {
-        let command = launch_command(r"C:\it's\codex.cmd", r"C:\Temp\stacker-repair-7.md", None);
+        let prompt = opening_prompt(&failed(), r"C:\Temp\stacker-repair-7.md");
+        let command = launch_command(r"C:\it's\codex.cmd", &prompt, None);
         assert!(
             command.starts_with(r"& 'C:\it''s\codex.cmd' '"),
             "{command}"
@@ -199,6 +219,26 @@ mod tests {
         for risky in ["--yolo", "--full-auto", "--dangerously", "bypass"] {
             assert!(!command.to_lowercase().contains(risky), "{command}");
         }
+    }
+
+    #[test]
+    fn the_failure_itself_is_in_the_opening_prompt_on_one_short_line() {
+        let mut task = failed();
+        task.message = Some(format!(
+            "下载失败：\npassword=hunter2 {}",
+            "超时".repeat(400)
+        ));
+        let prompt = opening_prompt(&task, "b.md");
+        assert!(prompt.contains("更新 Qoder 失败"), "{prompt}");
+        assert!(prompt.contains("下载失败"), "{prompt}");
+        assert!(prompt.contains("b.md"), "{prompt}");
+        assert!(prompt.contains("不要反复重试"), "{prompt}");
+        assert!(!prompt.contains('\n'), "{prompt}");
+        assert!(!prompt.contains("hunter2"), "{prompt}");
+        assert!(
+            prompt.chars().count() < MAX_PROMPT_ERROR_CHARS + 200,
+            "{prompt}"
+        );
     }
 
     #[test]

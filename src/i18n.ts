@@ -1358,7 +1358,7 @@ Object.assign(CURATED_EN, {
   "没有找到 {agent} 命令行": "The {agent} command line was not found",
   "没有找到可用的智能体。先装好并登录 Codex 或 Claude Code；现在也可以用「AI 诊断」看原因。": "No agent is available. Install and sign in to Codex or Claude Code first; AI Diagnose can still show the cause.",
   "用哪个智能体": "Which agent",
-  "请读取文件 {brief} ，按里面的要求处理。": "Read the file {brief} and do what it asks.",
+  "Stacker {action} {} 失败，报错：{message}。详细日志和处理要求在文件 {brief} ，请读取后照做。如果读不了这个文件，或者你的命令执行不了，不要反复重试，直接根据这条报错告诉用户最可能的原因和下一步。": "Stacker failed to {action} {}: {message}. The full log and instructions are in {brief}; read it and follow them. If you cannot read the file or run commands, do not keep retrying: say what this error most likely means and what to do next.",
   "这条任务已经不在了": "This task is gone",
   "（没有报错信息）": "(no error message)",
   "打开智能体失败：": "Could not open the agent: ",
