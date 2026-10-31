@@ -34,7 +34,7 @@ describe("TaskRepairDialog", () => {
     expect(host.textContent).toContain("问你确认");
     await act(async () => button("打开 Codex CLI")!.click());
     expect(invoke).toHaveBeenCalledWith("agent_repair_start", { id: "task-7", agent: "codex" });
-    expect(host.textContent).toContain("重试");
+    expect(host.textContent).toContain("状态刷新");
     expect(onClose).toHaveBeenCalled();
   });
 

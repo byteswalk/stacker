@@ -1,7 +1,7 @@
 //! A failed task handed to the user's own signed-in agent CLI. The agent brings the shell, the
 //! web search and its own approval prompts, so Stacker adds none of those: it writes down what
-//! went wrong and opens the agent in a terminal the user watches. Retrying the task afterwards
-//! is what proves the fix.
+//! went wrong and opens the agent in a terminal the user watches. Stacker detecting the product
+//! afterwards is what proves the fix; retrying would run the step that failed all over again.
 
 use super::{Action, AgentTask, TaskState};
 use crate::agents::net::{proxy_env, stacker_proxy};
@@ -81,7 +81,7 @@ pub(crate) fn brief(task: &AgentTask, log: &[String]) -> String {
          3. 如果是下载地址失效，只从厂商官网、GitHub 官方仓库、WinGet 或 npm 找新地址；\
          运行下载的安装包之前，先告诉用户来源和文件名。\n\
          4. 需要管理员权限的步骤，先告诉用户会弹出 UAC。\n\
-         5. 修好后验证 {product} 确实能用了，然后告诉用户：回到 Stacker 的任务列表点「重试」确认。\n\
+         5. 修好后验证 {product} 确实能用了，然后告诉用户：回到 Stacker 的「安装更新」页点「状态刷新」确认。不要让用户点「重试」，那会把失败的步骤再跑一遍。\n\
          6. 如果原因是 Stacker 自身的逻辑缺陷（比如写死的地址或参数错了），不要去改 Stacker 的文件，\
          说清楚是哪里错了，方便用户反馈给作者。\n",
         product = task.product_name,

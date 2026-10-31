@@ -47,7 +47,7 @@ export function TaskRepairDialog({ task, onClose }: { task: AgentTask; onClose: 
     setBusy(true);
     try {
       await startAgentRepair(task.id, picked);
-      toast("已在终端打开智能体。修好后回到这里点「重试」确认。", "ok");
+      toast("已在终端打开智能体。修好后在「安装更新」页点「状态刷新」确认。", "ok");
       onClose();
     } catch (error) {
       toast("打开智能体失败：" + error, "err");
@@ -67,7 +67,7 @@ export function TaskRepairDialog({ task, onClose }: { task: AgentTask; onClose: 
     {!!agents?.length && <>
       {agents.length > 1 && <div className="field"><label>用哪个智能体</label>
         <Select value={picked} width={220} onChange={setPicked} options={agents.map((agent) => ({ value: agent.id, label: agent.name }))} /></div>}
-      <div className="s dim" style={{ whiteSpace: "normal" }}>{name} 会在终端里读取这次的日志，查明原因后动手修。要执行的命令由它按自己的规则问你确认，密钥会先遮掉。修好后回到这里点「重试」确认。</div>
+      <div className="s dim" style={{ whiteSpace: "normal" }}>{name} 会在终端里读取这次的日志，查明原因后动手修。要执行的命令由它按自己的规则问你确认，密钥会先遮掉。修好后在「安装更新」页点「状态刷新」确认。</div>
     </>}
   </Modal>;
 }
