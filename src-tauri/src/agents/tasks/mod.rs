@@ -3,6 +3,7 @@
 //! runs on its own thread with its own cancel flag and log.
 
 pub(crate) mod plan;
+pub(crate) mod repair;
 pub(crate) mod runner;
 pub(crate) mod schedule;
 

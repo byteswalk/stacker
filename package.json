@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "test": "vitest run",
     "typecheck": "tsc -b --pretty false",
+    "sign:overrides": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sign-overrides.ps1",
     "check:release-metadata": "node scripts/check-release-metadata.mjs",
     "check:i18n": "node scripts/check-i18n.mjs",
     "ext:build": "vite build -c extension/vite.config.ts && vite build -c extension/vite.content.config.ts && vite build -c extension/vite.logins.config.ts",

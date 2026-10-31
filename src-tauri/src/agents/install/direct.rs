@@ -12,7 +12,11 @@ pub(crate) fn install_desktop_from_official_package(
         window,
         format!("正在连接 {} 官方下载地址…", spec.desktop.name),
     );
-    let resolved = resolve_installer(installer)?;
+    let mut resolved = resolve_installer(installer)?;
+    resolved.url = crate::agents::overrides::url(&resolved.url);
+    if let Some(args) = crate::agents::overrides::silent_args(spec.id) {
+        resolved.silent_args = Some(args);
+    }
     let path = download_desktop_installer(spec, &resolved, window)?;
     let mut verified = false;
     let result = (|| {
@@ -147,6 +151,7 @@ pub(crate) fn parse_latest_yml(text: &str) -> Option<ElectronRelease> {
 /// Reads a vendor's release manifest. Connections to these hosts get dropped mid-handshake
 /// often enough (ZCode's did) that a single attempt reports a working feed as broken.
 pub(crate) fn read_release_info(url: &str) -> Result<String, String> {
+    let url = &crate::agents::overrides::url(url);
     let agent = desktop_download_agent(crate::agents::net::stacker_proxy().as_deref())?;
     let mut last = String::new();
     for attempt in 0..3 {

@@ -7,6 +7,7 @@ mod health;
 pub(crate) mod hidden_console;
 pub(crate) mod install;
 pub(crate) mod net;
+pub(crate) mod overrides;
 pub(crate) mod process;
 pub(crate) mod pty;
 pub(crate) mod registry;

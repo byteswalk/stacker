@@ -20,7 +20,8 @@ pub(crate) fn winget_args_with_proxy(
     exact: bool,
     proxy: Option<&str>,
 ) -> Vec<String> {
-    let mut args = vec![action.to_string(), "--id".into(), id.into()];
+    let id = crate::agents::overrides::winget_id(id);
+    let mut args = vec![action.to_string(), "--id".into(), id];
     if exact {
         args.push("--exact".into());
     }

@@ -62,6 +62,20 @@ cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 
 `npm run release:windows` 会校验版本元数据和国际化、执行前后端测试与 Clippy，并生成安装版和 `SHA256SUMS.txt`（只发安装版，不再出便携 ZIP，应用内更新也只认安装版）。内部测试包加轮次号：`npm run release:windows -- -Revision r74`，界面版本号显示为 `v0.3.4 (r74)`，产物放在 `release/v0.3.4-r74/`，同一版本号的多轮构建就能分清，测试包不改 `resources/latest.json`；不加则显示纯版本号（从源码运行时显示 `(dev)`）。正式发布前必须同步更新 `package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json`、`resources/latest.json`，再将同一提交、标签、说明、资产和校验文件发布到 GitHub 与 Gitee。
 
+### 安装目录的线上修正
+
+下载地址、WinGet 包 ID、静默参数这类厂商常改的信息，不用发版也能修：编辑 `resources/install-overrides.json`，运行 `npm run sign:overrides`，把文件和 `.minisig` 一起提交并推送到两个远端。应用启动时和之后每小时在后台读取一次，签名不对就忽略。
+
+```json
+{
+  "urls": { "旧地址": "新的 https 地址" },
+  "winget": { "旧包 ID": "新包 ID" },
+  "silent_args": { "产品桌面端 id": ["/S"] }
+}
+```
+
+`urls` 按文字替换，下载地址和 `irm ... | iex` 这类安装命令都生效。文件里写的东西会在用户机器上运行，所以只认发布私钥的签名。
+
 ### 更新包校验与签名（必须）
 
 应用下载到的安装包要过两关才会执行：先比 SHA-256，再用内置公钥验 minisign 签名，任一不符就删文件并拒装；**两样缺一个都不自动安装**，只让用户去发布页手动下载。

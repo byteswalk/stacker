@@ -85,6 +85,16 @@ export function agentTaskLog(id: string) {
 }
 
 /** Drops every finished task; open tasks stay. */
+export type Repairer = { id: string; name: string };
+
+export function agentRepairers(id: string): Promise<Repairer[]> {
+  return invoke<Repairer[]>("agent_repairers", { id });
+}
+
+export function startAgentRepair(id: string, agent: string): Promise<void> {
+  return invoke<void>("agent_repair_start", { id, agent });
+}
+
 export async function clearFinishedTasks() {
   const left = await invoke<AgentTask[]>("agent_tasks_clear");
   publish(Object.fromEntries(left.map((task) => [task.id, task])));

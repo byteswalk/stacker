@@ -232,13 +232,14 @@ fn run_official_script(
     command: &str,
     label: &str,
 ) -> Result<(), String> {
+    let command = crate::agents::overrides::url(command);
     run_powershell_streamed(
         &[
             "-NoProfile",
             "-ExecutionPolicy",
             "Bypass",
             "-Command",
-            command,
+            &command,
         ],
         label,
         Duration::from_secs(900),

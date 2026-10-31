@@ -670,6 +670,11 @@ pub fn open_shell(
     launch_shell(&kind, &cwd, command.as_deref())
 }
 
+/// Runs `command` in a PowerShell terminal the user sees, in their home folder.
+pub(crate) fn open_agent_terminal(command: &str, title: &str) -> Result<(), String> {
+    launch_shell_titled("powershell", &home_or_app_dir(), Some(command), title)
+}
+
 #[tauri::command]
 pub fn open_ecosystem_verify_shell(kind: String, ecosystem: String) -> Result<(), String> {
     let command = verification_command(&kind, &ecosystem)?;

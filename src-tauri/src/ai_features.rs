@@ -44,7 +44,7 @@ fn is_secret_name(name: &str) -> bool {
 
 /// A config file or a log as it may go to an AI: what looks like a secret is hidden first.
 /// These are free text nobody picked for the purpose, unlike what the other questions send.
-fn hide_secrets(text: &str) -> String {
+pub(crate) fn hide_secrets(text: &str) -> String {
     static RULES: OnceLock<[Regex; 4]> = OnceLock::new();
     let [bearer, named, userinfo, random] = RULES.get_or_init(|| {
         [

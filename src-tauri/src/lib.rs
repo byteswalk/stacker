@@ -218,6 +218,7 @@ pub fn run() {
             settings::init();
             settings::start_log_retention_worker();
             gateway::restore();
+            agents::overrides::refresh();
             binary::migrate_legacy_envs();
             tray::build(app.handle())?;
             Ok(())
@@ -564,6 +565,8 @@ pub fn run() {
             agents::commands::agent_task_retry,
             agents::commands::agent_tasks,
             agents::commands::agent_task_log,
+            agents::commands::agent_repairers,
+            agents::commands::agent_repair_start,
             agents::commands::agent_tasks_clear,
             agents::commands::agent_task_dismiss,
             agents::commands::agent_update_plan,

@@ -280,7 +280,7 @@ fn agent() -> ureq::Agent {
         .build()
 }
 
-fn fetch(url: &str) -> Result<String, String> {
+pub(crate) fn fetch(url: &str) -> Result<String, String> {
     let agent = agent();
     let mut last = String::new();
     for u in candidates(url) {

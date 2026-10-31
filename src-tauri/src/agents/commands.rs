@@ -120,6 +120,38 @@ pub fn agent_task_log(
     manager.log(&id)
 }
 
+/// Who can take this failed task over: agents installed and signed in.
+#[tauri::command]
+pub async fn agent_repairers(
+    id: String,
+    manager: tauri::State<'_, AgentTaskManager>,
+) -> Result<Vec<super::tasks::repair::Repairer>, String> {
+    let failed_cli = manager
+        .list()
+        .into_iter()
+        .find(|t| t.id == id)
+        .and_then(|t| t.cli_id);
+    tauri::async_runtime::spawn_blocking(move || {
+        super::tasks::repair::repairers(failed_cli.as_deref())
+    })
+    .await
+    .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn agent_repair_start(
+    id: String,
+    agent: String,
+    manager: tauri::State<'_, AgentTaskManager>,
+) -> Result<(), String> {
+    let task = manager
+        .list()
+        .into_iter()
+        .find(|task| task.id == id)
+        .ok_or("这条任务已经不在了")?;
+    super::tasks::repair::start(&task, &manager.log(&id)?, &agent)
+}
+
 #[tauri::command]
 pub async fn agent_update_plan() -> super::tasks::plan::UpdatePlan {
     tauri::async_runtime::spawn_blocking(|| {
