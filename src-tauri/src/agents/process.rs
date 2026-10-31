@@ -277,21 +277,6 @@ pub(crate) fn failure_summary(text: &str) -> Option<String> {
         .or_else(|| first_output_line(text))
 }
 
-/// The time limit stops a program that has gone quiet, not one still downloading slowly: past
-/// it, two quiet minutes are enough; three times it, nothing more waits. A download nearly done
-/// gets ten: Delivery Optimization has paused on the last megabytes of 203, and stopping there
-/// threw twenty minutes away.
-fn out_of_time(
-    elapsed: Duration,
-    timeout: Duration,
-    inactive: Duration,
-    download: Option<(f64, f64)>,
-) -> bool {
-    let nearly_done = download.is_some_and(|(done, total)| total > 0.0 && done / total >= 0.9);
-    let quiet = Duration::from_secs(if nearly_done { 600 } else { 120 });
-    elapsed >= timeout && (inactive >= quiet || elapsed >= timeout * 3)
-}
-
 /// Like `run_command_streamed`, but inside a pseudo console, so a program that only draws
 /// progress on a console (WinGet) shows it: a download bar becomes Stacker's "正在下载 45% ·
 /// 9.4/62.3 MB" line, and a taskbar percent becomes "正在处理 45%".
@@ -428,7 +413,11 @@ pub(crate) fn run_command_console(
                 return Some(Stop::Cancelled);
             }
             let inactive = elapsed.saturating_sub(last_activity);
-            if out_of_time(elapsed, timeout, inactive, download) {
+            // The time limit stops a program that has gone quiet, not one still downloading
+            // slowly: past it, two quiet minutes are enough; three times it, nothing more waits.
+            if elapsed >= timeout
+                && (inactive >= Duration::from_secs(120) || elapsed >= timeout * 3)
+            {
                 return Some(Stop::TimedOut);
             }
             if !stall_timeout.is_zero() && inactive >= stall_timeout {
@@ -1136,52 +1125,5 @@ endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\node_
             ))
         );
         assert_eq!(npm_shim_script(shim, "@echo off\r\nrun.exe %*"), None);
-    }
-}
-
-#[cfg(test)]
-mod time_limit_tests {
-    use super::out_of_time;
-    use std::time::Duration;
-
-    const LIMIT: Duration = Duration::from_secs(1200);
-
-    fn secs(value: u64) -> Duration {
-        Duration::from_secs(value)
-    }
-
-    #[test]
-    fn nothing_stops_before_the_limit() {
-        assert!(!out_of_time(secs(1000), LIMIT, secs(900), None));
-    }
-
-    #[test]
-    fn past_the_limit_two_quiet_minutes_end_it() {
-        assert!(!out_of_time(secs(1300), LIMIT, secs(100), None));
-        assert!(out_of_time(secs(1300), LIMIT, secs(120), None));
-        assert!(out_of_time(
-            secs(1300),
-            LIMIT,
-            secs(120),
-            Some((50.0, 203.0))
-        ));
-    }
-
-    #[test]
-    fn a_download_nearly_done_is_given_ten_minutes() {
-        let nearly = Some((199.0, 203.0));
-        assert!(!out_of_time(secs(1300), LIMIT, secs(120), nearly));
-        assert!(!out_of_time(secs(1800), LIMIT, secs(599), nearly));
-        assert!(out_of_time(secs(1800), LIMIT, secs(600), nearly));
-    }
-
-    #[test]
-    fn three_times_the_limit_is_the_end_whatever_is_moving() {
-        assert!(out_of_time(
-            secs(3600),
-            LIMIT,
-            secs(0),
-            Some((199.0, 203.0))
-        ));
     }
 }
