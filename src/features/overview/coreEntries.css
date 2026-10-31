@@ -1,0 +1,87 @@
+/* The home page's entries: unequal cards, each with a colour of its own. */
+.a .core-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));grid-auto-rows:minmax(172px,auto);gap:10px;margin-bottom:12px}
+.a .core-card{--hue:var(--blue);position:relative;display:flex;flex-direction:column;box-sizing:border-box;min-width:0;padding:14px;
+  background:var(--card);border:1px solid var(--bd);border-radius:14px;transition:background .15s,border-color .15s}
+.a .core-card:hover{background:var(--cardh);border-color:color-mix(in srgb,var(--hue) 50%,var(--bd))}
+.a .core-card button:not(.core-open){position:relative;z-index:1}
+.a .core-card.violet{--hue:#b09cf6}
+.a .core-card.green{--hue:var(--green)}
+.a .core-card.red{--hue:#e98a84}
+.a .core-card.teal{--hue:#5fd4c6}
+[data-theme="light"] .a .core-card.violet{--hue:#6a4fd6}
+[data-theme="light"] .a .core-card.red{--hue:var(--red)}
+[data-theme="light"] .a .core-card.teal{--hue:#0f8f81}
+
+/* The title is the card's link: its hit area covers the whole card. */
+.a .core-open{padding:0;border:0;background:none;color:var(--tx);font:inherit;font-size:15px;font-weight:700;text-align:left;white-space:nowrap;cursor:pointer}
+.a .core-open::after{content:"";position:absolute;inset:0;border-radius:inherit}
+.a .core-open:focus-visible{outline:none}
+.a .core-open:focus-visible::after{outline:2px solid var(--blue);outline-offset:2px}
+
+.a .core-head{display:flex;align-items:center;gap:10px}
+.a .core-tile{width:38px;height:38px;flex-shrink:0;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;
+  color:var(--hue);background:color-mix(in srgb,var(--hue) 15%,transparent)}
+.a .core-arrow{margin-left:auto;color:var(--mut);font-size:15px;transition:transform .15s,color .15s}
+.a .core-card:hover .core-arrow{color:var(--hue);transform:translateX(2px)}
+.a .core-tag{margin:9px 0 0;color:var(--mut);font-size:12.5px;line-height:1.5}
+.a .core-foot{margin-top:auto;padding-top:10px}
+.a .core-row{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}
+.a .core-foot .core-row:not(:first-child){margin-top:8px}
+.a .core-row strong{font-size:17px;font-weight:700}
+.a .core-note{color:var(--mut);font-size:12.5px;min-width:0}
+.a .core-note.good{color:var(--green);font-weight:500}
+.a .core-note.warn{color:var(--amber);font-weight:500}
+
+.a .core-stat{display:flex;align-items:baseline;gap:6px;min-width:0;color:var(--mut);font-size:12.5px}
+.a .core-stat strong{font-size:26px;font-weight:700;line-height:1.15;color:var(--tx)}
+.a .core-stat strong.accent{color:var(--acc-tx)}
+.a .core-stat strong.hue{color:var(--hue)}
+.a .core-stat.small strong{font-size:17px}
+
+/* 智能体: the first thing the eye lands on, two rows tall. */
+.a .core-card.core-hero{--hue:var(--acc);grid-row:span 2;padding:18px;background:color-mix(in srgb,var(--acc) 8%,var(--card));border-color:color-mix(in srgb,var(--acc) 38%,var(--bd))}
+.a .core-card.core-hero:hover{background:color-mix(in srgb,var(--acc) 12%,var(--card));border-color:color-mix(in srgb,var(--acc) 60%,var(--bd))}
+.a .core-hero-head{display:flex;align-items:center;justify-content:space-between}
+.a .core-card.core-hero .core-tile{width:44px;height:44px;border-radius:12px;font-size:24px;color:var(--acc-tx);background:color-mix(in srgb,var(--acc) 18%,transparent)}
+.a .core-card.core-hero .core-arrow{margin-left:0;color:var(--acc-tx);font-size:18px}
+.a .core-card.core-hero .core-open{width:fit-content;margin-top:12px;font-size:19px}
+.a .core-card.core-hero .core-tag{margin-top:6px;font-size:13px;line-height:1.55}
+.a .core-logos{display:grid;grid-template-columns:repeat(4,44px);gap:10px;margin-top:16px}
+.a .core-logo{box-sizing:border-box;width:44px;height:44px;display:flex;align-items:center;justify-content:center;border-radius:10px;
+  background:var(--ov);border:1px solid var(--bd);opacity:.5}
+.a .core-logo.on{background:var(--ovh);border-color:var(--bdh);opacity:1}
+.a .core-logo img{width:26px;height:26px;object-fit:contain}
+.a .core-hero-foot{margin-top:auto;padding-top:12px}
+.a .core-wide{box-sizing:border-box;width:100%;height:36px;margin-top:10px;justify-content:center;font-size:13.5px}
+
+/* 会话数据 */
+.a .core-bar{display:flex;height:6px;border-radius:3px;overflow:hidden;background:var(--ovh)}
+.a .core-bar span:nth-child(1){background:var(--blue)}
+.a .core-bar span:nth-child(2){background:var(--amber)}
+.a .core-bar span:nth-child(3){background:var(--green)}
+
+/* 接口服务 */
+.a .core-address{box-sizing:border-box;height:24px;padding:0 8px;display:flex;align-items:center;background:var(--ovh);border-radius:6px;
+  color:var(--mut);font-family:var(--font-mono);font-size:11.5px;overflow:hidden;white-space:nowrap}
+
+/* 网络代理 */
+.a .core-chips{display:flex;gap:5px;flex-wrap:wrap}
+.a .core-chips span{height:22px;padding:0 7px;display:flex;align-items:center;border-radius:6px;background:var(--ov);color:var(--mut);font-size:11.5px}
+.a .core-chips span.on{background:color-mix(in srgb,var(--green) 14%,transparent);color:var(--green)}
+
+/* 磁盘清理: title and button on the left, the disks on the right. */
+.a .core-card.wide{grid-column:span 2;display:grid;grid-template-columns:196px minmax(0,1fr);grid-template-rows:1fr auto;gap:0 18px}
+.a .core-card.wide .core-side{grid-column:1;grid-row:1}
+.a .core-card.wide .core-scan{grid-column:1;grid-row:2;justify-self:start}
+.a .core-card.wide .core-disks{grid-column:2;grid-row:1 / span 2}
+.a .core-card.wide .core-arrow{display:none}
+.a .core-card.red.warn{border-color:color-mix(in srgb,var(--amber) 40%,var(--bd))}
+.a .core-card.red.bad{border-color:color-mix(in srgb,var(--red) 45%,var(--bd))}
+.a .core-disks{display:flex;flex-direction:column;justify-content:center;gap:12px;min-width:0}
+.a .core-disk > div:first-child{display:flex;justify-content:space-between;gap:8px;color:var(--mut);font-size:12px}
+.a .core-disk.bad > div:first-child span:last-child{color:var(--hue)}
+.a .core-disk.warn > div:first-child span:last-child{color:var(--amber)}
+.a .core-meter{margin-top:4px;height:6px;border-radius:3px;overflow:hidden;background:var(--ovh)}
+.a .core-meter span{display:block;height:100%;background:var(--green)}
+.a .core-disk.warn .core-meter span{background:var(--amber)}
+.a .core-disk.bad .core-meter span{background:var(--red)}

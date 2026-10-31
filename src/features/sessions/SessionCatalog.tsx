@@ -26,6 +26,11 @@ let lastQuery = EMPTY_QUERY;
 let cachedPage = EMPTY_PAGE;
 let cachedProjects: ProjectRow[] = [];
 
+/** Which tab the page opens on next, for a link from elsewhere. */
+export function showSessionTab(tab: Tab) {
+  lastTab = tab;
+}
+
 export function SessionCatalog({ onCleanup }: { onCleanup: () => void }) {
   const { tr: t } = useI18n();
   const toast = useToast();

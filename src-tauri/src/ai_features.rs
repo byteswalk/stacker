@@ -645,6 +645,17 @@ pub async fn proxy_probe(url: String) -> Result<ProbeResult, String> {
     .map_err(|e| e.to_string())?
 }
 
+/// The system proxy alone, for the home page's quick test: `None` when there is no proxy.
+#[tauri::command]
+pub async fn proxy_test(url: String) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let proxy = crate::settings::detected_proxy_addr().map(|(h, p)| format!("{h}:{p}"));
+        Ok(proxy.map(|p| probe_once(&url, Some(&p))))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

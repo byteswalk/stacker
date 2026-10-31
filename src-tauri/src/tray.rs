@@ -14,7 +14,7 @@ use tauri::{AppHandle, Emitter, Manager, Wry};
 
 /// Pages the "Go to" submenu offers, as `(page id, Chinese, English)`; the names are the sidebar's.
 const PAGES: &[(&str, &str, &str)] = &[
-    ("overview", "环境体检", "Checkup"),
+    ("overview", "环境总览", "Overview"),
     ("agents", "安装更新", "Install & Update"),
     ("agent-data", "会话数据", "Sessions & Data"),
     ("gateway-log", "接口日志", "API Log"),

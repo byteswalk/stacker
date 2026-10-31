@@ -10,7 +10,7 @@ import { ToastProvider, ToastHost, useToast, Modal, ConfirmModal, BusyProvider, 
 import { Select } from "./Select";
 import { useI18n, translateText } from "./i18n";
 import { NotificationProvider, useNotifications, formatBytes } from "./notifications";
-import { PAGE_IDS, readLastPage, saveLastPage, type Page } from "./pageState";
+import { DEFAULT_PAGE, PAGE_IDS, type Page } from "./pageState";
 import { resetMainWindowSize } from "./windowSize";
 import { TOOLCHAIN_PAGES, ToolchainAsk } from "./features/ai/ToolchainAsk";
 import { ToolRelocation } from "./features/relocation/ToolRelocation";
@@ -243,7 +243,7 @@ function Shell() {
   const { t, tr } = useI18n();
   const toast = useToast();
   const notices = useNotifications();
-  const [page, setPage] = useState<Page>(readLastPage);
+  const [page, setPage] = useState<Page>(DEFAULT_PAGE);
   // A dialog anywhere can ask for a page ("go and set the AI up") without holding `setPage`.
   useEffect(() => {
     const open = (event: Event) => {
@@ -301,7 +301,6 @@ function Shell() {
       .then((o) => { if (!o.supported) setOsWarn({ name: o.name, build: o.build }); })
       .catch((error) => reportFrontendWarning("Unable to read operating-system information.", error));
   }, []);
-  useEffect(() => saveLastPage(page), [page]);
   useEffect(() => {
     let unlisten: UnlistenFn | undefined;
     let disposed = false;

@@ -533,6 +533,7 @@ pub fn run() {
             ai_features::ai_list_filter,
             ai_features::ai_update_notes,
             ai_features::proxy_probe,
+            ai_features::proxy_test,
             project_junk::project_junk_scan,
             project_junk::project_junk_clean,
             gateway::gateway_new_token,

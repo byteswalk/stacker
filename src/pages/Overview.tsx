@@ -4,7 +4,7 @@ import { translateText } from "../i18n";
 import type { Page } from "../pageState";
 import { ConfirmModal, useBusy, useToast } from "../ui";
 import { useNotifications } from "../notifications";
-import { WorkstationGroups } from "../features/overview/WorkstationGroups";
+import { CoreEntries } from "../features/overview/CoreEntries";
 import { quickScanUnlessBusy } from "../features/space-analysis/store";
 import { AiAskModal, AiButton, askAi } from "../features/ai/AiAsk";
 
@@ -101,24 +101,6 @@ const CONFIRM_EXTRA: Record<string, string> = {
   windows_temp_high: "清空 Windows 和当前用户的临时目录。正在被程序占用的文件会自动跳过；删除后不能恢复。",
   jetbrains_history: "删除旧版 JetBrains IDE / Android Studio 的数据目录，每个产品保留最新的一个版本；删除后不能恢复。",
 };
-
-const PENDING_CHECKS = [
-  {
-    title: "核心运行时",
-    badge: "待体检",
-    desc: "检测 Git、Node.js、Python、Java、Go、Rust 等命令是否可用。",
-  },
-  {
-    title: "包管理器与构建工具",
-    badge: "待体检",
-    desc: "检测 npm、pip、Maven、Gradle、Cargo 等工具链状态。",
-  },
-  {
-    title: "配置、代理与缓存",
-    badge: "待体检",
-    desc: "检测终端集成、镜像源配置、代理环境变量和开发缓存占用。",
-  },
-];
 
 type OverviewCache = {
   tools: ToolState[] | null;
@@ -306,7 +288,7 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
     : ecosystem?.title || "需要处理";
   const overallSummary = (() => {
     if (checkingAll) return "正在检测 Git / Node / Python / Java / Go / Rust、包管理器、构建工具、代理与缓存…";
-    if (!hasChecked) return "点击「开始体检」后，Stacker 将检测运行时、包管理器、构建工具、代理与缓存状态。";
+    if (!hasChecked) return "检查运行时、包管理器、构建工具、代理和缓存是否正常";
     if (emptySetup) return "尚未检测到可用的开发命令。可从左侧生态页面安装所需运行时和工具链。";
     const base = ecosystem?.summary || "核心运行时、包管理器和常用构建工具检测完成。";
     return allOk || !subtitle ? base : `${base}；${subtitle}。`;
@@ -452,16 +434,17 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
 
   return (
     <>
+      <CoreEntries onOpen={goto} onScan={() => openDetail("cleanup")} cleanable={notices.cleanupBytes} />
       {(
         <>
-          <div className={"checkup agent" + overallClass + (checkingAll ? " checking" : "")}>
+          <div className={"checkup agent slim" + overallClass + (checkingAll ? " checking" : "")}>
             {checkingAll && <span className="border-runner" aria-hidden="true" />}
             <span className={"cnum" + (!checkingAll && !emptySetup ? " score" : "")}>
-              {checkingAll ? <i className="ti ti-loader spin" style={{ fontSize: 24 }} /> : !hasChecked ? <><b>--</b><span>分</span></> : emptySetup ? <i className="ti ti-package-off" style={{ fontSize: 26 }} /> : <><b>{overallScore}</b><span>分</span></>}
+              {checkingAll ? <i className="ti ti-loader spin" style={{ fontSize: 18 }} /> : !hasChecked ? <b>--</b> : emptySetup ? <i className="ti ti-package-off" style={{ fontSize: 18 }} /> : <b>{overallScore}</b>}
             </span>
             <div className="ct">
-              <div className="t1">编程生态体检 · {overallTitle}</div>
-              <div className="t2">{overallSummary}</div>
+              <div className="t1">环境体检 · {overallTitle}</div>
+              <div className="t2" title={overallSummary}>{overallSummary}</div>
             </div>
             <div className="cacts">
               <button className="gh sm" disabled={checkingAll} onClick={reloadAll}>
@@ -488,25 +471,8 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
               return askAi("checkup", { items });
             }}
             onClose={() => setDiagnosing(false)} />}
-          {!hasChecked && (
-            <>
-              <div className="seclabel"><i className="ti ti-list-check" /> 待体检项目</div>
-              {PENDING_CHECKS.map((item) => (
-                <div className="fixrow" key={item.title}>
-                  <span className="fdot info" />
-                  <div className="ft">
-                    <div className="fh">{item.title} <span className="bd b">{item.badge}</span></div>
-                    <div className="fs">{item.desc}</div>
-                  </div>
-                </div>
-              ))}
-            </>
-          )}
         </>
       )}
-
-      <div className="seclabel"><i className="ti ti-layout-grid" /> 工作站</div>
-      <WorkstationGroups onOpen={goto} />
 
       {hasChecked && !allOk && !emptySetup && extra.length > 0 && <div className="seclabel"><i className="ti ti-list-check" /> 可优化项</div>}
 
