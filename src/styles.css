@@ -1729,6 +1729,7 @@ button{ font-family:inherit; }
   border:.5px solid var(--bd); background:var(--card); color:var(--tx); font-size:17px; cursor:pointer;
   box-shadow:0 6px 18px rgba(0,0,0,.35); animation:back-top-in .16s ease-out; transition:opacity .2s ease-out; }
 .a .back-top:hover{ border-color:var(--acc); color:var(--acc); }
+.a .content.has-back-top{ padding-bottom:60px; }
 .a .back-top.idle{ opacity:0; pointer-events:none; transition-duration:.4s; }
 @keyframes back-top-in{ from{ opacity:0; transform:translateY(6px); } to{ opacity:1; transform:none; } }
 /* A list's actions, kept in sight at the bottom of the page however far the list runs. */

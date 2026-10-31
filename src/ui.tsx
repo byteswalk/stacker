@@ -266,6 +266,12 @@ export function BackToTop({ scroller, after = 900 }: { scroller: { current: HTML
   const [idle, setIdle] = useState(false);
   const hovered = useRef(false);
   const shown = place !== null;
+  // While it shows, the page gets room below its last row, so the button covers nothing there.
+  useEffect(() => {
+    const element = scroller.current;
+    element?.classList.toggle("has-back-top", shown);
+    return () => element?.classList.remove("has-back-top");
+  }, [shown, scroller]);
   useEffect(() => {
     if (!shown) return;
     let timer = 0;

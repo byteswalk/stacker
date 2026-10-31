@@ -198,6 +198,7 @@ describe("BackToTop", () => {
     act(() => { scroller.scrollTop = 1200; scroller.dispatchEvent(new Event("scroll")); });
     const button = () => container.querySelector<HTMLButtonElement>(".back-top");
     expect(button()).not.toBeNull();
+    expect(scroller.classList.contains("has-back-top"), "the last row can scroll clear of it").toBe(true);
     expect(button()!.classList.contains("idle")).toBe(false);
     act(() => { vi.advanceTimersByTime(4900); });
     expect(button()!.classList.contains("idle")).toBe(false);
