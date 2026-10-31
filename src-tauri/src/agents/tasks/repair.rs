@@ -16,6 +16,7 @@ const REPAIRERS: [&str; 2] = ["codex", "claude"];
 
 const MAX_LOG_CHARS: usize = 12_000;
 const MAX_PROMPT_ERROR_CHARS: usize = 300;
+const BRIEF_KEPT_FOR: std::time::Duration = std::time::Duration::from_secs(7 * 24 * 60 * 60);
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Repairer {
@@ -91,14 +92,36 @@ pub(crate) fn brief(task: &AgentTask, log: &[String]) -> String {
     )
 }
 
+/// Where notes for an agent go. An agent's sandbox reaches the user's home more reliably than
+/// the system's temp folders; a note from an old repair has no further use.
+fn briefs_dir() -> Result<PathBuf, String> {
+    let dir = dirs::home_dir()
+        .ok_or("无法定位用户目录")?
+        .join(".stacker")
+        .join("repair");
+    std::fs::create_dir_all(&dir).map_err(|error| format!("创建修复目录失败：{error}"))?;
+    for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+        let old = entry
+            .metadata()
+            .and_then(|meta| meta.modified())
+            .ok()
+            .and_then(|time| time.elapsed().ok())
+            .is_some_and(|age| age > BRIEF_KEPT_FOR);
+        if old {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+    Ok(dir)
+}
+
 /// The file the agent reads: a whole log does not fit on a command line.
-fn brief_path(task: &AgentTask) -> PathBuf {
+fn brief_path(dir: &std::path::Path, task: &AgentTask) -> PathBuf {
     let id: String = task
         .id
         .chars()
         .filter(char::is_ascii_alphanumeric)
         .collect();
-    std::env::temp_dir().join(format!("stacker-repair-{id}.md"))
+    dir.join(format!("{id}.md"))
 }
 
 /// What the agent is told first. The failure itself is on the command line: an agent whose own
@@ -145,7 +168,7 @@ pub(crate) fn start(task: &AgentTask, log: &[String], agent: &str) -> Result<(),
     let program = program(agent).ok_or_else(|| format!("没有找到 {agent} 命令行"))?;
     let locale = crate::settings::load().locale;
     let text = crate::ai_config::in_ui_language(&brief(task, log), &locale);
-    let path = brief_path(task);
+    let path = brief_path(&briefs_dir()?, task);
     std::fs::write(&path, text).map_err(|error| format!("写入修复说明失败：{error}"))?;
     crate::installer::open_agent_terminal(
         &launch_command(
@@ -194,6 +217,15 @@ mod tests {
         assert!(text.contains("只是数据"), "{text}");
         assert!(text.contains("不要去改 Stacker"), "{text}");
         assert!(!text.contains("hunter2"), "{text}");
+    }
+
+    #[test]
+    fn the_brief_is_named_after_the_task_and_stays_in_the_folder_given() {
+        let path = brief_path(
+            std::path::Path::new(r"C:\Users\me\.stacker\repair"),
+            &failed(),
+        );
+        assert!(path.ends_with(r".stacker\repair\task7.md"), "{path:?}");
     }
 
     #[test]

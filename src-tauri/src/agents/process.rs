@@ -14,6 +14,9 @@ pub(crate) fn run_powershell(
     run_command_text(&program, args, name, timeout)
 }
 
+/// An official script that prints nothing for this long is stuck, usually on a download.
+const SCRIPT_STALL: Duration = Duration::from_secs(300);
+
 pub(crate) fn run_powershell_streamed(
     args: &[&str],
     name: &str,
@@ -32,7 +35,7 @@ pub(crate) fn run_powershell_streamed(
         all.push("-NonInteractive");
     }
     all.extend_from_slice(args);
-    run_command_streamed(&program, &all, name, timeout, Duration::ZERO, window)
+    run_command_streamed(&program, &all, name, timeout, SCRIPT_STALL, window)
 }
 
 pub(crate) fn ps_single_quoted(value: &str) -> String {
@@ -178,7 +181,7 @@ pub(crate) fn run_command_streamed(
                 log_output_excerpt(&captured_command_output(&output))
             );
             break Some(format!(
-                "{display_name} 连续 {} 秒没有响应，已停止操作。请检查网络或 WinGet 软件源后重试",
+                "{display_name} 连续 {} 秒没有响应，已停止操作。请检查网络或下载源后重试",
                 stall_timeout.as_secs()
             ));
         }

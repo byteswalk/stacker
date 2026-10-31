@@ -1,3 +1,4 @@
+pub(crate) mod codex_package;
 mod delivery;
 pub(crate) mod direct;
 pub(crate) mod npm;
@@ -99,10 +100,20 @@ pub(crate) fn update_cli_tool(
                 )?;
                 Ok("Codex CLI 已通过 WinGet 更新".into())
             }
-            (Some(_), _) => {
+            (Some(program), _) => {
                 emit_progress(window, "正在运行 Codex 官方 Windows 安装器…");
-                run_codex_installer(window)?;
-                Ok("Codex CLI 已通过官方 Windows 安装器更新".into())
+                match run_codex_installer(window) {
+                    Ok(_) => Ok("Codex CLI 已通过官方 Windows 安装器更新".into()),
+                    Err(err) if crate::installer::op_cancelled() || err.contains("已取消") => {
+                        Err(err)
+                    }
+                    Err(err) if is_codex_standalone(program) => {
+                        emit_progress(window, "官方安装器没有完成，改用 npm 官方包更新…");
+                        codex_package::update(program, window)
+                            .map_err(|fallback| format!("{err}；改用 npm 官方包也失败：{fallback}"))
+                    }
+                    Err(err) => Err(err),
+                }
             }
             (None, _) => install_cli_tool(spec, window),
         },
