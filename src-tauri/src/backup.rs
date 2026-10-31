@@ -238,6 +238,8 @@ pub struct BackupDetail {
     pub restore_note: String,
     pub items: Vec<BackupDetailItem>,
     pub preview: Option<String>,
+    /// 目标文件现在的内容，给 AI 对比用，界面不显示。
+    pub current_preview: Option<String>,
 }
 
 /// 列出所有备份（按时间倒序）。
@@ -404,6 +406,7 @@ pub fn backup_detail(path: String, origin_hint: String) -> Result<BackupDetail, 
                 .into(),
             items,
             preview: None,
+            current_preview: None,
         });
     }
 
@@ -434,6 +437,7 @@ pub fn backup_detail(path: String, origin_hint: String) -> Result<BackupDetail, 
             restore_note: "还原会把该注册表值恢复到备份时的状态；还原前会再次备份当前状态。".into(),
             items,
             preview: None,
+            current_preview: None,
         });
     }
 
@@ -468,6 +472,7 @@ pub fn backup_detail(path: String, origin_hint: String) -> Result<BackupDetail, 
             detail_item("备份大小", format!("{:.1} KB", backup_size as f64 / 1024.0)),
         ],
         preview: read_preview(&p),
+        current_preview: read_preview(&origin_path),
     })
 }
 

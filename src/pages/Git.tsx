@@ -7,6 +7,7 @@ import { ConfirmModal, ErrorState, Loading, Modal, useBusy, useBusyRead, useToas
 import { remoteRepositoryCreationHint, supportsRemoteRepositoryCreation } from "../gitCapabilities";
 import { translateText } from "../i18n";
 import { useNotifications } from "../notifications";
+import { AiAskModal, askAi } from "../features/ai/AiAsk";
 
 type Shells = { powershell: boolean; gitbash: boolean; cmd: boolean };
 type GitStatus = {
@@ -105,6 +106,19 @@ function tokenExpiry(account: GitAccountProfile) {
 
 export default function Git() {
   const toast = useToast();
+  const [failure, setFailure] = useState<{ action: string; message: string } | null>(null);
+  const [askingFailure, setAskingFailure] = useState(false);
+  /** Says so and keeps the error, so the AI can be asked after the toast has gone. */
+  const failed = (action: string, error: unknown) => {
+    toast(`${action}失败：${error}`, "err");
+    setFailure({ action, message: String(error) });
+  };
+  const failureBar = failure && <div className="banner red">
+    <i className="ti ti-alert-circle lead" />
+    <div className="bt">{failure.action}失败</div>
+    <button className="gh xs" onClick={() => setAskingFailure(true)}><i className="ti ti-sparkles" /> 为什么失败</button>
+    <button className="gh xs" onClick={() => setFailure(null)}>关闭提示</button>
+  </div>;
   const notices = useNotifications();
   const runBusy = useBusy();
   const read = useBusyRead();
@@ -348,7 +362,7 @@ export default function Git() {
       } else if (cancelled || detail.includes("已取消")) {
         toast(updating ? "已取消 Git 更新" : "已取消 Git 安装", "info");
       } else {
-        toast((updating ? "Git 更新失败：" : "Git 安装失败：") + detail, "err");
+        failed(updating ? "Git 更新" : "Git 安装", detail);
       }
     } finally {
       setBusy(false);
@@ -383,7 +397,7 @@ export default function Git() {
       setAddProvider(null);
       toast(`${provider} 账号已添加`, "ok");
     } catch (error) {
-      toast(`添加 ${provider} 账号失败：${error}`, "err");
+      failed(`添加 ${provider} 账号`, error);
     } finally {
       setBusy(false);
     }
@@ -463,7 +477,7 @@ export default function Git() {
       });
       toast(`已将 ${accountPlatformName(account)} · ${account.username} 设为普通终端默认 Git 账号`, "ok");
     } catch (error) {
-      toast("设置全局默认 Git 账号失败：" + error, "err");
+      failed("设置全局默认 Git 账号", error);
     }
   }
 
@@ -539,7 +553,7 @@ export default function Git() {
       setInitAccount(null);
       toast(result.remote_url ? "工程已初始化并连接远程仓库" : "本地工程已初始化", "ok");
     } catch (error) {
-      toast("初始化工程失败：" + error, "err");
+      failed("初始化工程", error);
     } finally {
       setBusy(false);
     }
@@ -595,7 +609,7 @@ export default function Git() {
       toast(`${result.mode === "native_transfer" ? "GitHub 原生转移" : "Git 镜像迁移"}：${result.message}`, "ok");
       setMigrationOpen(false);
     } catch (error) {
-      toast("仓库迁移失败：" + error, "err");
+      failed("仓库迁移", error);
     } finally {
       setBusy(false);
     }
@@ -610,7 +624,7 @@ export default function Git() {
       });
       toast("Git 代理已配置", "ok");
     } catch (error) {
-      toast("配置 Git 代理失败：" + error, "err");
+      failed("配置 Git 代理", error);
     } finally {
       setBusy(false);
     }
@@ -650,6 +664,10 @@ export default function Git() {
 
   return (
     <>
+      {failureBar}
+      {failure && askingFailure && <AiAskModal title="为什么失败" sub={failure.action} waiting="AI 正在看报错…" onClose={() => setAskingFailure(false)}
+        note="发给 AI 的是：这次操作的名称和报错原文。看起来像密钥、令牌的内容会先遮掉。"
+        run={() => askAi("git_failure", failure)} />}
       {statusLoading ? (
         <Loading text="正在检测 Git for Windows、Git Bash、GCM 与账号配置…" />
       ) : (
@@ -828,6 +846,7 @@ export default function Git() {
             </div>
           </div>
           <label className="ck"><input type="checkbox" checked={includeLfs} onChange={(event) => setIncludeLfs(event.target.checked)} /> 迁移 Git LFS 对象（使用镜像迁移且本机已安装 Git LFS 时生效）</label>
+          {failureBar}
           <div className="banner amber"><i className="ti ti-info-circle lead" /><div className="bt">GitHub 跨所有者时使用原生转移并保留平台数据；同账号改仓库名、Gitee 或跨平台场景会创建目标仓库并镜像复制，源仓库不会自动删除。</div></div>
         </Modal>
       )}

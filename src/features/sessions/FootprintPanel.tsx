@@ -8,6 +8,7 @@ import { FootprintDialog } from "./FootprintDialog";
 import { invoke } from "../../invoke";
 import { errorMessage, type FootprintItem, type FootprintKind, type FootprintReport, type LocationStatus } from "./types";
 import { useDragPick, setInArray } from "../../dragPick";
+import { AiAskModal, askAi } from "../ai/AiAsk";
 
 // Survives tab switches; a scan takes several seconds.
 let cachedReport: FootprintReport | null = null;
@@ -53,6 +54,7 @@ export function FootprintPanel({ onShowSessions }: { onShowSessions: (agent: str
   const [details, setDetails] = useState<string | null>(null);
   const [cleaning, setCleaning] = useState<string[] | null>(null);
   const [shown, setShown] = useState<string | null>(null);
+  const [asking, setAsking] = useState<{ product: string; item: FootprintItem } | null>(null);
   const request = useRef(0);
   const [locations, setLocations] = useState<LocationStatus[]>([]);
   // Only the agent opened below lists its items to pick.
@@ -194,6 +196,7 @@ export function FootprintPanel({ onShowSessions }: { onShowSessions: (agent: str
               {item.blocked && <small className="warn">{t(errorMessage(item.blocked))}</small>}
             </button>
             <span className="footprint-size">{bytes(item.bytes)}</span>
+            <button className="gh xs" title={t("问问 AI：这些能不能删")} onClick={() => setAsking({ product: t(agent.product.name), item })}><i className="ti ti-sparkles" /></button>
             <button className="gh xs" title={`${t("打开所在目录")}：${item.paths[0] ?? ""}`} disabled={!item.paths.length} onClick={() => openFolder(item)}><i className="ti ti-folder-open" /></button>
             {paths(item)}
           </div>)}
@@ -212,6 +215,10 @@ export function FootprintPanel({ onShowSessions }: { onShowSessions: (agent: str
     })}
 
     {!!report?.warnings.length && <p className="session-note">{report.warnings.length} {t("个目录无法读取，未计入统计。")}</p>}
+    {asking && <AiAskModal title={t("这些能不能删")} sub={`${asking.product} · ${t(asking.item.label)}`} waiting="AI 正在看这一项…"
+      saveAs={`footprint:${asking.item.id}:${asking.item.bytes}`} onClose={() => setAsking(null)}
+      note={t("发给 AI 的是：名称、说明、占用和前几个路径，不读取文件内容。")}
+      run={() => askAi("footprint_item", { product: asking.product, label: t(asking.item.label), explain: t(asking.item.explain), size: bytes(asking.item.bytes), paths: asking.item.paths.slice(0, 12) })} />}
     {cleaning && <FootprintDialog ids={cleaning} onClose={(changed) => { setCleaning(null); if (changed) void load(true); }} />}
   </div>;
 }

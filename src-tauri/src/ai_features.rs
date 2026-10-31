@@ -3,10 +3,12 @@
 //! Every feature here explains or suggests; none of them acts. The prompt is built from data
 //! the page already shows — a log, a checkup result, a path and a size — never from anything
 //! it would have to read off disk on its own, and each input is capped so a runaway log cannot
-//! turn into a runaway bill.
+//! turn into a runaway bill. Config files and logs have their secrets hidden first.
 
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 /// Longest single block of text any prompt carries.
@@ -27,6 +29,58 @@ fn tail(text: &str, max: usize) -> String {
 
 fn field<'a>(payload: &'a Value, key: &str) -> &'a str {
     payload.get(key).and_then(Value::as_str).unwrap_or("")
+}
+
+const HIDDEN: &str = "<已隐藏>";
+
+/// Names that say their value is a secret, wherever they stand.
+fn is_secret_name(name: &str) -> bool {
+    static NAME: OnceLock<Regex> = OnceLock::new();
+    NAME.get_or_init(|| {
+        Regex::new(r"(?i)api[_-]?key|access[_-]?key|secret|private[_-]?key|token|password|passwd|pwd|credential|authorization").unwrap()
+    })
+    .is_match(name)
+}
+
+/// A config file or a log as it may go to an AI: what looks like a secret is hidden first.
+/// These are free text nobody picked for the purpose, unlike what the other questions send.
+fn hide_secrets(text: &str) -> String {
+    static RULES: OnceLock<[Regex; 4]> = OnceLock::new();
+    let [bearer, named, userinfo, random] = RULES.get_or_init(|| {
+        [
+            Regex::new(r"(?i)(\bBearer\s+)[^\s\x22'\\]+").unwrap(),
+            Regex::new(r#"(?i)(\b[\w.-]*(?:api[_-]?key|access[_-]?key|secret|private[_-]?key|token|password|passwd|pwd|authorization)[\w.-]*["']?\s*[:=]\s*["']?)[^\s"',;]+"#).unwrap(),
+            Regex::new(r"(://)[^/\s@]+@").unwrap(),
+            // Long random-looking runs: keys, tokens, account ids. Paths stop at the slash.
+            Regex::new(r"[A-Za-z0-9_-]{24,}").unwrap(),
+        ]
+    });
+    let text = bearer.replace_all(text, format!("${{1}}{HIDDEN}"));
+    let text = named.replace_all(&text, format!("${{1}}{HIDDEN}"));
+    let text = userinfo.replace_all(&text, format!("${{1}}{HIDDEN}@"));
+    random
+        .replace_all(&text, |found: &regex::Captures| {
+            let run = &found[0];
+            let mixed = run.bytes().any(|b| b.is_ascii_digit())
+                && run.bytes().any(|b| b.is_ascii_alphabetic());
+            if mixed {
+                HIDDEN.to_string()
+            } else {
+                run.to_string()
+            }
+        })
+        .into_owned()
+}
+
+/// A backup's label and value pairs: a value under a secret's name never goes out at all.
+fn backup_items(payload: &Value) -> String {
+    let items = payload.get("items").and_then(Value::as_array);
+    let lines = items.into_iter().flatten().map(|item| {
+        let (label, value) = (field(item, "label"), field(item, "value"));
+        let value = if is_secret_name(label) { HIDDEN } else { value };
+        format!("{label}：{value}")
+    });
+    lines.collect::<Vec<_>>().join("\n")
 }
 
 /// What each status means in Stacker's own API service, taken from its server code, so the
@@ -117,6 +171,49 @@ pub fn prompt(kind: &str, payload: &Value) -> Result<String, String> {
              同一 Tailscale 网络的设备等），以及哪些基本用不上；最后给出一般情况下首选哪个。{STYLE}",
             port = field(payload, "port"),
             addresses = json(payload.get("addresses").unwrap_or(&Value::Null)),
+        ),
+        "backup" => format!(
+            "你是 Windows 开发环境配置顾问。Stacker 改配置前会自动备份，下面是其中一条备份。\n\
+             目标：{origin}\n类型：{kind}\n备份时间：{created}\n还原说明：{note}\n\
+             各项（环境变量和注册表都写着“备份”和“当前”两个值）：\n{items}\n\n\
+             备份内容：\n{preview}\n\n当前内容：\n{current}\n\n\
+             <已隐藏> 是发给你之前遮掉的密钥，不是配置的真实内容，不要当成差异，也不要猜它的值。\n\
+             请说明：1) 备份和当前相比改了什么（没有差异就直说）；2) 这些改动影响哪些工具；\
+             3) 现在还原会发生什么，有没有风险；4) 建不建议还原。{STYLE}",
+            origin = field(payload, "origin"),
+            kind = field(payload, "kind"),
+            created = field(payload, "created"),
+            note = field(payload, "restore_note"),
+            items = hide_secrets(&backup_items(payload)),
+            preview = hide_secrets(&tail(field(payload, "preview"), MAX_BLOCK / 2)),
+            current = hide_secrets(&tail(field(payload, "current_preview"), MAX_BLOCK / 2)),
+        ),
+        "git_failure" => format!(
+            "你是 Windows 上的 Git 排错助手。Stacker 的一次 Git 操作失败了。\n\
+             操作：{action}\n报错原文：\n{message}\n\n\
+             请判断原因（网络/代理、令牌过期或权限不够、仓库不存在或已有同名仓库、LFS、下载源不通等），\
+             并给出修复步骤。<已隐藏> 是遮掉的密钥。{STYLE}",
+            action = field(payload, "action"),
+            message = hide_secrets(&tail(field(payload, "message"), MAX_BLOCK)),
+        ),
+        "app_log" => format!(
+            "你是 Stacker（Windows 开发工作站管理器）的排错助手。下面是它运行日志里最近的错误和警告，\
+             格式是 [日期][时间][级别][模块] 内容：\n{lines}\n\n\
+             请找出最值得处理的一两个问题，说明它影响什么、用户能怎么解决；\
+             属于程序自身缺陷、用户解决不了的，就直说，并说明报告时该带上哪几行。\
+             只是偶发、不影响使用的，也直说可以忽略。<已隐藏> 是遮掉的密钥。{STYLE}",
+            lines = hide_secrets(&tail(field(payload, "lines"), MAX_BLOCK)),
+        ),
+        "footprint_item" => format!(
+            "你是 AI 智能体数据目录的顾问。{product} 的数据里，下面这一项被归为“需要用户判断”。\n\
+             名称：{label}\nStacker 的说明：{explain}\n占用：{size}\n路径（节选）：\n{paths}\n\n\
+             请说明：1) 这些东西是什么、{product} 用它做什么；2) 删了会失去什么，智能体能不能自己重建；\
+             3) 删还是留的建议。只凭名称和路径判断，看不出来就直说。{STYLE}",
+            product = field(payload, "product"),
+            label = field(payload, "label"),
+            explain = field(payload, "explain"),
+            size = field(payload, "size"),
+            paths = json(payload.get("paths").unwrap_or(&Value::Null)),
         ),
         _ => return Err("E_AI_KIND".into()),
     };
@@ -553,6 +650,52 @@ mod tests {
     use super::*;
 
     #[test]
+    fn secrets_are_hidden_from_config_and_log_text() {
+        let text = hide_secrets(
+            "Authorization: Bearer abc.def\n\
+             //registry.npmjs.org/:_authToken=npm_0123456789abcdef\n\
+             password = hunter2\n\
+             \"api_key\": \"sk-short1\"\n\
+             url=https://user:pass@mirror.example.com/simple\n\
+             stray ghp_AbCdEf0123456789AbCdEf0123456789 here",
+        );
+        for secret in [
+            "abc.def",
+            "npm_0123456789abcdef",
+            "hunter2",
+            "sk-short1",
+            "user:pass",
+            "ghp_AbCdEf",
+        ] {
+            assert!(!text.contains(secret), "{secret} leaked:\n{text}");
+        }
+        assert!(text.contains("mirror.example.com/simple"), "{text}");
+    }
+
+    #[test]
+    fn ordinary_config_and_paths_survive_the_hiding() {
+        let text = "GOPROXY=https://goproxy.cn,direct\n\
+                    C:\\Users\\me\\AppData\\Local\\Stacker\\runtimes\n\
+                    registry=https://registry.npmmirror.com/\n\
+                    [2026-10-30][21:55:02][WARN][stacker::window] first screen not ready";
+        assert_eq!(hide_secrets(text), text);
+    }
+
+    #[test]
+    fn a_backup_value_under_a_secret_name_never_reaches_the_prompt() {
+        let payload = serde_json::json!({
+            "origin": "env://user/x",
+            "items": [
+                { "label": "GITHUB_TOKEN", "value": "备份：plainvalue；当前：plainvalue" },
+                { "label": "GOPROXY", "value": "备份：https://goproxy.cn；当前：direct" },
+            ],
+        });
+        let text = prompt("backup", &payload).unwrap();
+        assert!(!text.contains("plainvalue"), "{text}");
+        assert!(text.contains("https://goproxy.cn"), "{text}");
+    }
+
+    #[test]
     fn every_kind_has_a_prompt_and_an_unknown_one_is_refused() {
         for kind in [
             "install_failure",
@@ -561,6 +704,10 @@ mod tests {
             "disk_directory",
             "skipped_path",
             "gateway_error",
+            "backup",
+            "git_failure",
+            "app_log",
+            "footprint_item",
             "proxy",
         ] {
             let text = prompt(

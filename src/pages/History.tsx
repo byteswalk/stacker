@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "../invoke";
 import { useToast, useBusyRead, ConfirmModal, Loading, Modal, ErrorState } from "../ui";
+import { AiAskModal, askAi } from "../features/ai/AiAsk";
 
 type BackupEntry = { file: string; path: string; origin: string; time: string };
 type BackupDetailItem = { label: string; value: string };
@@ -13,6 +14,7 @@ type BackupDetail = {
   restore_note: string;
   items: BackupDetailItem[];
   preview?: string | null;
+  current_preview?: string | null;
 };
 
 function prettyOrigin(origin: string) {
@@ -36,6 +38,7 @@ export default function History() {
   const [loadErr, setLoadErr] = useState(false);
   const [confirm, setConfirm] = useState<BackupEntry | null>(null);
   const [detail, setDetail] = useState<BackupDetail | null>(null);
+  const [asking, setAsking] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<BackupEntry | null>(null);
   const [clearOpen, setClearOpen] = useState(false);
   const [busy, setBusy] = useState("");
@@ -127,7 +130,10 @@ export default function History() {
       {detail && (
         <Modal wide title="备份详情" icon="ti-info-circle" onClose={() => setDetail(null)}
           sub={<span>{kindLabel(detail.kind)} · {detail.created || "未知时间"}</span>}
-          footer={<button className="pr sm" onClick={() => setDetail(null)}>关闭</button>}>
+          footer={<>
+            <button className="gh sm" onClick={() => setAsking(true)}><i className="ti ti-sparkles" /> AI 解读</button>
+            <button className="pr sm" onClick={() => setDetail(null)}>关闭</button>
+          </>}>
           <div className="srcrow" style={{ alignItems: "flex-start" }}>
             <span className="av file"><i className="ti ti-restore" /></span>
             <div className="mt">
@@ -151,6 +157,13 @@ export default function History() {
             </div>
           )}
         </Modal>
+      )}
+
+      {detail && asking && (
+        <AiAskModal title="这条备份改了什么" sub={detail.title} waiting="AI 正在对比备份和当前配置…" onClose={() => setAsking(false)}
+          onSetup={() => { setAsking(false); setDetail(null); }}
+          note="发给 AI 的是：这条备份和当前的配置内容。看起来像密钥、令牌的内容会先遮掉。"
+          run={() => askAi("backup", detail)} />
       )}
 
       {confirm && (
