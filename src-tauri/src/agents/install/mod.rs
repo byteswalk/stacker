@@ -601,6 +601,13 @@ pub(crate) fn install_desktop_tool(
             }
         }
         if let Some(err) = last_error {
+            // WinGet's listing goes stale (a dead address, a checksum that moved); the
+            // vendor's own package is the other official way in.
+            if let Some(installer) = direct_desktop_installer(spec.vendor, spec.edition) {
+                emit_progress(window, "WinGet 没有装成，改用官方安装包…");
+                return install_desktop_from_official_package(spec, installer, window)
+                    .map_err(|direct| format!("{err}；改用官方安装包也失败：{direct}"));
+            }
             return Err(format!("{}；自动重试后仍未完成", err));
         }
         if wait_for_desktop_install(spec, window, Duration::from_secs(120)) {
@@ -706,20 +713,46 @@ pub(crate) fn update_desktop_tool(
             window,
             format!("正在用官方安装包更新 {}…", spec.desktop.name),
         );
-        return install_desktop_from_official_package(spec, installer, window)
-            .map(|_| format!("{} 已用官方安装包更新", spec.desktop.name));
+        let err = match install_desktop_from_official_package(spec, installer, window) {
+            Ok(_) => return Ok(format!("{} 已用官方安装包更新", spec.desktop.name)),
+            Err(err) => err,
+        };
+        let id = spec.desktop.winget_id.unwrap_or_default();
+        if err.contains("已取消") || err.contains("安装程序已经在运行") {
+            return Err(err);
+        }
+        emit_progress(window, "官方安装包没有更新成，改用 WinGet…");
+        // WinGet's listing can lag the vendor's: having nothing newer is no update.
+        return match run_winget_owned(
+            winget_args("upgrade", id, spec.desktop.winget_source, true),
+            Duration::from_secs(1200),
+            window,
+        ) {
+            Ok(message) if message != "已是最新版本" => {
+                Ok(format!("{} 已通过 WinGet 更新", spec.desktop.name))
+            }
+            _ => Err(err),
+        };
     }
     if let Some(id) = spec.desktop.winget_id {
         emit_progress(
             window,
             format!("正在通过 WinGet 更新 {}…", spec.desktop.name),
         );
-        run_winget_owned(
+        match run_winget_owned(
             winget_args("upgrade", id, spec.desktop.winget_source, true),
             Duration::from_secs(1200),
             window,
-        )?;
-        return Ok(format!("{} 已通过 WinGet 更新", spec.desktop.name));
+        ) {
+            Ok(_) => return Ok(format!("{} 已通过 WinGet 更新", spec.desktop.name)),
+            Err(err) if crate::installer::op_cancelled() || err.contains("已取消") => {
+                return Err(err)
+            }
+            Err(err) if direct_desktop_installer(spec.vendor, spec.edition).is_none() => {
+                return Err(err)
+            }
+            Err(_) => emit_progress(window, "WinGet 没有更新成，改用官方安装包…"),
+        }
     }
     if spec.vendor == Vendor::Hermes {
         return update_hermes_desktop(spec, window);
