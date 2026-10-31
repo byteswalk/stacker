@@ -17,6 +17,8 @@ use zeroize::{Zeroize, Zeroizing};
 pub(crate) const MIN_PASSWORD_CHARS: usize = 9;
 const MAX_FAILURES: u32 = 5;
 const FAILURE_WAIT: Duration = Duration::from_secs(30);
+const MAX_KEY_FILE_NAME: usize = 120;
+const MAX_KEY_FILE_BYTES: u64 = 64 * 1024;
 
 pub(crate) struct Open {
     pub(crate) dek: SecretKey,
@@ -134,6 +136,32 @@ fn same_group(expected: &str, typed: &str) -> bool {
         })
         .collect();
     !typed.is_empty() && typed == expected
+}
+
+/// A file name as it may be shown: no folder, one line, a sane length.
+fn key_file_name(raw: &str) -> String {
+    let name = raw.rsplit(['/', '\\']).next().unwrap_or_default();
+    name.chars()
+        .filter(|c| !c.is_control())
+        .take(MAX_KEY_FILE_NAME)
+        .collect::<String>()
+        .trim()
+        .to_string()
+}
+
+/// The recovery key in a file the user picked; refuses whatever is not a short text holding one.
+pub(crate) fn read_key_file(path: &Path) -> Result<String, String> {
+    if std::fs::metadata(path).map_err(|_| IO.to_string())?.len() > MAX_KEY_FILE_BYTES {
+        return Err(KEY_FILE.into());
+    }
+    let text = Zeroizing::new(std::fs::read(path).map_err(|_| IO.to_string())?);
+    let text = std::str::from_utf8(&text).map_err(|_| KEY_FILE.to_string())?;
+    text.trim_start_matches('\u{feff}')
+        .lines()
+        .map(str::trim)
+        .find(|line| crypto::decode_recovery(line).is_some())
+        .map(str::to_string)
+        .ok_or_else(|| KEY_FILE.to_string())
 }
 
 fn check_wait(inner: &mut Inner) -> Result<(), String> {
@@ -504,6 +532,42 @@ impl Vault {
             .ok_or_else(|| NO_PENDING.to_string())
     }
 
+    /// The key goes out in the clear because the user asked for a file; only its name is kept.
+    pub(crate) fn save_recovery(&self, dest: &Path, note: &str) -> Result<String, String> {
+        let key = self.pending_recovery()?;
+        let text = Zeroizing::new(format!("{note}\n\n{}\n", key.as_str()));
+        std::fs::write(dest, text.as_bytes()).map_err(|_| IO.to_string())?;
+        Ok(dest
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default())
+    }
+
+    fn key_file_note(&self) -> PathBuf {
+        self.path.with_extension("keyfile")
+    }
+
+    /// Which file the current recovery key was saved to. It sits beside the vault in the clear,
+    /// as it must be read while locked, so only the name is kept, never the folder.
+    pub(crate) fn remember_key_file(&self, name: Option<&str>) {
+        let name = name.map(key_file_name).filter(|name| !name.is_empty());
+        let note = self.key_file_note();
+        // Only a hint: failing to keep it must not fail what the user was doing.
+        let _ = match name {
+            Some(name) => std::fs::write(note, name),
+            None => std::fs::remove_file(note),
+        };
+    }
+
+    pub(crate) fn key_file(&self) -> Option<String> {
+        if !self.path.exists() {
+            return None;
+        }
+        let text = std::fs::read_to_string(self.key_file_note()).ok()?;
+        let name = key_file_name(&text);
+        (!name.is_empty()).then_some(name)
+    }
+
     pub(crate) fn confirm_recovery(&self, last_group: &str) -> Result<(), String> {
         let mut inner = self.inner();
         let pending = inner.pending.as_ref().ok_or(NO_PENDING)?;
@@ -748,6 +812,8 @@ impl Vault {
             std::fs::create_dir_all(dir).map_err(|_| IO.to_string())?;
         }
         self.shelve_orphan_backup()?;
+        // The restored vault has its own recovery key, which may not be the one in that file.
+        self.remember_key_file(None);
         std::fs::write(&self.path, &bytes).map_err(|_| IO.to_string())
     }
 
@@ -797,6 +863,7 @@ impl Vault {
         if backup.exists() {
             std::fs::rename(&backup, &backup_target).map_err(|_| IO.to_string())?;
         }
+        self.remember_key_file(None);
         // The vault that was set aside no longer speaks for what other programs may read.
         self.mirror(&Body::default());
         Ok(target.display().to_string())
@@ -1281,6 +1348,65 @@ r,http://192.168.2.1:1188/,admin,pw2
         assert!(vault.is_unlocked());
         let again = fresh(&dir);
         again.unlock(PW).unwrap();
+    }
+
+    #[test]
+    fn a_recovery_key_saved_to_a_file_can_be_read_back_and_its_name_is_kept_while_locked() {
+        let dir = tempfile::tempdir().unwrap();
+        let vault = fresh(&dir);
+        let recovery = vault.create_begin(PW).unwrap();
+        let file = dir.path().join("my key.txt");
+        assert_eq!(
+            vault.save_recovery(&file, "A note about the key.").unwrap(),
+            "my key.txt"
+        );
+        assert_eq!(read_key_file(&file).unwrap(), recovery.as_str());
+
+        // Nothing is remembered until the key is confirmed, and then only the name.
+        assert_eq!(vault.key_file(), None);
+        vault
+            .confirm_recovery(crypto::last_group(&recovery))
+            .unwrap();
+        vault.remember_key_file(Some(r"E:\keys\my key.txt"));
+        vault.lock();
+        assert_eq!(vault.key_file().as_deref(), Some("my key.txt"));
+
+        // A key that was not saved to a file leaves no stale name behind.
+        vault.remember_key_file(None);
+        assert_eq!(vault.key_file(), None);
+    }
+
+    #[test]
+    fn a_reset_forgets_the_key_file_of_the_vault_it_set_aside() {
+        let dir = tempfile::tempdir().unwrap();
+        let (vault, _) = created(&dir);
+        vault.remember_key_file(Some("key.txt"));
+        vault.reset().unwrap();
+        assert_eq!(vault.key_file(), None);
+    }
+
+    #[test]
+    fn a_file_without_a_recovery_key_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let text = dir.path().join("notes.txt");
+        std::fs::write(&text, "nothing to see here\n1234\n").unwrap();
+        assert_eq!(read_key_file(&text).unwrap_err(), KEY_FILE);
+        let huge = dir.path().join("huge.txt");
+        std::fs::write(&huge, vec![b'a'; MAX_KEY_FILE_BYTES as usize + 1]).unwrap();
+        assert_eq!(read_key_file(&huge).unwrap_err(), KEY_FILE);
+        let binary = dir.path().join("binary.bin");
+        std::fs::write(&binary, [0xff, 0xfe, 0x00]).unwrap();
+        assert_eq!(read_key_file(&binary).unwrap_err(), KEY_FILE);
+    }
+
+    #[test]
+    fn a_key_file_name_is_one_short_line_without_a_folder() {
+        assert_eq!(key_file_name(r"C:\a\b/key.txt"), "key.txt");
+        assert_eq!(key_file_name("ke\ny\t.txt"), "key.txt");
+        assert_eq!(
+            key_file_name(&"x".repeat(500)).chars().count(),
+            MAX_KEY_FILE_NAME
+        );
     }
 
     #[test]

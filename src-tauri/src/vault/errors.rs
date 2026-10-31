@@ -14,6 +14,7 @@ pub(crate) const CONFIRM: &str = "E_VAULT_CONFIRM";
 pub(crate) const NO_PENDING: &str = "E_VAULT_NO_PENDING";
 pub(crate) const NOT_FOUND: &str = "E_VAULT_NOT_FOUND";
 pub(crate) const FILE_EXISTS: &str = "E_VAULT_FILE_EXISTS";
+pub(crate) const KEY_FILE: &str = "E_VAULT_KEY_FILE";
 pub(crate) const INVALID: &str = "E_VAULT_INVALID";
 pub(crate) const BUSY: &str = "E_VAULT_BUSY";
 pub(crate) const NAME: &str = "E_VAULT_NAME";

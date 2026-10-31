@@ -1,10 +1,33 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ConfirmModal, useToast } from "../../ui";
 import { vaultApi, vaultError, type VaultStatus } from "./api";
 import { emptyKey, keyComplete, keyText, RecoveryKeyInput } from "./RecoveryKeyInput";
 
+/** The seconds left of a wait the backend reported, counting down; `onDone` runs at zero. */
+function useCountdown(seconds: number, onDone: () => void): number {
+  const [left, setLeft] = useState(seconds);
+  const [counted, setCounted] = useState(seconds);
+  if (counted !== seconds) { setCounted(seconds); setLeft(seconds); }
+  const done = useRef(onDone);
+  useEffect(() => { done.current = onDone; });
+  useEffect(() => {
+    if (seconds <= 0) return;
+    const deadline = Date.now() + seconds * 1000;
+    const timer = window.setInterval(() => {
+      const next = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+      setLeft(next);
+      if (next === 0) { window.clearInterval(timer); done.current(); }
+    }, 250);
+    return () => window.clearInterval(timer);
+  }, [seconds]);
+  return left;
+}
+
 export function VaultUnlock({ status, onChanged }: { status: VaultStatus; onChanged: () => void }) {
   const toast = useToast();
+  const waitLeft = useCountdown(status.waitSeconds, onChanged);
+  const [keyFile, setKeyFile] = useState<string | null>(null);
+  useEffect(() => { vaultApi.recoveryFile().then(setKeyFile).catch(() => undefined); }, []);
   const [mode, setMode] = useState<"password" | "recovery">("password");
   const [value, setValue] = useState("");
   const [groups, setGroups] = useState(emptyKey);
@@ -41,8 +64,9 @@ export function VaultUnlock({ status, onChanged }: { status: VaultStatus; onChan
             <input className="ip full" type="password" autoComplete="current-password" autoFocus value={value} onChange={(e) => setValue(e.target.value)} />
           </label>
           : <RecoveryKeyInput groups={groups} onChange={setGroups} disabled={busy} autoFocus />}
-        {status.waitSeconds > 0 && <div className="vault-warn">尝试次数过多，请 {status.waitSeconds} 秒后再试。</div>}
-        <div className="vault-actions"><button className="pr sm" type="submit" disabled={busy || !ready}>解锁</button></div>
+        {mode === "recovery" && keyFile && <div className="vault-sub">恢复密钥文件名：<span className="vault-keyfile" translate="no">{keyFile}</span></div>}
+        {waitLeft > 0 && <div className="vault-warn" role="timer">尝试次数过多，请 {waitLeft} 秒后再试。</div>}
+        <div className="vault-actions"><button className="pr sm" type="submit" disabled={busy || !ready || waitLeft > 0}>解锁</button></div>
       </form>
       <div className="vault-links">
         <button className="vault-link" onClick={() => { setMode(mode === "password" ? "recovery" : "password"); setValue(""); setGroups(emptyKey()); }}>

@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
 import { useToast } from "../../ui";
 import { vaultApi, vaultError } from "./api";
 
@@ -77,6 +78,13 @@ export function RecoveryKeyInput({ groups, onChange, disabled, autoFocus }: {
     } catch (error) { toast(vaultError(error), "err"); }
   }
 
+  async function fromFile() {
+    try {
+      const path = await open({ multiple: false, directory: false });
+      if (typeof path === "string") spread(0, await vaultApi.readRecoveryFile(path));
+    } catch (error) { toast(vaultError(error), "err"); }
+  }
+
   return (
     <div className="vault-keyin">
       <div className="vault-keyin-boxes" translate="no">
@@ -96,6 +104,7 @@ export function RecoveryKeyInput({ groups, onChange, disabled, autoFocus }: {
       <div className="vault-keyin-tools">
         <span className="vault-sub">共 8 组、每组 4 位；可直接 Ctrl+V 粘贴整串。</span>
         <button type="button" className="gh sm" disabled={disabled} onClick={() => void paste()}><i className="ti ti-clipboard" /> 粘贴</button>
+        <button type="button" className="gh sm" disabled={disabled} onClick={() => void fromFile()}><i className="ti ti-file-import" /> 从文件读取</button>
         <button type="button" className="gh sm" disabled={disabled || groups.every((group) => !group)}
           onClick={() => { onChange(emptyKey()); focus(0); }}><i className="ti ti-eraser" /> 清空</button>
       </div>

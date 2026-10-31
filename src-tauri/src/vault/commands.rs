@@ -35,9 +35,35 @@ pub async fn vault_copy_recovery() -> Result<(), String> {
     blocking(|| clipboard::copy_secret(&vault().pending_recovery()?)).await
 }
 
+/// `file_name` is the file the key was saved to, kept as a hint for when the key is needed.
 #[tauri::command]
-pub async fn vault_confirm_recovery(last_group: String) -> Result<(), String> {
-    blocking(move || vault().confirm_recovery(&last_group)).await
+pub async fn vault_confirm_recovery(
+    last_group: String,
+    file_name: Option<String>,
+) -> Result<(), String> {
+    blocking(move || {
+        vault().confirm_recovery(&last_group)?;
+        vault().remember_key_file(file_name.as_deref());
+        Ok(())
+    })
+    .await
+}
+
+/// Writes the key waiting for confirmation to a file the user picked; returns the file's name.
+#[tauri::command]
+pub async fn vault_save_recovery(path: String, note: String) -> Result<String, String> {
+    blocking(move || vault().save_recovery(&PathBuf::from(path), &note)).await
+}
+
+/// The name of the file the current recovery key was saved to, readable while locked.
+#[tauri::command]
+pub async fn vault_recovery_file() -> Result<Option<String>, String> {
+    blocking(|| Ok(vault().key_file())).await
+}
+
+#[tauri::command]
+pub async fn vault_read_recovery_file(path: String) -> Result<String, String> {
+    blocking(move || super::session::read_key_file(&PathBuf::from(path))).await
 }
 
 #[tauri::command]

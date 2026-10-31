@@ -2,11 +2,13 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { save } from "@tauri-apps/plugin-dialog";
 import { invoke } from "../../invoke";
 import { ToastHost, ToastProvider } from "../../ui";
 import { RecoveryKeyStep } from "./RecoveryKeyStep";
 
 vi.mock("../../invoke", () => ({ invoke: vi.fn(), reportFrontendWarning: vi.fn(), reportFrontendError: vi.fn() }));
+vi.mock("@tauri-apps/plugin-dialog", () => ({ save: vi.fn(), open: vi.fn() }));
 
 const KEY = "AB12-CD34-EF56-GH78-JK90-MN12-PQ34-RS56";
 let host: HTMLDivElement;
@@ -44,8 +46,29 @@ describe("RecoveryKeyStep", () => {
     await act(async () => setInput(host.querySelector("input")!, "rs56"));
     expect(done.disabled).toBe(false);
     await act(async () => done.click());
-    expect(invoke).toHaveBeenCalledWith("vault_confirm_recovery", { lastGroup: "rs56" });
+    expect(invoke).toHaveBeenCalledWith("vault_confirm_recovery", { lastGroup: "rs56", fileName: null });
     expect(onConfirmed).toHaveBeenCalled();
+  });
+
+  it("saves the key to a file the user picks and hands the file's name over on confirming", async () => {
+    vi.mocked(save).mockResolvedValue("E:/keys/key.txt");
+    vi.mocked(invoke).mockImplementation(async (command) => command === "vault_save_recovery" ? "key.txt" : undefined);
+    await act(async () => root.render(<ToastProvider><RecoveryKeyStep recoveryKey={KEY} onConfirmed={vi.fn()} onCancel={vi.fn()} /></ToastProvider>));
+    const button = (label: string) => [...host.querySelectorAll("button")].find((item) => item.textContent?.includes(label))!;
+    await act(async () => button("存为文件").click());
+    expect(vi.mocked(save).mock.calls[0][0]?.defaultPath).toMatch(/\.txt$/);
+    expect(invoke).toHaveBeenCalledWith("vault_save_recovery", expect.objectContaining({ path: "E:/keys/key.txt" }));
+    expect(host.textContent).toContain("key.txt");
+    await act(async () => setInput(host.querySelector("input")!, "RS56"));
+    await act(async () => button("完成").click());
+    expect(invoke).toHaveBeenCalledWith("vault_confirm_recovery", { lastGroup: "RS56", fileName: "key.txt" });
+  });
+
+  it("forgets nothing when the file dialog is dismissed", async () => {
+    vi.mocked(save).mockResolvedValue(null);
+    await act(async () => root.render(<ToastProvider><RecoveryKeyStep recoveryKey={KEY} onConfirmed={vi.fn()} onCancel={vi.fn()} /></ToastProvider>));
+    await act(async () => [...host.querySelectorAll("button")].find((item) => item.textContent?.includes("存为文件"))!.click());
+    expect(invoke).not.toHaveBeenCalledWith("vault_save_recovery", expect.anything());
   });
 
   async function renderStep(onConfirmed = vi.fn(), onCancel = vi.fn()) {

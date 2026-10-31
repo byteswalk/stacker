@@ -9,6 +9,7 @@
 .a .vault-link{ background:none; border:0; padding:0; color:var(--acc); cursor:pointer; font-size:12px; }
 .a .vault-key{ font-family:ui-monospace,Consolas,monospace; font-size:17px; letter-spacing:1px; padding:12px; border:.5px solid var(--bd); border-radius:8px; text-align:center; user-select:all; margin:8px 0; }
 .a .vault-warn{ color:#d6463d; font-size:12px; }
+.a .vault-keyfile{ font-family:ui-monospace,Consolas,monospace; color:var(--tx); word-break:break-all; }
 .a .vault-center.wide{ max-width:640px; }
 .a .vault-strength{ --lv:var(--bd); }
 .a .vault-strength.lv1{ --lv:#d6463d; } .a .vault-strength.lv2{ --lv:#e8912d; }
@@ -23,7 +24,7 @@
 .a .vault-keyin-group .ip{ flex:1; min-width:0; width:auto; height:38px; padding:0; text-align:center; text-transform:uppercase; font-family:ui-monospace,Consolas,monospace; font-size:15px; letter-spacing:1.5px; }
 .a .vault-keyin-group .ip:focus{ border-color:var(--acc); outline:none; }
 .a .vault-keyin-group i{ width:12px; text-align:center; color:var(--mut); font-style:normal; }
-.a .vault-keyin-tools{ display:flex; gap:8px; align-items:center; }
+.a .vault-keyin-tools{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
 .a .vault-keyin-tools .vault-sub{ flex:1; margin:0; }
 .a .vault-retired{ margin-top:14px; padding:10px 12px; border:.5px solid var(--bd); border-radius:8px; display:flex; flex-direction:column; gap:6px; font-size:12px; }
 .a .vault-import .vault-retired{ margin-top:0; }
