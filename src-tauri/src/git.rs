@@ -1999,8 +1999,8 @@ fn command_output_timeout_drained(
 }
 
 fn ensure_gcm(git: &Path) -> Result<String, String> {
-    gcm_version(git).ok_or_else(|| {
-        "当前 Git 未包含 Git Credential Manager，请更新 Git for Windows 后重试。".into()
+    read_gcm_version(git).map_err(|error| {
+        format!("无法运行 Git Credential Manager（{error}）。如果它确实没有装，请更新 Git for Windows 后重试。")
     })
 }
 
@@ -2020,14 +2020,18 @@ fn configure_gcm(git: &Path) -> Result<(), String> {
     }
 }
 
-fn gcm_version(git: &Path) -> Option<String> {
+// .NET starts slowly the first time after boot: a short limit reads as "not installed".
+fn read_gcm_version(git: &Path) -> Result<String, String> {
     run_program(
         git,
         &["credential-manager", "--version"],
-        Duration::from_secs(5),
+        Duration::from_secs(20),
     )
-    .ok()
     .map(|version| version.split('+').next().unwrap_or(&version).to_string())
+}
+
+fn gcm_version(git: &Path) -> Option<String> {
+    read_gcm_version(git).ok()
 }
 
 fn validate_github_username(username: &str) -> Result<(), String> {

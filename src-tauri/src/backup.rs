@@ -355,6 +355,17 @@ fn current_registry_value(_: &str, _: &str) -> Option<String> {
     None
 }
 
+/// PATH 的差异：备份里有、现在没有的，和现在才有的。Windows 路径不分大小写。
+fn path_changes(backup: &[String], current: &[String]) -> (Vec<String>, Vec<String>) {
+    let missing_from = |list: &[String], other: &[String]| {
+        list.iter()
+            .filter(|item| !other.iter().any(|o| o.eq_ignore_ascii_case(item)))
+            .cloned()
+            .collect()
+    };
+    (missing_from(backup, current), missing_from(current, backup))
+}
+
 /// 读取备份详情，并尽量对比当前状态，帮助用户判断这次还原会影响什么。
 pub fn backup_detail(path: String, origin_hint: String) -> Result<BackupDetail, String> {
     let p = ensure_backup_path(&path)?;
@@ -388,14 +399,22 @@ pub fn backup_detail(path: String, origin_hint: String) -> Result<BackupDetail, 
                 format!("备份：{}；当前：{}", opt_value(before), opt_value(&current)),
             ));
         }
+        let current_path = winenv::get_path_in(hive);
         items.push(detail_item(
             "PATH",
             format!(
                 "备份：{} 项；当前：{} 项",
                 snap.path.len(),
-                winenv::get_path_in(hive).len()
+                current_path.len()
             ),
         ));
+        let (lost, added) = path_changes(&snap.path, &current_path);
+        if !lost.is_empty() {
+            items.push(detail_item("PATH 中已不在的项", lost.join("；")));
+        }
+        if !added.is_empty() {
+            items.push(detail_item("PATH 中后来新增的项", added.join("；")));
+        }
         return Ok(BackupDetail {
             kind: "env".into(),
             title: file_name,
@@ -571,6 +590,15 @@ pub fn restore(backup_path: &str, origin: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn path_changes_name_what_went_and_what_came() {
+        let backup = vec![r"C:\a".to_string(), r"C:\B".to_string()];
+        let current = vec![r"c:\b".to_string(), r"C:\c".to_string()];
+        let (lost, added) = super::path_changes(&backup, &current);
+        assert_eq!(lost, vec![r"C:\a".to_string()]);
+        assert_eq!(added, vec![r"C:\c".to_string()]);
+    }
 
     #[test]
     fn an_env_backup_keeps_no_password_from_a_url() {

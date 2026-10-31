@@ -665,9 +665,6 @@ export default function Git() {
   return (
     <>
       {failureBar}
-      {failure && askingFailure && <AiAskModal title="为什么失败" sub={failure.action} waiting="AI 正在看报错…" onClose={() => setAskingFailure(false)}
-        note="发给 AI 的是：这次操作的名称和报错原文。看起来像密钥、令牌的内容会先遮掉。"
-        run={() => askAi("git_failure", failure)} />}
       {statusLoading ? (
         <Loading text="正在检测 Git for Windows、Git Bash、GCM 与账号配置…" />
       ) : (
@@ -797,6 +794,7 @@ export default function Git() {
               <div className="field"><label>平台名称</label><input className="ip full" value={customServiceName} placeholder="自动识别或自定义平台名称" onChange={(event) => setCustomServiceName(event.target.value)} /></div>
             </div>
           </>}
+          {failureBar}
           <div className="field">
             <label>访问令牌（token）</label>
             <input className="ip full" type="password" autoComplete="new-password" autoFocus={addProvider !== "custom"} value={accountToken} placeholder="粘贴具有仓库读写权限的访问令牌（token）" onChange={(event) => setAccountToken(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") saveTokenAccount(); }} />
@@ -871,6 +869,9 @@ export default function Git() {
       {removeAccount && (
         <ConfirmModal title="移除账号执行环境" icon="ti-trash" danger busy={busy} message={<>将从本机移除 <b>{accountPlatformName(removeAccount)} · {removeAccount.username}</b> 的安全凭据。该操作不会删除远程仓库。</>} confirmLabel={busy ? "移除中…" : "确认移除"} onConfirm={confirmRemoveAccount} onClose={() => setRemoveAccount(null)} />
       )}
+      {failure && askingFailure && <AiAskModal title="为什么失败" sub={failure.action} waiting="AI 正在看报错…" onClose={() => setAskingFailure(false)}
+        note="发给 AI 的是：这次操作的名称和报错原文。看起来像密钥、令牌的内容会先遮掉。"
+        run={() => askAi("git_failure", failure)} />}
     </>
   );
 }

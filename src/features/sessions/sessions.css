@@ -199,7 +199,7 @@
 .a .fp-sec{display:flex;align-items:baseline;gap:9px;margin-top:5px}
 .a .fp-sec b{font-size:13px}
 .a .fp-sec span{font-size:11.5px;color:var(--mut)}
-.a .fp-pick{display:grid;grid-template-columns:20px 32px minmax(0,1fr) auto auto;align-items:center;gap:11px;padding:10px 12px;border:1px solid var(--line);border-radius:9px;background:var(--card)}
+.a .fp-pick{display:grid;grid-template-columns:20px 32px minmax(0,1fr) auto auto auto;align-items:center;gap:11px;padding:10px 12px;border:1px solid var(--line);border-radius:9px;background:var(--card)}
 .a .fp-pick.on{border-color:color-mix(in srgb,var(--acc) 45%,var(--line))}
 .a .fp-pick input[type=checkbox]{width:15px;height:15px;accent-color:var(--acc)}
 .a .fp-lock{color:var(--mut);font-size:14px;text-align:center}

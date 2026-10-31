@@ -196,7 +196,7 @@ export function FootprintPanel({ onShowSessions }: { onShowSessions: (agent: str
               {item.blocked && <small className="warn">{t(errorMessage(item.blocked))}</small>}
             </button>
             <span className="footprint-size">{bytes(item.bytes)}</span>
-            <button className="gh xs" title={t("问问 AI：这些能不能删")} onClick={() => setAsking({ product: t(agent.product.name), item })}><i className="ti ti-sparkles" /></button>
+            <button className="gh xs" title={t("问问 AI：这些能不能删")} aria-label={t("问问 AI：这些能不能删")} onClick={() => setAsking({ product: t(agent.product.name), item })}><i className="ti ti-sparkles" /></button>
             <button className="gh xs" title={`${t("打开所在目录")}：${item.paths[0] ?? ""}`} disabled={!item.paths.length} onClick={() => openFolder(item)}><i className="ti ti-folder-open" /></button>
             {paths(item)}
           </div>)}
