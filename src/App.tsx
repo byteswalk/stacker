@@ -14,6 +14,7 @@ import { PAGE_IDS, readLastPage, saveLastPage, type Page } from "./pageState";
 import { resetMainWindowSize } from "./windowSize";
 import { TOOLCHAIN_PAGES, ToolchainAsk } from "./features/ai/ToolchainAsk";
 import { ToolRelocation } from "./features/relocation/ToolRelocation";
+import { markWindowReady } from "./windowReady";
 import { ALL_NAV_ITEMS, NAV_FOOT, NAV_SECTIONS, initialCollapsedSections, openOnly, sectionKeyOf, toggleSection, type NavItem, type NavSection } from "./navigation";
 import { TaskCenter } from "./features/agent-tasks/TaskCenter";
 import { useTaskToasts } from "./features/agent-tasks/useTaskToasts";
@@ -118,6 +119,12 @@ function Stub({ item }: { item: NavItem }) {
       <p>{t("state.comingSoonDesc")}</p>
     </div>
   );
+}
+
+/** Sits beside the page in its Suspense boundary, so it mounts only once the page has. */
+function FirstScreenDrawn() {
+  useEffect(markWindowReady, []);
+  return null;
 }
 
 function PageFallback() {
@@ -497,6 +504,7 @@ function Shell() {
               : page === "vault" ? <Vault key={configEpoch} />
               : page === "settings" ? <Settings key={configEpoch} />
               : <Stub item={cur} />}
+            <FirstScreenDrawn />
           </Suspense>
         </div>
       </div>

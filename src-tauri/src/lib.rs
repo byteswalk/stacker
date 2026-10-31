@@ -44,6 +44,7 @@ mod vault;
 mod versions;
 mod webchat;
 mod winadmin;
+mod window_ready;
 mod winenv;
 mod winget_settings;
 /// The smallest the main window may be, in logical pixels: every page is drawn for it.
@@ -210,8 +211,10 @@ pub fn run() {
                 use tauri::Manager;
                 if let Some(window) = app.get_webview_window("main") {
                     set_minimum_size(&window);
+                    window_ready::paint_behind(&window, &app_settings.theme);
                 }
             }
+            window_ready::show_anyway_after_a_while(app.handle().clone());
             settings::init();
             settings::start_log_retention_worker();
             gateway::restore();
@@ -506,6 +509,7 @@ pub fn run() {
             settings::settings_set_log_retention_days,
             settings::settings_set_space_analysis,
             settings::settings_open_logs_dir,
+            window_ready::main_window_ready,
             storage_places::storage_places,
             storage_places::storage_place_open,
             settings::settings_open_log_window,

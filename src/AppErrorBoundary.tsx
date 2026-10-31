@@ -1,6 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { invoke, reportFrontendError, safeLogText } from "./invoke";
 import { useI18n } from "./i18n";
+import { markWindowReady } from "./windowReady";
 
 type BoundaryCopy = {
   title: string;
@@ -46,6 +47,7 @@ class Boundary extends Component<BoundaryProps, BoundaryState> {
       `[${diagnosticId}] Unhandled interface error: ${safeLogText(error)}; component_stack=${safeLogText(info.componentStack)}`,
     );
     this.setState({ diagnosticId });
+    markWindowReady();
   }
 
   private openLogs = async () => {
