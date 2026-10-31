@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { invoke } from "../invoke";
 import { translateText } from "../i18n";
 import type { Page } from "../pageState";
 import { ConfirmModal, useBusy, useToast } from "../ui";
 import { useNotifications } from "../notifications";
 import { CoreEntries } from "../features/overview/CoreEntries";
+import { EcoPanel, EcoTally, ecoTone, type EcosystemSnapshot } from "../features/overview/EcoPanel";
+import "../features/overview/coreEntries.css";
 import { quickScanUnlessBusy } from "../features/space-analysis/store";
 import { AiAskModal, AiButton, askAi } from "../features/ai/AiAsk";
 
@@ -15,14 +17,6 @@ type ToolState = {
 };
 
 type CheckItem = { id: string; sev: string; title: string; desc: string; page: Page; action: string };
-type EcosystemSnapshot = {
-  id: Page;
-  label: string;
-  kind: string;
-  status: "ok" | "warn" | "missing";
-  summary: string;
-  detail: string;
-};
 type CodingEcosystemCheck = {
   ready: boolean;
   title: string;
@@ -109,10 +103,21 @@ type OverviewCache = {
   checking: boolean;
   checked: boolean;
 };
+const OVERVIEW_KEY = "stacker.overview.ecosystems.v1";
+
+// The ecosystems take seconds to read: the panel opens on what they said last time and updates.
+function restoreEcosystems(): Pick<OverviewCache, "tools" | "ecosystem"> {
+  try {
+    const stored = JSON.parse(localStorage.getItem(OVERVIEW_KEY) ?? "null") as Partial<OverviewCache> | null;
+    return { tools: stored?.tools ?? null, ecosystem: stored?.ecosystem ?? null };
+  } catch {
+    return { tools: null, ecosystem: null };
+  }
+}
+
 const OVERVIEW_INITIAL: OverviewCache = {
-  tools: null,
+  ...restoreEcosystems(),
   extra: [],
-  ecosystem: null,
   checking: false,
   checked: false,
 };
@@ -122,35 +127,19 @@ const overviewListeners = new Set<(s: OverviewCache) => void>();
 
 function publishOverview(next: Partial<OverviewCache>) {
   overviewCache = { ...overviewCache, ...next };
+  if (next.tools || next.ecosystem) {
+    try {
+      localStorage.setItem(OVERVIEW_KEY, JSON.stringify({ tools: overviewCache.tools, ecosystem: overviewCache.ecosystem }));
+    } catch {
+      // Only saves a wait on the next launch.
+    }
+  }
   overviewListeners.forEach((fn) => fn(overviewCache));
 }
 
 function subscribeOverview(fn: (s: OverviewCache) => void) {
   overviewListeners.add(fn);
   return () => { overviewListeners.delete(fn); };
-}
-
-/**
- * The ecosystem cards' own data (each tool's state and its download source), read when the
- * page opens so the cards are there before any checkup; the score waits for「开始体检」.
- */
-let statusRun: Promise<void> | null = null;
-function loadEcosystemStatus() {
-  if (statusRun || overviewRun || overviewCache.tools !== null) return statusRun ?? overviewRun ?? Promise.resolve();
-  statusRun = (async () => {
-    const [toolsResult, ecosystemResult] = await Promise.allSettled([
-      invoke<ToolState[]>("list_sources"),
-      invoke<CodingEcosystemCheck>("coding_ecosystem_check"),
-    ]);
-    // A full checkup that finished meanwhile has fresher data.
-    if (!overviewCache.checked) {
-      publishOverview({
-        tools: toolsResult.status === "fulfilled" ? toolsResult.value : overviewCache.tools,
-        ecosystem: ecosystemResult.status === "fulfilled" ? ecosystemResult.value : overviewCache.ecosystem,
-      });
-    }
-  })().finally(() => { statusRun = null; });
-  return statusRun;
 }
 
 /** Puts one tool on one of its sources, keeping Maven's and Gradle's proxy switch as it is. */
@@ -188,26 +177,25 @@ function currentSource(tool: ToolState) {
   return storageKey ? (localStorage.getItem(storageKey) || "official") : tool.current;
 }
 
+// Coming back to the page within this long keeps what it read last time.
+const RECHECK_AFTER_MS = 60_000;
+let lastCheckAt = 0;
+
 function runOverviewCheck() {
   if (overviewRun) return overviewRun;
+  lastCheckAt = Date.now();
   publishOverview({ checking: true });
   overviewRun = (async () => {
     try {
-      const [toolsResult, extraResult, ecosystemResult] = await Promise.allSettled([
-        invoke<ToolState[]>("list_sources"),
-        invoke<CheckItem[]>("checkup_extra"),
-        invoke<CodingEcosystemCheck>("coding_ecosystem_check"),
+      // Each shows as soon as it is read: the cache scan and the network probes behind
+      // checkup_extra can take minutes.
+      const results = await Promise.allSettled([
+        invoke<ToolState[]>("list_sources").then((tools) => publishOverview({ tools })),
+        invoke<CheckItem[]>("checkup_extra").then((extra) => publishOverview({ extra })),
+        invoke<CodingEcosystemCheck>("coding_ecosystem_check").then((ecosystem) => publishOverview({ ecosystem })),
       ]);
-      const next: Partial<OverviewCache> = {};
-      const errors: string[] = [];
-      if (toolsResult.status === "fulfilled") next.tools = toolsResult.value;
-      else errors.push("生态源状态");
-      if (extraResult.status === "fulfilled") next.extra = extraResult.value;
-      else errors.push("配置与缓存状态");
-      if (ecosystemResult.status === "fulfilled") next.ecosystem = ecosystemResult.value;
-      else errors.push("开发命令状态");
-      if (errors.length < 3) next.checked = true;
-      publishOverview(next);
+      const errors = ["生态源状态", "配置与缓存状态", "开发命令状态"].filter((_, index) => results[index].status === "rejected");
+      if (errors.length < 3) publishOverview({ checked: true });
       if (errors.length) throw new Error(`${errors.join("、")}未能完成，请稍后重试。`);
     } finally {
       publishOverview({ checking: false });
@@ -225,7 +213,6 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
   const [extra, setExtra] = useState<CheckItem[]>(overviewCache.extra);
   const [ecosystem, setEcosystem] = useState<CodingEcosystemCheck | null>(overviewCache.ecosystem);
   const [checking, setChecking] = useState(overviewCache.checking);
-  const [checked, setChecked] = useState(overviewCache.checked);
   const [busy, setBusy] = useState(false);
   const [sourceBusy, setSourceBusy] = useState(false);
   const [rowBusy, setRowBusy] = useState<Record<string, boolean>>({});
@@ -243,56 +230,36 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
     setExtra(s.extra);
     setEcosystem(s.ecosystem);
     setChecking(s.checking);
-    setChecked(s.checked);
   }), []);
-  const [statusRead, setStatusRead] = useState(overviewCache.ecosystem !== null);
-  useEffect(() => { void loadEcosystemStatus().catch(() => undefined).finally(() => setStatusRead(true)); }, []);
-
-  async function load() {
-    return runOverviewCheck();
-  }
-  async function reloadAll() {
-    const wasChecked = hasChecked;
-    try {
-      // No dialog over the page: the card at the top shows the check running, and it keeps
-      // running when another page is opened.
-      await load();
-      toast(wasChecked ? "开发环境体检已完成" : "开发环境体检完成", "ok");
-    } catch (e) {
-      toast("体检失败：" + e, "err");
-    }
-  }
+  // The page checks by itself: there is nothing to start, and it only speaks up about problems.
+  const [readFailed, setReadFailed] = useState(false);
+  const check = useCallback(() => {
+    setReadFailed(false);
+    runOverviewCheck().catch(() => setReadFailed(true));
+  }, []);
+  useEffect(() => {
+    if (Date.now() - lastCheckAt >= RECHECK_AFTER_MS) check();
+  }, [check]);
 
   const batchExtra = extra.filter((e) => BATCH_EXTRA.has(e.id));
   const optimizeCount = batchExtra.length;
-  // The score is the checkup's; the cards below show as soon as their data is read.
-  const hasChecked = checked;
   const offOfficial = (tools ?? []).filter((tool) => tool.installed && tool.mirrors.some((m) => m.id === "official") && currentSource(tool) !== "official");
-  const installedCount = (tools ?? []).filter((t) => !(t.id in RUNTIME_SOURCE_KEYS) && t.installed).length;
-  const availableCommands = (ecosystem?.ecosystems ?? []).filter((item) => item.status === "ok").length;
-  const emptySetup = hasChecked && tools !== null && installedCount === 0 && availableCommands === 0;
-  const allOk = hasChecked && !emptySetup && ecosystem?.ready === true && extra.length === 0;
-  const envPenalty = emptySetup ? 100 : Math.min(100, extra.reduce((sum, e) => sum + (e.sev === "warn" ? 20 : e.sev === "mid" ? 10 : 5), 0));
-  const envScore = emptySetup ? 0 : Math.max(0, 100 - envPenalty);
-  const subtitle = (() => {
-    const parts: string[] = [];
-    if (extra.length) parts.push(`${extra.length} 项配置 / 缓存可优化`);
-    return parts.join(" · ");
-  })();
-  const checkingAll = checking;
-  const ecosystemScore = ecosystem ? Math.max(0, 100 - ecosystem.ecosystems.reduce((sum, item) => sum + (item.status === "missing" ? 15 : item.status === "warn" ? 8 : 0), 0)) : 0;
-  const overallScore = emptySetup ? 0 : Math.round(ecosystemScore * 0.85 + envScore * 0.15);
-  const overallClass = !hasChecked ? "" : emptySetup || !ecosystem?.ready || overallScore < 60 ? " bad" : overallScore >= 90 ? " ok" : "";
-  const overallTitle = !hasChecked ? (checkingAll ? "体检中" : "未开始")
-    : emptySetup ? "需要初始化"
-    : ecosystem?.title || "需要处理";
-  const overallSummary = (() => {
-    if (checkingAll) return "正在检测 Git / Node / Python / Java / Go / Rust、包管理器、构建工具、代理与缓存…";
-    if (!hasChecked) return "检查运行时、包管理器、构建工具、代理和缓存是否正常";
-    if (emptySetup) return "尚未检测到可用的开发命令。可从左侧生态页面安装所需运行时和工具链。";
-    const base = ecosystem?.summary || "核心运行时、包管理器和常用构建工具检测完成。";
-    return allOk || !subtitle ? base : `${base}；${subtitle}。`;
-  })();
+  const ecosystems = ecosystem?.ecosystems ?? [];
+  const hasIssue = (item: EcosystemSnapshot) => extra.some((e) => e.page === item.id && e.sev !== "info");
+  // An ecosystem that is off without a checkup item of its own still gets a row.
+  const ecoIssues = ecosystems.filter((item) => item.status === "warn" && !extra.some((e) => e.page === item.id));
+  const issueCount = extra.length + ecoIssues.length;
+
+  function sourceOf(item: EcosystemSnapshot) {
+    if (item.id === "java") {
+      const vendor = (localStorage.getItem(JAVA_VENDOR_STORAGE) || "temurin") as keyof typeof JAVA_VENDOR_SOURCES;
+      return JAVA_VENDOR_SOURCES[vendor]?.label ?? "—";
+    }
+    const tool = (ECOSYSTEM_SOURCE_TOOLS[item.id] ?? [])
+      .map((id) => tools?.find((candidate) => candidate.id === id))
+      .find((candidate): candidate is ToolState => !!candidate && candidate.installed);
+    return tool ? selectedSourceLabel(tool) : "—";
+  }
 
   async function runRowTask(key: string, task: () => Promise<void>) {
     if (rowBusy[key]) return;
@@ -341,7 +308,7 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
           const f = extraFixer(e.id);
           if (f) { await f(); done++; }
         }
-        await load();
+        await runOverviewCheck();
       });
       notices.checkNow("node-overview-fix").catch(() => undefined);
       toast(`已修复 ${done} 项`, "ok");
@@ -435,133 +402,89 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
   return (
     <>
       <CoreEntries onOpen={goto} onScan={() => openDetail("cleanup")} cleanable={notices.cleanupBytes} />
-      {(
-        <>
-          <div className={"checkup agent slim" + overallClass + (checkingAll ? " checking" : "")}>
-            {checkingAll && <span className="border-runner" aria-hidden="true" />}
-            <span className={"cnum" + (!checkingAll && !emptySetup ? " score" : "")}>
-              {checkingAll ? <i className="ti ti-loader spin" style={{ fontSize: 18 }} /> : !hasChecked ? <b>--</b> : emptySetup ? <i className="ti ti-package-off" style={{ fontSize: 18 }} /> : <b>{overallScore}</b>}
-            </span>
-            <div className="ct">
-              <div className="t1">环境体检 · {overallTitle}</div>
-              <div className="t2" title={overallSummary}>{overallSummary}</div>
-            </div>
-            <div className="cacts">
-              <button className="gh sm" disabled={checkingAll} onClick={reloadAll}>
-                <i className={"ti " + (checkingAll ? "ti-loader spin" : hasChecked ? "ti-refresh" : "ti-player-play")} /> {checkingAll ? "体检中…" : hasChecked ? "再次体检" : "开始体检"}
-              </button>
-              {!(hasChecked && (allOk || emptySetup)) && <AiButton label="AI 诊断" title="把没通过的项目交给 AI，排出先修哪个、怎么修；还没体检的话会先体检"
-                onClick={() => setDiagnosing(true)} />}
-              {optimizeCount > 0 && <button className="pr" disabled={busy || checkingAll} onClick={optimizeAll}><i className="ti ti-tool" /> {busy ? "修复中…" : `一键修复（${optimizeCount}）`}</button>}
-            </div>
-          </div>
-          {diagnosing && <AiAskModal title="体检诊断" sub="编程生态体检"
-            waiting="正在体检并请 AI 分析…"
-            note="只把没通过的检测项（名称、状态、说明）发给 AI；AI 只给建议，修复仍由你来点。"
-            run={async () => {
-              // Not checked yet, or a check is under way: the diagnosis waits for its result.
-              if (overviewRun) await overviewRun.catch(() => undefined);
-              if (!overviewCache.checked) await runOverviewCheck();
-              const items = [
-                ...(overviewCache.ecosystem?.ecosystems ?? []).filter((item) => item.status !== "ok")
-                  .map((item) => ({ name: item.label, status: item.status, summary: item.summary, detail: item.detail })),
-                ...overviewCache.extra.map((item) => ({ name: item.title, status: item.sev, detail: item.desc })),
-              ];
-              if (!items.length) return "体检全部通过，没有需要诊断的项目。";
-              return askAi("checkup", { items });
-            }}
-            onClose={() => setDiagnosing(false)} />}
-        </>
-      )}
 
-      {hasChecked && !allOk && !emptySetup && extra.length > 0 && <div className="seclabel"><i className="ti ti-list-check" /> 可优化项</div>}
-
-      {extra.map((e) => {
-        const fixer = extraFixer(e.id);
-        const directBusy = !!rowBusy[`extra:${e.id}`];
-        return (
-          <div className={"fixrow" + (directBusy ? " trace-card" : "")} key={e.id}>
+      {issueCount > 0 && <div className="attention">
+        <div className="attention-head">
+          <i className="ti ti-alert-triangle" aria-hidden="true" />
+          {translateText("{count} 项需要处理").replace("{count}", String(issueCount))}
+          <span className="attention-acts">
+            {optimizeCount > 0 && <button className="pr sm" disabled={busy || checking} onClick={optimizeAll}><i className="ti ti-tool" /> {busy ? "修复中…" : `一键修复（${optimizeCount}）`}</button>}
+            <AiButton label="AI 诊断" title="把要处理的项目交给 AI，排出先修哪个、怎么修" onClick={() => setDiagnosing(true)} />
+          </span>
+        </div>
+        {extra.map((e) => {
+          const fixer = extraFixer(e.id);
+          const directBusy = !!rowBusy[`extra:${e.id}`];
+          return <div className={"attention-row" + (directBusy ? " trace-card" : "")} key={e.id}>
             {directBusy && <span className="border-runner" aria-hidden="true" />}
             <span className={"fdot " + e.sev} />
-            <div className="ft">
-              <div className="fh">{e.title} <span className={"bd " + (e.sev === "warn" ? "r" : e.sev === "mid" ? "w" : "b")}>{e.sev === "warn" ? "注意" : e.sev === "mid" ? "建议" : "提示"}</span></div>
-              <div className="fs">{e.desc}</div>
-            </div>
+            <b>{e.title}</b>
+            <small title={e.desc}>{e.desc}</small>
             <span className="fixrow-ops">
-              {/* A checkup that set out before the fix would put the fixed item back. */}
-              <button className={e.sev === "info" ? "gh sm" : "pr sm"} disabled={directBusy || (!!fixer && checkingAll)}
+              {/* A check that set out before the fix would put the fixed item back. */}
+              <button className="gh sm" disabled={directBusy || (!!fixer && checking)}
                 onClick={!fixer ? () => openDetail(e.page) : CONFIRM_EXTRA[e.id] ? () => setConfirming(e) : () => runExtra(e.id, fixer)}>
                 <i className={"ti " + (directBusy ? "ti-loader spin" : fixer ? "ti-broom" : "ti-arrow-right")} /> {directBusy ? "处理中…" : e.action}
               </button>
               {fixer && e.page === "cleanup" && <button className="gh sm" disabled={directBusy} title="打开磁盘清理，自动快速扫描，逐项查看再决定清哪些"
                 onClick={() => openDetail(e.page)}><i className="ti ti-list-search" /> 查看详情</button>}
             </span>
-          </div>
-        );
-      })}
+          </div>;
+        })}
+        {ecoIssues.map((item) => <div className="attention-row" key={item.id}>
+          <span className="fdot mid" />
+          <b>{item.label}</b>
+          <small title={item.detail || item.summary}>{item.detail || item.summary}</small>
+          <span className="fixrow-ops">
+            <button className="gh sm" onClick={() => goto(item.id)}><i className="ti ti-arrow-right" /> 查看</button>
+          </span>
+        </div>)}
+      </div>}
+
+      {diagnosing && <AiAskModal title="环境诊断" sub="环境总览"
+        waiting="正在检查并请 AI 分析…"
+        note="只把没通过的检测项（名称、状态、说明）发给 AI；AI 只给建议，修复仍由你来点。"
+        run={async () => {
+          // A check under way: the diagnosis waits for its result.
+          if (overviewRun) await overviewRun.catch(() => undefined);
+          if (!overviewCache.checked) await runOverviewCheck();
+          const items = [
+            ...(overviewCache.ecosystem?.ecosystems ?? []).filter((item) => item.status !== "ok")
+              .map((item) => ({ name: item.label, status: item.status, summary: item.summary, detail: item.detail })),
+            ...overviewCache.extra.map((item) => ({ name: item.title, status: item.sev, detail: item.desc })),
+          ];
+          if (!items.length) return "没有需要诊断的项目。";
+          return askAi("checkup", { items });
+        }}
+        onClose={() => setDiagnosing(false)} />}
 
       {confirming && <ConfirmModal title={confirming.title} icon="ti-broom" danger confirmLabel={confirming.action}
         message={CONFIRM_EXTRA[confirming.id]}
         onClose={() => setConfirming(null)}
         onConfirm={() => { const item = confirming; setConfirming(null); const fixer = extraFixer(item.id); if (fixer) void runExtra(item.id, fixer); }} />}
 
-      <div className="grouphd" style={{ marginTop: 18 }}>
-        <span className="gt"><i className="ti ti-stack-2" /> 编程生态</span>
+      <div className="grouphd" style={{ marginTop: 12 }}>
+        <span className="gt"><i className="ti ti-stack-2" /> 编程生态
+          {ecosystem && <EcoTally tones={ecosystems.map((item) => ecoTone(item, hasIssue(item)))} />}
+        </span>
         <div className="ghr">
-          <button className="gh sm" disabled={sourceBusy || checkingAll || !offOfficial.length} onClick={() => setConfirmOfficial(true)}
+          <button className="gh sm" disabled={sourceBusy || !offOfficial.length} onClick={() => setConfirmOfficial(true)}
             title={offOfficial.length ? translateText("把 {count} 项非官方源改回官方源；挂代理时官方源最全、最新").replace("{count}", String(offOfficial.length)) : "已安装的工具都在用官方源"}>
             <i className="ti ti-world" /> 全部恢复官方源{offOfficial.length ? `（${offOfficial.length}）` : ""}
           </button>
-          <button className="pr sm" disabled={sourceBusy || checkingAll || !tools?.length} onClick={optimizeSources} title="统一测试已安装生态的下载源与仓库镜像，并应用响应更快的可用源">
+          <button className="pr sm" disabled={sourceBusy || !tools?.length} onClick={optimizeSources} title="统一测试已安装生态的下载源与仓库镜像，并应用响应更快的可用源">
             <i className={"ti " + (sourceBusy ? "ti-loader spin" : "ti-route-alt-left")} /> {sourceBusy ? "处理中…" : "智能优选源"}
           </button>
         </div>
       </div>
-      {!ecosystem && (statusRead && !checkingAll
-        ? <div className="space-analysis-state"><i className="ti ti-alert-circle" /> 暂时读不到各生态的状态，点「开始体检」再试一次。</div>
+      {!ecosystem && (readFailed
+        ? <div className="space-analysis-state"><i className="ti ti-alert-circle" /> 暂时读不到各生态的状态。<button className="gh sm" onClick={check}>重试</button></div>
         : <div className="space-analysis-state"><i className="ti ti-loader spin" /> 正在读取各生态的状态和下载源…</div>)}
       {confirmOfficial && <ConfirmModal title="全部恢复官方源" icon="ti-world" confirmLabel="恢复官方源"
         message={<>{translateText("将把下面 {count} 项改回官方源，现有配置会自动备份：").replace("{count}", String(offOfficial.length))}<br />{offOfficial.map((tool) => tool.name).join("、")}<br />没有代理时官方源可能较慢，可以随时再用「智能优选源」换回镜像。</>}
         onClose={() => setConfirmOfficial(false)}
         onConfirm={() => { setConfirmOfficial(false); void restoreOfficial(); }} />}
-      {ecosystem && <div className="ecocards">{(ecosystem?.ecosystems ?? []).map((item) => {
-        const eco = item.id;
-        const meta = ECO_META[eco];
-        const sourceTool = (ECOSYSTEM_SOURCE_TOOLS[eco] ?? [])
-          .map((id) => tools?.find((tool) => tool.id === id))
-          .find((tool): tool is ToolState => !!tool && tool.installed);
-        const javaVendor = eco === "java" ? (localStorage.getItem(JAVA_VENDOR_STORAGE) || "temurin") as keyof typeof JAVA_VENDOR_SOURCES : null;
-        const sourceLabel = javaVendor && JAVA_VENDOR_SOURCES[javaVendor]
-          ? JAVA_VENDOR_SOURCES[javaVendor].label
-          : sourceTool ? selectedSourceLabel(sourceTool) : "—";
-        const pageIssue = extra.find((e) => e.page === eco && e.sev !== "info");
-        const statusText = pageIssue || item.status === "warn" ? "需处理" : item.status === "missing" ? "未配置" : "正常";
-        const tone = pageIssue || item.status === "warn" ? "bad" : item.status === "missing" ? "idle" : "ok";
-        return (
-          <button type="button" className={"ecocard " + tone} key={eco} onClick={() => goto(eco)}>
-            <span className="ecocard-head">
-              <span className={"av " + meta.av}><i className={"ti " + meta.icon} /></span>
-              <b>{meta.label}</b>
-              <em>{statusText}</em>
-            </span>
-            <span className="ecocard-line" title={item.detail || item.summary}>{item.summary}</span>
-            <span className="ecocard-line dim" title={sourceLabel}>{sourceLabel}</span>
-          </button>
-        );
-      })}</div>}
-
+      {ecosystem && <EcoPanel items={ecosystems} toneOf={(item) => ecoTone(item, hasIssue(item))} sourceOf={sourceOf} onOpen={goto} />}
     </>
   );
 }
-
-const ECO_META: Record<string, { av: string; icon: string; label: string }> = {
-  git: { av: "st", icon: "ti-brand-git", label: "Git" },
-  python: { av: "py", icon: "ti-brand-python", label: "Python" },
-  php: { av: "php", icon: "ti-brand-php", label: "PHP" },
-  node: { av: "npm", icon: "ti-brand-nodejs", label: "Node.js" },
-  java: { av: "jv", icon: "ti-coffee", label: "Java" },
-  go: { av: "go", icon: "ti-brand-golang", label: "Go" },
-  maven: { av: "mv2", icon: "ti-feather", label: "Maven" },
-  gradle: { av: "gr", icon: "ti-box", label: "Gradle" },
-  rust: { av: "rs", icon: "ti-brand-rust", label: "Rust" },
-};

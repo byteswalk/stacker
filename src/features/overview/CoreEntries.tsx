@@ -10,7 +10,6 @@ import { showSessionTab } from "../sessions/SessionCatalog";
 import { scanFootprint } from "../sessions/api";
 import type { FootprintReport } from "../sessions/types";
 import { vaultApi, type VaultStatus } from "../vault/api";
-import "./coreEntries.css";
 
 type GatewayStatus = { running: boolean; port: number; error: string };
 type SystemState = "on" | "off" | "stale" | "unknown";
@@ -35,7 +34,7 @@ const seen: Partial<Seen> = { sessions: restoreSessions() };
 const failed = new Set<keyof Seen>();
 
 const GB = 1024 ** 3;
-const MAX_LOGOS = 8;
+const MAX_LOGOS = 19;
 const PROBE_URL = "https://api.openai.com";
 const GATEWAY_ERRORS: Record<string, string> = { E_PORT: "端口被占用或无效（需 1024–65535），请换一个端口。" };
 const PROXY_CHIPS: [string, string][] = [["env", "终端"], ["git", "Git"], ["npm", "npm"], ["maven", "Maven"]];
@@ -72,7 +71,7 @@ export function agentTally(tools: { cli?: Pick<VibeSurface, "installed" | "updat
 }
 
 /** The logos on the card: one per product, the ones in use first. */
-export function logoTools(tools: Pick<VibeTool, "id" | "family_id" | "sort_order" | "icon" | "cli" | "desktop">[]) {
+export function logoTools(tools: Pick<VibeTool, "id" | "name" | "family_id" | "sort_order" | "icon" | "cli" | "desktop">[]) {
   const used = (tool: (typeof tools)[number]) => tool.cli.installed || tool.desktop.installed;
   const ordered = tools.filter((tool) => tool.icon)
     .sort((a, b) => Number(used(b)) - Number(used(a)) || a.sort_order - b.sort_order);
@@ -81,7 +80,11 @@ export function logoTools(tools: Pick<VibeTool, "id" | "family_id" | "sort_order
     if (families.has(tool.family_id)) return false;
     families.add(tool.family_id);
     return true;
-  }).slice(0, MAX_LOGOS).map((tool) => ({ ...tool, on: used(tool) }));
+  }).slice(0, MAX_LOGOS).map((tool) => ({
+    ...tool,
+    on: used(tool),
+    update: [tool.cli, tool.desktop].some((surface) => surface.installed && surface.update_available),
+  }));
 }
 
 /** The biggest users of the session card's bar, each as a share of the whole. */
@@ -113,15 +116,15 @@ export function rankedVolumes(volumes: VolumeInfo[]) {
 }
 
 /** One entry: the whole card opens the page; its own buttons sit above that and act directly. */
-function Entry({ hue, wide, icon, title, tagline, page, onOpen, children }: {
-  hue: string; wide?: boolean; icon: string; title: string; tagline: string; page: Page;
+function Entry({ av, wide, icon, title, tagline, page, onOpen, children }: {
+  av: string; wide?: boolean; icon: string; title: string; tagline: string; page: Page;
   onOpen: (page: Page) => void; children: ReactNode;
 }) {
   const { tr: t } = useI18n();
-  return <section className={`core-card ${hue}${wide ? " wide" : ""}`}>
+  return <section className={"core-card" + (wide ? " wide" : "")}>
     <div className="core-side">
       <div className="core-head">
-        <span className="core-tile"><i className={"ti " + icon} aria-hidden="true" /></span>
+        <span className={"av core-tile " + av}><i className={"ti " + icon} aria-hidden="true" /></span>
         <button type="button" className="core-open" onClick={() => onOpen(page)}>{t(title)}</button>
         <i className="ti ti-chevron-right core-arrow" aria-hidden="true" />
       </div>
@@ -143,16 +146,22 @@ function AgentsEntry({ onOpen }: { onOpen: (page: Page) => void }) {
   }, []);
   const { installed, total, updates } = agentTally(vibe.tools);
   const reading = !vibe.checked;
+  const logos = logoTools(vibe.tools);
+  const more = total - logos.length;
 
   return <section className="core-card core-hero">
-    <div className="core-hero-head">
-      <span className="core-tile"><i className="ti ti-sparkles" aria-hidden="true" /></span>
+    <div className="core-head">
+      <span className="core-tile" style={{ display: "flex", alignItems: "center", justifyContent: "center" }}><i className="ti ti-sparkles" aria-hidden="true" /></span>
+      <button type="button" className="core-open" onClick={() => onOpen("agents")}>{t("智能体")}</button>
       <i className="ti ti-chevron-right core-arrow" aria-hidden="true" />
     </div>
-    <button type="button" className="core-open" onClick={() => onOpen("agents")}>{t("智能体")}</button>
     <p className="core-tag">{t("一处安装、更新你所有的 AI 编程工具")}</p>
     <div className="core-logos">
-      {logoTools(vibe.tools).map((tool) => <span key={tool.id} className={"core-logo" + (tool.on ? " on" : "")}><img src={`/brands/${tool.icon}`} alt="" /></span>)}
+      {logos.map((tool) => <span key={tool.id} className={"core-logo" + (tool.on ? "" : " off")} title={tool.name}>
+        <img src={`/brands/${tool.icon}`} alt="" />
+        {tool.update && <i className="core-logo-dot" aria-hidden="true" />}
+      </span>)}
+      {more > 0 && <button type="button" className="core-logo core-logo-more" title={t("查看全部智能体")} onClick={() => onOpen("agents")}>+{more}</button>}
     </div>
     <div className="core-hero-foot">
       {reading
@@ -172,11 +181,12 @@ function SessionsEntry({ onOpen }: { onOpen: (page: Page) => void }) {
   const { tr: t } = useI18n();
   const usage = seen.sessions;
   const shares = usage?.shares ?? [];
-  return <Entry hue="blue" icon="ti-database" title="会话数据" tagline="查看、搜索、迁移 AI 的聊天记录，清掉没用的" page="agent-data" onOpen={onOpen}>
+  return <Entry av="py" icon="ti-database" title="会话数据" tagline="查看、搜索、迁移 AI 的聊天记录，清掉没用的" page="agent-data" onOpen={onOpen}>
     <div className="core-foot">
       <div className="core-bar" role="img" aria-label={t("会话占比")} title={shares.map((s) => `${s.name} ${formatBytes(s.bytes)}`).join(" · ")}>
         {shares.map((s) => <span key={s.name} style={{ width: `${s.percent}%` }} />)}
       </div>
+      <div className="core-legend">{shares.map((s) => <span key={s.name}><i aria-hidden="true" />{s.name}</span>)}</div>
       <div className="core-row">
         {usage
           ? <strong>{formatBytes(usage.total)}</strong>
@@ -210,7 +220,7 @@ function GatewayEntry({ onOpen, refresh }: { onOpen: (page: Page) => void; refre
     }
   }
 
-  return <Entry hue="violet" icon="ti-plug-connected" title="接口服务" tagline="把已登录的智能体变成 OpenAI 接口，给你的程序用" page="gateway" onOpen={onOpen}>
+  return <Entry av="php" icon="ti-plug-connected" title="接口服务" tagline="把已登录的智能体变成 OpenAI 接口，给你的程序用" page="gateway" onOpen={onOpen}>
     <div className="core-foot">
       <div className="core-address">{address || "—"}</div>
       <div className="core-row">
@@ -248,7 +258,7 @@ function ProxyEntry({ onOpen }: { onOpen: (page: Page) => void }) {
     }
   }
 
-  return <Entry hue="green" icon="ti-world-bolt" title="网络代理" tagline="一处管好终端、Git、npm 用的代理" page="proxy" onOpen={onOpen}>
+  return <Entry av="pxg" icon="ti-world-bolt" title="网络代理" tagline="一处管好终端、Git、npm 用的代理" page="proxy" onOpen={onOpen}>
     <div className="core-foot">
       <div className="core-chips">
         {PROXY_CHIPS.map(([id, label]) => <span key={id} className={proxy?.on.has(id) ? "on" : ""}>{t(label)}</span>)}
@@ -267,16 +277,16 @@ function DiskEntry({ onOpen, onScan, cleanable }: { onOpen: (page: Page) => void
   const { tr: t } = useI18n();
   const disks = rankedVolumes(seen.disks ?? []);
   const tight = disks[0];
-  return <Entry hue={"red" + (tight && tight.tone !== "ok" ? " " + tight.tone : "")} wide icon="ti-eraser" title="磁盘清理" tagline="找出开发缓存和大文件，安全腾出空间" page="cleanup" onOpen={onOpen}>
-    <button type="button" className="pr sm core-scan" onClick={onScan}><i className="ti ti-radar-2" /> {t("快速扫描")}</button>
+  return <Entry av="rs" wide icon="ti-eraser" title="磁盘清理" tagline="找出开发缓存和大文件，安全腾出空间" page="cleanup" onOpen={onOpen}>
+    <button type="button" className="gh sm core-scan" onClick={onScan}>{t("快速扫描")}</button>
     <div className="core-disks">
       {cleanable > 0
-        ? <div className="core-stat"><strong className="hue">{formatBytes(cleanable)}</strong><span>{t("可清理")}</span></div>
+        ? <div className="core-stat"><strong className="orange">{formatBytes(cleanable)}</strong><span>{t("可清理")}</span></div>
         : tight
-          ? <div className="core-stat"><strong>{formatBytes(tight.free)}</strong><span>{t("{disk} 剩余").replace("{disk}", tight.root)}</span></div>
+          ? <div className="core-stat"><strong>{formatBytes(tight.free)}</strong><span>{t("{disk} 盘剩余").replace("{disk}", tight.root.replace(":", ""))}</span></div>
           : <div className="core-stat"><span>{t(failed.has("disks") ? "无法读取本机磁盘" : "正在读取…")}</span></div>}
       {disks.slice(0, 2).map((disk) => <div className={"core-disk " + disk.tone} key={disk.root}>
-        <div><span>{disk.root}</span><span>{Math.round(disk.ratio * 100)}% · {t("剩 {free}").replace("{free}", formatBytes(disk.free))}</span></div>
+        <div><span>{t("{disk} 盘").replace("{disk}", disk.root.replace(":", ""))}</span><span>{Math.round(disk.ratio * 100)}% · {t("剩 {free}").replace("{free}", formatBytes(disk.free))}</span></div>
         <div className="core-meter"><span style={{ width: `${disk.ratio * 100}%` }} /></div>
       </div>)}
     </div>
@@ -287,8 +297,9 @@ function VaultEntry({ onOpen }: { onOpen: (page: Page) => void }) {
   const { tr: t } = useI18n();
   const vault = seen.vault;
   const state = vault?.status.state;
-  return <Entry hue="teal" icon="ti-shield-lock" title="密钥保管" tagline="加密保存 API Key、令牌和网站登录" page="vault" onOpen={onOpen}>
+  return <Entry av="go" icon="ti-shield-lock" title="密钥保管" tagline="加密保存 API Key、令牌和网站登录" page="vault" onOpen={onOpen}>
     <div className="core-foot">
+      {vault && state !== "unlocked" && state !== "missing" && <div className="core-lockline"><i className="ti ti-lock" aria-hidden="true" /> {t("内容已加密")}</div>}
       <div className="core-row">
         {state === "unlocked" && vault?.entries !== null
           ? <div className="core-stat small"><strong>{vault?.entries}</strong><span>{t("条 · 已解锁")}</span></div>

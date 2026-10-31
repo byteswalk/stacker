@@ -5,7 +5,7 @@ import type { VibeSurface } from "../agents/catalogStore";
 const GB = 1024 ** 3;
 const surface = (installed: boolean, update_available = false) => ({ installed, update_available }) as VibeSurface;
 const tool = (id: string, family_id: string, sort_order: number, installed: boolean, icon?: string) =>
-  ({ id, family_id, sort_order, icon, cli: surface(installed), desktop: surface(false) });
+  ({ id, name: id, family_id, sort_order, icon, cli: surface(installed), desktop: surface(false) });
 
 describe("core entries", () => {
   it("counts an agent once however many surfaces it has, and updates one by one", () => {
@@ -29,9 +29,15 @@ describe("core entries", () => {
     expect(logos.map((logo) => [logo.id, logo.on])).toEqual([["c", true], ["a", false], ["b-cn", false]]);
   });
 
-  it("keeps eight logos at most", () => {
-    const many = Array.from({ length: 12 }, (_, index) => tool(`t${index}`, `t${index}`, index, false, "x.png"));
-    expect(logoTools(many)).toHaveLength(8);
+  it("keeps nineteen logos at most, the card shows the rest as a count", () => {
+    const many = Array.from({ length: 27 }, (_, index) => tool(`t${index}`, `t${index}`, index, false, "x.png"));
+    expect(logoTools(many)).toHaveLength(19);
+  });
+
+  it("marks a logo with an update waiting", () => {
+    const logo = logoTools([{ ...tool("a", "a", 1, true, "a.png"), cli: surface(true, true) }])[0];
+    expect(logo.update).toBe(true);
+    expect(logoTools([tool("b", "b", 1, true, "b.png")])[0].update).toBe(false);
   });
 
   it("gives the biggest users of the session data their share", () => {
