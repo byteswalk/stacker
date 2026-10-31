@@ -4,6 +4,7 @@
 //! is what proves the fix.
 
 use super::{Action, AgentTask, TaskState};
+use crate::agents::net::{proxy_env, stacker_proxy};
 use crate::agents::process::{ps_single_quoted, resolve_command};
 use crate::agents::registry::cli_by_id;
 use crate::ai_features::hide_secrets;
@@ -100,10 +101,16 @@ fn brief_path(task: &AgentTask) -> PathBuf {
 }
 
 /// PowerShell that starts the agent on the brief, with whatever approvals it normally asks for.
-fn launch_command(program: &str, brief: &str) -> String {
+/// The agent needs the same proxy Stacker's own agent runs get: a new terminal has none of it.
+fn launch_command(program: &str, brief: &str, proxy: Option<&str>) -> String {
     let prompt = format!("请读取文件 {brief} ，按里面的要求处理。");
+    let proxy_lines = proxy
+        .into_iter()
+        .flat_map(proxy_env)
+        .map(|(name, value)| format!("$env:{name}={}\n", ps_single_quoted(&value)));
     format!(
-        "& {} {}",
+        "{}& {} {}",
+        proxy_lines.collect::<String>(),
         ps_single_quoted(program),
         ps_single_quoted(&prompt)
     )
@@ -122,7 +129,11 @@ pub(crate) fn start(task: &AgentTask, log: &[String], agent: &str) -> Result<(),
     let path = brief_path(task);
     std::fs::write(&path, text).map_err(|error| format!("写入修复说明失败：{error}"))?;
     crate::installer::open_agent_terminal(
-        &launch_command(&program.to_string_lossy(), &path.to_string_lossy()),
+        &launch_command(
+            &program.to_string_lossy(),
+            &path.to_string_lossy(),
+            stacker_proxy().as_deref(),
+        ),
         "Stacker Repair",
     )
 }
@@ -176,7 +187,7 @@ mod tests {
 
     #[test]
     fn the_agent_starts_on_the_brief_with_no_approval_turned_off() {
-        let command = launch_command(r"C:\it's\codex.cmd", r"C:\Temp\stacker-repair-7.md");
+        let command = launch_command(r"C:\it's\codex.cmd", r"C:\Temp\stacker-repair-7.md", None);
         assert!(
             command.starts_with(r"& 'C:\it''s\codex.cmd' '"),
             "{command}"
@@ -188,6 +199,15 @@ mod tests {
         for risky in ["--yolo", "--full-auto", "--dangerously", "bypass"] {
             assert!(!command.to_lowercase().contains(risky), "{command}");
         }
+    }
+
+    #[test]
+    fn the_agent_gets_stackers_proxy_before_it_starts() {
+        let command = launch_command("codex", "b.md", Some("http://127.0.0.1:7890"));
+        let proxy = command
+            .find("$env:HTTPS_PROXY='http://127.0.0.1:7890'")
+            .unwrap();
+        assert!(proxy < command.find("& 'codex'").unwrap(), "{command}");
     }
 
     #[test]

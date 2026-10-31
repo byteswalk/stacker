@@ -7,7 +7,7 @@
 .a .vault-actions{ display:flex; gap:8px; justify-content:flex-end; align-items:center; margin-top:12px; flex-wrap:wrap; }
 .a .vault-links{ display:flex; gap:14px; margin-top:12px; font-size:12px; }
 .a .vault-link{ background:none; border:0; padding:0; color:var(--acc); cursor:pointer; font-size:12px; }
-.a .vault-key{ font-family:ui-monospace,Consolas,monospace; font-size:17px; letter-spacing:1px; padding:12px; border:.5px solid var(--bd); border-radius:8px; text-align:center; user-select:all; margin:8px 0; }
+.a .vault-key{ font-family:ui-monospace,Consolas,monospace; font-size:15px; letter-spacing:.5px; white-space:nowrap; padding:12px; border:.5px solid var(--bd); border-radius:8px; text-align:center; user-select:all; margin:8px 0; }
 .a .vault-warn{ color:#d6463d; font-size:12px; }
 .a .vault-keyfile{ font-family:ui-monospace,Consolas,monospace; color:var(--tx); word-break:break-all; }
 .a .vault-center.wide{ max-width:640px; }
