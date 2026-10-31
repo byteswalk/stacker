@@ -56,6 +56,7 @@ export function TaskCenter() {
   const [open, setOpen] = useState(false);
   const [logId, setLogId] = useState<string | null>(null);
   const [askId, setAskId] = useState<string | null>(null);
+  const [repairId, setRepairId] = useState<string | null>(null);
   const root = useRef<HTMLDivElement>(null);
   useEffect(() => subscribeTasks(setTasks), []);
   const { open: active, done } = useMemo(() => splitTasks(Object.values(tasks)), [tasks]);

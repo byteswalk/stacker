@@ -54,6 +54,7 @@ if (-not $SkipChecks) {
     Invoke-Checked "Release metadata" { & npm.cmd run check:release-metadata }
     Invoke-Checked "Internationalization coverage" { & npm.cmd run check:i18n }
     Invoke-Checked "Rust format" { & cargo fmt --manifest-path src-tauri\Cargo.toml -- --check }
+    Invoke-Checked "Type check" { & npm.cmd run typecheck }
     Invoke-Checked "Frontend lint" { & npm.cmd run lint }
     Invoke-Checked "Frontend tests" { & npm.cmd run test }
     Invoke-Checked "Rust tests" { & cargo test --manifest-path src-tauri\Cargo.toml }
