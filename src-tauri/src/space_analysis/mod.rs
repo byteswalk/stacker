@@ -70,7 +70,7 @@ pub fn space_scan_start(
 ) -> Result<String, String> {
     let targets = validate_targets(&request).map_err(|error| error.to_string())?;
     match request.mode {
-        ScanMode::Quick => manager.start_quick(window),
+        ScanMode::Quick => manager.start_quick(false, window),
         ScanMode::Directories | ScanMode::Drives => manager.start_deep(
             targets
                 .into_iter()
@@ -79,6 +79,15 @@ pub fn space_scan_start(
             window,
         ),
     }
+}
+
+/// A quick scan that may answer from the last few minutes' measurement.
+#[tauri::command]
+pub fn space_scan_recent(
+    manager: tauri::State<'_, SpaceTaskManager>,
+    window: tauri::Window,
+) -> Result<String, String> {
+    manager.start_quick(true, window)
 }
 
 #[tauri::command]

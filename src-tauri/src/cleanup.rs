@@ -6,7 +6,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use crate::space_analysis::known::{scan_known_candidates, CleanupKind};
+use crate::space_analysis::known::{
+    forget_known, scan_known_candidates, scan_known_recent, CleanupKind,
+};
 use crate::space_analysis::model::KnownSpaceItem;
 use crate::space_analysis::walker::CancellationToken;
 use serde::Serialize;
@@ -119,7 +121,7 @@ pub async fn cleanup_scan() -> Vec<CacheItem> {
 }
 
 pub(crate) fn cleanup_scan_blocking() -> Vec<CacheItem> {
-    scan_known_candidates(&CancellationToken::default(), |_| {})
+    scan_known_recent(&CancellationToken::default(), |_| {})
         .map(|result| result.items.into_iter().map(CacheItem::from).collect())
         .unwrap_or_default()
 }
@@ -176,6 +178,7 @@ fn fresh_known_paths() -> Result<HashMap<String, FreshKnownPath>, String> {
 // Delete only paths found by a fresh rule lookup; caller-provided item metadata is irrelevant.
 fn delete_known_paths(paths: Vec<String>) -> Result<u64, String> {
     let known = fresh_known_paths()?;
+    forget_known();
     let mut freed = 0u64;
     for path_string in paths {
         let Some(known_path) = known.get(&path_string) else {
@@ -327,6 +330,7 @@ fn delete_aged(path: String, days: u64) -> Result<u64, String> {
     if is_link_or_reparse_point(Path::new(&path)) {
         return Err(format!("拒绝清理链接或目录联接：{path}"));
     }
+    forget_known();
     let older = Duration::from_secs(days.saturating_mul(86400));
     let now = SystemTime::now();
     let mut freed = 0u64;

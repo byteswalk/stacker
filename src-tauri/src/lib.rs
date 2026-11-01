@@ -382,6 +382,7 @@ pub fn run() {
             cleanup::cleanup_delete_aged,
             space_analysis::space_fixed_volumes,
             space_analysis::space_scan_start,
+            space_analysis::space_scan_recent,
             space_analysis::space_scan_start_elevated,
             space_analysis::space_scan_status,
             space_analysis::space_scan_cancel,

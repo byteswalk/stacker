@@ -1,5 +1,5 @@
 use super::cleanup_plan::{build_deep_plan_record, build_quick_plan_record, StoredCleanupPlan};
-use super::known::scan_known_candidates;
+use super::known::{scan_known_fresh, scan_known_recent};
 use super::model::{
     AnalysisSummary, CleanupPlan, DirectoryNode, LargeFileRow, Paged, QuickScanResult,
     ScanProgress, ScanTaskState,
@@ -77,13 +77,19 @@ impl Default for SpaceTaskManager {
 }
 
 impl SpaceTaskManager {
-    pub fn start_quick(&self, window: tauri::Window) -> Result<String, String> {
+    /// With `recent`, a measurement from the last few minutes is taken as it is.
+    pub fn start_quick(&self, recent: bool, window: tauri::Window) -> Result<String, String> {
         use tauri::Emitter;
 
         self.start_worker(
             TaskKind::Quick,
             move |token, report_progress| {
-                scan_known_candidates(token, |stats| report_progress(stats)).map(TaskResult::Quick)
+                if recent {
+                    scan_known_recent(token, |stats| report_progress(stats))
+                } else {
+                    scan_known_fresh(token, |stats| report_progress(stats))
+                }
+                .map(TaskResult::Quick)
             },
             move |progress| {
                 if let Err(error) = window.emit("space-scan-progress", progress) {

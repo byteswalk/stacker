@@ -9,7 +9,7 @@ import type {
 } from "./types";
 
 export interface SpaceScanAdapter {
-  start(request: ScanRequest, elevated: boolean): Promise<string>;
+  start(request: ScanRequest, elevated: boolean, recent?: boolean): Promise<string>;
   status(taskId: string): Promise<ScanProgress>;
   cancel(taskId: string): Promise<void>;
   quickResult(taskId: string): Promise<QuickScanResult>;
@@ -35,7 +35,7 @@ export interface SpaceScanStore {
   getSnapshot(): SpaceScanSnapshot;
   subscribe(listener: () => void): () => void;
   startScan(request: ScanRequest, options?: ScanStartOptions): Promise<ScanStartResult>;
-  startQuickScan(): Promise<ScanStartResult>;
+  startQuickScan(options?: ScanStartOptions): Promise<ScanStartResult>;
   cancelScan(): Promise<void>;
   refreshTask(): Promise<void>;
   dispose(): void;
@@ -49,6 +49,8 @@ type PendingStart = {
 
 export interface ScanStartOptions {
   elevated?: boolean;
+  /** A quick scan may answer from a measurement of the last few minutes. */
+  recent?: boolean;
 }
 
 const INITIAL_SNAPSHOT: SpaceScanSnapshot = {
@@ -278,7 +280,7 @@ export function createSpaceScanStore(adapter: SpaceScanAdapter): SpaceScanStore 
       const pending = (async (): Promise<{ taskId: string; request: ScanRequest }> => {
         let taskId: string;
         try {
-          taskId = await adapter.start(requested, elevated);
+          taskId = await (options.recent ? adapter.start(requested, elevated, true) : adapter.start(requested, elevated));
         } catch (cause) {
           if (!ownedStart || pendingStart === ownedStart) {
             publish({ ...snapshot, pendingRequest: null, error: errorMessage(cause) });
@@ -315,8 +317,8 @@ export function createSpaceScanStore(adapter: SpaceScanAdapter): SpaceScanStore 
       }));
     },
 
-    startQuickScan() {
-      return store.startScan({ mode: "quick", targets: [] });
+    startQuickScan(options) {
+      return store.startScan({ mode: "quick", targets: [] }, options);
     },
 
     async cancelScan() {
@@ -353,8 +355,8 @@ export function createSpaceScanStore(adapter: SpaceScanAdapter): SpaceScanStore 
 }
 
 const tauriAdapter: SpaceScanAdapter = {
-  start: (request, elevated) => invoke<string>(
-    elevated ? "space_scan_start_elevated" : "space_scan_start",
+  start: (request, elevated, recent) => invoke<string>(
+    elevated ? "space_scan_start_elevated" : recent ? "space_scan_recent" : "space_scan_start",
     { request },
   ),
   status: (taskId) => invoke<ScanProgress>("space_scan_status", { taskId }),
@@ -385,7 +387,7 @@ export function quickScanUnlessBusy(): Promise<ScanStartResult | null> {
   const snapshot = spaceScanStore.getSnapshot();
   const state = snapshot.progress?.state;
   if (snapshot.pendingRequest || state === "queued" || state === "running" || state === "cancelling") return Promise.resolve(null);
-  return spaceScanStore.startQuickScan();
+  return spaceScanStore.startQuickScan({ recent: true });
 }
 
 export function startScan(request: ScanRequest, options?: ScanStartOptions): Promise<ScanStartResult> {

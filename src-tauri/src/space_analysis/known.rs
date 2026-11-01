@@ -4,6 +4,15 @@ use crate::storage;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+
+/// How long one measurement of the known locations answers for all: the reminder, the home
+/// page's check and an opened cleanup list all ask within moments of each other, and each walk
+/// takes minutes.
+const RECENT_FOR: Duration = Duration::from_secs(300);
+static RECENT: Mutex<Option<Measured>> = Mutex::new(None);
+static MEASURING: Mutex<()> = Mutex::new(());
 
 const TEMP_VISIBILITY_THRESHOLD: u64 = 1024 * 1024 * 1024;
 
@@ -74,6 +83,70 @@ pub fn known_candidates() -> Vec<KnownCandidate> {
 /// How many known folders are measured at once: the work is all disk, and one thread per
 /// folder would be dozens of them.
 const KNOWN_WALKERS: usize = 12;
+
+struct Measured {
+    at: Instant,
+    result: QuickScanResult,
+    stats: WalkStats,
+}
+
+fn still_recent(measured: Instant, now: Instant) -> bool {
+    now.saturating_duration_since(measured) < RECENT_FOR
+}
+
+fn recent_known() -> Option<(QuickScanResult, WalkStats)> {
+    let recent = RECENT.lock().unwrap_or_else(|e| e.into_inner());
+    recent
+        .as_ref()
+        .filter(|measured| still_recent(measured.at, Instant::now()))
+        .map(|measured| (measured.result.clone(), measured.stats.clone()))
+}
+
+/// Something was deleted: what was measured no longer holds.
+pub fn forget_known() {
+    *RECENT.lock().unwrap_or_else(|e| e.into_inner()) = None;
+}
+
+/// Measures now, whatever was measured before, and leaves the result for those who come next.
+pub fn scan_known_fresh<F>(
+    token: &CancellationToken,
+    mut progress: F,
+) -> Result<QuickScanResult, ScanWalkError>
+where
+    F: FnMut(&WalkStats),
+{
+    let _one = MEASURING.lock().unwrap_or_else(|e| e.into_inner());
+    let mut last = WalkStats::default();
+    let result = scan_known_candidates(token, |stats| {
+        last = stats.clone();
+        progress(stats);
+    })?;
+    *RECENT.lock().unwrap_or_else(|e| e.into_inner()) = Some(Measured {
+        at: Instant::now(),
+        result: result.clone(),
+        stats: last,
+    });
+    Ok(result)
+}
+
+/// The last few minutes' measurement if there is one. A walk under way is waited for, not
+/// repeated. Never for deciding what may be deleted: that is always measured afresh.
+pub fn scan_known_recent<F>(
+    token: &CancellationToken,
+    mut progress: F,
+) -> Result<QuickScanResult, ScanWalkError>
+where
+    F: FnMut(&WalkStats),
+{
+    let waited = MEASURING.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((recent, stats)) = recent_known() {
+        // The numbers of the walk it came from, so the page shows what was measured.
+        progress(&stats);
+        return Ok(recent);
+    }
+    drop(waited);
+    scan_known_fresh(token, progress)
+}
 
 pub fn scan_known_candidates<F>(
     token: &CancellationToken,
@@ -765,6 +838,13 @@ mod tests {
         let cache = candidate("playwright");
         assert!(!legacy_candidate_is_visible(&cache, 0));
         assert!(legacy_candidate_is_visible(&cache, 1));
+    }
+
+    #[test]
+    fn a_measurement_stands_for_a_few_minutes() {
+        let measured = Instant::now();
+        assert!(still_recent(measured, measured + Duration::from_secs(299)));
+        assert!(!still_recent(measured, measured + RECENT_FOR));
     }
 
     #[test]
