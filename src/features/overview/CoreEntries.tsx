@@ -135,6 +135,11 @@ export function rankedVolumes(volumes: VolumeInfo[]) {
   }).sort((a, b) => TONE_RANK[a.tone] - TONE_RANK[b.tone] || b.ratio - a.ratio);
 }
 
+/** The disks the card has room for: the tightest ones, shown in drive-letter order. */
+export function ringVolumes(disks: ReturnType<typeof rankedVolumes>) {
+  return disks.slice(0, MAX_RINGS).sort((a, b) => a.root.localeCompare(b.root));
+}
+
 /** How much of a ring is drawn, as an SVG dash: the drawn part, then the rest of the circle. */
 export function ringDash(ratio: number, radius = RING_RADIUS) {
   const round = 2 * Math.PI * radius;
@@ -331,7 +336,7 @@ function DiskEntry({ onOpen, onScan, cleanable }: { onOpen: (page: Page) => void
         : disks.length > 0
           ? <div className="core-stat"><strong>{formatBytes(free)}</strong><span>{t("全部磁盘剩余")}</span></div>
           : <div className="core-stat"><span>{t(failed.has("disks") ? "无法读取本机磁盘" : "正在读取…")}</span></div>}
-      <div className="core-rings">{disks.slice(0, MAX_RINGS).map((disk) => <DiskRing key={disk.root} disk={disk} />)}</div>
+      <div className="core-rings">{ringVolumes(disks).map((disk) => <DiskRing key={disk.root} disk={disk} />)}</div>
     </div>
   </Entry>;
 }

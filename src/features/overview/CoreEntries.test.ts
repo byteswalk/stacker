@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agentTally, diskTone, logoTools, rankedVolumes, ringDash, sessionShares, vaultTally } from "./CoreEntries";
+import { agentTally, diskTone, logoTools, rankedVolumes, ringDash, ringVolumes, sessionShares, vaultTally } from "./CoreEntries";
 import type { VibeSurface } from "../agents/catalogStore";
 
 const GB = 1024 ** 3;
@@ -57,6 +57,12 @@ describe("core entries", () => {
     ]);
     expect(disks.map((disk) => [disk.root, disk.tone])).toEqual([["C:", "warn"], ["K:", "ok"]]);
     expect(rankedVolumes([])).toEqual([]);
+  });
+
+  it("keeps the tightest disks and lists them by drive letter", () => {
+    const disk = (root: string, free: number) => ({ root: `${root}:\\`, totalBytes: 500 * GB, freeBytes: free * GB, fixed: true });
+    const rings = ringVolumes(rankedVolumes([disk("K", 1), disk("C", 300), disk("F", 5), disk("D", 400), disk("E", 450)]));
+    expect(rings.map((item) => item.root)).toEqual(["C:", "F:", "K:"]);
   });
 
   it("draws a ring in proportion, never past a full turn", () => {
