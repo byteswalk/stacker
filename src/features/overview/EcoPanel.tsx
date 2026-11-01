@@ -5,13 +5,13 @@ export type EcosystemSnapshot = {
   id: Page;
   label: string;
   kind: string;
-  status: "ok" | "warn" | "missing";
+  status: "ok" | "warn" | "missing" | "unknown";
   summary: string;
   detail: string;
 };
-export type EcoTone = "ok" | "warn" | "idle";
+export type EcoTone = "ok" | "warn" | "idle" | "unknown";
 
-const TONE_TEXT: Record<EcoTone, string> = { ok: "正常", warn: "需处理", idle: "未配置" };
+const TONE_TEXT: Record<EcoTone, string> = { ok: "正常", warn: "需处理", idle: "未配置", unknown: "未知" };
 // A source Stacker cannot name says nothing worth a place on the line.
 const UNNAMED_SOURCES = new Set(["—", "未识别"]);
 
@@ -35,12 +35,13 @@ export function ecoVersion(summary: string) {
 
 /** The line under an ecosystem's name: its version and where it downloads from. */
 export function ecoLine(item: Pick<EcosystemSnapshot, "status" | "summary">, source: string) {
-  if (item.status === "missing") return item.summary;
+  if (item.status === "missing" || item.status === "unknown") return item.summary;
   return [ecoVersion(item.summary), ...(UNNAMED_SOURCES.has(source) ? [] : [source])].join(" · ");
 }
 
 export function ecoTone(item: Pick<EcosystemSnapshot, "status">, hasIssue: boolean): EcoTone {
   if (hasIssue || item.status === "warn") return "warn";
+  if (item.status === "unknown") return "unknown";
   return item.status === "missing" ? "idle" : "ok";
 }
 

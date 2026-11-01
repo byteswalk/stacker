@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ComponentProps, type ReactNode } from "react";
 import { invoke } from "../../invoke";
 import { useI18n } from "../../i18n";
 import { formatBytes } from "../../notifications";
@@ -9,18 +9,21 @@ import { loadCatalog, runVibeCheck, subscribeVibe, vibeSnapshot, type VibeSurfac
 import { showSessionTab } from "../sessions/SessionCatalog";
 import { scanFootprint } from "../sessions/api";
 import type { FootprintReport } from "../sessions/types";
-import { vaultApi, type VaultStatus } from "../vault/api";
+import { vaultApi, type EntryView, type VaultStatus } from "../vault/api";
+import { CoreArt } from "./coreArt";
 
-type GatewayStatus = { running: boolean; port: number; error: string };
+type GatewayStatus = { running: boolean; port: number; error: string; lanAccess: boolean };
 type SystemState = "on" | "off" | "stale" | "unknown";
 type SyncReport = { system: { state: SystemState; server: string }; rows: { id: string }[] };
 type ProxyOverview = { locations: { id: string; value: string | null }[] };
 type VolumeInfo = { root: string; totalBytes: number; freeBytes: number; fixed: boolean };
 export type GroupTone = "ok" | "warn" | "bad" | "idle";
 
-const SESSIONS_KEY = "stacker.overview.sessions.v1";
+const SESSIONS_KEY = "stacker.overview.sessions.v2";
+const VAULT_KEY = "stacker.overview.vault.v1";
 
-type SessionUsage = { total: number; shares: ReturnType<typeof sessionShares> };
+type SessionUsage = { total: number; reclaimable: number; shares: ReturnType<typeof sessionShares> };
+export type VaultTally = { total: number; credentials: number; ssh: number; expiring: number };
 
 /** What the cards read last, kept across page switches so coming back shows it at once. */
 type Seen = {
@@ -28,34 +31,51 @@ type Seen = {
   proxy: { report: SyncReport; on: Set<string> };
   disks: VolumeInfo[];
   sessions: SessionUsage;
-  vault: { status: VaultStatus; entries: number | null };
+  vault: { status: VaultStatus; tally: VaultTally | null };
 };
-const seen: Partial<Seen> = { sessions: restoreSessions() };
+const seen: Partial<Seen> = { sessions: restore<SessionUsage>(SESSIONS_KEY) };
 const failed = new Set<keyof Seen>();
 
 const GB = 1024 ** 3;
 const MAX_LOGOS = 19;
+const MAX_RINGS = 3;
+const RING_RADIUS = 24;
 const PROBE_URL = "https://api.openai.com";
 const GATEWAY_ERRORS: Record<string, string> = { E_PORT: "端口被占用或无效（需 1024–65535），请换一个端口。" };
 const PROXY_CHIPS: [string, string][] = [["env", "终端"], ["git", "Git"], ["npm", "npm"], ["maven", "Maven"]];
 
 // Counting the session data takes half a minute on a busy machine: the card shows the last
 // count at once and replaces it when the new one is in.
-function restoreSessions(): SessionUsage | undefined {
+function restore<T>(key: string): T | undefined {
   try {
-    return JSON.parse(localStorage.getItem(SESSIONS_KEY) ?? "null") ?? undefined;
+    return JSON.parse(localStorage.getItem(key) ?? "null") ?? undefined;
   } catch {
     return undefined;
   }
 }
 
-function keepSessions(usage: SessionUsage) {
+function keep<T>(key: string, value: T) {
   try {
-    localStorage.setItem(SESSIONS_KEY, JSON.stringify(usage));
+    localStorage.setItem(key, JSON.stringify(value));
   } catch {
     // Only saves a wait on the next launch.
   }
-  return usage;
+  return value;
+}
+
+/**
+ * What the vault holds, in numbers only. Kept from the last unlock so a locked vault can still
+ * say how much is in it: the vault file itself tells nothing without the password.
+ */
+export function vaultTally(entries: Pick<EntryView, "kind" | "expiresAt">[], today = new Date()): VaultTally {
+  const soon = new Date(today.getTime() + 30 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+  const ssh = entries.filter((entry) => entry.kind === "ssh_key").length;
+  return {
+    total: entries.length,
+    credentials: entries.length - ssh,
+    ssh,
+    expiring: entries.filter((entry) => entry.expiresAt && entry.expiresAt <= soon).length,
+  };
 }
 
 /** How many agents are installed, and how many of their surfaces want an update. */
@@ -115,13 +135,21 @@ export function rankedVolumes(volumes: VolumeInfo[]) {
   }).sort((a, b) => TONE_RANK[a.tone] - TONE_RANK[b.tone] || b.ratio - a.ratio);
 }
 
+/** How much of a ring is drawn, as an SVG dash: the drawn part, then the rest of the circle. */
+export function ringDash(ratio: number, radius = RING_RADIUS) {
+  const round = 2 * Math.PI * radius;
+  const drawn = Math.min(Math.max(ratio, 0), 1) * round;
+  return `${drawn.toFixed(2)} ${round.toFixed(2)}`;
+}
+
 /** One entry: the whole card opens the page; its own buttons sit above that and act directly. */
-function Entry({ av, wide, icon, title, tagline, page, onOpen, children }: {
-  av: string; wide?: boolean; icon: string; title: string; tagline: string; page: Page;
+function Entry({ av, art, wide, icon, title, tagline, page, onOpen, children }: {
+  av: string; art: ComponentProps<typeof CoreArt>["name"]; wide?: boolean; icon: string; title: string; tagline: string; page: Page;
   onOpen: (page: Page) => void; children: ReactNode;
 }) {
   const { tr: t } = useI18n();
   return <section className={"core-card" + (wide ? " wide" : "")}>
+    <CoreArt name={art} />
     <div className="core-side">
       <div className="core-head">
         <span className={"av core-tile " + av}><i className={"ti " + icon} aria-hidden="true" /></span>
@@ -149,7 +177,7 @@ function AgentsEntry({ onOpen }: { onOpen: (page: Page) => void }) {
   const logos = logoTools(vibe.tools);
   const more = total - logos.length;
 
-  return <section className="core-card core-hero">
+  return <><section className="core-card core-hero">
     <div className="core-head">
       <span className="core-tile" style={{ display: "flex", alignItems: "center", justifyContent: "center" }}><i className="ti ti-sparkles" aria-hidden="true" /></span>
       <button type="button" className="core-open" onClick={() => onOpen("agents")}>{t("智能体")}</button>
@@ -173,15 +201,15 @@ function AgentsEntry({ onOpen }: { onOpen: (page: Page) => void }) {
         ? <button type="button" className="pr core-wide" onClick={() => setPlanOpen(true)}><i className="ti ti-cloud-upload" /> {t("一键更新")}</button>
         : <button type="button" className="gh core-wide" onClick={() => onOpen("agents")}><i className="ti ti-apps" /> {t(installed || reading ? "查看全部智能体" : "去安装智能体")}</button>}
     </div>
-    {planOpen && <UpdatePlanModal onClose={closePlan} />}
-  </section>;
+  </section>
+  {planOpen && <UpdatePlanModal onClose={closePlan} />}</>;
 }
 
 function SessionsEntry({ onOpen }: { onOpen: (page: Page) => void }) {
   const { tr: t } = useI18n();
   const usage = seen.sessions;
   const shares = usage?.shares ?? [];
-  return <Entry av="py" icon="ti-database" title="会话数据" tagline="查看、搜索、迁移 AI 的聊天记录，清掉没用的" page="agent-data" onOpen={onOpen}>
+  return <Entry av="py" art="sessions" icon="ti-database" title="会话数据" tagline="查看、搜索、迁移 AI 的聊天记录，清掉没用的" page="agent-data" onOpen={onOpen}>
     <div className="core-foot">
       <div className="core-bar" role="img" aria-label={t("会话占比")} title={shares.map((s) => `${s.name} ${formatBytes(s.bytes)}`).join(" · ")}>
         {shares.map((s) => <span key={s.name} style={{ width: `${s.percent}%` }} />)}
@@ -189,7 +217,7 @@ function SessionsEntry({ onOpen }: { onOpen: (page: Page) => void }) {
       <div className="core-legend">{shares.map((s) => <span key={s.name}><i aria-hidden="true" />{s.name}</span>)}</div>
       <div className="core-row">
         {usage
-          ? <strong>{formatBytes(usage.total)}</strong>
+          ? <div className="core-stat tiny"><strong>{formatBytes(usage.total)}</strong>{usage.reclaimable > 0 && <span>{t("{size} 可清理").replace("{size}", formatBytes(usage.reclaimable))}</span>}</div>
           : <span className="core-note">{t(failed.has("sessions") ? "暂时读不到" : "正在统计…")}</span>}
         <button type="button" className="gh sm" onClick={() => { showSessionTab("footprint"); onOpen("agent-data"); }}>{t("看占用")}</button>
       </div>
@@ -220,11 +248,11 @@ function GatewayEntry({ onOpen, refresh }: { onOpen: (page: Page) => void; refre
     }
   }
 
-  return <Entry av="php" icon="ti-plug-connected" title="接口服务" tagline="把已登录的智能体变成 OpenAI 接口，给你的程序用" page="gateway" onOpen={onOpen}>
+  return <Entry av="php" art="gateway" icon="ti-plug-connected" title="接口服务" tagline="把已登录的智能体变成 OpenAI 接口，给你的程序用" page="gateway" onOpen={onOpen}>
     <div className="core-foot">
       <div className="core-address">{address || "—"}</div>
       <div className="core-row">
-        <span className={"core-note" + (status?.running ? " good" : "")}>{t(!status ? (failed.has("gateway") ? "暂时读不到" : "正在读取…") : status.running ? "运行中" : "未启用")}</span>
+        <span className={"core-note" + (status?.running ? " good" : "")}>{!status ? t(failed.has("gateway") ? "暂时读不到" : "正在读取…") : status.running ? `${t("运行中")} · ${t(status.lanAccess ? "局域网可用" : "仅本机")}` : t("未启用")}</span>
         {status?.running
           ? <button type="button" className="gh sm" onClick={() => void navigator.clipboard.writeText(`http://${address}`).then(() => toast(t("已复制"), "ok"))}>{t("复制地址")}</button>
           : <button type="button" className="gh sm" disabled={!status || busy} onClick={() => void start()}>{t(busy ? "启动中…" : "启动")}</button>}
@@ -243,7 +271,7 @@ function ProxyEntry({ onOpen }: { onOpen: (page: Page) => void }) {
   const state = !proxy ? { text: failed.has("proxy") ? "暂时读不到" : "正在读取…", className: "" }
     : proxy.report.system.state === "stale" ? { text: "设置残留", className: " warn" }
     : drift ? { text: t("{count} 处不一致").replace("{count}", String(drift)), className: " warn" }
-    : on ? { text: "已开启", className: " good" }
+    : on ? { text: `${t("已开启")} · ${proxy.report.system.server}`, className: " good" }
     : { text: "未开启", className: "" };
 
   async function probe() {
@@ -258,13 +286,13 @@ function ProxyEntry({ onOpen }: { onOpen: (page: Page) => void }) {
     }
   }
 
-  return <Entry av="pxg" icon="ti-world-bolt" title="网络代理" tagline="一处管好终端、Git、npm 用的代理" page="proxy" onOpen={onOpen}>
+  return <Entry av="pxg" art="proxy" icon="ti-world-bolt" title="网络代理" tagline="一处管好终端、Git、npm 用的代理" page="proxy" onOpen={onOpen}>
     <div className="core-foot">
       <div className="core-chips">
         {PROXY_CHIPS.map(([id, label]) => <span key={id} className={proxy?.on.has(id) ? "on" : ""}>{t(label)}</span>)}
       </div>
       <div className="core-row">
-        <span className={"core-note" + state.className}>{t(state.text)}</span>
+        <span className={"core-note" + state.className} title={state.text}>{t(state.text)}</span>
         <button type="button" className="gh sm" disabled={!on || probing} onClick={() => void probe()}>
           {t(probing ? "测试中…" : "测连通")}
         </button>
@@ -273,22 +301,37 @@ function ProxyEntry({ onOpen }: { onOpen: (page: Page) => void }) {
   </Entry>;
 }
 
+function DiskRing({ disk }: { disk: ReturnType<typeof rankedVolumes>[number] }) {
+  const { tr: t } = useI18n();
+  const percent = Math.round(disk.ratio * 100);
+  return <div className={"core-ring " + disk.tone}>
+    <span className="core-ring-dial" role="img" aria-label={`${disk.root} ${percent}%`}>
+      <svg viewBox="0 0 60 60" aria-hidden="true">
+        <circle cx="30" cy="30" r={RING_RADIUS} />
+        <circle cx="30" cy="30" r={RING_RADIUS} strokeDasharray={ringDash(disk.ratio)} transform="rotate(-90 30 30)" />
+      </svg>
+      <b>{percent}%</b>
+    </span>
+    <span className="core-ring-text">
+      <b>{t("{disk} 盘").replace("{disk}", disk.root.replace(":", ""))}</b>
+      <small>{t("剩 {free}").replace("{free}", formatBytes(disk.free))}</small>
+    </span>
+  </div>;
+}
+
 function DiskEntry({ onOpen, onScan, cleanable }: { onOpen: (page: Page) => void; onScan: () => void; cleanable: number }) {
   const { tr: t } = useI18n();
   const disks = rankedVolumes(seen.disks ?? []);
-  const tight = disks[0];
-  return <Entry av="rs" wide icon="ti-eraser" title="磁盘清理" tagline="找出开发缓存和大文件，安全腾出空间" page="cleanup" onOpen={onOpen}>
-    <button type="button" className="gh sm core-scan" onClick={onScan}>{t("快速扫描")}</button>
+  const free = disks.reduce((sum, disk) => sum + disk.free, 0);
+  return <Entry av="rs" art="disk" wide icon="ti-eraser" title="磁盘清理" tagline="找出开发缓存和大文件，安全腾出空间" page="cleanup" onOpen={onOpen}>
+    <button type="button" className="pr sm core-scan" onClick={onScan}><i className="ti ti-radar-2" /> {t("快速扫描")}</button>
     <div className="core-disks">
       {cleanable > 0
-        ? <div className="core-stat"><strong className="orange">{formatBytes(cleanable)}</strong><span>{t("可清理")}</span></div>
-        : tight
-          ? <div className="core-stat"><strong>{formatBytes(tight.free)}</strong><span>{t("{disk} 盘剩余").replace("{disk}", tight.root.replace(":", ""))}</span></div>
+        ? <div className="core-stat"><strong className="orange">{formatBytes(cleanable)}</strong><span>{t("可安全清理")}</span></div>
+        : disks.length > 0
+          ? <div className="core-stat"><strong>{formatBytes(free)}</strong><span>{t("全部磁盘剩余")}</span></div>
           : <div className="core-stat"><span>{t(failed.has("disks") ? "无法读取本机磁盘" : "正在读取…")}</span></div>}
-      {disks.slice(0, 2).map((disk) => <div className={"core-disk " + disk.tone} key={disk.root}>
-        <div><span>{t("{disk} 盘").replace("{disk}", disk.root.replace(":", ""))}</span><span>{Math.round(disk.ratio * 100)}% · {t("剩 {free}").replace("{free}", formatBytes(disk.free))}</span></div>
-        <div className="core-meter"><span style={{ width: `${disk.ratio * 100}%` }} /></div>
-      </div>)}
+      <div className="core-rings">{disks.slice(0, MAX_RINGS).map((disk) => <DiskRing key={disk.root} disk={disk} />)}</div>
     </div>
   </Entry>;
 }
@@ -297,13 +340,25 @@ function VaultEntry({ onOpen }: { onOpen: (page: Page) => void }) {
   const { tr: t } = useI18n();
   const vault = seen.vault;
   const state = vault?.status.state;
-  return <Entry av="go" icon="ti-shield-lock" title="密钥保管" tagline="加密保存 API Key、令牌和网站登录" page="vault" onOpen={onOpen}>
+  const tally = vault?.tally;
+  const stateText = !vault ? (failed.has("vault") ? "暂时读不到" : "正在读取…")
+    : state === "missing" ? "尚未创建" : state === "unlocked" ? "已解锁" : "已锁定";
+  return <Entry av="go" art="vault" icon="ti-shield-lock" title="密钥保管" tagline="加密保存 API Key、令牌和网站登录" page="vault" onOpen={onOpen}>
     <div className="core-foot">
-      {vault && state !== "unlocked" && state !== "missing" && <div className="core-lockline"><i className="ti ti-lock" aria-hidden="true" /> {t("内容已加密")}</div>}
+      {tally && state !== "missing"
+        ? <>
+          <div className="core-stat tiny"><strong>{tally.total}</strong><span>{t("条密钥")}</span></div>
+          <div className="core-chips teal">
+            {tally.credentials > 0 && <span>{t("凭据 {count}").replace("{count}", String(tally.credentials))}</span>}
+            {tally.ssh > 0 && <span>SSH {tally.ssh}</span>}
+            {tally.expiring > 0 && <span className="warn">{t("{count} 条快到期").replace("{count}", String(tally.expiring))}</span>}
+          </div>
+        </>
+        : vault && state !== "missing" && <div className="core-hint">{t("解锁一次后显示统计")}</div>}
       <div className="core-row">
-        {state === "unlocked" && vault?.entries !== null
-          ? <div className="core-stat small"><strong>{vault?.entries}</strong><span>{t("条 · 已解锁")}</span></div>
-          : <span className="core-note">{t(!vault ? (failed.has("vault") ? "暂时读不到" : "正在读取…") : state === "missing" ? "尚未创建" : "已锁定")}</span>}
+        <span className={"core-note icon" + (state === "unlocked" ? " good" : "")}>
+          {vault && state !== "missing" && <i className={"ti " + (state === "unlocked" ? "ti-lock-open" : "ti-lock")} aria-hidden="true" />}{t(stateText)}
+        </span>
         <button type="button" className="gh sm" onClick={() => onOpen("vault")}>{t(state === "missing" ? "创建" : state === "unlocked" ? "打开" : "解锁")}</button>
       </div>
     </div>
@@ -329,12 +384,12 @@ export function CoreEntries({ onOpen, onScan, cleanable }: { onOpen: (page: Page
     };
     read("gateway", invoke<GatewayStatus>("gateway_status"));
     read("disks", invoke<VolumeInfo[]>("space_fixed_volumes"));
-    read("sessions", scanFootprint(false).then((report) => keepSessions({ total: report.total, shares: sessionShares(report) })));
+    read("sessions", scanFootprint(false).then((report) => keep(SESSIONS_KEY, { total: report.total, reclaimable: report.reclaimable, shares: sessionShares(report) })));
     read("proxy", Promise.all([invoke<SyncReport>("proxy_sync_report"), invoke<ProxyOverview>("proxy_overview")])
       .then(([report, overview]) => ({ report, on: new Set(overview.locations.filter((place) => place.value).map((place) => place.id)) })));
     read("vault", vaultApi.status().then(async (status) => ({
       status,
-      entries: status.state === "unlocked" ? (await vaultApi.list(false)).length : null,
+      tally: status.state === "unlocked" ? keep(VAULT_KEY, vaultTally(await vaultApi.list(false))) : restore<VaultTally>(VAULT_KEY) ?? null,
     })));
     return () => { alive = false; };
   }, [refresh]);

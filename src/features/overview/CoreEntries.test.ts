@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agentTally, diskTone, logoTools, rankedVolumes, sessionShares } from "./CoreEntries";
+import { agentTally, diskTone, logoTools, rankedVolumes, ringDash, sessionShares, vaultTally } from "./CoreEntries";
 import type { VibeSurface } from "../agents/catalogStore";
 
 const GB = 1024 ** 3;
@@ -57,6 +57,23 @@ describe("core entries", () => {
     ]);
     expect(disks.map((disk) => [disk.root, disk.tone])).toEqual([["C:", "warn"], ["K:", "ok"]]);
     expect(rankedVolumes([])).toEqual([]);
+  });
+
+  it("draws a ring in proportion, never past a full turn", () => {
+    expect(ringDash(0.5, 10)).toBe("31.42 62.83");
+    expect(ringDash(1.2, 10)).toBe("62.83 62.83");
+    expect(ringDash(0, 10)).toBe("0.00 62.83");
+  });
+
+  it("counts the vault by kind, and what runs out within a month", () => {
+    const tally = vaultTally([
+      { kind: "api_key", expiresAt: "2026-11-20" },
+      { kind: "other", expiresAt: "2027-06-01" },
+      { kind: "ssh_key", expiresAt: null },
+      // Already past its date: still something to deal with.
+      { kind: "token", expiresAt: "2026-01-01" },
+    ], new Date("2026-11-01T00:00:00Z"));
+    expect(tally).toEqual({ total: 4, credentials: 3, ssh: 1, expiring: 2 });
   });
 
   it("judges a disk by the room it has left", () => {

@@ -1,6 +1,6 @@
 /* The home page. Everything here is the app's own card, tile and colour tokens. */
 .a .core-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));grid-auto-rows:minmax(190px,auto);gap:10px;margin-bottom:12px}
-.a .core-card{position:relative;display:flex;flex-direction:column;box-sizing:border-box;min-width:0;padding:14px;
+.a .core-card{position:relative;isolation:isolate;overflow:hidden;display:flex;flex-direction:column;box-sizing:border-box;min-width:0;padding:14px;
   background:var(--card);border:1px solid var(--bd);border-radius:14px;transition:background .15s,border-color .15s}
 .a .core-card:hover{background:var(--cardh);border-color:var(--bdh)}
 .a .core-card button:not(.core-open){position:relative;z-index:1}
@@ -9,7 +9,18 @@
 .a .core-open{padding:0;border:0;background:none;color:var(--tx);font:inherit;font-size:15px;font-weight:600;text-align:left;white-space:nowrap;cursor:pointer}
 .a .core-open::after{content:"";position:absolute;inset:0;border-radius:inherit}
 .a .core-open:focus-visible{outline:none}
-.a .core-open:focus-visible::after{outline:2px solid var(--blue);outline-offset:2px}
+.a .core-open:focus-visible::after{outline:2px solid var(--blue);outline-offset:-2px}
+
+/* The drawing behind a card: under its content, cut off by its corner. */
+.a .core-art{position:absolute;z-index:-1;right:-14px;bottom:-22px;width:118px;height:122px;pointer-events:none;opacity:.1;transition:opacity .15s}
+.a .core-card:hover .core-art{opacity:.16}
+.a .core-art.sessions{color:#7cc1ff}
+.a .core-art.gateway{color:#aeb9ff}
+.a .core-art.proxy{color:#6bcf86}
+.a .core-art.disk{color:#e89b6c;width:196px;height:202px;right:-20px;bottom:-40px}
+.a .core-art.vault{color:#67d4e6;width:132px;height:136px;right:-16px;bottom:-26px}
+[data-theme="light"] .a .core-art{opacity:.2}
+[data-theme="light"] .a .core-card:hover .core-art{opacity:.28}
 
 .a .core-head{display:flex;align-items:center;gap:10px}
 .a .core-card .core-tile{width:38px;height:38px;min-width:38px;border-radius:10px;font-size:20px}
@@ -21,7 +32,9 @@
 .a .core-row{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}
 .a .core-foot .core-row:not(:first-child){margin-top:9px}
 .a .core-row strong{font-size:16px;font-weight:600}
-.a .core-note{color:var(--mut);font-size:12.5px;font-weight:500;min-width:0}
+.a .core-note{color:var(--mut);font-size:12.5px;font-weight:500;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.a .core-note.icon{display:flex;align-items:center;gap:5px}
+.a .core-hint{color:var(--mut);font-size:12px}
 .a .core-note.good{color:var(--green)}
 .a .core-note.warn{color:var(--amber)}
 
@@ -29,7 +42,8 @@
 .a .core-stat strong{font-size:26px;font-weight:600;line-height:1.15;color:var(--tx)}
 .a .core-stat strong.accent{color:var(--acc-tx)}
 .a .core-stat strong.orange{color:#e89b6c}
-.a .core-stat.small strong{font-size:16px}
+.a .core-stat.tiny strong{font-size:18px}
+.a .core-stat.tiny{white-space:nowrap}
 
 /* 智能体: two rows tall, on the same warm ground the app uses for its lead cards. */
 .a .core-card.core-hero{grid-row:span 2;padding:16px;background:linear-gradient(105deg,rgba(245,130,31,.13),rgba(245,130,31,.03));border-color:rgba(245,130,31,.28)}
@@ -70,25 +84,32 @@
 .a .core-chips{display:flex;gap:4px;flex-wrap:wrap}
 .a .core-chips span{height:22px;padding:0 6px;display:flex;align-items:center;border-radius:6px;background:var(--ov);color:var(--mut);font-size:11.5px}
 .a .core-chips span.on{background:rgba(107,207,134,.12);color:var(--green)}
-
-/* 密钥保管 */
-.a .core-lockline{height:22px;display:flex;align-items:center;gap:6px;color:var(--mut);font-size:12px}
+.a .core-chips.teal{margin-top:6px}
+.a .core-chips.teal span{background:rgba(103,212,230,.12);color:#67d4e6}
+.a .core-chips.teal span.warn{background:rgba(228,180,80,.14);color:var(--amber)}
+[data-theme="light"] .a .core-chips.teal span:not(.warn){color:#0f7f8c}
 
 /* 磁盘清理: title and button on the left, the disks on the right. */
-.a .core-card.wide{grid-column:span 2;display:grid;grid-template-columns:188px minmax(0,1fr);grid-template-rows:1fr auto;gap:0 20px}
+.a .core-card.wide{grid-column:span 2;display:grid;grid-template-columns:176px minmax(0,1fr);grid-template-rows:1fr auto;gap:0 20px}
 .a .core-card.wide .core-side{grid-column:1;grid-row:1}
 .a .core-card.wide .core-scan{grid-column:1;grid-row:2;justify-self:start}
 .a .core-card.wide .core-disks{grid-column:2;grid-row:1 / span 2}
 .a .core-card.wide .core-arrow{display:none}
-.a .core-disks{display:flex;flex-direction:column;justify-content:center;gap:11px;min-width:0}
-.a .core-disk > div:first-child{display:flex;justify-content:space-between;gap:8px;color:var(--mut);font-size:12px}
-.a .core-disk > div:first-child span:first-child{color:var(--tx);opacity:.72}
-.a .core-disk.bad > div:first-child span:last-child{color:var(--red)}
-.a .core-disk.warn > div:first-child span:last-child{color:var(--amber)}
-.a .core-meter{margin-top:5px;height:6px;border-radius:3px;overflow:hidden;background:var(--ov)}
-.a .core-meter span{display:block;height:100%;background:var(--green)}
-.a .core-disk.warn .core-meter span{background:var(--amber)}
-.a .core-disk.bad .core-meter span{background:var(--red)}
+.a .core-disks{display:flex;flex-direction:column;justify-content:center;gap:10px;min-width:0}
+.a .core-rings{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:8px;min-width:0}
+.a .core-ring{--tone:var(--green);display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0}
+.a .core-ring.warn{--tone:var(--amber)}
+.a .core-ring.bad{--tone:var(--red)}
+.a .core-ring-dial{position:relative;width:54px;height:54px;flex-shrink:0;display:flex;align-items:center;justify-content:center}
+.a .core-ring-dial svg{position:absolute;inset:0;width:100%;height:100%}
+.a .core-ring-dial circle{fill:none;stroke:var(--ovh);stroke-width:6}
+.a .core-ring-dial circle + circle{stroke:var(--tone);stroke-linecap:round}
+.a .core-ring-dial b{font-size:11.5px;font-weight:600}
+.a .core-ring-text{display:flex;flex-direction:column;align-items:center;gap:1px;min-width:0;white-space:nowrap}
+.a .core-ring-text b{font-size:12.5px;font-weight:600}
+.a .core-ring-text small{font-size:11.5px;color:var(--mut)}
+.a .core-ring.bad .core-ring-text small{color:var(--red)}
+.a .core-ring.warn .core-ring-text small{color:var(--amber)}
 
 /* What needs a hand: there only when something does. */
 .a .attention{background:var(--card);border:1px solid color-mix(in srgb,var(--amber) 30%,var(--bd));border-radius:12px;padding:0 14px;margin-bottom:2px}
@@ -118,4 +139,4 @@
 .a .eco-cell em{flex-shrink:0;height:20px;padding:0 8px;display:flex;align-items:center;border-radius:999px;font-style:normal;font-size:11px;white-space:nowrap}
 .a .eco-cell em.ok{background:rgba(107,207,134,.13);color:var(--green)}
 .a .eco-cell em.warn{background:rgba(228,180,80,.14);color:var(--amber)}
-.a .eco-cell em.idle{background:var(--ovh);color:var(--mut)}
+.a .eco-cell em.idle,.a .eco-cell em.unknown{background:var(--ovh);color:var(--mut)}

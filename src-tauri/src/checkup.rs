@@ -335,13 +335,17 @@ fn run_program_probe(
     Ok(first_output_line(&version_text).unwrap_or_else(|| "可用".into()))
 }
 
+/// Long enough for a JVM tool on a busy machine: two seconds when idle, past five while other
+/// checks and scans run beside it.
+const PROBE_TIMEOUT: Duration = Duration::from_secs(20);
+
 fn run_command_probe(
     display_name: &str,
     candidates: &[&str],
     args: &[&str],
 ) -> Result<(String, String), String> {
     let program = resolve_command(candidates).ok_or_else(|| "未找到命令".to_string())?;
-    let version = run_program_probe(display_name, &program, args, Duration::from_secs(5))?;
+    let version = run_program_probe(display_name, &program, args, PROBE_TIMEOUT)?;
     Ok((version, program.to_string_lossy().into_owned()))
 }
 
@@ -771,14 +775,30 @@ fn coding_ecosystem_check_impl() -> CodingEcosystemCheck {
     let command_row = |id: &str, label: &str, kind: &str| {
         let check = command(id);
         let available = check.is_some_and(|item| item.status == "ok");
+        // A command that did not answer in time is there; it just could not be read.
+        let slow = !available && check.is_some_and(|item| item.message.contains("响应超时"));
         EcosystemSnapshot {
             id: id.to_string(),
             label: label.to_string(),
             kind: kind.to_string(),
-            status: if available { "ok" } else { "missing" }.to_string(),
+            status: if available {
+                "ok"
+            } else if slow {
+                "unknown"
+            } else {
+                "missing"
+            }
+            .to_string(),
             summary: check
                 .and_then(|item| item.version.clone())
-                .unwrap_or_else(|| "未检测到可用版本".to_string()),
+                .unwrap_or_else(|| {
+                    if slow {
+                        "检测超时，稍后再看"
+                    } else {
+                        "未检测到可用版本"
+                    }
+                    .to_string()
+                }),
             detail: if available {
                 "命令可用".to_string()
             } else {

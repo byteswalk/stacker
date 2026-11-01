@@ -19,5 +19,7 @@ describe("ecosystem panel", () => {
     expect(ecoTone({ status: "ok" }, true)).toBe("warn");
     expect(ecoTone({ status: "missing" }, false)).toBe("idle");
     expect(ecoTone({ status: "ok" }, false)).toBe("ok");
+    // Did not answer in time: not the same as not being there.
+    expect(ecoTone({ status: "unknown" }, false)).toBe("unknown");
   });
 });
