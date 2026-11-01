@@ -1332,6 +1332,7 @@ Object.assign(CURATED_EN, {
   "等待 {name} {action}程序时发生系统错误": "A system error occurred while waiting for the {name} {action} program",
   "可移植": "portable",
   "未知": "Unknown",
+  "有新版本 {version}": "Version {version} available",
   "响应超时": "timed out",
   "检测超时，稍后再看": "Timed out, check again later",
   "{size} 可清理": "{size} reclaimable",

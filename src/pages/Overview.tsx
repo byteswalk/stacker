@@ -250,6 +250,8 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
   const ecoIssues = ecosystems.filter((item) => item.status === "warn" && !extra.some((e) => e.page === item.id));
   const issueCount = extra.length + ecoIssues.length;
 
+  const latestOf = (item: EcosystemSnapshot) => notices.ecosystemUpdates.find((update) => update.id === item.id)?.latest;
+
   function sourceOf(item: EcosystemSnapshot) {
     if (item.id === "java") {
       const vendor = (localStorage.getItem(JAVA_VENDOR_STORAGE) || "temurin") as keyof typeof JAVA_VENDOR_SOURCES;
@@ -465,7 +467,7 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
 
       <div className="grouphd" style={{ marginTop: 12 }}>
         <span className="gt"><i className="ti ti-stack-2" /> 编程生态
-          {ecosystem && <EcoTally tones={ecosystems.map((item) => ecoTone(item, hasIssue(item)))} />}
+          {ecosystem && <EcoTally tones={ecosystems.map((item) => ecoTone(item, hasIssue(item)))} updates={ecosystems.filter((item) => latestOf(item)).length} />}
         </span>
         <div className="ghr">
           <button className="gh sm" disabled={sourceBusy || !offOfficial.length} onClick={() => setConfirmOfficial(true)}
@@ -484,7 +486,7 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
         message={<>{translateText("将把下面 {count} 项改回官方源，现有配置会自动备份：").replace("{count}", String(offOfficial.length))}<br />{offOfficial.map((tool) => tool.name).join("、")}<br />没有代理时官方源可能较慢，可以随时再用「智能优选源」换回镜像。</>}
         onClose={() => setConfirmOfficial(false)}
         onConfirm={() => { setConfirmOfficial(false); void restoreOfficial(); }} />}
-      {ecosystem && <EcoPanel items={ecosystems} toneOf={(item) => ecoTone(item, hasIssue(item))} sourceOf={sourceOf} onOpen={goto} />}
+      {ecosystem && <EcoPanel items={ecosystems} toneOf={(item) => ecoTone(item, hasIssue(item))} sourceOf={sourceOf} latestOf={latestOf} onOpen={goto} />}
     </>
   );
 }

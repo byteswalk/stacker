@@ -123,20 +123,36 @@
 .a .attention-row .fixrow-ops{flex-shrink:0}
 
 /* 编程生态 */
-.a .eco-tally{margin-left:5px;color:var(--mut);font-size:12.5px;font-weight:400}
+.a .eco-tally{display:inline-flex;align-items:center;gap:4px;margin-left:6px;color:var(--mut);font-size:12.5px;font-weight:400}
 .a .eco-tally b{font-weight:600}
 .a .eco-tally b.ok{color:var(--green)}
 .a .eco-tally b.warn{color:var(--amber)}
+.a .eco-tally b.update{color:var(--acc-tx)}
+.a .eco-health{display:inline-flex;gap:2px;margin-right:6px}
+.a .eco-health i{width:12px;height:5px;border-radius:2px;background:var(--ovh)}
+.a .eco-health i.ok{background:var(--green)}
+.a .eco-health i.warn{background:var(--amber)}
 .a .eco-panel{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));background:var(--card);border:1px solid var(--bd);border-radius:14px;overflow:hidden}
-.a .eco-cell{box-sizing:border-box;height:62px;padding:0 14px;display:flex;align-items:center;gap:10px;min-width:0;border:0;background:none;color:var(--tx);font:inherit;text-align:left;cursor:pointer;transition:background .15s}
-.a .eco-cell:hover{background:var(--cardh)}
+.a .eco-cell{position:relative;isolation:isolate;overflow:hidden;box-sizing:border-box;height:70px;padding:0 14px;display:flex;align-items:center;gap:11px;min-width:0;border:0;background:none;color:var(--tx);font:inherit;text-align:left;cursor:pointer;transition:background .15s}
+.a .eco-cell:hover{background:color-mix(in srgb,var(--eco) 7%,transparent)}
 .a .eco-cell:nth-child(n+4){border-top:1px solid var(--bd)}
 .a .eco-cell:not(:nth-child(3n+1)){border-left:1px solid var(--bd)}
-.a .eco-cell .av{width:34px;height:34px;min-width:34px;font-size:19px}
-.a .eco-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
-.a .eco-text b{font-size:13.5px;font-weight:600}
-.a .eco-text small{font-size:12px;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.a .eco-cell em{flex-shrink:0;height:20px;padding:0 8px;display:flex;align-items:center;border-radius:999px;font-style:normal;font-size:11px;white-space:nowrap}
-.a .eco-cell em.ok{background:rgba(107,207,134,.13);color:var(--green)}
-.a .eco-cell em.warn{background:rgba(228,180,80,.14);color:var(--amber)}
-.a .eco-cell em.idle,.a .eco-cell em.unknown{background:var(--ovh);color:var(--mut)}
+.a .eco-mark{position:absolute;z-index:-1;right:-6px;top:50%;transform:translateY(-50%) rotate(-8deg);color:var(--eco);font-size:66px;opacity:.06;pointer-events:none;transition:opacity .15s,transform .15s}
+.a .eco-cell:hover .eco-mark{opacity:.13;transform:translateY(-50%) rotate(-8deg) scale(1.06)}
+.a .eco-cell.idle .eco-mark{opacity:.03}
+.a .eco-cell .av{width:38px;height:38px;min-width:38px;border-radius:10px;font-size:21px}
+.a .eco-cell.idle .av{opacity:.55}
+.a .eco-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px}
+.a .eco-name{display:flex;align-items:baseline;gap:7px;min-width:0}
+.a .eco-name b{font-size:13.5px;font-weight:600;white-space:nowrap}
+.a .eco-name small{min-width:0;font-size:11px;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.a .eco-line{display:flex;align-items:center;gap:8px;min-width:0;font-size:12px;color:var(--mut)}
+.a .eco-line code{flex-shrink:0;padding:1px 6px;border-radius:5px;background:var(--ovh);color:var(--tx);font-family:var(--font-mono);font-size:11.5px}
+.a .eco-source{display:flex;align-items:center;gap:3px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.a .eco-source i{font-size:13px;opacity:.75}
+.a .eco-cell em{flex-shrink:0;display:flex;align-items:center;gap:5px;font-style:normal;font-size:11.5px;white-space:nowrap}
+.a .eco-cell em > i:empty{width:6px;height:6px;border-radius:50%;background:currentColor}
+.a .eco-cell em.ok{color:var(--green)}
+.a .eco-cell em.warn{color:var(--amber)}
+.a .eco-cell em.idle,.a .eco-cell em.unknown{color:var(--mut)}
+.a .eco-cell em.update{height:20px;padding:0 7px;gap:2px;border-radius:999px;background:var(--acc-soft);color:var(--acc-tx);font-family:var(--font-mono);font-size:11px}

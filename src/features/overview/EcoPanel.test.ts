@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ecoLine, ecoTone, ecoVersion } from "./EcoPanel";
+import { ecoManager, ecoSource, ecoTone, ecoVersion } from "./EcoPanel";
 
 describe("ecosystem panel", () => {
   it("finds the version in a tool's own words", () => {
@@ -10,9 +10,15 @@ describe("ecosystem panel", () => {
   });
 
   it("names the source only when it is known", () => {
-    expect(ecoLine({ status: "ok", summary: "git version 2.56.0" }, "官方")).toBe("2.56.0 · 官方");
-    expect(ecoLine({ status: "ok", summary: "git version 2.56.0" }, "未识别")).toBe("2.56.0");
-    expect(ecoLine({ status: "missing", summary: "未检测到可用版本" }, "—")).toBe("未检测到可用版本");
+    expect(ecoSource("官方")).toBe("官方");
+    expect(ecoSource("未识别")).toBeNull();
+    expect(ecoSource("—")).toBeNull();
+  });
+
+  it("names the version manager when the summary has one", () => {
+    expect(ecoManager("pyenv 3.1.1 · Python 3.13.16")).toBe("pyenv 3.1.1");
+    expect(ecoManager("rustup 1.29.1 (d95a37b6a 2026-08-01) · Rust 1.99.0")).toBe("rustup 1.29.1");
+    expect(ecoManager("git version 2.56.0")).toBeNull();
   });
 
   it("lets a checkup item override what the ecosystem says of itself", () => {
