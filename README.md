@@ -33,11 +33,11 @@ Stacker manages that local layer without requiring a model connection or uploadi
 
 ## Product Tour
 
-### Programming Ecosystem Check
+### Environment Overview
 
-Run an on-demand check of the commands, runtimes, package managers, build tools, proxy configuration, and developer caches that are actually effective on the workstation.
+The home page Stacker opens on: agents, session data, the API service, proxy, disks and the key vault at a glance, each one click from what it does. It checks commands, runtimes, package managers, build tools and caches by itself, and only speaks up when something needs attention.
 
-![Stacker programming ecosystem check](assets/screenshots/environment-check.png)
+![Stacker environment overview](assets/screenshots/environment-check.png)
 
 ### Agent Install & Update
 

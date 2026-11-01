@@ -1,17 +1,17 @@
 {
-    "version":  "0.3.4",
-    "released_at":  "2026-10-10T10:30:18+08:00",
-    "release_url":  "https://github.com/byteswalk/stacker/releases/tag/v0.3.4",
-    "installer_url":  "https://github.com/byteswalk/stacker/releases/download/v0.3.4/Stacker-0.3.4-setup-windows-x64.exe",
-    "installer_sha256":  "fe05eaa9409423727a76ca069a9deb5cf2673220c37dbbad3adec7a0e61faf04",
+    "version":  "0.3.5",
+    "released_at":  "2026-11-01T09:37:22+08:00",
+    "release_url":  "https://github.com/byteswalk/stacker/releases/tag/v0.3.5",
+    "installer_url":  "https://github.com/byteswalk/stacker/releases/download/v0.3.5/Stacker-0.3.5-setup-windows-x64.exe",
+    "installer_sha256":  "342d9e123d57f7388857d64b52858dda6fe5330dfd5173fbd6f5a89ea8bff00f",
     "notes":  [
-                  "The agent catalog now covers 22 products, from Claude Code and Codex to Grok Build, GitHub Copilot, Cursor, Factory, Kiro, MiniMax Code, Xiaomi MiMo and Agnes Code; installs, updates, uninstalls and repairs run as background tasks.",
-                  "Session data reads Codex, Claude, CodeBuddy, WorkBuddy, Qoder, Kimi Code, MiMo Code and the desktop apps, with summaries, project handoffs, transfer to another computer and moving data folders.",
-                  "An API service offers signed-in agent CLIs to your tools through OpenAI- and Anthropic-style endpoints, with images, PDF, streaming and an optional LAN switch.",
-                  "A local encrypted key vault for API keys, tokens, SSH keys and website logins.",
-                  "Disk cleanup adds a space map, duplicate files, compression of large files and whole-project removal.",
-                  "The browser extension manages ChatGPT, Claude, Gemini, Grok and DeepSeek web chats and syncs them into Stacker.",
-                  "Updates are signed and verified before they install, and a full review fixed many safety and reliability issues."
+                  "A new home page, Environment Overview: every launch opens on entry cards for agents, session data, the API service, proxy, disk cleanup and the key vault, each with live numbers and its main action.",
+                  "The checkup score is gone: the page checks by itself and only speaks up when something needs attention, with fixes and AI diagnosis right there.",
+                  "Programming ecosystems show version, version manager, download source, state and pending updates in one panel.",
+                  "A failed install or update can be handed to your own coding agent in a terminal with the failure explained; WinGet and the official installer stand in for each other, and WinINet is one click away when WinGet downloads crawl.",
+                  "AI now reads backups, Git failures, the app log and session footprint items.",
+                  "The window appears only once its first screen is drawn, the vault\u0027s unlock wait counts down, recovery keys can be saved to a file, and Settings lists where Stacker keeps everything.",
+                  "Stacker now ships as the setup installer only; portable packages ended with v0.3.4."
               ],
-    "installer_signature":  "untrusted comment: Stacker release\nRURFeBheM9RE7lnrvft/47FYzngU6hRrwL3UG/zZ/IuQTDbCfM6w9O3I/1j40I9mQ7OnCLEZAV3gnX0S7MJdM136S6XmIbnzmAk=\ntrusted comment: Stacker-0.3.4-setup-windows-x64.exe\nuokPwsAtQ+JVsQ9uUr8bMqD6cb49NRLmBX7uOx7PcFxMFD1/e5Y89f3y3Wkh/7Ww5u9Ajc4tuyHYfeciLE+9BQ=="
+    "installer_signature":  "untrusted comment: Stacker release\nRURFeBheM9RE7g6ILzSZGBYa2/TCSpoDJ3gVhA+PNDH9RU6ekZs8Ut7MPVWcNSpCzrWfazvzCt2O6eZiVNu535OiGZm8r304jgI=\ntrusted comment: Stacker-0.3.5-setup-windows-x64.exe\nkw7Ed2RptCR39B39XgxpXf9ZPQ9gIj6wCj8UmZlV00HMqBXORgKmNEyghDye+wm2Y1Zllm743lbHAtWWff5EBA=="
 }

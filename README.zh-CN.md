@@ -37,11 +37,11 @@ Stacker 管理的正是这一层，并且不要求接入大模型，也不会上
 
 ## 功能预览
 
-### 编程生态体检
+### 环境总览
 
-按需检查当前工作站真正生效的命令、运行时、包管理器、构建工具、代理设置和开发缓存。
+打开就是首页：智能体、会话数据、接口服务、网络代理、磁盘和密钥一屏看全，点一下就能进入或直接操作。命令、运行时、包管理器、构建工具和缓存自动检查，有问题才提醒。
 
-![Stacker 编程生态体检](assets/screenshots/zh-CN/environment-check.png)
+![Stacker 环境总览](assets/screenshots/zh-CN/environment-check.png)
 
 ### 智能体安装更新
 
