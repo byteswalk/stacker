@@ -405,7 +405,9 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
     <>
       <CoreEntries onOpen={goto} onScan={() => openDetail("cleanup")} cleanable={notices.cleanupBytes} />
 
-      {issueCount > 0 && <div className="attention">
+      {/* One light round the whole block while anything in it is being fixed: a row clips its own. */}
+      {issueCount > 0 && <div className={"attention" + (extra.some((e) => rowBusy[`extra:${e.id}`]) ? " trace-card" : "")}>
+        {extra.some((e) => rowBusy[`extra:${e.id}`]) && <span className="border-runner" aria-hidden="true" />}
         <div className="attention-head">
           <i className="ti ti-alert-triangle" aria-hidden="true" />
           {translateText("{count} 项需要处理").replace("{count}", String(issueCount))}
@@ -417,8 +419,7 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
         {extra.map((e) => {
           const fixer = extraFixer(e.id);
           const directBusy = !!rowBusy[`extra:${e.id}`];
-          return <div className={"attention-row" + (directBusy ? " trace-card" : "")} key={e.id}>
-            {directBusy && <span className="border-runner" aria-hidden="true" />}
+          return <div className="attention-row" key={e.id}>
             <span className={"fdot " + e.sev} />
             <b>{e.title}</b>
             <small title={e.desc}>{e.desc}</small>

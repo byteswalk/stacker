@@ -483,8 +483,13 @@ pub(crate) fn cli_source(spec: &ToolSpec, method: Option<&str>) -> CliSource {
     if let (Some("winget"), Some(id)) = (method, spec.cli.winget_id) {
         return CliSource::Winget(id);
     }
+    // Google publishes each CLI release to WinGet, so the listing is the public version
+    // however it was installed: the official installer puts the same build in `agy\bin`.
     if spec.vendor == Vendor::Antigravity {
-        return CliSource::None;
+        return spec
+            .cli
+            .winget_id
+            .map_or(CliSource::None, CliSource::Winget);
     }
     if spec.vendor == Vendor::Hermes {
         return CliSource::HermesRepo;
@@ -1671,8 +1676,17 @@ url: https://filecdn.minimax.chat/public/minimax-agent/release
     #[test]
     fn products_that_only_update_themselves_have_no_version_source() {
         // For these the card must say "no public source", not echo the installed version.
-        for (id, method) in [("antigravity", None), ("claude", Some("native"))] {
-            assert_eq!(cli_source(&spec(id), method), CliSource::None, "{id}");
+        assert_eq!(cli_source(&spec("claude"), Some("native")), CliSource::None);
+    }
+
+    #[test]
+    fn the_antigravity_cli_is_read_from_its_winget_listing_however_it_was_installed() {
+        for method in [None, Some("native"), Some("winget")] {
+            assert_eq!(
+                cli_source(&spec("antigravity"), method),
+                CliSource::Winget("Google.AntigravityCLI"),
+                "{method:?}"
+            );
         }
     }
 

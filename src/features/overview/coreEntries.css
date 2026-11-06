@@ -112,7 +112,7 @@
 .a .core-ring.warn .core-ring-text small{color:var(--amber)}
 
 /* What needs a hand: there only when something does. */
-.a .attention{background:var(--card);border:1px solid color-mix(in srgb,var(--amber) 30%,var(--bd));border-radius:12px;padding:0 14px;margin-bottom:2px}
+.a .attention{--trace-radius:12px;background:var(--card);border:1px solid color-mix(in srgb,var(--amber) 30%,var(--bd));border-radius:12px;padding:0 14px;margin-bottom:2px}
 .a .attention-head{min-height:44px;display:flex;align-items:center;gap:9px;font-size:13px;font-weight:600}
 .a .attention-head > i{color:var(--amber);font-size:16px}
 .a .attention-acts{margin-left:auto;display:flex;align-items:center;gap:8px}

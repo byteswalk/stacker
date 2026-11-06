@@ -518,7 +518,7 @@ button{ font-family:inherit; }
 .a .trace-card.bad{ --trace:var(--red); }
 .a .border-runner{
   position:absolute; left:0; top:0; width:72px; height:2px; z-index:2; pointer-events:none;
-  offset-path:inset(0 round var(--trace-radius,14px)); offset-distance:0%; offset-rotate:auto;
+  offset-path:inset(2px round calc(var(--trace-radius,14px) - 2px)); offset-distance:0%; offset-rotate:auto;
   transform:translate(-36px,-1px);
   background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),var(--trace),rgba(255,255,255,.55),transparent);
   border-radius:999px;
