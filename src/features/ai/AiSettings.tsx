@@ -50,7 +50,7 @@ export function AiSettings() {
   const { tr } = useI18n();
   const toast = useToast();
   const [view, setView] = useState<AiView | null>(null);
-  const [cards, setCards] = useState<AgentCard[]>([]);
+  const [cards, setCards] = useState<AgentCard[] | null>(null);
   const [key, setKey] = useState("");
   const [busy, setBusy] = useState(false);
   const [test, setTest] = useState<{ ok: boolean; text: string } | null>(null);
@@ -65,11 +65,15 @@ export function AiSettings() {
   if (!view) return null;
 
   // Every name the API service answers to, the agent's own default first.
-  const usable = cards.filter((card) => card.supported && card.installed);
-  const localOptions = usable.flatMap((card) => [
-    { value: card.id, label: `${card.name} · ${tr("默认模型")}` },
-    ...card.models.map((model) => ({ value: model.call, label: `${card.name} · ${model.label}` })),
-  ]);
+  // Reading the agents takes several seconds; until then the saved choice still shows.
+  const reading = cards === null;
+  const usable = (cards ?? []).filter((card) => card.supported && card.installed);
+  const localOptions = reading
+    ? (view.localModel ? [{ value: view.localModel, label: view.localModel }] : [])
+    : usable.flatMap((card) => [
+      { value: card.id, label: `${card.name} · ${tr("默认模型")}` },
+      ...card.models.map((model) => ({ value: model.call, label: `${card.name} · ${model.label}` })),
+    ]);
 
   async function save(next: AiView, withKey = key, clearKey = false): Promise<boolean> {
     setBusy(true);
@@ -123,11 +127,13 @@ export function AiSettings() {
       <span className="av st"><i className="ti ti-robot" /></span>
       <div className="mt">
         <div className="t">{tr("本机模型")}</div>
-        <div className="s dim">{localOptions.length
+        <div className="s dim">{reading
+          ? tr("正在读取这台电脑上的智能体…")
+          : localOptions.length
           ? tr("用这台机器上已登录的智能体，不走网络接口，也不需要打开接口服务。")
           : tr("这台电脑上还没有可用的智能体：请先在「安装更新」中安装并登录，或改用外部 API。")}</div>
       </div>
-      <Select value={view.localModel} width={260} disabled={!localOptions.length}
+      <Select value={view.localModel} width={260} disabled={reading || !localOptions.length}
         onChange={(v) => update({ localModel: v })}
         options={[{ value: "", label: tr("请选择") }, ...localOptions]} />
     </div>}
