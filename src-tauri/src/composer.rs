@@ -155,7 +155,7 @@ fn composer_install_impl(window: tauri::Window) -> Result<ComposerStatus, String
     ));
     let target = bin.join("composer.phar");
     let entry = bin.join("composer.bat");
-    let agent = ureq::AgentBuilder::new()
+    let agent = crate::agents::net::http()
         .timeout_connect(Duration::from_secs(30))
         .timeout_read(Duration::from_secs(30))
         .timeout_write(Duration::from_secs(30))

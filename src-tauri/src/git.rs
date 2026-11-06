@@ -1535,7 +1535,7 @@ fn api_post(
     platform: &str,
     body: &str,
 ) -> Result<ureq::Response, String> {
-    let agent = ureq::AgentBuilder::new()
+    let agent = crate::agents::net::http()
         .timeout_connect(Duration::from_secs(15))
         .timeout(Duration::from_secs(60))
         .build();
@@ -1867,7 +1867,7 @@ fn verify_platform_token(platform: &str, token: &str) -> Result<PlatformUser, St
     } else {
         format!("token {token}")
     };
-    let agent = ureq::AgentBuilder::new()
+    let agent = crate::agents::net::http()
         .timeout_connect(Duration::from_secs(30))
         .timeout_read(Duration::from_secs(30))
         .timeout_write(Duration::from_secs(30))
@@ -2120,7 +2120,7 @@ fn latest_git_release(current: String, source_id: &str) -> Result<GitUpdateInfo,
 }
 
 fn git_release_agent() -> ureq::Agent {
-    ureq::AgentBuilder::new()
+    crate::agents::net::http()
         .timeout_connect(Duration::from_secs(30))
         .timeout_read(Duration::from_secs(30))
         .timeout_write(Duration::from_secs(30))
@@ -2674,7 +2674,7 @@ fn download_git_installer(
         "stacker-git-{safe_version}-{}-setup.exe",
         chrono::Local::now().timestamp_millis()
     ));
-    let agent = ureq::AgentBuilder::new()
+    let agent = crate::agents::net::http()
         .timeout_connect(Duration::from_secs(30))
         .timeout_read(Duration::from_secs(30))
         .timeout_write(Duration::from_secs(30))

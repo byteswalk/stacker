@@ -27,6 +27,17 @@ pub(crate) fn stacker_proxy() -> Option<String> {
     )
 }
 
+/// An HTTP client builder for Stacker's own requests: version lists, update checks and
+/// downloads go through the same proxy the agent downloads use, so a source that is only
+/// reachable through the proxy (go.dev, the GitHub API) works the way the browser does.
+pub(crate) fn http() -> ureq::AgentBuilder {
+    let builder = ureq::AgentBuilder::new();
+    match stacker_proxy().and_then(|proxy| ureq::Proxy::new(proxy).ok()) {
+        Some(proxy) => builder.proxy(proxy),
+        None => builder,
+    }
+}
+
 pub(crate) fn proxy_env(proxy: &str) -> [(&'static str, String); 4] {
     [
         ("HTTP_PROXY", proxy.to_string()),

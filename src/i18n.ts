@@ -1332,6 +1332,8 @@ Object.assign(CURATED_EN, {
   "等待 {name} {action}程序时发生系统错误": "A system error occurred while waiting for the {name} {action} program",
   "可移植": "portable",
   "未知": "Unknown",
+  "pyenv versions 未完成": "pyenv versions did not finish",
+  "读取中断": "Reading was interrupted",
   "读取 Antigravity CLI 官方发布清单失败：{e}": "Could not read the official Antigravity CLI release manifest: {e}",
   "Antigravity CLI 官方发布清单格式不对": "The official Antigravity CLI release manifest is malformed",
   "已下载过这个版本，校验通过，直接使用": "This version was downloaded before and checks out; using it",

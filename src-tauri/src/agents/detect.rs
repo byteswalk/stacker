@@ -566,7 +566,7 @@ pub(crate) fn cursor_build(text: &str) -> Option<String> {
 }
 
 pub(crate) fn fetch_text(url: &str) -> Result<String, String> {
-    ureq::AgentBuilder::new()
+    crate::agents::net::http()
         .timeout_connect(Duration::from_secs(4))
         .timeout_read(Duration::from_secs(8))
         .build()
@@ -592,7 +592,7 @@ pub(crate) fn kiro_latest() -> Result<String, String> {
 
 /// Latest MiMo Code release published on Xiaomi's CDN (plain text, e.g. `v0.1.14`).
 pub(crate) fn mimo_latest() -> Result<String, String> {
-    let agent = ureq::AgentBuilder::new()
+    let agent = crate::agents::net::http()
         .timeout_connect(Duration::from_secs(4))
         .timeout_read(Duration::from_secs(8))
         .build();
@@ -752,7 +752,7 @@ fn usable_winget_version(listed: Option<String>) -> Result<String, String> {
 }
 
 fn kimi_work_latest() -> Result<String, String> {
-    let agent = ureq::AgentBuilder::new()
+    let agent = crate::agents::net::http()
         .timeout_connect(Duration::from_secs(5))
         .timeout_read(Duration::from_secs(5))
         .redirects(3)

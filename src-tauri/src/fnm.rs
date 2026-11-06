@@ -87,7 +87,7 @@ fn node_has_windows_zip(e: &NodeIndexEntry) -> bool {
 
 fn node_versions_from_source(lts_only: bool, source: &str) -> Result<Vec<String>, String> {
     let url = node_index_url(source)?;
-    let agent = ureq::AgentBuilder::new()
+    let agent = crate::agents::net::http()
         .timeout_connect(Duration::from_secs(30))
         .timeout_read(Duration::from_secs(30))
         .timeout_write(Duration::from_secs(30))
@@ -700,7 +700,7 @@ pub struct NodeSourcePing {
 }
 
 fn agent_with_timeout(timeout: Duration) -> ureq::Agent {
-    ureq::AgentBuilder::new()
+    crate::agents::net::http()
         .timeout_connect(timeout)
         .timeout_read(timeout)
         .timeout_write(timeout)

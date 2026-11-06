@@ -292,7 +292,7 @@ fn version_cmp_desc(a: &str, b: &str) -> std::cmp::Ordering {
 }
 
 fn release_versions_from_github() -> Result<Vec<String>, String> {
-    let agent = ureq::AgentBuilder::new()
+    let agent = crate::agents::net::http()
         .timeout_connect(Duration::from_millis(2500))
         .timeout_read(Duration::from_millis(2500))
         .timeout_write(Duration::from_millis(2500))
@@ -338,7 +338,7 @@ fn manifest_url(base: &str, version: &str) -> String {
 }
 
 fn manifest_exists(base: &str, version: &str) -> bool {
-    let agent = ureq::AgentBuilder::new()
+    let agent = crate::agents::net::http()
         .timeout_connect(Duration::from_millis(1500))
         .timeout_read(Duration::from_millis(1500))
         .timeout_write(Duration::from_millis(1500))
@@ -647,7 +647,7 @@ fn install_self_impl(window: &tauri::Window, source_url: Option<String>) -> Resu
         chrono::Local::now().timestamp_millis()
     ));
     let url = rustup_init_url(source_url.clone());
-    let agent = ureq::AgentBuilder::new()
+    let agent = crate::agents::net::http()
         .timeout_connect(Duration::from_secs(STALL_TIMEOUT_SECS))
         .timeout_read(Duration::from_secs(STALL_TIMEOUT_SECS))
         .timeout_write(Duration::from_secs(STALL_TIMEOUT_SECS))

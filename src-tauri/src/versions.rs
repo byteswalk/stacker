@@ -3,15 +3,19 @@
 
 use std::time::Duration;
 
-fn agent() -> ureq::Agent {
-    ureq::AgentBuilder::new()
+fn agent(timeout: Duration) -> ureq::Agent {
+    crate::agents::net::http()
         .timeout_connect(Duration::from_secs(8))
-        .timeout(Duration::from_secs(15))
+        .timeout(timeout)
         .build()
 }
 
 fn fetch(url: &str) -> Result<String, String> {
-    agent()
+    fetch_with(url, Duration::from_secs(15))
+}
+
+fn fetch_with(url: &str, timeout: Duration) -> Result<String, String> {
+    agent(timeout)
         .get(url)
         .set("User-Agent", "Stacker")
         .call()
@@ -126,10 +130,25 @@ pub async fn maven_versions(
         )
         .ok_or("Maven 下载源地址无效")?;
         let mut vs: Vec<String> = Vec::new();
-
-        for track in ["maven-4", "maven-3", "maven-2"] {
-            let url = format!("{base}/{track}/");
-            let Ok(body) = fetch(&url) else { continue };
+        // archive.apache.org can take over 20 s to list a folder, so the three folders are
+        // read at the same time and each gets a longer wait than the usual listing.
+        let listings: Vec<Result<String, String>> = ["maven-4", "maven-3", "maven-2"]
+            .map(|track| {
+                let url = format!("{base}/{track}/");
+                std::thread::spawn(move || fetch_with(&url, Duration::from_secs(45)))
+            })
+            .into_iter()
+            .map(|reader| reader.join().unwrap_or_else(|_| Err("读取中断".into())))
+            .collect();
+        let mut failure = None;
+        for listing in listings {
+            let body = match listing {
+                Ok(body) => body,
+                Err(error) => {
+                    failure = Some(error);
+                    continue;
+                }
+            };
             for name in hrefs(&body) {
                 if !name.contains('/')
                     && name.contains('.')
@@ -143,7 +162,10 @@ pub async fn maven_versions(
         vs.dedup();
         vs.truncate(160);
         if vs.is_empty() {
-            Err("未解析到 Maven 版本".into())
+            Err(match failure {
+                Some(error) => format!("未解析到 Maven 版本：{error}"),
+                None => "未解析到 Maven 版本".into(),
+            })
         } else {
             Ok(vs)
         }

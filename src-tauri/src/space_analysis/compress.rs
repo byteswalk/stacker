@@ -279,7 +279,7 @@ pub async fn space_media_tools(refresh: Option<bool>) -> Result<MediaTools, Stri
 /// site publishes, and unpacks it into Stacker's tools folder.
 pub fn install_ffmpeg(mut progress: impl FnMut(String)) -> Result<MediaTools, String> {
     crate::installer::op_reset();
-    let agent = ureq::AgentBuilder::new()
+    let agent = crate::agents::net::http()
         .timeout_connect(Duration::from_secs(30))
         .timeout_read(Duration::from_secs(30))
         .build();

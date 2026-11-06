@@ -823,7 +823,7 @@ fn python_versions_from_source(
 ) -> Result<Vec<String>, String> {
     let mirror = python_runtime_mirror(source).ok_or("未知 Python 下载源")?;
     let url = python_versions_index_url(source)?;
-    let body = ureq::AgentBuilder::new()
+    let body = crate::agents::net::http()
         .timeout_connect(Duration::from_secs(30))
         .timeout_read(Duration::from_secs(30))
         .timeout_write(Duration::from_secs(30))
@@ -923,7 +923,7 @@ fn preseed_python(
         });
     }
 
-    let agent = ureq::AgentBuilder::new()
+    let agent = crate::agents::net::http()
         .timeout_connect(Duration::from_secs(30))
         .timeout_read(Duration::from_secs(30))
         .timeout_write(Duration::from_secs(30))
@@ -988,7 +988,7 @@ fn download_file_to_cache(
         std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
     let partial = dest.with_extension("part");
-    let agent = ureq::AgentBuilder::new()
+    let agent = crate::agents::net::http()
         .timeout_connect(Duration::from_secs(30))
         .timeout_read(Duration::from_secs(30))
         .timeout_write(Duration::from_secs(30))
@@ -2450,7 +2450,7 @@ fn pyenv_wheel_url(source: &str) -> Result<String, String> {
     let spec = python_runtime_mirror(source).ok_or("未知 pyenv-win 下载源")?;
     let simple = pyenv_pypi_simple(source)
         .ok_or_else(|| format!("{} 未配置 pyenv-win PyPI 镜像地址", spec.name))?;
-    let body = ureq::AgentBuilder::new()
+    let body = crate::agents::net::http()
         .timeout_connect(Duration::from_secs(30))
         .timeout_read(Duration::from_secs(30))
         .timeout_write(Duration::from_secs(30))
@@ -2492,7 +2492,7 @@ pub struct PyenvSourcePing {
 }
 
 fn agent_with_timeout(timeout: Duration) -> ureq::Agent {
-    ureq::AgentBuilder::new()
+    crate::agents::net::http()
         .timeout_connect(timeout)
         .timeout_read(timeout)
         .timeout_write(timeout)

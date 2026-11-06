@@ -479,7 +479,7 @@ pub(crate) fn install_or_update_kiro_cli(
         chrono::Local::now().timestamp_millis()
     ));
     let log = msi.with_extension("log");
-    let agent = ureq::AgentBuilder::new()
+    let agent = crate::agents::net::http()
         .timeout_connect(Duration::from_secs(30))
         .timeout_read(Duration::from_secs(60))
         .build();

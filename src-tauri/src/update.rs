@@ -274,7 +274,7 @@ fn fetch_first(urls: &[String]) -> Result<(String, String), String> {
 }
 
 fn agent() -> ureq::Agent {
-    ureq::AgentBuilder::new()
+    crate::agents::net::http()
         .timeout_connect(Duration::from_secs(8))
         .timeout(Duration::from_secs(30))
         .build()
@@ -476,7 +476,7 @@ pub async fn app_download_update(
     let download_url = url.trim().to_string();
     let download_target = target.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let agent = ureq::AgentBuilder::new()
+        let agent = crate::agents::net::http()
             .timeout_connect(Duration::from_secs(30))
             .timeout_read(Duration::from_secs(30))
             .timeout_write(Duration::from_secs(30))

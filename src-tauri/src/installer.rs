@@ -1604,7 +1604,7 @@ pub fn download_impl_candidates(
     log::info!(
         "runtime download started: sources={source_hosts:?} destination={dest_dir} strip_top={strip_top}"
     );
-    let agent = ureq::AgentBuilder::new()
+    let agent = crate::agents::net::http()
         .timeout_connect(Duration::from_secs(DOWNLOAD_STALL_TIMEOUT_SECS))
         .timeout_read(Duration::from_secs(DOWNLOAD_STALL_TIMEOUT_SECS))
         .timeout_write(Duration::from_secs(DOWNLOAD_STALL_TIMEOUT_SECS))

@@ -37,7 +37,7 @@ fn ver_key(name: &str) -> Vec<u64> {
 /// arch: "x64"（64 位）或 "x32"（32 位，仅 8/11/17 有）。
 fn resolve_impl(major: &str, arch: &str) -> Result<JdkAsset, String> {
     let dir = format!("{BASE}/{major}/jdk/{arch}/windows/");
-    let agent = ureq::AgentBuilder::new()
+    let agent = crate::agents::net::http()
         .timeout_connect(Duration::from_secs(8))
         .timeout(Duration::from_secs(20))
         .build();
@@ -92,7 +92,7 @@ pub async fn jdk_resolve(major: String, arch: String) -> Result<JdkAsset, String
 
 // ── 阿里 Dragonwell：从 release 元数据解析 Windows x64 资产，实际下载走官方 OSS 镜像 ──
 fn agent() -> ureq::Agent {
-    ureq::AgentBuilder::new()
+    crate::agents::net::http()
         .timeout_connect(Duration::from_secs(8))
         .timeout(Duration::from_secs(20))
         .build()
