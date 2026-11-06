@@ -168,7 +168,7 @@ impl InstallLog {
     }
 
     fn absorb_sidecar(&self, path: &Path, failed: bool) -> String {
-        let text = std::fs::read_to_string(path).unwrap_or_default();
+        let text = crate::installer::read_installer_log(path);
         let _ = std::fs::remove_file(path);
         let excerpt = crate::installer::diagnostic_excerpt(&text);
         if !excerpt.is_empty() {
@@ -1595,11 +1595,19 @@ fn extract_msi_to_python_dir(
             ));
         }
         Err(e) => {
+            // The installer's log, read before absorbing removes it, says why.
+            let reason = crate::installer::msi_failure_reason(
+                &crate::installer::read_installer_log(&msiexec_log),
+            );
             log.absorb_sidecar(&msiexec_log, true);
             log.line(format!(
-                "msiexec extract failed label={label} elapsed_ms={} err={e}",
-                started.elapsed().as_millis()
+                "msiexec extract failed label={label} elapsed_ms={} err={e} reason={}",
+                started.elapsed().as_millis(),
+                reason.as_deref().unwrap_or("-")
             ));
+            if let Some(reason) = reason {
+                return Err(format!("{label} 解包失败：{reason}"));
+            }
         }
     }
     result

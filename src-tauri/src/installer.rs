@@ -15,6 +15,59 @@ const DOWNLOAD_STALL_TIMEOUT_SECS: u64 = 30;
 const PROCESS_LONG_HINT_SECS: u64 = 180;
 const DOWNLOAD_ATTEMPTS_PER_SOURCE: usize = 2;
 
+/// An installer's own log as text. msiexec writes UTF-16 with a byte-order mark; read as UTF-8
+/// that comes out empty, and the one place saying why an install failed is lost.
+pub(crate) fn read_installer_log(path: &Path) -> String {
+    let Ok(bytes) = fs::read(path) else {
+        return String::new();
+    };
+    let utf16 = |rest: &[u8], le: bool| {
+        let units: Vec<u16> = rest
+            .chunks_exact(2)
+            .map(|pair| {
+                if le {
+                    u16::from_le_bytes([pair[0], pair[1]])
+                } else {
+                    u16::from_be_bytes([pair[0], pair[1]])
+                }
+            })
+            .collect();
+        String::from_utf16_lossy(&units)
+    };
+    match bytes.as_slice() {
+        [0xFF, 0xFE, rest @ ..] => utf16(rest, true),
+        [0xFE, 0xFF, rest @ ..] => utf16(rest, false),
+        [0xEF, 0xBB, 0xBF, rest @ ..] => String::from_utf8_lossy(rest).into_owned(),
+        other => String::from_utf8_lossy(other).into_owned(),
+    }
+}
+
+/// What a Windows Installer log says went wrong: its numbered error, else the action that
+/// returned failure. `None` when the log says nothing of either.
+pub(crate) fn msi_failure_reason(log: &str) -> Option<String> {
+    let lines: Vec<&str> = log
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect();
+    // "Error 1310. ..." / "错误 1310。..." carries the reason in words.
+    let numbered = lines.iter().find(|line| {
+        let rest = line
+            .strip_prefix("Error ")
+            .or_else(|| line.strip_prefix("错误 "))
+            .unwrap_or("");
+        rest.len() > 4 && rest.as_bytes()[..4].iter().all(u8::is_ascii_digit)
+    });
+    if let Some(line) = numbered {
+        return Some(line.chars().take(300).collect());
+    }
+    // Otherwise the action that failed: "Action ended ...: InstallFiles. Return value 3."
+    lines
+        .iter()
+        .find(|line| line.contains("Return value 3"))
+        .map(|line| line.chars().take(300).collect())
+}
+
 pub(crate) fn diagnostic_excerpt(text: &str) -> String {
     const MAX_CHARS: usize = 128 * 1024;
     let trimmed = text.trim();
@@ -1685,5 +1738,38 @@ mod tests {
             .expect_err("two truncated transfers should fail");
         assert!(error.contains("文件不完整") || error.contains("连接中断"));
         assert!(!failed.exists());
+    }
+}
+
+#[cfg(test)]
+mod installer_log_tests {
+    use super::{msi_failure_reason, read_installer_log};
+
+    #[test]
+    fn an_msiexec_log_in_utf16_is_read_and_its_error_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("msi.log");
+        let text = "MSI (s) (B8:94): Note: 1: 2205\r\n\
+                    Error 1310. Error writing to file: C:/x/python.exe.\r\n\
+                    Action ended 05:53:29: InstallFiles. Return value 3.\r\n";
+        let mut bytes = vec![0xFF, 0xFE];
+        bytes.extend(text.encode_utf16().flat_map(u16::to_le_bytes));
+        std::fs::write(&path, bytes).unwrap();
+
+        let read = read_installer_log(&path);
+        assert!(read.contains("Error 1310"));
+        assert_eq!(
+            msi_failure_reason(&read).as_deref(),
+            Some("Error 1310. Error writing to file: C:/x/python.exe.")
+        );
+        // With no numbered error, the failed action stands in.
+        assert_eq!(
+            msi_failure_reason("Action ended 1: InstallFiles. Return value 3.").as_deref(),
+            Some("Action ended 1: InstallFiles. Return value 3.")
+        );
+        assert_eq!(msi_failure_reason("Note: 1: 2205"), None);
+        // A plain UTF-8 log reads as it is.
+        std::fs::write(&path, "plain text").unwrap();
+        assert_eq!(read_installer_log(&path), "plain text");
     }
 }

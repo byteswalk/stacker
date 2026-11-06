@@ -203,7 +203,17 @@ pub async fn git_install(
     close_in_use: Option<bool>,
 ) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        install_git_impl(window, &source_id, close_in_use.unwrap_or(false))
+        let result = install_git_impl(window, &source_id, close_in_use.unwrap_or(false));
+        // Every failure on the way (the version lookup, the download, the signature, the
+        // elevation, the installer) is said here, so the log shows where an update stopped.
+        match &result {
+            Ok(message) => log::info!(target: "stacker::git_install", "{message}"),
+            Err(error) => log::error!(
+                target: "stacker::git_install",
+                "Git install or update failed (source {source_id}): {error}"
+            ),
+        }
+        result
     })
     .await
     .map_err(|e| e.to_string())?
@@ -2460,6 +2470,10 @@ fn install_git_impl(
         );
         let installer_log = git_installer_temp_log_path(&release.latest)?;
         let install_result = run_git_installer(&window, &installer, system_install, &installer_log);
+        log::info!(
+            target: "stacker::git_install",
+            "Git installer finished: elevated={system_install} result={install_result:?}"
+        );
         absorb_git_installer_log(&installer_log, install_result.is_err());
         if install_result.is_err() {
             // Something may have started using Git while the installer ran.
@@ -2600,7 +2614,7 @@ fn git_installer_temp_log_path(version: &str) -> Result<PathBuf, String> {
 }
 
 fn absorb_git_installer_log(path: &Path, failed: bool) {
-    let text = std::fs::read_to_string(path).unwrap_or_default();
+    let text = crate::installer::read_installer_log(path);
     let _ = std::fs::remove_file(path);
     let excerpt = crate::installer::diagnostic_excerpt(&text);
     if excerpt.is_empty() {
@@ -2677,11 +2691,14 @@ fn verify_authenticode_signature(path: &Path) -> Result<String, String> {
         "$s=Get-AuthenticodeSignature -LiteralPath '{escaped}'; $subject=if($s.SignerCertificate){{$s.SignerCertificate.Subject}}else{{''}}; Write-Output ($s.Status.ToString()+'|'+$subject)"
     );
     let encoded = crate::installer::powershell_encoded_command(&script);
+    // Windows may check the certificate's revocation online, which behind a slow proxy takes
+    // far longer than reading the signature itself.
     let output = run_output(
         Path::new("powershell.exe"),
         &["-NoProfile", "-EncodedCommand", &encoded],
-        Duration::from_secs(20),
-    )?;
+        Duration::from_secs(60),
+    )
+    .map_err(|error| format!("校验 Git 安装程序签名时出错：{error}"))?;
     let text = output_text(&output);
     let Some(subject) = text.strip_prefix("Valid|") else {
         let detail = if text.is_empty() {
