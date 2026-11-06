@@ -96,7 +96,7 @@
 .a .core-card.wide .core-disks{grid-column:2;grid-row:1 / span 2}
 .a .core-card.wide .core-arrow{display:none}
 .a .core-disks{display:flex;flex-direction:column;justify-content:center;gap:10px;min-width:0}
-.a .core-rings{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:8px;min-width:0}
+.a .core-rings{display:grid;grid-auto-flow:column;grid-auto-columns:84px;justify-content:space-around;gap:8px;min-width:0}
 .a .core-ring{--tone:var(--green);display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0}
 .a .core-ring.warn{--tone:var(--amber)}
 .a .core-ring.bad{--tone:var(--red)}

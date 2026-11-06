@@ -38,7 +38,8 @@ const failed = new Set<keyof Seen>();
 
 const GB = 1024 ** 3;
 const MAX_LOGOS = 19;
-const MAX_RINGS = 3;
+/** The room one disk's ring and its two lines take, gap included. */
+const RING_SLOT = 92;
 const RING_RADIUS = 24;
 const PROBE_URL = "https://api.openai.com";
 const GATEWAY_ERRORS: Record<string, string> = { E_PORT: "端口被占用或无效（需 1024–65535），请换一个端口。" };
@@ -136,8 +137,8 @@ export function rankedVolumes(volumes: VolumeInfo[]) {
 }
 
 /** The disks the card has room for: the tightest ones, shown in drive-letter order. */
-export function ringVolumes(disks: ReturnType<typeof rankedVolumes>) {
-  return disks.slice(0, MAX_RINGS).sort((a, b) => a.root.localeCompare(b.root));
+export function ringVolumes(disks: ReturnType<typeof rankedVolumes>, room = 3) {
+  return disks.slice(0, Math.max(1, room)).sort((a, b) => a.root.localeCompare(b.root));
 }
 
 /** How much of a ring is drawn, as an SVG dash: the drawn part, then the rest of the circle. */
@@ -324,7 +325,23 @@ function DiskRing({ disk }: { disk: ReturnType<typeof rankedVolumes>[number] }) 
   </div>;
 }
 
+/** How many rings fit the width the card gives them: a wide window shows every disk it can. */
+function useRingRoom() {
+  const [box, setBox] = useState<HTMLDivElement | null>(null);
+  const [room, setRoom] = useState(3);
+  useEffect(() => {
+    if (!box) return;
+    const measure = () => setRoom(Math.max(1, Math.floor((box.clientWidth + 8) / RING_SLOT)));
+    measure();
+    const watch = new ResizeObserver(measure);
+    watch.observe(box);
+    return () => watch.disconnect();
+  }, [box]);
+  return [setBox, room] as const;
+}
+
 function DiskEntry({ onOpen, onScan, cleanable }: { onOpen: (page: Page) => void; onScan: () => void; cleanable: number }) {
+  const [ringBox, room] = useRingRoom();
   const { tr: t } = useI18n();
   const disks = rankedVolumes(seen.disks ?? []);
   const free = disks.reduce((sum, disk) => sum + disk.free, 0);
@@ -336,7 +353,7 @@ function DiskEntry({ onOpen, onScan, cleanable }: { onOpen: (page: Page) => void
         : disks.length > 0
           ? <div className="core-stat"><strong>{formatBytes(free)}</strong><span>{t("全部磁盘剩余")}</span></div>
           : <div className="core-stat"><span>{t(failed.has("disks") ? "无法读取本机磁盘" : "正在读取…")}</span></div>}
-      <div className="core-rings">{ringVolumes(disks).map((disk) => <DiskRing key={disk.root} disk={disk} />)}</div>
+      <div className="core-rings" ref={ringBox}>{ringVolumes(disks, room).map((disk) => <DiskRing key={disk.root} disk={disk} />)}</div>
     </div>
   </Entry>;
 }

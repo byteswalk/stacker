@@ -61,8 +61,12 @@ describe("core entries", () => {
 
   it("keeps the tightest disks and lists them by drive letter", () => {
     const disk = (root: string, free: number) => ({ root: `${root}:\\`, totalBytes: 500 * GB, freeBytes: free * GB, fixed: true });
-    const rings = ringVolumes(rankedVolumes([disk("K", 1), disk("C", 300), disk("F", 5), disk("D", 400), disk("E", 450)]));
-    expect(rings.map((item) => item.root)).toEqual(["C:", "F:", "K:"]);
+    const ranked = rankedVolumes([disk("K", 1), disk("C", 300), disk("F", 5), disk("D", 400), disk("E", 450)]);
+    expect(ringVolumes(ranked).map((item) => item.root)).toEqual(["C:", "F:", "K:"]);
+    // A wider card shows more of them, still the fullest first and in letter order.
+    expect(ringVolumes(ranked, 4).map((item) => item.root)).toEqual(["C:", "D:", "F:", "K:"]);
+    expect(ringVolumes(ranked, 9)).toHaveLength(5);
+    expect(ringVolumes(ranked, 0)).toHaveLength(1);
   });
 
   it("draws a ring in proportion, never past a full turn", () => {
