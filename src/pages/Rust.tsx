@@ -167,18 +167,18 @@ export default function Rust() {
   async function updateToolchains() {
     try {
       await runBusy({
-        title: "检查 Rust 工具链更新",
-        message: `正在通过「${sourceName(source)}」检查已安装工具链的更新；stable、beta、nightly 等渠道工具链可能会升级，固定版本通常不会变更。`,
+        title: "更新 Rust 工具链",
+        message: `正在通过「${sourceName(source)}」更新已安装的工具链；stable、beta、nightly 等渠道工具链会升级到最新，固定版本不变。`,
         progressEvent: "install-progress",
         cancel: { label: "取消", onCancel: () => { invoke("op_cancel").catch(() => {}); } },
       }, async () => {
         await invoke("rustup_update", { sourceUrl });
         await load();
       });
-      toast("Rust 工具链检查完成", "ok");
+      toast("Rust 工具链已是最新", "ok");
       void notices.checkNow("rust-tool-update").catch(() => undefined);
     } catch (e) {
-      toast(operationWasCancelled(e) ? "已取消检查 Rust 工具链更新" : "检查 Rust 工具链更新失败：" + e, operationWasCancelled(e) ? "info" : "err");
+      toast(operationWasCancelled(e) ? "已取消更新 Rust 工具链" : "更新 Rust 工具链失败：" + e, operationWasCancelled(e) ? "info" : "err");
     }
   }
 
@@ -386,7 +386,7 @@ export default function Rust() {
           <div className="ghr">
             <button className="gh xs" onClick={async () => { try { await load(); toast("Rust 状态已刷新", "ok"); } catch (e) { toast("刷新 Rust 状态失败。请稍后重试。原因：" + e, "err"); } }}><i className="ti ti-refresh" /> 刷新状态</button>
             <button className="gh xs" title="检查 rustup 管理器本身的更新" onClick={updateRustupManager}><i className="ti ti-tool" /> 管理器更新</button>
-            <button className="gh xs" title="检查 stable、beta、nightly 等渠道工具链更新；固定版本通常不会升级到新版本。" onClick={updateToolchains}><i className="ti ti-cloud-download" /> 检查更新</button>
+            <button className="gh xs" title="运行 rustup update：stable、beta、nightly 等渠道工具链升级到最新，固定版本不变。" onClick={updateToolchains}><i className="ti ti-cloud-download" /> 更新工具链</button>
             <button className="gh xs" onClick={openAddons}><i className="ti ti-components" /> 组件与目标</button>
             <button className="pr sm" onClick={openInstall}><i className="ti ti-plus" /> 安装工具链</button>
           </div>
