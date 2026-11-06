@@ -2297,6 +2297,14 @@ const EN = { ...GENERATED_EN, ...CURATED_EN };
 const EN_PHRASES = Object.keys(EN)
   .filter((value) => CHINESE_TEXT.test(value))
   .sort((left, right) => right.length - left.length);
+/**
+ * A one-character phrase (个, 项, 中…) stands for a word only on its own: "3 项" is "3 items",
+ * but the 中 of 中文 is not "Medium". It is replaced only with no Chinese character beside it.
+ */
+const LONE_CHARACTER = new Map(
+  EN_PHRASES.filter((value) => value.length === 1)
+    .map((value) => [value, new RegExp(`(?<![\u3400-\u9fff])${value}(?![\u3400-\u9fff])`, "gu")]),
+);
 
 export type MessageKey = keyof typeof messages[typeof DEFAULT_LOCALE];
 
@@ -2338,7 +2346,9 @@ export function translateText(value: string, locale = getLocale()): string {
 
   let translated = core;
   for (const source of EN_PHRASES) {
-    if (translated.includes(source)) translated = translated.split(source).join(EN[source]);
+    if (!translated.includes(source)) continue;
+    const lone = LONE_CHARACTER.get(source);
+    translated = lone ? translated.replace(lone, EN[source]) : translated.split(source).join(EN[source]);
   }
   return leading + polishEnglish(translated) + trailing;
 }

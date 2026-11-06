@@ -7,6 +7,13 @@ describe("internationalization", () => {
     expect(normalizeLocale("en-GB")).toBe("en-US");
   });
 
+  it("replaces a one-character word only when it stands alone", () => {
+    // The 中 of 中文 is not "Medium".
+    expect(translateText("中文 / English", "en-US")).toBe("中文 / English");
+    expect(translateText("中", "en-US")).toBe("Medium");
+    expect(translateText("共 3 项", "en-US")).not.toMatch(/[㐀-鿿]/);
+  });
+
   it("keeps source text in Chinese mode", () => {
     expect(translateText("环境总览", "zh-CN")).toBe("环境总览");
   });

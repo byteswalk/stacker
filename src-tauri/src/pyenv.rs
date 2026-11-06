@@ -73,9 +73,53 @@ fn parse_pyenv_global_output(output: &str) -> Option<String> {
 }
 
 fn pyenv_global_version() -> Option<String> {
+    if let Some(global) = pyenv_root().and_then(|root| global_from_file(&root)) {
+        return global;
+    }
     run_pyenv(&["global"])
         .ok()
         .and_then(|output| parse_pyenv_global_output(&output))
+}
+
+// pyenv-win answers `--version`, `global` and `versions --bare` from three files, and takes a
+// second or two to start each time; Stacker reads the same files itself. `None` from these
+// means the file could not be read, and the script is asked instead.
+
+/// `pyenv global`: the non-empty lines of `<root>ersion`, or no global version without it.
+fn global_from_file(root: &str) -> Option<Option<String>> {
+    let path = Path::new(root).join("version");
+    if !path.exists() {
+        return Some(None);
+    }
+    let text = std::fs::read_to_string(path).ok()?;
+    let lines: Vec<&str> = text.lines().filter(|line| !line.is_empty()).collect();
+    Some(parse_pyenv_global_output(&lines.join(
+        "
+",
+    )))
+}
+
+/// `pyenv --version`: "pyenv " and the first line of the `.version` file beside the root.
+fn release_from_file(root: &str) -> Option<String> {
+    let text = std::fs::read_to_string(Path::new(root).join("..").join(".version")).ok()?;
+    let release = text.lines().next()?.trim();
+    (!release.is_empty()).then(|| format!("pyenv {release}"))
+}
+
+/// `pyenv versions --bare`: the folders under `versions`, in the order Windows lists them.
+fn versions_from_dir(root: &str) -> Option<Vec<String>> {
+    let dir = Path::new(root).join("versions");
+    if !dir.exists() {
+        return Some(Vec::new());
+    }
+    let mut names: Vec<String> = std::fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort_by_key(|name| name.to_uppercase());
+    Some(names)
 }
 
 fn pyenv_global_version_at(root: &str) -> Option<String> {
@@ -245,14 +289,38 @@ pub async fn pyenv_status() -> PyenvStatus {
         .unwrap_or_default()
 }
 fn pyenv_status_impl() -> PyenvStatus {
-    let pyenv_version = run_pyenv(&["--version"]).ok().map(|s| s.trim().to_string());
+    // Read from pyenv-win's own files when they are there. Otherwise its script is run; each
+    // run starts cmd and takes a second or two, so the three questions go side by side.
+    let from_files = pyenv_root().and_then(|root| {
+        Some((
+            Some(release_from_file(&root)?),
+            global_from_file(&root)?,
+            Ok::<_, String>(versions_from_dir(&root)?.join(
+                "
+",
+            )),
+        ))
+    });
+    let (pyenv_version, global, list) = from_files.unwrap_or_else(|| {
+        std::thread::scope(|scope| {
+            let version =
+                scope.spawn(|| run_pyenv(&["--version"]).ok().map(|s| s.trim().to_string()));
+            let global = scope.spawn(pyenv_global_version);
+            let list = scope.spawn(|| run_pyenv(&["versions", "--bare"]));
+            (
+                version.join().unwrap_or(None),
+                global.join().unwrap_or(None),
+                list.join()
+                    .unwrap_or_else(|_| Err("pyenv versions 未完成".into())),
+            )
+        })
+    });
     let installed = pyenv_version.is_some();
     let mut versions = Vec::new();
     let mut default = None;
     if installed {
-        let global = pyenv_global_version();
         default = global.clone();
-        if let Ok(list) = run_pyenv(&["versions", "--bare"]) {
+        if let Ok(list) = list {
             let root_path = pyenv_root().map(PathBuf::from);
             for line in list.lines() {
                 let v = line.trim().to_string();
@@ -2589,4 +2657,44 @@ fn finish_pyenv_self_install(window: tauri::Window, root: &Path) -> Result<(), S
     crate::winenv::prepend_path_in(crate::winenv::Hive::User, &format!("{base}bin"))?;
     let _ = window.emit("install-progress", "正在检测 pyenv 安装状态…".to_string());
     Ok(())
+}
+
+#[cfg(test)]
+mod file_status_tests {
+    use super::{global_from_file, release_from_file, versions_from_dir};
+
+    #[test]
+    fn pyenv_win_s_own_files_answer_as_its_script_does() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("pyenv-win");
+        std::fs::create_dir_all(root.join("versions").join("3.12.10")).unwrap();
+        std::fs::create_dir_all(root.join("versions").join("3.10.11")).unwrap();
+        std::fs::write(root.join("versions").join("stray.txt"), b"").unwrap();
+        std::fs::write(
+            dir.path().join(".version"),
+            "3.1.1
+",
+        )
+        .unwrap();
+        let root = format!("{}\\", root.display());
+
+        assert_eq!(release_from_file(&root).as_deref(), Some("pyenv 3.1.1"));
+        assert_eq!(versions_from_dir(&root).unwrap(), ["3.10.11", "3.12.10"]);
+        // No version file: no global version, as `pyenv global` says.
+        assert_eq!(global_from_file(&root), Some(None));
+        std::fs::write(
+            format!("{root}version"),
+            "3.12.10
+",
+        )
+        .unwrap();
+        assert_eq!(global_from_file(&root), Some(Some("3.12.10".into())));
+        std::fs::write(
+            format!("{root}version"),
+            "system
+",
+        )
+        .unwrap();
+        assert_eq!(global_from_file(&root), Some(None));
+    }
 }

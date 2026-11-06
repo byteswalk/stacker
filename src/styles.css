@@ -728,6 +728,9 @@ button{ font-family:inherit; }
   .a .git-migration-arrow{ min-height:24px; transform:rotate(90deg); }
 }
 
+/* Longer English labels need the row to wrap at any width. */
+.a .terminal-bar{ flex-wrap:wrap; row-gap:8px; }
+
 @media (max-width:1180px){
   .a .terminal-bar{ flex-wrap:wrap; align-content:center; }
   .a .terminal-bar .shells{ margin-left:0 !important; flex:1 1 360px; flex-wrap:wrap; }
