@@ -2457,6 +2457,12 @@ fn install_git_impl(
     );
     let installer = download_git_installer(&window, &release)?;
     let result = (|| {
+        crate::installer::wait_until_free(&installer, Duration::from_secs(90), || {
+            let _ = window.emit(
+                "install-progress",
+                "安全软件正在检查刚下载的安装程序，稍等…",
+            );
+        })?;
         let signer = verify_authenticode_signature(&installer)?;
         let _ = window.emit("install-progress", format!("安装程序签名有效 · {signer}"));
         let system_install = git_install_requires_elevation(&before);
@@ -2687,8 +2693,10 @@ fn download_git_installer(
 
 fn verify_authenticode_signature(path: &Path) -> Result<String, String> {
     let escaped = path.to_string_lossy().replace('\'', "''");
+    // A file that cannot be read is not a bad signature: that case answers `ERR|`, and the
+    // progress records PowerShell writes on first use are kept out of the answer.
     let script = format!(
-        "$s=Get-AuthenticodeSignature -LiteralPath '{escaped}'; $subject=if($s.SignerCertificate){{$s.SignerCertificate.Subject}}else{{''}}; Write-Output ($s.Status.ToString()+'|'+$subject)"
+        "$ProgressPreference='SilentlyContinue'; try {{ $s=Get-AuthenticodeSignature -LiteralPath '{escaped}' -ErrorAction Stop; $subject=if($s.SignerCertificate){{$s.SignerCertificate.Subject}}else{{''}}; Write-Output ($s.Status.ToString()+'|'+$subject) }} catch {{ Write-Output ('ERR|'+$_.Exception.Message) }}"
     );
     let encoded = crate::installer::powershell_encoded_command(&script);
     // Windows may check the certificate's revocation online, which behind a slow proxy takes
@@ -2700,6 +2708,12 @@ fn verify_authenticode_signature(path: &Path) -> Result<String, String> {
     )
     .map_err(|error| format!("校验 Git 安装程序签名时出错：{error}"))?;
     let text = output_text(&output);
+    if let Some(reason) = text
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("ERR|"))
+    {
+        return Err(format!("无法读取 Git 安装程序的签名：{}", reason.trim()));
+    }
     let Some(subject) = text.strip_prefix("Valid|") else {
         let detail = if text.is_empty() {
             String::new()

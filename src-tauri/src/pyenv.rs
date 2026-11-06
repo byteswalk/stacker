@@ -1560,6 +1560,15 @@ fn extract_msi_to_python_dir(
     }
     let target = version_dir.to_string_lossy().to_string();
     let msi_arg = msi.to_string_lossy().to_string();
+    // A component just downloaded may still be in a virus scanner's hands; msiexec started
+    // meanwhile cannot open it and answers 1603.
+    crate::installer::wait_until_free(msi, Duration::from_secs(90), || {
+        log.line(format!(
+            "msiexec waits: {} is held by another program",
+            msi.display()
+        ));
+        let _ = window.emit("install-progress", "安全软件正在检查刚下载的安装包，稍等…");
+    })?;
     let msiexec_log = log.sidecar(&format!("msiexec-{label}"));
     let msiexec_log_arg = msiexec_log.to_string_lossy().to_string();
     let args = [

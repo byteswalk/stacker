@@ -15,6 +15,60 @@ const DOWNLOAD_STALL_TIMEOUT_SECS: u64 = 30;
 const PROCESS_LONG_HINT_SECS: u64 = 180;
 const DOWNLOAD_ATTEMPTS_PER_SOURCE: usize = 2;
 
+/// Waits until no other program holds a file Stacker just downloaded. A virus scanner reads a
+/// new installer for seconds after it lands, and an installer, msiexec or a signature check
+/// started meanwhile cannot open it and fails with a misleading error. `waiting` is called
+/// once, the first time the file turns out to be held.
+pub(crate) fn wait_until_free(
+    path: &Path,
+    limit: Duration,
+    waiting: impl FnOnce(),
+) -> Result<(), String> {
+    let started = Instant::now();
+    let mut waiting = Some(waiting);
+    loop {
+        match open_exclusive(path) {
+            Ok(()) => return Ok(()),
+            Err(error) if is_sharing_violation(&error) => {
+                if let Some(say) = waiting.take() {
+                    say();
+                }
+                if started.elapsed() >= limit {
+                    let name = path
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                    return Err(format!(
+                        "{name} 一直被其他程序占用（常见于安全软件正在检查刚下载的文件），请稍后重试"
+                    ));
+                }
+                std::thread::sleep(Duration::from_millis(500));
+            }
+            Err(error) => return Err(format!("无法打开 {}：{error}", path.display())),
+        }
+    }
+}
+
+#[cfg(windows)]
+fn open_exclusive(path: &Path) -> std::io::Result<()> {
+    use std::os::windows::fs::OpenOptionsExt;
+    fs::OpenOptions::new()
+        .read(true)
+        .share_mode(0)
+        .open(path)
+        .map(drop)
+}
+
+#[cfg(not(windows))]
+fn open_exclusive(path: &Path) -> std::io::Result<()> {
+    fs::File::open(path).map(drop)
+}
+
+/// ERROR_SHARING_VIOLATION or ERROR_LOCK_VIOLATION: someone else has the file open.
+fn is_sharing_violation(error: &std::io::Error) -> bool {
+    matches!(error.raw_os_error(), Some(32 | 33))
+}
+
 /// An installer's own log as text. msiexec writes UTF-16 with a byte-order mark; read as UTF-8
 /// that comes out empty, and the one place saying why an install failed is lost.
 pub(crate) fn read_installer_log(path: &Path) -> String {
@@ -1743,7 +1797,45 @@ mod tests {
 
 #[cfg(test)]
 mod installer_log_tests {
-    use super::{msi_failure_reason, read_installer_log};
+    use super::{msi_failure_reason, read_installer_log, wait_until_free};
+    use std::time::Duration;
+
+    #[cfg(windows)]
+    #[test]
+    fn a_file_held_by_another_program_is_waited_for_then_used() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("setup.exe");
+        std::fs::write(&path, b"MZ").unwrap();
+        // Held the way a scanner holds a new file, let go after a moment.
+        let held = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&path)
+            .unwrap();
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(1200));
+            drop(held);
+        });
+        let mut told = 0;
+        wait_until_free(&path, Duration::from_secs(10), || told += 1).unwrap();
+        release.join().unwrap();
+        assert_eq!(told, 1);
+
+        // Never let go: it gives up with a reason instead of waiting forever.
+        let _held = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&path)
+            .unwrap();
+        let error = wait_until_free(&path, Duration::from_millis(600), || {}).unwrap_err();
+        assert!(error.contains("setup.exe"), "{error}");
+        // A free file passes at once and nobody is told.
+        drop(_held);
+        let mut told = 0;
+        wait_until_free(&path, Duration::from_secs(1), || told += 1).unwrap();
+        assert_eq!(told, 0);
+    }
 
     #[test]
     fn an_msiexec_log_in_utf16_is_read_and_its_error_found() {
