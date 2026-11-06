@@ -87,7 +87,7 @@ export function VaultWorkspace({ onLocked }: { onLocked: () => void }) {
         {tab === "entries" && <button className="gh sm" title="在保管库里生成一把新的 SSH 密钥，公钥交给服务器" onClick={() => setGenerating(true)}><i className="ti ti-key" /> 生成 SSH 密钥</button>}
         {tab === "entries" && <button className="pr sm" onClick={() => setEditing("new")}><i className="ti ti-plus" /> 新建</button>}
         <button className="gh sm" onClick={() => void lock()}><i className="ti ti-lock" /> 锁定</button>
-        <VaultMenu onChanged={() => void load()} />
+        <VaultMenu onChanged={() => void load()} onSwitched={onLocked} />
       </div>
 
       {tab === "discover" ? <DiscoverPanel onImported={() => void load()} /> : (

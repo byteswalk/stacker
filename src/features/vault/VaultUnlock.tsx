@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ConfirmModal, useToast } from "../../ui";
 import { vaultApi, vaultError, type VaultStatus } from "./api";
 import { emptyKey, keyComplete, keyText, RecoveryKeyInput } from "./RecoveryKeyInput";
+import { VaultSwitch } from "./VaultSwitch";
 
 /** The seconds left of a wait the backend reported, counting down; `onDone` runs at zero. */
 function useCountdown(seconds: number, onDone: () => void): number {
@@ -29,6 +30,7 @@ export function VaultUnlock({ status, onChanged }: { status: VaultStatus; onChan
   const [keyFile, setKeyFile] = useState<string | null>(null);
   useEffect(() => { vaultApi.recoveryFile().then(setKeyFile).catch(() => undefined); }, []);
   const [mode, setMode] = useState<"password" | "recovery">("password");
+  const [switching, setSwitching] = useState(false);
   const [value, setValue] = useState("");
   const [groups, setGroups] = useState(emptyKey);
   const [busy, setBusy] = useState(false);
@@ -72,8 +74,10 @@ export function VaultUnlock({ status, onChanged }: { status: VaultStatus; onChan
         <button className="vault-link" onClick={() => { setMode(mode === "password" ? "recovery" : "password"); setValue(""); setGroups(emptyKey()); }}>
           {mode === "password" ? "使用恢复密钥" : "使用主密码"}
         </button>
+        <button className="vault-link" onClick={() => setSwitching(true)}>打开其他保管库</button>
         <button className="vault-link" onClick={() => setResetting(true)}>无法解锁？</button>
       </div>
+      {switching && <VaultSwitch onClose={() => setSwitching(false)} onSwitched={() => { setSwitching(false); onChanged(); }} />}
       {resetting && (
         <ConfirmModal title="重置保管库" danger confirmLabel="重置"
           message="现有保管库不会删除，只是改名留在原文件夹里，然后让你新建一个空保管库。重置后的页面会列出这个旧文件：想起主密码或恢复密钥时，可以把它恢复使用，或导入到新保管库。"

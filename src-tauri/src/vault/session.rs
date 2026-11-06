@@ -817,6 +817,42 @@ impl Vault {
         std::fs::write(&self.path, &bytes).map_err(|_| IO.to_string())
     }
 
+    /// Puts another vault file in this one's place. The current vault is set aside under an
+    /// `.old` name, as a reset does, so switching back is the same move; the chosen vault comes
+    /// in locked, to be opened with its own password or recovery key. Returns where the current
+    /// one went, or nothing when there was none.
+    pub(crate) fn switch_to(&self, src: &Path) -> Result<Option<String>, String> {
+        if comparable(src) == comparable(&self.path) {
+            return Err(SAME_VAULT.into());
+        }
+        // Read and checked before anything moves: a file that is not a vault changes nothing.
+        let bytes = std::fs::read(src).map_err(|error| match error.kind() {
+            std::io::ErrorKind::NotFound => MISSING.to_string(),
+            _ => IO.to_string(),
+        })?;
+        format::parse(&bytes)?;
+        let set_aside = if self.path.exists() {
+            Some(self.reset()?)
+        } else {
+            self.lock();
+            None
+        };
+        if let Some(dir) = self.path.parent() {
+            std::fs::create_dir_all(dir).map_err(|_| IO.to_string())?;
+        }
+        self.shelve_orphan_backup()?;
+        if let Err(error) = std::fs::write(&self.path, &bytes) {
+            // Nothing in place: the vault that was there goes back.
+            let _ = std::fs::remove_file(&self.path);
+            if let Some(kept) = &set_aside {
+                let _ = std::fs::rename(kept, &self.path);
+            }
+            log::warn!(target: "stacker::vault", "switching vaults failed: {error}");
+            return Err(IO.into());
+        }
+        Ok(set_aside)
+    }
+
     /// The vaults earlier resets set aside next to this one, newest first.
     pub(crate) fn retired(&self) -> Vec<Retired> {
         let Some(dir) = self.path.parent() else {
@@ -1374,6 +1410,44 @@ r,http://192.168.2.1:1188/,admin,pw2
         // A key that was not saved to a file leaves no stale name behind.
         vault.remember_key_file(None);
         assert_eq!(vault.key_file(), None);
+    }
+
+    #[test]
+    fn switching_sets_the_current_vault_aside_and_puts_the_chosen_one_in_place() {
+        let dir = tempfile::tempdir().unwrap();
+        let (vault, _) = created(&dir);
+        let current = std::fs::read(&vault.path).unwrap();
+        let elsewhere = tempfile::tempdir().unwrap();
+        let (other, _) = created(&elsewhere);
+        let chosen = std::fs::read(&other.path).unwrap();
+
+        let kept = vault.switch_to(&other.path).unwrap().unwrap();
+        assert_eq!(std::fs::read(&vault.path).unwrap(), chosen);
+        assert_eq!(std::fs::read(&kept).unwrap(), current);
+        assert_eq!(vault.status().state, "locked");
+        // The chosen file stays where it was.
+        assert_eq!(std::fs::read(&other.path).unwrap(), chosen);
+        vault.unlock(PW).unwrap();
+
+        // Switching back is the same move, from the list of vaults set aside.
+        assert!(vault.retired().iter().any(|item| item.path == kept));
+        vault.switch_to(Path::new(&kept)).unwrap();
+        assert_eq!(std::fs::read(&vault.path).unwrap(), current);
+    }
+
+    #[test]
+    fn switching_to_something_that_is_not_another_vault_changes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let (vault, _) = created(&dir);
+        let current = std::fs::read(&vault.path).unwrap();
+        let junk = dir.path().join("junk.skv");
+        std::fs::write(&junk, b"not a vault").unwrap();
+
+        assert!(vault.switch_to(&junk).is_err());
+        assert_eq!(vault.switch_to(&vault.path).unwrap_err(), SAME_VAULT);
+        assert_eq!(std::fs::read(&vault.path).unwrap(), current);
+        assert!(vault.retired().is_empty());
+        assert_eq!(vault.status().state, "unlocked");
     }
 
     #[test]

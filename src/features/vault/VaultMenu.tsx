@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { useI18n } from "../../i18n";
 import { Modal, useToast } from "../../ui";
@@ -12,6 +13,7 @@ import { TrashDialog } from "./TrashDialog";
 import { BrowserImport } from "./BrowserImport";
 import { BrowserExport } from "./BrowserExport";
 import { BrowserPasswordHelp } from "./BrowserPasswordHelp";
+import { VaultSwitch } from "./VaultSwitch";
 
 /** Every login: the export from this menu is not limited to a selection. */
 const ALL: string[] = [];
@@ -19,15 +21,54 @@ const ALL: string[] = [];
 const backupFilters = (tr: (text: string) => string) => [{ name: tr("Stacker 保管库"), extensions: ["skv"] }];
 // A vault a reset set aside ends in `.skv.old`, and is imported like any backup.
 const importFilters = (tr: (text: string) => string) => [{ name: tr("Stacker 保管库"), extensions: ["skv", "old"] }];
-type Dialog = "password" | "recovery" | "export" | "import" | "browser" | "browserExport" | "browserHelp" | "trash" | "autolock" | null;
+type Dialog = "password" | "recovery" | "export" | "import" | "switch" | "browser" | "browserExport" | "browserHelp" | "trash" | "autolock" | null;
 
 function today(): string {
   const now = new Date();
   return `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
 }
 
-export function VaultMenu({ onChanged }: { onChanged: () => void }) {
+/**
+ * Where the menu goes: under its button, held to the window rather than to the page, so no
+ * scrolling container cuts it off, and shown upward when there is no room below.
+ */
+function useMenuPlace(anchor: React.RefObject<HTMLElement | null>, open: boolean) {
+  const [place, setPlace] = useState<React.CSSProperties | null>(null);
+  useLayoutEffect(() => {
+    if (!open || !anchor.current) { setPlace(null); return; }
+    const box = anchor.current.getBoundingClientRect();
+    const right = Math.max(8, window.innerWidth - box.right);
+    const below = window.innerHeight - box.bottom - 12;
+    const above = box.top - 12;
+    setPlace(below >= 240 || below >= above
+      ? { top: box.bottom + 4, right, maxHeight: below }
+      : { bottom: window.innerHeight - box.top + 4, right, maxHeight: above });
+  }, [anchor, open]);
+  return place;
+}
+
+export function VaultMenu({ onChanged, onSwitched }: { onChanged: () => void; onSwitched: () => void }) {
   const [openMenu, setOpenMenu] = useState(false);
+  const anchor = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const place = useMenuPlace(anchor, openMenu);
+  // A click anywhere else, a scroll or a resize closes it: its place was measured once.
+  useEffect(() => {
+    if (!openMenu) return;
+    const away = (event: Event) => {
+      const target = event.target as Node;
+      if (!menuRef.current?.contains(target) && !anchor.current?.contains(target)) setOpenMenu(false);
+    };
+    const close = () => setOpenMenu(false);
+    document.addEventListener("pointerdown", away, true);
+    window.addEventListener("resize", close);
+    document.addEventListener("scroll", away, true);
+    return () => {
+      document.removeEventListener("pointerdown", away, true);
+      window.removeEventListener("resize", close);
+      document.removeEventListener("scroll", away, true);
+    };
+  }, [openMenu]);
   const [dialog, setDialog] = useState<Dialog>(null);
   const pick = (next: Dialog) => { setOpenMenu(false); setDialog(next); };
   const close = () => setDialog(null);
@@ -36,6 +77,7 @@ export function VaultMenu({ onChanged }: { onChanged: () => void }) {
     ["recovery", "ti-lifebuoy", "重置恢复密钥"],
     ["export", "ti-file-export", "导出加密备份"],
     ["import", "ti-file-import", "导入备份"],
+    ["switch", "ti-switch-horizontal", "切换保管库"],
     ["browser", "ti-world-download", "导入浏览器密码"],
     ["browserExport", "ti-world-upload", "导出为浏览器密码"],
     ["browserHelp", "ti-help-circle", "浏览器密码导入导出说明"],
@@ -43,21 +85,23 @@ export function VaultMenu({ onChanged }: { onChanged: () => void }) {
     ["autolock", "ti-clock-lock", "自动锁定"],
   ];
   return (
-    <span style={{ position: "relative" }}>
-      <button className="gh sm" title="更多" aria-expanded={openMenu} onClick={() => setOpenMenu(!openMenu)}><i className="ti ti-dots" /></button>
-      {openMenu && (
-        <div className="pxcard" role="menu" style={{ position: "absolute", right: 0, top: 32, zIndex: 20, padding: 6, minWidth: 168 }}>
+    <span>
+      <button ref={anchor} className="gh sm" title="更多" aria-label="更多" aria-haspopup="menu" aria-expanded={openMenu} onClick={() => setOpenMenu(!openMenu)}><i className="ti ti-dots" /></button>
+      {openMenu && place && createPortal(
+        <div ref={menuRef} className="pxcard vault-menu" role="menu" style={place}>
           {items.map(([id, icon, label]) => (
-            <button key={id} role="menuitem" className="gh sm" style={{ display: "flex", width: "100%", justifyContent: "flex-start" }} onClick={() => pick(id)}>
+            <button key={id} role="menuitem" className="vault-menu-item" onClick={() => pick(id)}>
               <i className={"ti " + icon} /> {label}
             </button>
           ))}
-        </div>
+        </div>,
+        document.querySelector(".a") ?? document.body,
       )}
       {dialog === "password" && <ChangePasswordDialog onClose={close} />}
       {dialog === "recovery" && <ResetRecoveryDialog onClose={close} />}
       {dialog === "export" && <ExportDialog onClose={close} />}
       {dialog === "import" && <ImportDialog onClose={close} onChanged={onChanged} />}
+      {dialog === "switch" && <VaultSwitch onClose={close} onSwitched={() => { close(); onSwitched(); }} />}
       {dialog === "browser" && <BrowserImport onClose={close} onChanged={onChanged} />}
       {dialog === "browserExport" && <BrowserExport ids={ALL} onClose={close} />}
       {dialog === "browserHelp" && <BrowserPasswordHelp onClose={close} />}

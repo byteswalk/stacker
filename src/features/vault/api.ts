@@ -86,6 +86,8 @@ export const vaultApi = {
   importApply: (src: string, credential: Credential) => invoke<MergeStats>("vault_import_apply", { src, credential }),
   restoreBackup: (src: string) => invoke<void>("vault_restore_backup", { src }),
   reset: () => invoke<string>("vault_reset"),
+  /** Another vault file becomes the current one; the current one is kept under an `.old` name. */
+  switchTo: (src: string) => invoke<string | null>("vault_switch", { src }),
   retired: () => invoke<RetiredVault[]>("vault_retired"),
   clipboardText: () => invoke<string>("vault_clipboard_text"),
   discoverStart: (scope: DiscoverScope) => invoke<void>("vault_discover_start", { scope }),
@@ -107,6 +109,7 @@ const ERRORS: Record<string, string> = {
   E_VAULT_WEAK: "主密码至少需要 9 个字符。",
   E_VAULT_WAIT: "尝试次数过多，请稍后再试。",
   E_VAULT_KEY_FILE: "这个文件里没有恢复密钥。",
+  E_VAULT_SAME: "选中的就是当前的保管库。",
   E_VAULT_CORRUPT: "文件已损坏，或不是有效的保管库文件。",
   E_VAULT_NEWER: "此保管库由更新版本的 Stacker 创建，请先升级。",
   E_VAULT_CHANGED: "保管库文件已在外部被修改，请重新解锁后再试。",

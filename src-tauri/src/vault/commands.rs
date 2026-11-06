@@ -508,6 +508,12 @@ pub async fn vault_restore_backup(src: String) -> Result<(), String> {
     blocking(move || vault().restore_backup(&PathBuf::from(src))).await
 }
 
+/// Another vault file becomes the current one; returns where the current one was set aside.
+#[tauri::command]
+pub async fn vault_switch(src: String) -> Result<Option<String>, String> {
+    blocking(move || vault().switch_to(&PathBuf::from(src))).await
+}
+
 #[tauri::command]
 pub async fn vault_reset() -> Result<String, String> {
     blocking(|| {

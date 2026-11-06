@@ -122,3 +122,11 @@
 .a .pw-help-note{ display:flex; gap:8px; align-items:flex-start; font-size:12px; line-height:1.65; color:var(--mut); } .a .pw-help-note i{ margin-top:3px; }
 .a .pw-help-note.warn{ color:#e6b450; }
 .a .vault-import-path{ flex:1; min-width:0; color:var(--mut); font:11.5px var(--mono); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+/* The ⋯ menu: held to the window, so a short page never cuts it off. */
+.a .vault-menu{ position:fixed; z-index:60; min-width:180px; margin:0; padding:6px; overflow-y:auto; display:flex; flex-direction:column; gap:2px; box-shadow:0 12px 32px rgba(0,0,0,.35); }
+.a .vault-menu-item{ display:flex; align-items:center; gap:8px; width:100%; height:32px; padding:0 10px; border:0; border-radius:7px; background:none; color:var(--tx); font:inherit; font-size:12.5px; text-align:left; cursor:pointer; white-space:nowrap; }
+.a .vault-menu-item:hover, .a .vault-menu-item:focus-visible{ background:var(--ovh); outline:none; }
+.a .vault-menu-item i{ color:var(--mut); font-size:15px; }
+[data-theme="light"] .a .vault-menu{ box-shadow:0 12px 32px rgba(0,0,0,.14); }
+.a .vault-switch-file{ display:flex; align-items:center; gap:8px; margin-top:12px; }
+.a .vault-switch-file .mut{ color:var(--mut); font-size:12px; }
