@@ -1237,7 +1237,7 @@ export const GENERATED_EN: Record<string, string> = {
   "添加 GitHub": "Add GitHub",
   "添加 GitHub、Gitee 或其他 Git 服务账号后，可打开账号终端、初始化工程并执行仓库迁移。": "After adding a GitHub, Gitee or other Git service account, you can open the account terminal, initialize the project and perform warehouse migration.",
   "添加其他账号": "Add another account",
-  "条": "Article",
+  "条": "items",
   "条备份记录": "backup records",
   "条备份记录？清除后不能通过历史页还原这些状态。": "A backup record? These states cannot be restored through the history page after clearing.",
   "通过": "Pass",

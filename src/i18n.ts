@@ -2325,6 +2325,10 @@ function saveLocale(locale: Locale) {
   if (typeof window !== "undefined") window.localStorage.setItem(STORAGE_KEY, locale);
 }
 
+// Private-use characters that never occur in interface text.
+const OPEN = String.fromCharCode(0xe000);
+const CLOSE = String.fromCharCode(0xe001);
+
 function polishEnglish(value: string) {
   return value
     .replace(/\bwarehouses\b/gi, "repositories")
@@ -2343,15 +2347,23 @@ export function translateText(value: string, locale = getLocale()): string {
   const leading = value.match(/^\s*/)?.[0] ?? "";
   const trailing = value.match(/\s*$/)?.[0] ?? "";
   const core = value.slice(leading.length, value.length - trailing.length);
-  const exact = EN[core];
+  // A multi-line tip is listed once with its line breaks folded into spaces.
+  const exact = EN[core] ?? EN[core.replace(/\s*\n\s*/g, " ")];
   if (exact) return leading + polishEnglish(exact) + trailing;
 
+  // Each replacement is wrapped in markers so two words translated side by side, or a word
+  // next to Latin text ("Maven下载源"), get a space between them instead of running together.
   let translated = core;
   for (const source of EN_PHRASES) {
     if (!translated.includes(source)) continue;
     const lone = LONE_CHARACTER.get(source);
-    translated = lone ? translated.replace(lone, EN[source]) : translated.split(source).join(EN[source]);
+    const marked = `${OPEN}${EN[source]}${CLOSE}`;
+    translated = lone ? translated.replace(lone, marked) : translated.split(source).join(marked);
   }
+  translated = translated
+    .replace(/(?<=[\p{L}\p{N}])?(?=[\p{L}\p{N}])/gu, " ")
+    .replace(/(?<=[\p{L}\p{N}])(?=[\p{L}\p{N}])/gu, " ")
+    .replace(/[]/g, "");
   return leading + polishEnglish(translated) + trailing;
 }
 
