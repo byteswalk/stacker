@@ -1,3 +1,4 @@
+pub(crate) mod agy_package;
 pub(crate) mod codex_package;
 mod delivery;
 pub(crate) mod direct;
@@ -134,20 +135,10 @@ pub(crate) fn update_cli_tool(
                 )?;
                 return Ok("Antigravity CLI 已通过 WinGet 更新".into());
             }
+            // Installed by the official installer: its manifest, checked and verified here.
+            // `agy update` could sit for minutes, and the installer skips a copy already there.
             if let Some(program) = program {
-                emit_progress(window, "正在执行 agy update…");
-                match run_command_text(
-                    &program,
-                    &["update"],
-                    "agy update",
-                    Duration::from_secs(900),
-                ) {
-                    Ok(_) => return Ok("Antigravity CLI 已更新".into()),
-                    Err(err) => emit_progress(
-                        window,
-                        format!("agy update 未完成，改用官方安装脚本：{err}"),
-                    ),
-                }
+                return agy_package::update(Path::new(&program), window);
             }
             install_or_update_antigravity_cli(window, "更新")
         }

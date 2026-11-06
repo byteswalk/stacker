@@ -284,7 +284,7 @@ pub(crate) fn fetch(url: &str) -> Result<String, String> {
     let agent = agent();
     let mut last = String::new();
     for u in candidates(url) {
-        match agent.get(&u).call() {
+        match agent.get(&u).set("User-Agent", "Stacker").call() {
             Ok(resp) => match resp.into_string() {
                 Ok(body) => return Ok(body),
                 Err(e) => last = e.to_string(),
