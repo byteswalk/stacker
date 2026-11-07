@@ -9,12 +9,6 @@ const ART = {
     <path d="M56 70h46a10 10 0 0 1 10 10v22a10 10 0 0 1-10 10h-4v12l-14-12H56a10 10 0 0 1-10-10V80a10 10 0 0 1 10-10z" {...TINT} />
     <path d="M60 86h38M60 96h24" />
   </>,
-  gateway: <>
-    <circle cx="60" cy="60" r="20" {...TINT} />
-    <path d="M52 52v-8M68 52v-8M48 60h24v6a12 12 0 0 1-24 0zM60 78v-0" />
-    <circle cx="16" cy="22" r="9" /><circle cx="104" cy="22" r="9" /><circle cx="16" cy="98" r="9" /><circle cx="104" cy="98" r="9" />
-    <path d="M23 28l22 19M97 28L75 47M23 92l22-19M97 92L75 73" />
-  </>,
   proxy: <>
     <circle cx="60" cy="60" r="48" {...TINT} />
     <ellipse cx="60" cy="60" rx="22" ry="48" />

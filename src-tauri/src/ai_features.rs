@@ -83,17 +83,6 @@ fn backup_items(payload: &Value) -> String {
     lines.collect::<Vec<_>>().join("\n")
 }
 
-/// What each status means in Stacker's own API service, taken from its server code, so the
-/// answer reasons from facts rather than from what the codes mean elsewhere.
-const GATEWAY_STATUSES: &str = "400 请求格式不对：不是 JSON、缺字段，或附件该模型读不了（codex 读不了 PDF，只有 claude/* 和 codex/* 能读图）；\n\
-401 密钥错误或没带，或者这个智能体的命令行没登录；\n\
-403 请求来自浏览器网页（一律拒绝），或者这个智能体在接口服务里被关掉了；\n\
-404 接口路径不对，只有 /v1/chat/completions、/v1/messages、/v1/models；\n\
-429 同时排队的请求太多；\n\
-502 智能体运行失败；\n\
-503 这台电脑上没装这个智能体的命令行；\n\
-504 5 分钟内智能体没有回复。";
-
 /// The prompt for one kind of question, from what the page sent.
 pub fn prompt(kind: &str, payload: &Value) -> Result<String, String> {
     let json = |v: &Value| {
@@ -151,26 +140,11 @@ pub fn prompt(kind: &str, payload: &Value) -> Result<String, String> {
             reason = field(payload, "reason"),
             count = field(payload, "count"),
         ),
-        "gateway_error" => format!(
-            "你是一个本机 AI 接口服务的排错助手。这个服务把本机已登录的 Codex / Claude 等命令行包装成 \
-             OpenAI / Anthropic 风格的接口。记录里有状态码，常常还有服务给出的报错原文（error 字段）和调用方式（是否流式、推理强度、客户端），但没有请求内容；这个服务的状态码含义如下：\n\
-             {GATEWAY_STATUSES}\n\n下面是一条失败的请求记录（JSON）：\n{entry}\n\n\
-             请根据报错原文、状态码、接口和模型说明最可能的原因，以及调用方或用户应该怎么改。{STYLE}",
-            entry = json(payload.get("entry").unwrap_or(&Value::Null)),
-        ),
         "proxy" => format!(
             "你是 Windows 网络代理排错助手。下面是这台机器的代理状态和一次连通性测试（JSON）：\n{state}\n\n\
              请判断连不上卡在哪（系统代理没开、代理软件没监听、某个程序没走代理、目标被墙、证书等），\
              并给出排查顺序。{STYLE}",
             state = json(payload),
-        ),
-        "lan_address" => format!(
-            "你是网络顾问。这台 Windows 电脑在局域网里开了一个 HTTP 接口服务，端口 {port}。\
-             下面是它的全部地址和对应网卡（JSON）：\n{addresses}\n\n\
-             请逐个说明每个地址来自什么网卡、哪种设备能用它访问（同一路由器下的手机电脑、本机虚拟机、\
-             同一 Tailscale 网络的设备等），以及哪些基本用不上；最后给出一般情况下首选哪个。{STYLE}",
-            port = field(payload, "port"),
-            addresses = json(payload.get("addresses").unwrap_or(&Value::Null)),
         ),
         "backup" => format!(
             "你是 Windows 开发环境配置顾问。Stacker 改配置前会自动备份，下面是其中一条备份。\n\
@@ -714,7 +688,6 @@ mod tests {
             "toolchain",
             "disk_directory",
             "skipped_path",
-            "gateway_error",
             "backup",
             "git_failure",
             "app_log",

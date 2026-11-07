@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agentTally, diskTone, logoTools, rankedVolumes, ringDash, ringVolumes, sessionShares, vaultTally } from "./CoreEntries";
+import { agentTally, diskTone, logoTools, rankedVolumes, recentSessions, ringDash, ringVolumes, sessionShares, vaultTally } from "./CoreEntries";
 import type { VibeSurface } from "../agents/catalogStore";
 
 const GB = 1024 ** 3;
@@ -91,5 +91,20 @@ describe("core entries", () => {
     expect(diskTone(50 * GB, 0.96)).toBe("warn");
     expect(diskTone(20 * GB, 0.5)).toBe("warn");
     expect(diskTone(5 * GB, 0.5)).toBe("bad");
+  });
+});
+
+describe("recentSessions", () => {
+  it("keeps the count, the busiest agents first, and the three latest sessions", () => {
+    const item = (id: string) => ({ id, agent: "codex" as const, title: id, updatedAt: 1, bytes: 9, path: "x" });
+    const kept = recentSessions({
+      total: 42,
+      agents: [{ agent: "claude", sessions: 2, bytes: 1 }, { agent: "codex", sessions: 40, bytes: 1 }, { agent: "kimi", sessions: 0, bytes: 0 }],
+      items: ["a", "b", "c", "d"].map(item),
+    });
+    expect(kept.total).toBe(42);
+    expect(kept.agents.map((agent) => agent.agent)).toEqual(["codex", "claude"]);
+    expect(kept.items.map((entry) => entry.id)).toEqual(["a", "b", "c"]);
+    expect(Object.keys(kept.items[0])).toEqual(["id", "agent", "title", "updatedAt"]);
   });
 });

@@ -1,9 +1,9 @@
 //! Where Stacker's own AI features get a model from.
 //!
-//! One setting for the whole app: an agent already signed in on this machine (the same ones the
-//! API service offers, run directly, so the service does not have to be switched on), or an
-//! external API in the OpenAI or Anthropic shape. Features ask `complete` for text and never
-//! care which it is.
+//! One setting for the whole app: an external API in the OpenAI or Anthropic shape, paid per
+//! use with the user's own key. Agents signed in with a consumer subscription are not driven
+//! from here: several vendors forbid running their subscriptions from other programs.
+//! Features ask `complete` for text.
 //!
 //! The file lives beside the settings rather than inside them: settings travel in the backup
 //! and export, and an API key must not. The key itself is sealed with the user's Windows
@@ -16,21 +16,24 @@ use std::time::Duration;
 /// How long one answer may take before it is given up on.
 const ANSWER_TIMEOUT: Duration = Duration::from_secs(120);
 
+/// The values OpenAI's Chat Completions API takes for `reasoning_effort`.
+const OPENAI_EFFORTS: &[&str] = &["none", "minimal", "low", "medium", "high", "xhigh", "max"];
+/// The values Anthropic's Messages API takes for `output_config.effort`.
+const ANTHROPIC_EFFORTS: &[&str] = &["low", "medium", "high", "xhigh", "max"];
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AiConfig {
-    /// `none`, `local` or `external`.
+    /// `none` or `external`; an old `local` reads as `none`.
     pub kind: String,
-    /// `local`: a name the API service offers, e.g. `claude/sonnet` or `codex`.
-    pub local_model: String,
     /// `external`: `openai` or `anthropic`.
     pub protocol: String,
     pub base_url: String,
     pub model: String,
     /// Hex of the DPAPI-sealed key; never sent to the page.
     pub api_key_sealed: String,
-    /// `low`, `medium` or `high`; empty leaves it to the model. A local agent gets it as its
-    /// `--effort`, OpenAI as `reasoning_effort`, Anthropic as an extended-thinking budget.
+    /// Empty leaves it to the model; OpenAI gets it as `reasoning_effort`, Anthropic as
+    /// `output_config.effort`.
     #[serde(default)]
     pub effort: String,
 }
@@ -40,7 +43,6 @@ pub struct AiConfig {
 #[serde(rename_all = "camelCase")]
 pub struct AiView {
     pub kind: String,
-    pub local_model: String,
     pub protocol: String,
     pub base_url: String,
     pub model: String,
@@ -53,7 +55,6 @@ pub struct AiView {
 #[serde(rename_all = "camelCase", default)]
 pub struct AiUpdate {
     pub kind: String,
-    pub local_model: String,
     pub protocol: String,
     pub base_url: String,
     pub model: String,
@@ -87,12 +88,11 @@ fn save(config: &AiConfig) -> Result<(), String> {
 
 pub fn view(config: &AiConfig) -> AiView {
     AiView {
-        kind: if config.kind.is_empty() {
-            "none".into()
+        kind: if config.kind == "external" {
+            "external".into()
         } else {
-            config.kind.clone()
+            "none".into()
         },
-        local_model: config.local_model.clone(),
         protocol: if config.protocol.is_empty() {
             "openai".into()
         } else {
@@ -107,7 +107,7 @@ pub fn view(config: &AiConfig) -> AiView {
 
 pub fn apply(update: AiUpdate) -> Result<AiView, String> {
     let kind = match update.kind.as_str() {
-        "none" | "local" | "external" => update.kind.clone(),
+        "none" | "external" => update.kind.clone(),
         _ => return Err("E_AI_KIND".into()),
     };
     let protocol = match update.protocol.as_str() {
@@ -115,12 +115,11 @@ pub fn apply(update: AiUpdate) -> Result<AiView, String> {
         "anthropic" => "anthropic".to_string(),
         _ => return Err("E_AI_PROTOCOL".into()),
     };
-    // Each source takes its own set: an external API its specification's values, a local
-    // agent the levels its CLI lists (checked again when a request is made).
-    let allowed: &[&str] = match (kind.as_str(), protocol.as_str()) {
-        ("external", "anthropic") => crate::gateway::protocol::ANTHROPIC_EFFORTS,
-        ("external", _) => crate::gateway::protocol::OPENAI_EFFORTS,
-        _ => &["low", "medium", "high", "xhigh", "max"],
+    // Each API takes the values its own specification lists.
+    let allowed: &[&str] = if protocol == "anthropic" {
+        ANTHROPIC_EFFORTS
+    } else {
+        OPENAI_EFFORTS
     };
     let effort = update.effort.trim().to_string();
     if !effort.is_empty() && !allowed.contains(&effort.as_str()) {
@@ -129,7 +128,6 @@ pub fn apply(update: AiUpdate) -> Result<AiView, String> {
     let mut config = load();
     config.effort = effort;
     config.kind = kind;
-    config.local_model = update.local_model.trim().to_string();
     config.protocol = protocol;
     config.base_url = update.base_url.trim().trim_end_matches('/').to_string();
     config.model = update.model.trim().to_string();
@@ -138,17 +136,6 @@ pub fn apply(update: AiUpdate) -> Result<AiView, String> {
     } else if !update.api_key.trim().is_empty() {
         config.api_key_sealed = hex(&seal(update.api_key.trim().as_bytes())?);
     }
-    save(&config)?;
-    Ok(view(&config))
-}
-
-/// Makes a name from the API service, with the reasoning level picked beside it, Stacker's AI
-/// in one step; no level means the agent decides.
-pub fn use_local(model: &str, effort: Option<&str>) -> Result<AiView, String> {
-    let mut config = load();
-    config.kind = "local".into();
-    config.local_model = model.trim().to_string();
-    config.effort = effort.map(str::trim).unwrap_or_default().to_string();
     save(&config)?;
     Ok(view(&config))
 }
@@ -173,101 +160,43 @@ pub fn complete_answer(prompt: &str) -> Result<String, String> {
     complete(&in_ui_language(prompt, &crate::settings::load().locale))
 }
 
-/// The configured source as the runner describes one, for features that go through a job:
-/// a local agent names its backend, an external API leaves the backend empty.
+/// The configured source as the jobs (summaries, distilling) describe one. Only an external
+/// API answers now, so the backend is always empty.
 pub fn runner_choice() -> Result<crate::sessions::summary::RunnerChoice, String> {
     let config = load();
-    match config.kind.as_str() {
-        "local" => {
-            let spec = crate::gateway::protocol::ModelSpec::parse(&config.local_model)
-                .ok_or("E_AI_MODEL")?;
-            Ok(crate::sessions::summary::RunnerChoice {
-                effort: local_effort(&spec.backend, &config.effort),
-                backend: spec.backend,
-                model: spec.model,
-            })
-        }
-        "external" => {
-            if config.base_url.is_empty() || config.model.is_empty() {
-                return Err("E_AI_FIELDS".into());
-            }
-            Ok(crate::sessions::summary::RunnerChoice {
-                backend: String::new(),
-                model: Some(config.model.clone()),
-                effort: None,
-            })
-        }
-        _ => Err("E_AI_NONE".into()),
+    if config.kind != "external" {
+        return Err("E_AI_NONE".into());
     }
+    if config.base_url.is_empty() || config.model.is_empty() {
+        return Err("E_AI_FIELDS".into());
+    }
+    Ok(crate::sessions::summary::RunnerChoice {
+        backend: String::new(),
+        model: Some(config.model.clone()),
+        effort: None,
+    })
 }
 
-/// The production run function behind every job: a request naming a backend goes to that
-/// local agent's CLI, one naming none goes to the external API.
+/// The production run function behind every job: the external API answers.
 pub fn run_request(
     req: &crate::runner::RunRequest,
     cancel: &crate::runner::CancelFlag,
 ) -> Result<crate::runner::RunOutput, String> {
-    let started = std::time::Instant::now();
     if !req.backend.is_empty() {
-        let result = crate::runner::run(req, cancel);
-        let label = match &req.model {
-            Some(model) => format!("{}/{model}", req.backend),
-            None => req.backend.clone(),
-        };
-        let logged = result
-            .as_ref()
-            .map(|output| output.text.clone())
-            .map_err(Clone::clone);
-        crate::gateway::requests::record_internal(&label, &req.prompt, &logged, started);
-        return result;
+        return Err("E_AI_NONE".into());
     }
     if cancel.is_cancelled() {
         return Err("E_CANCELLED".into());
     }
-    let config = load();
-    let result = complete_external(&config, &req.prompt, req.timeout);
-    crate::gateway::requests::record_internal(
-        &external_label(&config),
-        &req.prompt,
-        &result,
-        started,
-    );
-    result.map(|text| crate::runner::RunOutput { text })
-}
-
-/// How an external model shows in the request log: `api/<model>`, so the filter groups them.
-fn external_label(config: &AiConfig) -> String {
-    format!("api/{}", config.model)
+    complete_external(&load(), &req.prompt, req.timeout)
+        .map(|text| crate::runner::RunOutput { text })
 }
 
 fn complete_with(config: &AiConfig, prompt: &str) -> Result<String, String> {
-    let started = std::time::Instant::now();
-    let (label, result) = match config.kind.as_str() {
-        "local" => (
-            config.local_model.clone(),
-            complete_local(&config.local_model, &config.effort, prompt),
-        ),
-        "external" => (
-            external_label(config),
-            complete_external(config, prompt, ANSWER_TIMEOUT),
-        ),
-        _ => return Err("E_AI_NONE".into()),
-    };
-    // Stacker's own questions show in the request log beside the service's, marked as its own.
-    crate::gateway::requests::record_internal(&label, prompt, &result, started);
-    result
-}
-
-/// A level the agent's CLI lists, or none: a CLI given one it does not know refuses to run.
-fn local_effort(backend: &str, effort: &str) -> Option<String> {
-    if effort.is_empty() {
-        return None;
+    match config.kind.as_str() {
+        "external" => complete_external(config, prompt, ANSWER_TIMEOUT),
+        _ => Err("E_AI_NONE".into()),
     }
-    let backend = crate::runner::backends::get(backend)?;
-    (backend.efforts)()
-        .iter()
-        .any(|level| level == effort)
-        .then(|| effort.to_string())
 }
 
 /// The request body for an external API, with the reasoning level where one is set.
@@ -304,20 +233,6 @@ fn external_text(protocol: &str, body: &serde_json::Value) -> Option<String> {
             .as_str()
             .map(str::to_string)
     }
-}
-
-fn complete_local(name: &str, effort: &str, prompt: &str) -> Result<String, String> {
-    let spec = crate::gateway::protocol::ModelSpec::parse(name).ok_or("E_AI_MODEL")?;
-    let request = crate::runner::RunRequest {
-        effort: local_effort(&spec.backend, effort),
-        backend: spec.backend,
-        model: spec.model,
-        prompt: prompt.to_string(),
-        timeout: ANSWER_TIMEOUT,
-        attachments: Vec::new(),
-        on_delta: None,
-    };
-    crate::runner::run(&request, &crate::runner::CancelFlag::default()).map(|output| output.text)
 }
 
 fn agent(timeout: Duration) -> ureq::Agent {
@@ -482,11 +397,6 @@ pub fn ai_config_set(update: AiUpdate) -> Result<AiView, String> {
     apply(update)
 }
 
-#[tauri::command]
-pub fn ai_config_use_local(model: String, effort: Option<String>) -> Result<AiView, String> {
-    use_local(&model, effort.as_deref())
-}
-
 /// One short question, to prove the configuration answers.
 #[tauri::command]
 pub async fn ai_config_test() -> Result<String, String> {
@@ -600,6 +510,11 @@ mod tests {
     fn nothing_configured_is_said_plainly() {
         let config = AiConfig::default();
         assert_eq!(complete_with(&config, "hi").unwrap_err(), "E_AI_NONE");
+        // A local agent chosen before the option went away answers nothing now.
+        let old: AiConfig =
+            serde_json::from_str(r#"{"kind":"local","localModel":"agy/gemini"}"#).unwrap();
+        assert_eq!(view(&old).kind, "none");
+        assert_eq!(complete_with(&old, "hi").unwrap_err(), "E_AI_NONE");
         let external = AiConfig {
             kind: "external".into(),
             ..AiConfig::default()

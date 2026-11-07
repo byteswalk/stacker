@@ -133,8 +133,6 @@ fn call(
         effort: choice.effort.clone(),
         prompt,
         timeout: DEFAULT_TIMEOUT,
-        attachments: Vec::new(),
-        on_delta: None,
     };
     run(&req, cancel).map(|o| o.text)
 }
@@ -200,14 +198,16 @@ mod tests {
     use crate::sessions::model::Agent;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    /// Live, read-only: summarizes the smallest ordinary session of each agent without saving.
+    /// Live, read-only: summarizes the smallest ordinary session of each agent without saving,
+    /// through the external API set in AI settings.
     /// `cargo test --lib live_summary -- --ignored --nocapture`
     #[test]
     #[ignore]
     fn live_summary() {
         let roots = super::super::roots::resolve(&Default::default());
         let catalog = super::super::catalog::load(&roots);
-        let run = |req: &RunRequest, c: &CancelFlag| crate::runner::run(req, c);
+        let run = |req: &RunRequest, c: &CancelFlag| crate::ai_config::run_request(req, c);
+        let choice = crate::ai_config::runner_choice().expect("configure an external API first");
         // Sessions with 20k–100k readable characters: one call, real content.
         for agent in [Agent::Codex, Agent::Claude] {
             let (session, markdown) = catalog
@@ -218,7 +218,6 @@ mod tests {
                 .filter_map(|s| transcript_markdown(s).ok().map(|m| (s, m)))
                 .find(|(_, m)| (20_000..100_000).contains(&m.chars().count()))
                 .unwrap();
-            let choice = RunnerChoice::local(agent.as_str(), None, Some("low"));
             let started = std::time::Instant::now();
             let text = summarize_text(&markdown, &choice, "zh-CN", &CancelFlag::default(), &run);
             println!(

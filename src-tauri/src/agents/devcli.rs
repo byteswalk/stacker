@@ -60,12 +60,6 @@ pub(crate) fn run(args: &[String]) -> Option<i32> {
                 Err(_) => 1,
             }
         }
-        ["lan"] => {
-            for address in crate::gateway::lan_addresses() {
-                println!("{address}");
-            }
-            0
-        }
         ["proxy"] => {
             println!("system  {:?}", crate::proxy_system::system());
             println!("service {:?}", crate::proxy_system::service());
@@ -135,20 +129,6 @@ pub(crate) fn run(args: &[String]) -> Option<i32> {
             ));
             println!("{result:#?}");
             i32::from(result.is_err())
-        }
-        ["gateway-cards"] => {
-            for card in crate::gateway::agents::agent_cards() {
-                println!(
-                    "{:10} installed={:5} supported={:5} login={:?} models={} {}",
-                    card.id,
-                    card.installed,
-                    card.supported,
-                    card.login.as_ref().map(|l| l.state.clone()),
-                    card.models.len(),
-                    card.reason
-                );
-            }
-            0
         }
         ["sessions"] => {
             let roots = crate::sessions::roots::resolve(&Default::default());

@@ -15,7 +15,6 @@
 .a .core-art{position:absolute;z-index:-1;right:-14px;bottom:-22px;width:118px;height:122px;pointer-events:none;opacity:.1;transition:opacity .15s}
 .a .core-card:hover .core-art{opacity:.16}
 .a .core-art.sessions{color:#7cc1ff}
-.a .core-art.gateway{color:#aeb9ff}
 .a .core-art.proxy{color:#6bcf86}
 .a .core-art.disk{color:#e89b6c;width:196px;height:202px;right:-20px;bottom:-40px}
 .a .core-art.vault{color:#67d4e6;width:132px;height:136px;right:-16px;bottom:-26px}
@@ -96,6 +95,18 @@
 .a .core-card.wide .core-disks{grid-column:2;grid-row:1 / span 2}
 .a .core-card.wide .core-arrow{display:none}
 .a .core-disks{display:flex;flex-direction:column;justify-content:center;gap:10px;min-width:0}
+/* 会话数据: counts and size on the left, the latest sessions and who holds them on the right. */
+.a .core-session-side{display:flex;flex-direction:column;align-items:flex-start;gap:6px}
+.a .core-session-size{font-size:12px;color:var(--mut)}
+.a .core-session-size .orange{color:var(--acc-tx)}
+.a .core-sessions{justify-content:flex-start;gap:8px}
+.a .core-recent{display:flex;flex-direction:column;gap:2px;min-width:0}
+.a .core-recent-title{font-size:11.5px;color:var(--mut);margin-bottom:2px}
+.a .core-recent-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:8px;width:100%;min-width:0;padding:4px 6px;margin:0 -6px;border:0;border-radius:6px;background:none;color:var(--tx);font:inherit;font-size:12.5px;text-align:left;cursor:pointer}
+.a .core-recent-row:hover{background:var(--ov)}
+.a .core-recent-agent{font-size:11px;padding:1px 6px;border-radius:5px;background:var(--ov);color:var(--mut);white-space:nowrap}
+.a .core-recent-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.a .core-recent-age{font-size:11.5px;color:var(--mut);white-space:nowrap}
 .a .core-rings{display:grid;grid-auto-flow:column;grid-auto-columns:84px;justify-content:space-around;gap:8px;min-width:0}
 .a .core-ring{--tone:var(--green);display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0}
 .a .core-ring.warn{--tone:var(--amber)}

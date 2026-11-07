@@ -3,11 +3,9 @@ import { invoke } from "../../invoke";
 import { useI18n } from "../../i18n";
 import { Select } from "../../Select";
 import { useToast } from "../../ui";
-import type { AgentCard } from "../gateway/GatewayAgents";
 
 export type AiView = {
-  kind: "none" | "local" | "external";
-  localModel: string;
+  kind: "none" | "external";
   protocol: "openai" | "anthropic";
   baseUrl: string;
   model: string;
@@ -18,16 +16,12 @@ export type AiView = {
 
 const OPENAI_LEVELS = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
 const ANTHROPIC_LEVELS = ["low", "medium", "high", "xhigh", "max"];
-const AGENT_LEVELS = ["low", "medium", "high", "xhigh", "max"];
-
 function levelsFor(view: AiView): string[] {
-  if (view.kind !== "external") return AGENT_LEVELS;
   return view.protocol === "anthropic" ? ANTHROPIC_LEVELS : OPENAI_LEVELS;
 }
 
 export const AI_ERRORS: Record<string, string> = {
-  E_AI_NONE: "还没有配置 AI：到「偏好设置 → AI 能力」选一个本机智能体或填外部 API。",
-  E_AI_MODEL: "选的本机模型已不可用，请重新选一个。",
+  E_AI_NONE: "还没有配置 AI：到「偏好设置 → AI 能力」填一个外部 API。",
   E_AI_FIELDS: "外部 API 的地址和模型都要填。",
   E_AI_KEY: "无法读取已保存的密钥，请重新填写。",
   E_AI_REPLY: "无法解析接口返回的内容，请确认接口类型是否正确。",
@@ -35,22 +29,19 @@ export const AI_ERRORS: Record<string, string> = {
   E_AI_PROTOCOL: "无效的接口类型。",
   E_AI_EFFORT: "无效的推理强度。",
   E_AI_NO_NOTES: "未获取到这次更新的官方日志，已跳过 AI 总结。可以到产品主页查看更新说明。",
-  E_RUNNER_AUTH: "选的本机智能体没有登录：在终端运行它并完成登录。",
-  E_RUNNER_NO_PLAN: "选的本机智能体账号没有开通命令行可用的套餐，或额度已用完：开通或充值，或换一个智能体。",
-  E_RUNNER_MISSING: "找不到选的本机智能体的命令行程序。",
-  E_RUNNER_START: "选的本机智能体的命令行程序启动失败，详情见日志。",
-  E_RUNNER_TIMEOUT: "本机智能体 5 分钟内没有回复。",
-  E_RUNNER_FAILED: "本机智能体运行失败，详情见日志。",
   E_PROBE_URL: "请输入以 http:// 或 https:// 开头的地址。",
 };
 export const aiError = (e: unknown) => AI_ERRORS[String(e)] ?? String(e);
 
-/** Where Stacker's own AI features get a model from: a local agent, or an external API. */
+/**
+ * Where Stacker's own AI features get a model from: an external API, paid per use with the
+ * user's own key. Signed-in agents are not offered: several vendors forbid driving their
+ * subscriptions from other programs.
+ */
 export function AiSettings() {
   const { tr } = useI18n();
   const toast = useToast();
   const [view, setView] = useState<AiView | null>(null);
-  const [cards, setCards] = useState<AgentCard[] | null>(null);
   const [key, setKey] = useState("");
   const [busy, setBusy] = useState(false);
   const [test, setTest] = useState<{ ok: boolean; text: string } | null>(null);
@@ -59,21 +50,9 @@ export function AiSettings() {
 
   useEffect(() => {
     invoke<AiView>("ai_config_get").then((got) => { setView(got); setSaved(got); }).catch(() => undefined);
-    invoke<AgentCard[]>("gateway_agents").then(setCards).catch(() => setCards([]));
   }, []);
 
   if (!view) return null;
-
-  // Every name the API service answers to, the agent's own default first.
-  // Reading the agents takes several seconds; until then the saved choice still shows.
-  const reading = cards === null;
-  const usable = (cards ?? []).filter((card) => card.supported && card.installed);
-  const localOptions = reading
-    ? (view.localModel ? [{ value: view.localModel, label: view.localModel }] : [])
-    : usable.flatMap((card) => [
-      { value: card.id, label: `${card.name} · ${tr("默认模型")}` },
-      ...card.models.map((model) => ({ value: model.call, label: `${card.name} · ${model.label}` })),
-    ]);
 
   async function save(next: AiView, withKey = key, clearKey = false): Promise<boolean> {
     setBusy(true);
@@ -105,8 +84,7 @@ export function AiSettings() {
   }
 
   const update = (patch: Partial<AiView>) => setView({ ...view, ...patch });
-  // Each source's own values: OpenAI's reasoning_effort, Anthropic's output_config.effort, or
-  // the levels agent CLIs take.
+  // Each API's own values: OpenAI's reasoning_effort, Anthropic's output_config.effort.
   const levels = levelsFor(view);
 
   return <>
@@ -114,37 +92,19 @@ export function AiSettings() {
       <span className="av st"><i className="ti ti-sparkles" /></span>
       <div className="mt">
         <div className="t">{tr("AI 来源")}</div>
-        <div className="s dim">{tr("Stacker 自己的 AI 功能（例如解释磁盘清理项）从这里取模型。")}</div>
+        <div className="s dim" title={tr("各家智能体的会员订阅不允许被其他程序调用，所以这里不提供本机智能体。")}>{tr("Stacker 自己的 AI 功能（解释清理项、会话摘要等）用这里的模型，按你自己的 API Key 计费。")}</div>
       </div>
       <Select value={view.kind} width={170} onChange={(v) => update({ kind: v as AiView["kind"] })} options={[
         { value: "none", label: tr("不使用") },
-        { value: "local", label: tr("本机智能体") },
         { value: "external", label: tr("外部 API") },
       ]} />
     </div>
-
-    {view.kind === "local" && <div className="srcrow">
-      <span className="av st"><i className="ti ti-robot" /></span>
-      <div className="mt">
-        <div className="t">{tr("本机模型")}</div>
-        <div className="s dim">{reading
-          ? tr("正在读取这台电脑上的智能体…")
-          : localOptions.length
-          ? tr("用这台机器上已登录的智能体，不走网络接口，也不需要打开接口服务。")
-          : tr("这台电脑上还没有可用的智能体：请先在「安装更新」中安装并登录，或改用外部 API。")}</div>
-      </div>
-      <Select value={view.localModel} width={260} disabled={reading || !localOptions.length}
-        onChange={(v) => update({ localModel: v })}
-        options={[{ value: "", label: tr("请选择") }, ...localOptions]} />
-    </div>}
 
     {view.kind !== "none" && <div className="srcrow">
       <span className="av st"><i className="ti ti-brain" /></span>
       <div className="mt">
         <div className="t">{tr("推理强度")}</div>
-        <div className="s dim">{view.kind === "local"
-          ? tr("作为 --effort 传给智能体；不支持的级别将自动忽略。")
-          : view.protocol === "anthropic"
+        <div className="s dim">{view.protocol === "anthropic"
             ? tr("作为 Anthropic 接口的 output_config.effort 发送；模型不支持的档位会报错，那就选“默认”。")
             : tr("作为 OpenAI 接口的 reasoning_effort 发送，仅推理模型支持，可用档位取决于模型；如报错请选择「默认」。")}</div>
       </div>

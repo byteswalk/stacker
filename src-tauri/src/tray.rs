@@ -1,5 +1,5 @@
 //! The tray icon: a left click shows the window; the right-click menu holds what is done most
-//! often (making every place follow the system proxy, the API service, locking the vault) and
+//! often (making every place follow the system proxy, locking the vault) and
 //! jumps to pages. The menu is rebuilt each time the pointer reaches the icon, so it shows the
 //! current state.
 
@@ -8,7 +8,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use tauri::image::Image;
-use tauri::menu::{CheckMenuItem, IconMenuItem, Menu, PredefinedMenuItem, Submenu};
+use tauri::menu::{IconMenuItem, Menu, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, Wry};
 
@@ -17,7 +17,6 @@ const PAGES: &[(&str, &str, &str)] = &[
     ("overview", "环境总览", "Overview"),
     ("agents", "安装更新", "Install & Update"),
     ("agent-data", "会话数据", "Sessions & Data"),
-    ("gateway-log", "接口日志", "API Log"),
     ("proxy", "代理设置", "Proxy settings"),
     ("cleanup", "磁盘清理", "Disk Cleanup"),
     ("vault", "密钥保管", "Key Vault"),
@@ -35,8 +34,6 @@ struct Shown {
     system: Option<String>,
     /// Places that do not follow the system, once counted.
     differ: Option<usize>,
-    gateway_on: bool,
-    gateway_port: u16,
     vault_open: bool,
 }
 
@@ -46,7 +43,6 @@ type Line = (&'static str, String, bool);
 struct Lines {
     system: Line,
     follow: Line,
-    gateway: Line,
     vault: Line,
 }
 
@@ -107,19 +103,6 @@ fn lines(shown: &Shown, english: bool) -> Lines {
             false,
         ),
     };
-    let gateway = (
-        "gateway_toggle",
-        format!(
-            "{}  {}",
-            pick("接口服务", "API service"),
-            if english {
-                format!("port {}", shown.gateway_port)
-            } else {
-                format!("端口 {}", shown.gateway_port)
-            }
-        ),
-        true,
-    );
     let vault = if shown.vault_open {
         (
             "vault_lock",
@@ -136,7 +119,6 @@ fn lines(shown: &Shown, english: bool) -> Lines {
     Lines {
         system,
         follow,
-        gateway,
         vault,
     }
 }
@@ -186,12 +168,9 @@ fn recount(app: &AppHandle) {
 
 fn read_state() -> Shown {
     let system = system_proxy();
-    let (gateway_on, gateway_port) = crate::gateway::running_port();
     Shown {
         differ: counted(&system).map(|(differ, _)| differ),
         system,
-        gateway_on,
-        gateway_port,
         vault_open: crate::vault::vault().is_unlocked(),
     }
 }
@@ -207,7 +186,6 @@ fn icon(name: &str) -> Option<Image<'static>> {
         "overview" => include_bytes!("../icons/tray/overview.png"),
         "agents" => include_bytes!("../icons/tray/agents.png"),
         "agent-data" => include_bytes!("../icons/tray/agent-data.png"),
-        "gateway-log" => include_bytes!("../icons/tray/gateway-log.png"),
         "proxy-page" => include_bytes!("../icons/tray/proxy-page.png"),
         "cleanup" => include_bytes!("../icons/tray/cleanup.png"),
         "vault" => include_bytes!("../icons/tray/vault.png"),
@@ -225,7 +203,6 @@ fn page_icon(page: &str) -> &'static str {
         "overview" => "overview",
         "agents" => "agents",
         "agent-data" => "agent-data",
-        "gateway-log" => "gateway-log",
         "cleanup" => "cleanup",
         "vault" => "vault",
         _ => "settings",
@@ -250,7 +227,6 @@ fn item(
 struct Items {
     system: IconMenuItem<Wry>,
     follow: IconMenuItem<Wry>,
-    gateway: CheckMenuItem<Wry>,
     vault: IconMenuItem<Wry>,
 }
 
@@ -275,8 +251,6 @@ fn update(app: &AppHandle) {
         let _ = item.set_text(text);
         let _ = item.set_enabled(enabled);
     }
-    let _ = items.gateway.set_text(lines.gateway.1);
-    let _ = items.gateway.set_checked(shown.gateway_on);
 }
 
 fn create_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
@@ -295,8 +269,6 @@ fn create_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     )?;
     let system = item(app, lines.system, "proxy")?;
     let follow = item(app, lines.follow, "follow")?;
-    let (id, text, enabled) = lines.gateway;
-    let gateway = CheckMenuItem::with_id(app, id, text, enabled, shown.gateway_on, None::<&str>)?;
     let vault = item(app, lines.vault, "lock")?;
     let pages = PAGES
         .iter()
@@ -330,13 +302,12 @@ fn create_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let menu = Menu::with_items(
         app,
         &[
-            &show, &one, &system, &follow, &gateway, &vault, &two, &goto, &three, &quit,
+            &show, &one, &system, &follow, &vault, &two, &goto, &three, &quit,
         ],
     )?;
     *ITEMS.lock().unwrap_or_else(|e| e.into_inner()) = Some(Items {
         system,
         follow,
-        gateway,
         vault,
     });
     Ok(menu)
@@ -403,26 +374,6 @@ fn follow(app: &AppHandle) {
     });
 }
 
-fn toggle_gateway(app: &AppHandle) {
-    let status = crate::gateway::status();
-    let english = english();
-    match crate::gateway::set(!status.running, status.port) {
-        Ok(after) if !status.running && !after.running => tell(
-            app,
-            if english {
-                format!(
-                    "The API service did not start ({}). Open API Service for details.",
-                    after.error
-                )
-            } else {
-                format!("接口服务没能启动（{}），到“接口服务”页查看。", after.error)
-            },
-        ),
-        Ok(_) => {}
-        Err(error) => tell(app, error),
-    }
-}
-
 fn on_menu(app: &AppHandle, id: &str) {
     match id {
         "show" => show_main(app),
@@ -432,7 +383,6 @@ fn on_menu(app: &AppHandle, id: &str) {
             show_main(app);
             let _ = app.emit("tray-goto", "proxy");
         }
-        "gateway_toggle" => toggle_gateway(app),
         "vault_lock" => {
             crate::vault::guard::lock_everything();
             let _ = app.emit("vault-locked", "manual");
@@ -461,7 +411,7 @@ pub(crate) fn build(app: &AppHandle) -> tauri::Result<()> {
                 button_state: MouseButtonState::Up,
                 ..
             } => show_main(tray.app_handle()),
-            // Before the menu opens: the proxy or the service may have changed elsewhere.
+            // Before the menu opens: the proxy or the vault may have changed elsewhere.
             TrayIconEvent::Enter { .. }
             | TrayIconEvent::Click {
                 button: MouseButton::Right,
@@ -490,8 +440,6 @@ mod tests {
         Shown {
             system: Some("127.0.0.1:7890".into()),
             differ: None,
-            gateway_on: true,
-            gateway_port: 8848,
             vault_open: true,
         }
     }
@@ -505,7 +453,6 @@ mod tests {
     fn the_menu_says_where_the_system_proxy_points() {
         let lines = lines(&shown(), false);
         assert_eq!(lines.system.1, "系统代理  127.0.0.1:7890");
-        assert_eq!(lines.gateway.1, "接口服务  端口 8848");
         assert_eq!(
             lines.vault,
             ("vault_lock", "锁定密钥保管".to_string(), true)
@@ -516,8 +463,8 @@ mod tests {
         };
         assert_eq!(super::lines(&off, false).system.1, "系统代理未开启");
         assert_eq!(
-            super::lines(&shown(), true).gateway.1,
-            "API service  port 8848"
+            super::lines(&shown(), true).system.1,
+            "System proxy  127.0.0.1:7890"
         );
     }
 

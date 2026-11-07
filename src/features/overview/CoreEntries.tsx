@@ -7,12 +7,12 @@ import { useToast } from "../../ui";
 import { UpdatePlanModal } from "../agents/UpdatePlanModal";
 import { loadCatalog, runVibeCheck, subscribeVibe, vibeSnapshot, type VibeSurface, type VibeTool } from "../agents/catalogStore";
 import { showSessionTab } from "../sessions/SessionCatalog";
-import { scanFootprint } from "../sessions/api";
-import type { FootprintReport } from "../sessions/types";
+import { listSessions, scanFootprint } from "../sessions/api";
+import { AGENT_LABEL, formatAge } from "../sessions/sessionsView";
+import { EMPTY_QUERY, type AgentCount, type AgentName, type FootprintReport } from "../sessions/types";
 import { vaultApi, type EntryView, type VaultStatus } from "../vault/api";
 import { CoreArt } from "./coreArt";
 
-type GatewayStatus = { running: boolean; port: number; error: string; lanAccess: boolean };
 type SystemState = "on" | "off" | "stale" | "unknown";
 type SyncReport = { system: { state: SystemState; server: string }; rows: { id: string }[] };
 type ProxyOverview = { locations: { id: string; value: string | null }[] };
@@ -21,19 +21,21 @@ export type GroupTone = "ok" | "warn" | "bad" | "idle";
 
 const SESSIONS_KEY = "stacker.overview.sessions.v2";
 const VAULT_KEY = "stacker.overview.vault.v1";
+const RECENT_KEY = "stacker.overview.recent.v1";
 
 type SessionUsage = { total: number; reclaimable: number; shares: ReturnType<typeof sessionShares> };
+type RecentSessions = { total: number; agents: AgentCount[]; items: { id: string; agent: AgentName; title: string; updatedAt: number }[] };
 export type VaultTally = { total: number; credentials: number; ssh: number; expiring: number };
 
 /** What the cards read last, kept across page switches so coming back shows it at once. */
 type Seen = {
-  gateway: GatewayStatus;
   proxy: { report: SyncReport; on: Set<string> };
   disks: VolumeInfo[];
   sessions: SessionUsage;
+  recent: RecentSessions;
   vault: { status: VaultStatus; tally: VaultTally | null };
 };
-const seen: Partial<Seen> = { sessions: restore<SessionUsage>(SESSIONS_KEY) };
+const seen: Partial<Seen> = { sessions: restore<SessionUsage>(SESSIONS_KEY), recent: restore<RecentSessions>(RECENT_KEY) };
 const failed = new Set<keyof Seen>();
 
 const GB = 1024 ** 3;
@@ -42,7 +44,6 @@ const MAX_LOGOS = 19;
 const RING_SLOT = 92;
 const RING_RADIUS = 24;
 const PROBE_URL = "https://api.openai.com";
-const GATEWAY_ERRORS: Record<string, string> = { E_PORT: "端口被占用或无效（需 1024–65535），请换一个端口。" };
 const PROXY_CHIPS: [string, string][] = [["env", "终端"], ["git", "Git"], ["npm", "npm"], ["maven", "Maven"]];
 
 // Counting the session data takes half a minute on a busy machine: the card shows the last
@@ -211,58 +212,49 @@ function AgentsEntry({ onOpen }: { onOpen: (page: Page) => void }) {
   {planOpen && <UpdatePlanModal onClose={closePlan} />}</>;
 }
 
+/** What the home page keeps of the session list: the counts and the three most recent. */
+export function recentSessions(page: { total: number; agents: AgentCount[]; items: { id: string; agent: AgentName; title: string; updatedAt: number }[] }, count = 3): RecentSessions {
+  return {
+    total: page.total,
+    agents: [...page.agents].filter((agent) => agent.sessions > 0).sort((a, b) => b.sessions - a.sessions),
+    items: page.items.slice(0, count).map(({ id, agent, title, updatedAt }) => ({ id, agent, title, updatedAt })),
+  };
+}
+
 function SessionsEntry({ onOpen }: { onOpen: (page: Page) => void }) {
   const { tr: t } = useI18n();
   const usage = seen.sessions;
+  const recent = seen.recent;
   const shares = usage?.shares ?? [];
-  return <Entry av="py" art="sessions" icon="ti-database" title="会话数据" tagline="查看、搜索、迁移 AI 的聊天记录，清掉没用的" page="agent-data" onOpen={onOpen}>
-    <div className="core-foot">
-      <div className="core-bar" role="img" aria-label={t("会话占比")} title={shares.map((s) => `${s.name} ${formatBytes(s.bytes)}`).join(" · ")}>
-        {shares.map((s) => <span key={s.name} style={{ width: `${s.percent}%` }} />)}
-      </div>
-      <div className="core-legend">{shares.map((s) => <span key={s.name}><i aria-hidden="true" />{s.name}</span>)}</div>
-      <div className="core-row">
+  // When the card was drawn, for "3 hours ago"; a page visit is short enough not to tick.
+  const [now] = useState(() => Date.now() / 1000);
+  return <Entry av="py" art="sessions" wide icon="ti-database" title="会话数据" tagline="查看、搜索、迁移 AI 的聊天记录，清掉没用的" page="agent-data" onOpen={onOpen}>
+    <div className="core-scan core-session-side">
+      {recent
+        ? <div className="core-stat tiny"><strong>{recent.total}</strong><span>{t("个会话")}</span></div>
+        : <span className="core-note">{t(failed.has("recent") ? "暂时读不到" : "正在统计…")}</span>}
+      <div className="core-session-size">
         {usage
-          ? <div className="core-stat tiny"><strong>{formatBytes(usage.total)}</strong>{usage.reclaimable > 0 && <span>{t("{size} 可清理").replace("{size}", formatBytes(usage.reclaimable))}</span>}</div>
-          : <span className="core-note">{t(failed.has("sessions") ? "暂时读不到" : "正在统计…")}</span>}
-        <button type="button" className="gh sm" onClick={() => { showSessionTab("footprint"); onOpen("agent-data"); }}>{t("看占用")}</button>
+          ? <>{formatBytes(usage.total)}{usage.reclaimable > 0 && <span className="orange"> · {t("{size} 可清理").replace("{size}", formatBytes(usage.reclaimable))}</span>}</>
+          : t(failed.has("sessions") ? "占用暂时读不到" : "正在统计占用…")}
       </div>
+      <button type="button" className="gh sm" onClick={() => { showSessionTab("footprint"); onOpen("agent-data"); }}>{t("看占用")}</button>
     </div>
-  </Entry>;
-}
-
-function GatewayEntry({ onOpen, refresh }: { onOpen: (page: Page) => void; refresh: () => void }) {
-  const { tr: t } = useI18n();
-  const toast = useToast();
-  const [busy, setBusy] = useState(false);
-  const status = seen.gateway;
-  const address = status ? `127.0.0.1:${status.port}/v1` : "";
-
-  async function start() {
-    if (!status) return;
-    setBusy(true);
-    try {
-      const next = await invoke<GatewayStatus>("gateway_set", { enabled: true, port: status.port });
-      seen.gateway = next;
-      refresh();
-      if (next.error) toast(t(GATEWAY_ERRORS[next.error] ?? next.error), "err");
-      else toast(t("接口服务已开启"), "ok");
-    } catch (error) {
-      toast(t(GATEWAY_ERRORS[String(error)] ?? String(error)), "err");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return <Entry av="php" art="gateway" icon="ti-plug-connected" title="接口服务" tagline="把已登录的智能体变成 OpenAI 接口，给你的程序用" page="gateway" onOpen={onOpen}>
-    <div className="core-foot">
-      <div className="core-address">{address || "—"}</div>
-      <div className="core-row">
-        <span className={"core-note" + (status?.running ? " good" : "")}>{!status ? t(failed.has("gateway") ? "暂时读不到" : "正在读取…") : status.running ? `${t("运行中")} · ${t(status.lanAccess ? "局域网可用" : "仅本机")}` : t("未启用")}</span>
-        {status?.running
-          ? <button type="button" className="gh sm" onClick={() => void navigator.clipboard.writeText(`http://${address}`).then(() => toast(t("已复制"), "ok"))}>{t("复制地址")}</button>
-          : <button type="button" className="gh sm" disabled={!status || busy} onClick={() => void start()}>{t(busy ? "启动中…" : "启动")}</button>}
+    <div className="core-disks core-sessions">
+      <div className="core-recent">
+        <div className="core-recent-title">{t("最近会话")}</div>
+        {recent?.items.length
+          ? recent.items.map((item) => <button type="button" key={item.id} className="core-recent-row" title={item.title} onClick={() => { showSessionTab("sessions"); onOpen("agent-data"); }}>
+            <span className="core-recent-agent">{AGENT_LABEL[item.agent] ?? item.agent}</span>
+            <span className="core-recent-name">{item.title || t("（无标题）")}</span>
+            <span className="core-recent-age">{t(formatAge(item.updatedAt, now))}</span>
+          </button>)
+          : <span className="core-note">{t(recent ? "还没有会话" : "正在读取…")}</span>}
       </div>
+      <div className="core-bar" role="img" aria-label={t("会话占比")} title={shares.map((share) => `${share.name} ${formatBytes(share.bytes)}`).join(" · ")}>
+        {shares.map((share) => <span key={share.name} style={{ width: `${share.percent}%` }} />)}
+      </div>
+      <div className="core-legend">{shares.map((share) => <span key={share.name}><i aria-hidden="true" />{share.name}</span>)}</div>
     </div>
   </Entry>;
 }
@@ -404,8 +396,8 @@ export function CoreEntries({ onOpen, onScan, cleanable }: { onOpen: (page: Page
         if (alive) refresh();
       });
     };
-    read("gateway", invoke<GatewayStatus>("gateway_status"));
     read("disks", invoke<VolumeInfo[]>("space_fixed_volumes"));
+    read("recent", listSessions(EMPTY_QUERY).then((page) => keep(RECENT_KEY, recentSessions(page))));
     read("sessions", scanFootprint(false).then((report) => keep(SESSIONS_KEY, { total: report.total, reclaimable: report.reclaimable, shares: sessionShares(report) })));
     read("proxy", Promise.all([invoke<SyncReport>("proxy_sync_report"), invoke<ProxyOverview>("proxy_overview")])
       .then(([report, overview]) => ({ report, on: new Set(overview.locations.filter((place) => place.value).map((place) => place.id)) })));
@@ -419,7 +411,6 @@ export function CoreEntries({ onOpen, onScan, cleanable }: { onOpen: (page: Page
   return <div className="core-grid">
     <AgentsEntry onOpen={onOpen} />
     <SessionsEntry onOpen={onOpen} />
-    <GatewayEntry onOpen={onOpen} refresh={refresh} />
     <ProxyEntry onOpen={onOpen} />
     <DiskEntry onOpen={onOpen} onScan={onScan} cleanable={cleanable} />
     <VaultEntry onOpen={onOpen} />

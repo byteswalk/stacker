@@ -2,8 +2,6 @@ export const PAGE_IDS = [
   "overview",
   "agents",
   "agent-data",
-  "gateway",
-  "gateway-log",
   "git",
   "python",
   "php",

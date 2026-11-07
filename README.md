@@ -22,9 +22,8 @@ Stacker manages that local layer without requiring a model connection or uploadi
 - **Runtime lifecycle** — discover, install, switch, verify, and remove local toolchain versions.
 - **Agent management** — inspect supported CLI and desktop products, distinguish regional editions, verify that installs actually run, and install, update, uninstall or repair them as parallel background tasks with one-click update.
 - **Agent session data** — list the sessions of Codex, Claude, CodeBuddy, WorkBuddy, Qoder, Kimi, MiMo Code and the desktop apps as each client shows them, group them by project, summarize them or compose a handoff, move them to another computer, measure and relocate each agent's data folder, and delete them in bulk with a slim Markdown export.
-- **API service** — offer signed-in agent CLIs (Codex, Claude, CodeBuddy, Qoder, Kimi Code, MiMo Code, Antigravity) to your own tools through OpenAI- and Anthropic-style endpoints, local by default with an optional LAN switch, a key on every request and a request log that never stores content.
 - **Key vault** — keep API keys, tokens, SSH keys and website logins in a local encrypted vault with a recovery key; the browser extension can offer to save and fill website passwords.
-- **Stacker AI** — set one AI source for the whole app; pages that can use a second opinion can diagnose, explain or search with it, and only what you ask about is sent.
+- **Stacker AI** — set one AI source for the whole app, an OpenAI- or Anthropic-compatible API with your own key; pages that can use a second opinion can diagnose, explain or search with it, and only what you ask about is sent.
 - **Git account isolation** — use separate terminal contexts and repository-level commit identities for GitHub, Gitee, GitLab, Gitea, Forgejo, Codeup, enterprise, and generic HTTPS Git services.
 - **Source and network control** — test latency, select download and repository sources, and preserve local custom sources. The proxy overview shows where terminal, Git, npm, Yarn, Maven and Gradle proxies come from; by default Stacker is hands-off and only ever syncs entries it wrote itself.
 - **Package storage placement** — move or reset Maven, Gradle, npm, pnpm, pip, Composer, Go, Cargo, and rustup download or build stores without deleting the old location automatically.
@@ -35,7 +34,7 @@ Stacker manages that local layer without requiring a model connection or uploadi
 
 ### Environment Overview
 
-The home page Stacker opens on: agents, session data, the API service, proxy, disks and the key vault at a glance, each one click from what it does. It checks commands, runtimes, package managers, build tools and caches by itself, and only speaks up when something needs attention.
+The home page Stacker opens on: agents, session data, proxy, disks and the key vault at a glance, each one click from what it does. It checks commands, runtimes, package managers, build tools and caches by itself, and only speaks up when something needs attention.
 
 ![Stacker environment overview](assets/screenshots/environment-check.png)
 
@@ -47,11 +46,7 @@ Review supported AI coding-agent CLI and desktop installations from one page. Th
 
 ### Agent Session Data
 
-Reads each agent's own records directly — Codex's state database, Claude's desktop session index, and the stores of CodeBuddy, WorkBuddy, Qoder, Kimi Code, MiMo Code and the desktop apps — so titles, archive state and projects match the clients. Sub-agent runs fold into their parent session and automated runs stay hidden by default. Sessions can be summarized or composed into a project handoff with a local agent, moved to another computer, and exported; the space tab measures every agent's data folder and can move it to another drive. Bulk deletion is previewed and re-verified; by default each session is saved as slim Markdown first, Codex sessions are deleted through the Codex App Server, and Claude sessions still shown in the desktop sidebar are never deleted.
-
-### API Service
-
-Offers the agent CLIs you are already signed in to as OpenAI- and Anthropic-style endpoints for your own tools. Every request runs statelessly in an empty temporary folder with no tools, needs the key shown on the page, and is refused if it comes from a web page. The service listens on localhost unless you turn on LAN access. See the [API service guide](docs/gateway.md).
+Reads each agent's own records directly — Codex's state database, Claude's desktop session index, and the stores of CodeBuddy, WorkBuddy, Qoder, Kimi Code, MiMo Code and the desktop apps — so titles, archive state and projects match the clients. Sub-agent runs fold into their parent session and automated runs stay hidden by default. Sessions can be summarized or composed into a project handoff with the AI source you set, moved to another computer, and exported; the space tab measures every agent's data folder and can move it to another drive. Bulk deletion is previewed and re-verified; by default each session is saved as slim Markdown first, Codex sessions are deleted through the Codex App Server, and Claude sessions still shown in the desktop sidebar are never deleted.
 
 ### Git Account Environments
 
@@ -81,10 +76,9 @@ Storage-location controls are available where the ecosystem provides a stable us
 
 ## Security and Privacy
 
-- Project files, machine summaries, and Git access tokens are not uploaded by Stacker. AI features send only what you ask about, and only to the AI source or local agent you chose.
+- Project files, machine summaries, and Git access tokens are not uploaded by Stacker. AI features send only what you ask about, and only to the AI source you chose.
 - Session data is read locally; it reaches a model only when you ask for a summary, handoff or distillation.
 - Git tokens are stored through Windows Credential Manager. The key vault encrypts its entries with Argon2id and XChaCha20-Poly1305; agent sign-in credentials are never read.
-- The API service listens on localhost by default, requires its key on every request, and keeps no request or reply content.
 - System-level environment changes and protected-directory scans require explicit Windows UAC approval.
 - Uncertain disk items remain view-only; cleanup is limited to classified targets and requires confirmation.
 - Supported configuration changes create local backups before writing.
@@ -139,7 +133,6 @@ A Chromium browser extension (Chrome, Edge, and other Chromium-based browsers) m
 ## Project Documentation
 
 - [Session data behavior and safety boundaries](docs/sessions.md)
-- [API service (local gateway)](docs/gateway.md)
 - [Development, verification, cleanup, and maintainer handoff](docs/development.md)
 
 ## License

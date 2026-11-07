@@ -14,7 +14,6 @@ mod distill;
 mod dpapi;
 mod env;
 mod fnm;
-mod gateway;
 mod git;
 mod gradle;
 mod installer;
@@ -217,7 +216,6 @@ pub fn run() {
             window_ready::show_anyway_after_a_while(app.handle().clone());
             settings::init();
             settings::start_log_retention_worker();
-            gateway::restore();
             agents::overrides::refresh();
             binary::migrate_legacy_envs();
             tray::build(app.handle())?;
@@ -519,13 +517,8 @@ pub fn run() {
             settings::settings_clear_old_logs,
             settings::settings_set_proxy_manual,
             proxy_ledger::proxy_overview,
-            gateway::gateway_status,
-            gateway::gateway_set,
-            gateway::gateway_set_lan,
-            gateway::gateway_allow_firewall,
             ai_config::ai_config_get,
             ai_config::ai_config_set,
-            ai_config::ai_config_use_local,
             ai_config::ai_config_test,
             ai_config::ai_explain_path,
             ai_features::ai_ask,
@@ -537,14 +530,6 @@ pub fn run() {
             ai_features::proxy_test,
             project_junk::project_junk_scan,
             project_junk::project_junk_clean,
-            gateway::gateway_new_token,
-            gateway::agents::gateway_agents,
-            gateway::agents::gateway_log,
-            gateway::agents::gateway_log_remove,
-            gateway::agents::gateway_log_clear,
-            gateway::agents::gateway_set_log,
-            gateway::agents::gateway_set_agent,
-            gateway::agents::gateway_test,
             proxy_ledger::proxy_sync_report,
             proxy_ledger::proxy_follow_system,
             proxy_ledger::proxy_targets_list,

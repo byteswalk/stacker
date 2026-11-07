@@ -29,7 +29,12 @@ fn program(id: &str) -> Option<PathBuf> {
 }
 
 fn signed_in(id: &str) -> bool {
-    crate::runner::backends::get(id).is_some_and(|backend| (backend.login)().state == "logged_in")
+    let agent = match id {
+        "codex" => crate::sessions::model::Agent::Codex,
+        "claude" => crate::sessions::model::Agent::Claude,
+        _ => return false,
+    };
+    crate::runner::login::login_status(agent).state == "logged_in"
 }
 
 /// Who can do the repair: installed and signed in. The failed product itself goes last, as it

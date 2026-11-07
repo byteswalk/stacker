@@ -490,34 +490,6 @@ pub(crate) fn open_external_target(target: &str) -> Result<(), String> {
     }
 }
 
-/// Who makes the agent behind a CLI id, for pages that name the vendor.
-pub(crate) fn cli_vendor_label(cli_id: &str) -> &'static str {
-    use registry::Vendor;
-    let vendor = registry::tool_specs()
-        .into_iter()
-        .find(|spec| spec.cli_id == Some(cli_id))
-        .map(|spec| spec.vendor);
-    match vendor {
-        Some(Vendor::Claude) => "Anthropic",
-        Some(Vendor::Codex) => "OpenAI",
-        Some(Vendor::Antigravity) => "Google",
-        Some(Vendor::Kimi) => "月之暗面",
-        Some(Vendor::WorkBuddy) => "腾讯",
-        Some(Vendor::Qoder) => "阿里",
-        Some(Vendor::Trae) => "字节跳动",
-        Some(Vendor::MiMo) => "小米",
-        Some(Vendor::Xai) => "xAI",
-        Some(Vendor::Cursor) => "Anysphere",
-        Some(Vendor::Factory) => "Factory",
-        Some(Vendor::Kiro) => "AWS",
-        Some(Vendor::MiniMax) => "MiniMax",
-        Some(Vendor::DeepSeekHarness) => "DeepSeek",
-        Some(Vendor::ZCode) => "智谱",
-        Some(Vendor::Copilot) => "GitHub",
-        _ => "",
-    }
-}
-
 pub(crate) fn emit_progress<S: AsRef<str>>(window: &Option<tauri::Window>, msg: S) {
     if crate::installer::task_log(msg.as_ref()) {
         return;
@@ -563,43 +535,6 @@ pub(crate) fn test_tool(id: &str) -> VibeTool {
         cli: test_surface(),
         desktop: test_surface(),
     }
-}
-
-/// The last detection results the page shows, however old; scans only when there are none.
-/// Tasks refresh the entries they touch, so the cache follows every action.
-/// What is installed, for callers that do not need latest versions (the API service page):
-/// the last scan if there is one, otherwise a local-only scan, which skips every network
-/// version lookup and takes seconds instead of the ~20 s a full first scan does.
-/// What the API service needs: each agent's CLI. The last full detection is reused; without
-/// one only the CLIs are looked at, since the Store, WinGet and desktop checks of a full scan
-/// take half a minute and tell the API service nothing.
-pub(crate) fn last_scan_or_cli_scan() -> Vec<VibeTool> {
-    let cached = VIBE_SCAN_CACHE
-        .get()
-        .and_then(|cache| cache.lock().ok())
-        .and_then(|guard| guard.as_ref().map(|(_, tools)| tools.clone()));
-    if let Some(tools) = cached.filter(|tools| !tools.is_empty()) {
-        return tools;
-    }
-    let specs: Vec<ToolSpec> = tool_specs()
-        .into_iter()
-        .filter(|spec| !spec.cli.command.is_empty())
-        .collect();
-    std::thread::scope(|scope| {
-        let readers: Vec<_> = specs
-            .iter()
-            .map(|spec| scope.spawn(move || detect::cli_surface(spec, false)))
-            .collect();
-        specs
-            .iter()
-            .zip(readers)
-            .filter_map(|(spec, reader)| {
-                let mut tool = vibe_catalog_tool(spec.clone());
-                tool.cli = reader.join().ok()?;
-                Some(tool)
-            })
-            .collect()
-    })
 }
 
 pub(crate) fn last_scan_or_scan() -> Vec<VibeTool> {
