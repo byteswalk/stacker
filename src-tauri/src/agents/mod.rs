@@ -411,7 +411,8 @@ pub(crate) fn open_desktop_tool(id: &str) -> Result<(), String> {
 }
 
 pub(crate) fn build_environment_prompt() -> Result<String, String> {
-    let tools = scan_vibe_tools(false);
+    // The shared detection when there is one; it waits for one already running.
+    let tools = last_scan_or_scan();
     let mut out = String::new();
     out.push_str("## 已安装的工作智能体\n\n");
     let mut count = 0;

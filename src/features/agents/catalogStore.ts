@@ -112,14 +112,21 @@ export function subscribeVibe(fn: (s: VibeCache) => void) {
 /** How long a full detection stays good enough to show without scanning again. */
 export const VIBE_FRESH_MS = 10 * 60 * 1000;
 
-export function vibeIsFresh(cache: VibeCache = vibeCache, now = Date.now()) {
-  const at = cache.checkedAt ? Date.parse(cache.checkedAt) : NaN;
-  return cache.checked && Number.isFinite(at) && now - at < VIBE_FRESH_MS;
+/**
+ * When this run of Stacker last finished a full detection. What localStorage restored is only
+ * shown while the first one runs: the backend has no detection of its own until then, and the
+ * update plan would start a second, unseen scan.
+ */
+let lastFullCheck: number | null = null;
+
+export function vibeIsFresh(checkedAt: number | null = lastFullCheck, now = Date.now()) {
+  return checkedAt !== null && now - checkedAt < VIBE_FRESH_MS;
 }
 
 /**
- * The home page, notifications and the agents page all ask for the same detection; a recent
- * one is reused so moving between pages does not start another 40-second scan.
+ * The home page, notifications and the agents page share one detection: one in progress is
+ * joined, and a finished one is reused for ten minutes, so moving between pages does not
+ * start another 40-second scan.
  */
 export function runVibeCheck(force = false) {
   if (vibeRun) return vibeRun;
@@ -128,7 +135,8 @@ export function runVibeCheck(force = false) {
   vibeRun = (async () => {
     try {
       const tools = await invoke<VibeTool[]>(force ? "vibe_tools_refresh" : "vibe_tools");
-      publishVibe({ tools, checked: true, checkedAt: new Date().toISOString() });
+      lastFullCheck = Date.now();
+      publishVibe({ tools, checked: true, checkedAt: new Date(lastFullCheck).toISOString() });
     } finally {
       publishVibe({ loading: false });
       vibeRun = null;
