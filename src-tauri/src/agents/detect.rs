@@ -1005,6 +1005,20 @@ pub(crate) fn desktop_registry(spec: &DesktopSpec) -> Option<DesktopFound> {
                             .and_then(Path::parent)
                             .and_then(|dir| find_exe_in_dir(dir, spec.keywords, spec.excludes))
                     });
+                // An uninstall entry outlives a folder deleted by hand; one whose program,
+                // icon and uninstaller are all gone is not an install.
+                if path.is_none()
+                    && registry_entry_is_stale(
+                        install_location.as_deref(),
+                        icon.as_deref().and_then(registered_file_path).as_deref(),
+                        uninstall_string
+                            .as_deref()
+                            .and_then(command_executable_path)
+                            .as_deref(),
+                    )
+                {
+                    continue;
+                }
                 return Some(DesktopFound {
                     path,
                     version,
@@ -1021,6 +1035,24 @@ pub(crate) fn desktop_registry(spec: &DesktopSpec) -> Option<DesktopFound> {
 #[cfg(not(windows))]
 pub(crate) fn desktop_registry(_: &DesktopSpec) -> Option<DesktopFound> {
     None
+}
+
+/// True when an uninstall entry names files or a folder and none of them exists any more.
+/// An entry that names nothing cannot be checked and is kept.
+pub(crate) fn registry_entry_is_stale(
+    install_location: Option<&str>,
+    icon_file: Option<&Path>,
+    uninstall_file: Option<&Path>,
+) -> bool {
+    let named: Vec<PathBuf> = install_location
+        .map(str::trim)
+        .filter(|location| !location.is_empty())
+        .map(PathBuf::from)
+        .into_iter()
+        .chain(icon_file.map(Path::to_path_buf))
+        .chain(uninstall_file.map(Path::to_path_buf))
+        .collect();
+    !named.is_empty() && named.iter().all(|path| !path.exists())
 }
 
 pub(crate) fn desktop_start_menu_shortcut(spec: &DesktopSpec) -> Option<DesktopFound> {
@@ -1171,18 +1203,24 @@ pub(crate) fn desktop_name_matches(name: &str, keywords: &[&str], excludes: &[&s
     }) && !excludes.iter().any(|k| lower.contains(&k.to_lowercase()))
 }
 
-pub(crate) fn parse_registered_file(value: &str) -> Option<PathBuf> {
+/// The file a registry value such as `DisplayIcon` names, whether or not it still exists.
+pub(crate) fn registered_file_path(value: &str) -> Option<PathBuf> {
     let mut s = value.trim().trim_matches('"').to_string();
     if let Some(idx) = s.rfind(',') {
         if s[idx + 1..].chars().all(|c| c == '-' || c.is_ascii_digit()) {
             s.truncate(idx);
         }
     }
-    let p = PathBuf::from(s.trim().trim_matches('"'));
-    p.is_file().then_some(p)
+    let s = s.trim().trim_matches('"');
+    (!s.is_empty()).then(|| PathBuf::from(s))
 }
 
-pub(crate) fn executable_from_command(value: &str) -> Option<PathBuf> {
+pub(crate) fn parse_registered_file(value: &str) -> Option<PathBuf> {
+    registered_file_path(value).filter(|p| p.is_file())
+}
+
+/// The program a command line such as `UninstallString` starts, whether or not it still exists.
+pub(crate) fn command_executable_path(value: &str) -> Option<PathBuf> {
     let value = value.trim();
     let executable = if let Some(rest) = value.strip_prefix('"') {
         let end = rest.find('"')?;
@@ -1192,8 +1230,12 @@ pub(crate) fn executable_from_command(value: &str) -> Option<PathBuf> {
         let end = lower.find(".exe")? + ".exe".len();
         &value[..end]
     };
-    let path = PathBuf::from(executable.trim());
-    path.is_file().then_some(path)
+    let executable = executable.trim();
+    (!executable.is_empty()).then(|| PathBuf::from(executable))
+}
+
+pub(crate) fn executable_from_command(value: &str) -> Option<PathBuf> {
+    command_executable_path(value).filter(|p| p.is_file())
 }
 
 pub(crate) fn is_launchable_desktop_exe(path: &Path, keywords: &[&str], excludes: &[&str]) -> bool {
@@ -1897,5 +1939,38 @@ url: https://filecdn.minimax.chat/public/minimax-agent/release
             normalize_desktop_version("Kimi 3.2.3"),
             Some("3.2.3".into())
         );
+    }
+
+    #[test]
+    fn an_uninstall_entry_whose_folder_was_deleted_is_not_an_install() {
+        let dir = tempfile::tempdir().unwrap();
+        let uninstaller = dir.path().join("Uninstall ZCode.exe");
+        std::fs::write(&uninstaller, b"").unwrap();
+        let gone = dir.path().join("gone");
+        assert!(registry_entry_is_stale(
+            None,
+            Some(&gone.join("icon.ico")),
+            Some(&gone.join("Uninstall.exe"))
+        ));
+        assert!(!registry_entry_is_stale(
+            None,
+            Some(&gone.join("icon.ico")),
+            Some(&uninstaller)
+        ));
+        assert!(!registry_entry_is_stale(
+            Some(&dir.path().to_string_lossy()),
+            None,
+            None
+        ));
+        assert!(!registry_entry_is_stale(Some("  "), None, None));
+        // What ZCode's leftover entry looks like after its folder was deleted.
+        let icon = registered_file_path(r"D:\NoSuchDir\ZCode\uninstallerIcon.ico");
+        let uninstall =
+            command_executable_path(r#""D:\NoSuchDir\ZCode\Uninstall ZCode.exe" /currentuser"#);
+        assert!(registry_entry_is_stale(
+            Some(""),
+            icon.as_deref(),
+            uninstall.as_deref()
+        ));
     }
 }
