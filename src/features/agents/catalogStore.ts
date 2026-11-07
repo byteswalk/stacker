@@ -109,8 +109,21 @@ export function subscribeVibe(fn: (s: VibeCache) => void) {
   return () => { vibeListeners.delete(fn); };
 }
 
+/** How long a full detection stays good enough to show without scanning again. */
+export const VIBE_FRESH_MS = 10 * 60 * 1000;
+
+export function vibeIsFresh(cache: VibeCache = vibeCache, now = Date.now()) {
+  const at = cache.checkedAt ? Date.parse(cache.checkedAt) : NaN;
+  return cache.checked && Number.isFinite(at) && now - at < VIBE_FRESH_MS;
+}
+
+/**
+ * The home page, notifications and the agents page all ask for the same detection; a recent
+ * one is reused so moving between pages does not start another 40-second scan.
+ */
 export function runVibeCheck(force = false) {
   if (vibeRun) return vibeRun;
+  if (!force && vibeIsFresh()) return Promise.resolve();
   publishVibe({ loading: true });
   vibeRun = (async () => {
     try {

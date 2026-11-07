@@ -26,7 +26,10 @@ pub(crate) const VIBE_PROGRESS_EVENT: &str = "vibe-progress";
 
 pub(crate) const VIBE_SCAN_WORKERS: usize = 4;
 
-pub(crate) const VIBE_SCAN_CACHE_TTL: Duration = Duration::from_secs(15);
+/// A full detection runs every agent's CLI, WinGet and the Store (40 s or more), so its result
+/// is kept for ten minutes. Installs and updates refresh the one tool they touched, and the
+/// page's own refresh button always scans again.
+pub(crate) const VIBE_SCAN_CACHE_TTL: Duration = Duration::from_secs(600);
 
 pub(crate) type VibeScanSnapshot = Option<(Instant, Vec<VibeTool>)>;
 
@@ -566,15 +569,36 @@ pub(crate) fn test_tool(id: &str) -> VibeTool {
 /// What is installed, for callers that do not need latest versions (the API service page):
 /// the last scan if there is one, otherwise a local-only scan, which skips every network
 /// version lookup and takes seconds instead of the ~20 s a full first scan does.
-pub(crate) fn last_scan_or_local_scan() -> Vec<VibeTool> {
+/// What the API service needs: each agent's CLI. The last full detection is reused; without
+/// one only the CLIs are looked at, since the Store, WinGet and desktop checks of a full scan
+/// take half a minute and tell the API service nothing.
+pub(crate) fn last_scan_or_cli_scan() -> Vec<VibeTool> {
     let cached = VIBE_SCAN_CACHE
         .get()
         .and_then(|cache| cache.lock().ok())
         .and_then(|guard| guard.as_ref().map(|(_, tools)| tools.clone()));
-    match cached {
-        Some(tools) if !tools.is_empty() => tools,
-        _ => scan_vibe_tools(false),
+    if let Some(tools) = cached.filter(|tools| !tools.is_empty()) {
+        return tools;
     }
+    let specs: Vec<ToolSpec> = tool_specs()
+        .into_iter()
+        .filter(|spec| !spec.cli.command.is_empty())
+        .collect();
+    std::thread::scope(|scope| {
+        let readers: Vec<_> = specs
+            .iter()
+            .map(|spec| scope.spawn(move || detect::cli_surface(spec, false)))
+            .collect();
+        specs
+            .iter()
+            .zip(readers)
+            .filter_map(|(spec, reader)| {
+                let mut tool = vibe_catalog_tool(spec.clone());
+                tool.cli = reader.join().ok()?;
+                Some(tool)
+            })
+            .collect()
+    })
 }
 
 pub(crate) fn last_scan_or_scan() -> Vec<VibeTool> {

@@ -63,12 +63,14 @@ pub fn supported_efforts(backend: &str, model: Option<&str>) -> Option<Vec<Strin
 /// Every agent CLI Stacker knows, with what the API service can do with it.
 pub fn agent_cards() -> Vec<AgentCard> {
     let config = load();
+    let started = std::time::Instant::now();
     let mut seen = std::collections::HashSet::new();
-    let tools: Vec<_> = crate::agents::last_scan_or_local_scan()
+    let tools: Vec<_> = crate::agents::last_scan_or_cli_scan()
         .into_iter()
         .filter_map(|tool| Some((tool.cli_id.clone()?, tool)))
         .filter(|(cli_id, _)| seen.insert(cli_id.clone()))
         .collect();
+    let scanned = started.elapsed();
     // Each agent's sign-in and model checks start its CLI, so the agents are checked at once.
     let mut cards: Vec<AgentCard> = std::thread::scope(|scope| {
         let handles: Vec<_> = tools
@@ -78,6 +80,11 @@ pub fn agent_cards() -> Vec<AgentCard> {
         handles.into_iter().filter_map(|h| h.join().ok()).collect()
     });
     cards.sort_by_key(|c| (!c.supported, !c.installed));
+    log::debug!(
+        "api service agent cards: cli scan {} ms, sign-in and model checks {} ms",
+        scanned.as_millis(),
+        (started.elapsed() - scanned).as_millis()
+    );
     cards
 }
 
