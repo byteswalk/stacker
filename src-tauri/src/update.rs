@@ -148,10 +148,28 @@ fn save_cfg(c: &Cfg) -> Result<(), String> {
     )
     .map_err(|e| e.to_string())
 }
+/// The catalog this build shipped with, so a fresh install or an old cache never falls back
+/// to a list older than the one in the repository.
+const BUNDLED_LIST: &str = include_str!("../../resources/mirrors.json");
+
+fn bundled_list() -> Option<RemoteList> {
+    serde_json::from_str(BUNDLED_LIST).ok()
+}
+
+/// The newer of the downloaded catalog and the bundled one.
 fn load_list() -> Option<RemoteList> {
-    std::fs::read_to_string(list_path())
+    let cached: Option<RemoteList> = std::fs::read_to_string(list_path())
         .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
+        .and_then(|s| serde_json::from_str(&s).ok());
+    newer_list(cached, bundled_list())
+}
+
+fn newer_list(cached: Option<RemoteList>, bundled: Option<RemoteList>) -> Option<RemoteList> {
+    match (cached, bundled) {
+        (Some(cached), Some(bundled)) if bundled.version > cached.version => Some(bundled),
+        (Some(cached), _) => Some(cached),
+        (None, bundled) => bundled,
+    }
 }
 
 pub fn remote_snapshot() -> Option<RemoteList> {
@@ -1199,5 +1217,47 @@ mod tests {
             "composer",
             "202608301100"
         ));
+    }
+
+    #[test]
+    fn the_bundled_catalog_covers_every_tool_without_duplicates() {
+        let list = super::bundled_list().expect("resources/mirrors.json must parse");
+        for id in crate::sources::tools_builtin_ids() {
+            assert!(
+                list.tools
+                    .iter()
+                    .any(|t| t.id == id && !t.mirrors.is_empty()),
+                "the catalog has no sources for {id}"
+            );
+        }
+        for tool in &list.tools {
+            let mut ids: Vec<&str> = tool.mirrors.iter().map(|m| m.id.as_str()).collect();
+            ids.sort_unstable();
+            let before = ids.len();
+            ids.dedup();
+            assert_eq!(before, ids.len(), "duplicate mirror id in {}", tool.id);
+        }
+    }
+
+    #[test]
+    fn an_older_download_does_not_hide_the_bundled_catalog() {
+        let list = |version: &str| super::RemoteList {
+            version: version.into(),
+            updated_at: String::new(),
+            tools: Vec::new(),
+        };
+        let pick = |cached, bundled| super::newer_list(cached, bundled).map(|l| l.version);
+        assert_eq!(
+            pick(Some(list("202601010000")), Some(list("202611071320"))).as_deref(),
+            Some("202611071320")
+        );
+        assert_eq!(
+            pick(Some(list("202612010000")), Some(list("202611071320"))).as_deref(),
+            Some("202612010000")
+        );
+        assert_eq!(
+            pick(None, Some(list("202611071320"))).as_deref(),
+            Some("202611071320")
+        );
     }
 }

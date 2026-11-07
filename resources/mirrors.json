@@ -69,7 +69,6 @@
       "mirrors": [
         { "id": "official", "name": "官方 go.dev", "url": "https://go.dev/dl", "host": "go.dev" },
         { "id": "aliyun", "name": "阿里云镜像", "url": "https://mirrors.aliyun.com/golang", "host": "mirrors.aliyun.com" },
-        { "id": "golang-cn", "name": "golang.google.cn", "url": "https://golang.google.cn/dl", "host": "golang.google.cn" },
         { "id": "nju", "name": "南京大学", "url": "https://mirror.nju.edu.cn/golang", "host": "mirror.nju.edu.cn" }
       ]
     },
