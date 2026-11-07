@@ -256,7 +256,11 @@ fn pyenv_pypi_simple(id: &str) -> Option<&'static str> {
         "ustc" => Some("https://pypi.mirrors.ustc.edu.cn/simple/pyenv-win/"),
         "bfsu" => Some("https://mirrors.bfsu.edu.cn/pypi/web/simple/pyenv-win/"),
         "nju" => Some("https://mirror.nju.edu.cn/pypi/web/simple/pyenv-win/"),
-        _ => None,
+        "official" => None,
+        // A source without a PyPI mirror of its own (npmmirror, or one added later through the
+        // catalog) still needs pyenv-win from somewhere close; the Python installers keep
+        // coming from the chosen source.
+        _ => Some("https://mirrors.aliyun.com/pypi/simple/pyenv-win/"),
     }
 }
 
