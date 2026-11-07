@@ -966,10 +966,17 @@ mod tests {
         });
         let text = std::fs::read_to_string(&path)
             .unwrap_or_else(|e| panic!("cannot read the signing key {path}: {e}"));
-        let secret = minisign::SecretKeyBox::from_string(&text)
-            .unwrap()
-            .into_secret_key(std::env::var("STACKER_SIGNING_PASSWORD").ok())
-            .unwrap();
+        // Opened the way the release tool opens it: the given password, else no password,
+        // and only then a prompt.
+        let open = |password| {
+            minisign::SecretKeyBox::from_string(&text)
+                .unwrap()
+                .into_secret_key(password)
+        };
+        let secret = match std::env::var("STACKER_SIGNING_PASSWORD") {
+            Ok(given) => open(Some(given)).unwrap(),
+            Err(_) => open(Some(String::new())).or_else(|_| open(None)).unwrap(),
+        };
         let payload = b"MZ pretend installer";
         let signature = minisign::sign(None, &secret, &payload[..], Some("test"), Some("test"))
             .unwrap()
