@@ -258,9 +258,13 @@ pub async fn go_versions(
             ],
         )
         .ok_or("Go 下载源地址无效")?;
-        let official = base.contains("go.dev/dl");
+        // golang.google.cn is Google's own mainland copy of go.dev/dl and answers the same JSON.
+        let official = base.contains("go.dev/dl") || base.contains("golang.google.cn/dl");
         let mut vs: Vec<String> = if official {
-            let body = fetch("https://go.dev/dl/?mode=json&include=all")?;
+            let body = fetch(&format!(
+                "{}/?mode=json&include=all",
+                base.trim_end_matches('/')
+            ))?;
             let releases: serde_json::Value =
                 serde_json::from_str(&body).map_err(|e| format!("Go 版本清单格式异常：{e}"))?;
             releases
