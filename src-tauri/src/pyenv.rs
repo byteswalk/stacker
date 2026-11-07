@@ -2518,7 +2518,7 @@ fn quick_head(url: &str, timeout: Duration) -> Result<(), String> {
 }
 
 fn speedtest_pyenv_source(spec: Mirror) -> Option<u64> {
-    let total = Duration::from_millis(1500);
+    let total = Duration::from_millis(3000);
     let start = std::time::Instant::now();
     if spec.id == "official" {
         quick_head(PYENV_GITHUB_URL, remaining(start, total)?).ok()?;
@@ -2539,7 +2539,7 @@ fn speedtest_pyenv_source(spec: Mirror) -> Option<u64> {
     Some(start.elapsed().as_millis() as u64)
 }
 
-/// Python 下载源测速：官方源和镜像源都参与；1500ms 内 pyenv-win 与 Python 安装包链路都通过才算可用。
+/// Python 下载源测速：官方源和镜像源都参与；3 秒内 pyenv-win 与 Python 安装包链路都通过才算可用。
 #[tauri::command]
 pub async fn pyenv_speedtest_sources(window: tauri::Window) -> Vec<PyenvSourcePing> {
     tauri::async_runtime::spawn_blocking(move || {

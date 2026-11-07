@@ -38,15 +38,24 @@ fn place_path(key: &str) -> Option<PathBuf> {
 #[tauri::command]
 pub async fn storage_places() -> Result<Vec<StoragePlace>, String> {
     tauri::async_runtime::spawn_blocking(|| {
-        places()
-            .into_iter()
-            .map(|(key, path)| StoragePlace {
-                key,
-                exists: path.is_dir(),
-                bytes: crate::sessions::claude_catalog::tree_size(&path),
-                path: path.to_string_lossy().into_owned(),
-            })
-            .collect()
+        // Each folder is measured on its own thread: the slowest one sets the wait, not the sum.
+        let places = places();
+        std::thread::scope(|scope| {
+            let sizes: Vec<_> = places
+                .iter()
+                .map(|(_, path)| scope.spawn(|| crate::sessions::claude_catalog::tree_size(path)))
+                .collect();
+            places
+                .iter()
+                .zip(sizes)
+                .map(|((key, path), size)| StoragePlace {
+                    key,
+                    exists: path.is_dir(),
+                    bytes: size.join().unwrap_or(0),
+                    path: path.to_string_lossy().into_owned(),
+                })
+                .collect()
+        })
     })
     .await
     .map_err(|error| error.to_string())

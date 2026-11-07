@@ -224,7 +224,7 @@ export default function Python() {
     try {
       const rows = await runBusy({
         title: "Python 下载源测速",
-        message: "正在测试各下载源的连接状态；单个源 1500ms 无响应算超时。",
+        message: "正在测试各下载源的连接状态；单个源 3 秒内没走通算超时。",
         progressEvent: "pyenv-source-speed-progress",
       }, () => invoke<PyenvSourcePing[]>("pyenv_speedtest_sources"));
       const map: Record<string, number | null> = {};
