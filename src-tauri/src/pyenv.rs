@@ -2493,6 +2493,8 @@ pub struct PyenvSourcePing {
     pub id: String,
     pub name: String,
     pub ms: Option<u64>,
+    /// Why there is no time: 超时, 拒绝访问 or 不可用.
+    pub failure: Option<String>,
 }
 
 fn agent_with_timeout(timeout: Duration) -> ureq::Agent {
@@ -2521,26 +2523,59 @@ fn quick_head(url: &str, timeout: Duration) -> Result<(), String> {
     }
 }
 
-fn speedtest_pyenv_source(spec: Mirror) -> Option<u64> {
+/// Why a probe failed, in the words the page shows: a mirror that refuses this network is
+/// not the same as one that is slow.
+fn probe_failure(error: &ureq::Error) -> &'static str {
+    match error {
+        ureq::Error::Status(401 | 403, _) => "拒绝访问",
+        ureq::Error::Status(..) => "不可用",
+        ureq::Error::Transport(_) => "超时",
+    }
+}
+
+fn probe_head(url: &str, timeout: Duration) -> Result<(), &'static str> {
+    let agent = agent_with_timeout(timeout);
+    if agent.head(url).call().is_ok() {
+        return Ok(());
+    }
+    agent
+        .get(url)
+        .set("Range", "bytes=0-0")
+        .call()
+        .map(|_| ())
+        .map_err(|e| probe_failure(&e))
+}
+
+/// pyenv-win and the Python installer come from different places, so both are checked at
+/// the same time; the source counts as reachable when both answer within the budget.
+fn speedtest_pyenv_source(spec: &Mirror) -> Result<u64, &'static str> {
     let total = Duration::from_millis(3000);
     let start = std::time::Instant::now();
-    if spec.id == "official" {
-        quick_head(PYENV_GITHUB_URL, remaining(start, total)?).ok()?;
-    } else {
-        let simple = pyenv_pypi_simple(&spec.id)?;
-        let body = agent_with_timeout(remaining(start, total)?)
+    let filename = format!("python-{PYTHON_SPEEDTEST_VERSION}-amd64.exe");
+    let installer = python_installer_url(PYTHON_SPEEDTEST_VERSION, &spec.id, &filename)
+        .map_err(|_| "不可用")?;
+    let left = || remaining(start, total).ok_or("超时");
+    let pyenv = || -> Result<(), &'static str> {
+        if spec.id == "official" {
+            return probe_head(PYENV_GITHUB_URL, left()?);
+        }
+        let simple = pyenv_pypi_simple(&spec.id).ok_or("不可用")?;
+        let body = agent_with_timeout(left()?)
             .get(simple)
             .call()
-            .ok()?
+            .map_err(|e| probe_failure(&e))?
             .into_string()
-            .ok()?;
-        let wheel = pypi_file_url(simple, &latest_pyenv_wheel_href(&body)?);
-        quick_head(&wheel, remaining(start, total)?).ok()?;
-    }
-    let filename = format!("python-{PYTHON_SPEEDTEST_VERSION}-amd64.exe");
-    let installer = python_installer_url(PYTHON_SPEEDTEST_VERSION, &spec.id, &filename).ok()?;
-    quick_head(&installer, remaining(start, total)?).ok()?;
-    Some(start.elapsed().as_millis() as u64)
+            .map_err(|_| "超时")?;
+        let wheel = pypi_file_url(simple, &latest_pyenv_wheel_href(&body).ok_or("不可用")?);
+        probe_head(&wheel, left()?)
+    };
+    std::thread::scope(|scope| {
+        let installer = scope.spawn(|| probe_head(&installer, total));
+        let pyenv = pyenv();
+        let installer = installer.join().unwrap_or(Err("超时"));
+        pyenv.and(installer)
+    })?;
+    Ok(start.elapsed().as_millis() as u64)
 }
 
 /// Python 下载源测速：官方源和镜像源都参与；3 秒内 pyenv-win 与 Python 安装包链路都通过才算可用。
@@ -2556,11 +2591,12 @@ pub async fn pyenv_speedtest_sources(window: tauri::Window) -> Vec<PyenvSourcePi
         for spec in sources.iter().cloned() {
             let tx = tx.clone();
             std::thread::spawn(move || {
-                let ms = speedtest_pyenv_source(spec.clone());
+                let result = speedtest_pyenv_source(&spec);
                 let _ = tx.send(PyenvSourcePing {
                     id: spec.id,
                     name: spec.name,
-                    ms,
+                    ms: result.ok(),
+                    failure: result.err().map(String::from),
                 });
             });
         }
@@ -2571,7 +2607,11 @@ pub async fn pyenv_speedtest_sources(window: tauri::Window) -> Vec<PyenvSourcePi
                 "pyenv-source-speed-progress",
                 match row.ms {
                     Some(ms) => format!("{} · {}ms", row.name, ms),
-                    None => format!("{} · 超时", row.name),
+                    None => format!(
+                        "{} · {}",
+                        row.name,
+                        row.failure.as_deref().unwrap_or("超时")
+                    ),
                 },
             );
             rows.push(row);

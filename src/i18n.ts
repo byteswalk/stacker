@@ -1334,6 +1334,7 @@ Object.assign(CURATED_EN, {
   "未知": "Unknown",
   "pyenv versions 未完成": "pyenv versions did not finish",
   "读取中断": "Reading was interrupted",
+  "没有下载源测通，保留当前下载源": "No download source got through; the current one is kept",
   "更新 Rust 工具链": "Update Rust toolchains",
   "」更新已安装的工具链；stable、beta、nightly 等渠道工具链会升级到最新，固定版本不变。": "\" to update the installed toolchains; channel toolchains such as stable, beta and nightly move to the latest release, pinned versions stay as they are.",
   "Rust 工具链已是最新": "Rust toolchains are up to date",

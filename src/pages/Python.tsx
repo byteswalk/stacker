@@ -18,7 +18,7 @@ type PyenvStatus = { installed: boolean; pyenv_version: string | null; versions:
 type Shells = { powershell: boolean; gitbash: boolean; cmd: boolean };
 type Mirror = { id: string; name: string; url: string; host: string };
 type ToolState = { id: string; name: string; mirrors: Mirror[] };
-type PyenvSourcePing = { id: string; name: string; ms: number | null };
+type PyenvSourcePing = { id: string; name: string; ms: number | null; failure?: string | null };
 type DriveInfo = { letter: string; fixed: boolean };
 type ScannedRuntime = { version: string; path: string; origin?: string; current: boolean };
 type RemovalResult = { path: string; ok: boolean; method: string; message: string };
@@ -63,7 +63,8 @@ export default function Python() {
   const [downloadSources, setDownloadSources] = useState<Mirror[]>(FALLBACK_DOWNLOAD_SOURCES);
   const [downloadSource, setDownloadSourceState] = useState<string>(initialDownloadSource);
   const [pendingDownloadSource, setPendingDownloadSource] = useState<string>(initialDownloadSource);
-  const [sourcePings, setSourcePings] = useState<Record<string, number | null>>({});
+  // A time, or why there is none (超时 / 拒绝访问 / 不可用).
+  const [sourcePings, setSourcePings] = useState<Record<string, number | string>>({});
   const [remote, setRemote] = useState<string[] | null>(null);
   const [uninstall, setUninstall] = useState<string | null>(null);
   const [srcRefresh, setSrcRefresh] = useState(0);
@@ -227,8 +228,8 @@ export default function Python() {
         message: "正在测试各下载源的连接状态；单个源 3 秒内没走通算超时。",
         progressEvent: "pyenv-source-speed-progress",
       }, () => invoke<PyenvSourcePing[]>("pyenv_speedtest_sources"));
-      const map: Record<string, number | null> = {};
-      rows.forEach((r) => { map[r.id] = r.ms; });
+      const map: Record<string, number | string> = {};
+      rows.forEach((r) => { map[r.id] = r.ms ?? r.failure ?? "超时"; });
       setSourcePings(map);
       const fastest = rows
         .filter((r): r is PyenvSourcePing & { ms: number } => typeof r.ms === "number")
@@ -242,7 +243,7 @@ export default function Python() {
           "ok",
         );
       } else {
-        toast("下载源测速均超时，保留当前下载源", "info");
+        toast("没有下载源测通，保留当前下载源", "info");
       }
     } catch (e) { toast("Python 下载源测速失败。请检查网络连接后重试。原因：" + e, "err"); }
   }
@@ -342,7 +343,7 @@ export default function Python() {
     const ms = sourcePings[s.id];
     const suffix = !(s.id in sourcePings)
       ? ""
-      : ms === null ? " · 超时" : ` · ${ms}ms${s.id === fastestSource ? " · 最快" : ""}`;
+      : typeof ms === "string" ? ` · ${ms}` : ` · ${ms}ms${s.id === fastestSource ? " · 最快" : ""}`;
     return { value: s.id, label: `${s.name}${suffix}` };
   });
   const defaultPy = pyState.versions.find((v) => v.is_default)?.version ?? pyState.default ?? "";
