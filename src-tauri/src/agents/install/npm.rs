@@ -25,11 +25,17 @@ pub(crate) fn npm_install_latest(
         .ok_or_else(|| "未检测到 npm。请先在 Node 页面安装并设置默认 Node。".to_string())?;
     validate_npm_proxy(&npm)?;
     let spec = format!("{package}@latest");
+    // npm 11 no longer runs install scripts in a global install unless the package is named.
+    // An agent CLI's own postinstall finishes its setup (Qoder's fetches parts and writes its
+    // PATH entry), so the package being installed is allowed; its dependencies are not. Older
+    // npm only warns about the unknown flag.
+    let allow_scripts = format!("--allow-scripts={package}");
     let install = |registry: Option<&str>| {
         let mut args = vec![
             "install",
             "-g",
             &spec,
+            &allow_scripts,
             "--fetch-retries=2",
             "--fetch-retry-mintimeout=1000",
             "--fetch-retry-maxtimeout=5000",
