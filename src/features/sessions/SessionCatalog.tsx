@@ -7,6 +7,7 @@ import { TransferExport, TransferImport } from "./TransferDialogs";
 import { DistillDialog } from "./DistillDialog";
 import { DistillPanel } from "./DistillPanel";
 import { FootprintPanel } from "./FootprintPanel";
+import { LeftoversPanel } from "./LeftoversPanel";
 import { ProjectList } from "./ProjectList";
 import { SessionDetail } from "./SessionDetail";
 import { SessionList } from "./SessionList";
@@ -17,8 +18,8 @@ import { EMPTY_PAGE, EMPTY_QUERY, errorMessage, type DistillSourceRef, type Proj
 import { WebChatPanel } from "./WebChatPanel";
 import "./sessions.css";
 
-type Tab = "sessions" | "projects" | "web" | "distill" | "footprint" | "sources";
-const TABS: [Tab, string, string][] = [["sessions", "会话", "ti-messages"], ["projects", "项目", "ti-folders"], ["web", "网页对话", "ti-world"], ["distill", "提炼", "ti-bulb"], ["footprint", "占用", "ti-chart-pie"], ["sources", "设置", "ti-settings"]];
+type Tab = "sessions" | "projects" | "web" | "distill" | "footprint" | "leftovers" | "sources";
+const TABS: [Tab, string, string][] = [["sessions", "会话", "ti-messages"], ["projects", "项目", "ti-folders"], ["web", "网页对话", "ti-world"], ["distill", "提炼", "ti-bulb"], ["footprint", "占用", "ti-chart-pie"], ["leftovers", "残留", "ti-recycle"], ["sources", "设置", "ti-settings"]];
 
 // Survive page switches within one app session.
 let lastTab: Tab = "sessions";
@@ -115,6 +116,7 @@ export function SessionCatalog({ onCleanup }: { onCleanup: () => void }) {
     {tab === "web" && <WebChatPanel refresh={webRefresh} onDistill={(key) => setDistilling([{ kind: "web", key }])} />}
     {tab === "distill" && <DistillPanel refresh={distillRefresh} onNew={() => setDistilling([])} />}
     {tab === "footprint" && <FootprintPanel onShowSessions={(agent) => { filter({ agent, sort: "bytes" }); setTab("sessions"); }} />}
+    {tab === "leftovers" && <LeftoversPanel />}
     {tab === "sources" && <SettingsPanel />}
     {detail && <SessionDetail session={detail} onClose={() => setDetail(null)} onSummarize={() => { setDetail(null); setSummarizing({ kind: "summary", ids: [detail.id] }); }} />}
     {summarizing && <SummaryDialog target={summarizing} onClose={(changed) => { setSummarizing(null); if (changed) void load(); }} />}

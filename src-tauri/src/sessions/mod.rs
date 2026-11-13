@@ -11,6 +11,7 @@ pub mod export;
 pub mod footprint;
 pub mod handoff;
 pub mod kimi_catalog;
+pub mod leftovers;
 pub mod migration;
 pub mod mimo_catalog;
 pub mod model;

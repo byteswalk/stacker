@@ -22,6 +22,7 @@ import { GOTO_EVENT } from "./features/ai/AiAsk";
 import "./features/agent-tasks/agentTasks.css";
 import { useVaultActivity } from "./features/vault/useVaultActivity";
 import { useVaultLockNotice } from "./features/vault/useVaultLockNotice";
+import { useLeftoversNotice } from "./features/sessions/useLeftoversNotice";
 
 const Overview = lazy(() => import("./pages/Overview"));
 const Agents = lazy(() => import("./pages/Agents"));
@@ -230,6 +231,7 @@ function Shell() {
   useTaskToasts();
   useVaultActivity();
   useVaultLockNotice();
+  useLeftoversNotice();
   const [collapsedSections, setCollapsedSections] = useState<string[]>(initialCollapsedSections);
   const [sideNarrow, setSideNarrowState] = useState(() => {
     try { return localStorage.getItem(SIDE_NARROW_KEY) === "1"; } catch { return false; }

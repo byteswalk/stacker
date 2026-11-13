@@ -274,3 +274,11 @@ export function distillSourceUrl(source: DistillSource): string {
   if (kind !== "web" || !site || !id) return "";
   return WEB_SITE_URL[site]?.(id) ?? "";
 }
+
+/** What Claude Code and Codex sessions left behind, by the folder they worked in. */
+export type LeftoverKind = "build" | "stale" | "incremental" | "environment" | "temp" | "checkpoints" | "images";
+export type LeftoverItem = { id: string; kind: LeftoverKind; label: string; explain: string; path: string; bytes: number; files: number; recommended: boolean; blocked: string | null };
+export type ProjectLeftovers = { key: string; name: string; path: string; agents: AgentName[]; sessions: number; lastActivity: number; active: boolean; skipped: string | null; items: LeftoverItem[] };
+export type LeftoverSettings = { inactiveDays: number; checkpointDays: number; slim: boolean; slimDays: number; auto: boolean; autoLastRun: number; autoLastFreed: number; autoLastError: string };
+export type LeftoverReport = { projects: ProjectLeftovers[]; total: number; recommended: number; scannedAt: number; settings: LeftoverSettings };
+export type LeftoverPreview = { token: string; items: LeftoverItem[]; blocked: LeftoverItem[]; bytes: number };

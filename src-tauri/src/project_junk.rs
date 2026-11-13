@@ -39,6 +39,23 @@ pub struct JunkItem {
     pub files: u64,
     /// Ticked by default: provably rebuildable, with nothing of the user's own inside.
     pub recommended: bool,
+    /// When anything inside was last written (Unix seconds): a build output written
+    /// yesterday belongs to a project in use.
+    pub newest: u64,
+    /// A Rust build folder's own folders (`debug`, `release`, a target triple…), measured in
+    /// the same pass, so a caller can tell which of them is still being built.
+    #[serde(skip)]
+    pub parts: Vec<Part>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Part {
+    pub path: PathBuf,
+    pub bytes: u64,
+    pub files: u64,
+    pub newest: u64,
+    /// The profile's `incremental` folder and its bytes and files, when there is one.
+    pub incremental: Option<(PathBuf, u64, u64)>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -60,6 +77,7 @@ pub struct JunkCleaned {
     pub bytes: u64,
 }
 
+#[derive(Clone, Copy)]
 struct Rule {
     kind: JunkKind,
     label: &'static str,
@@ -176,26 +194,132 @@ fn is_link(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-fn size_of(path: &Path) -> (u64, u64) {
+fn written(meta: &fs::Metadata) -> u64 {
+    meta.modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+fn is_link_meta(meta: &fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        if meta.file_attributes() & 0x400 != 0 {
+            return true;
+        }
+    }
+    meta.file_type().is_symlink()
+}
+
+/// Bytes, files and the newest write time (Unix seconds) under a path; links are not followed.
+pub(crate) fn size_of(path: &Path) -> (u64, u64, u64) {
     let Ok(meta) = fs::symlink_metadata(path) else {
-        return (0, 0);
+        return (0, 0, 0);
     };
-    if is_link(path) {
-        return (0, 0);
+    if is_link_meta(&meta) {
+        return (0, 0, 0);
     }
     if meta.is_file() {
-        return (meta.len(), 1);
+        return (meta.len(), 1, written(&meta));
     }
-    let Ok(entries) = fs::read_dir(path) else {
-        return (0, 0);
+    folder_size(path, written(&meta))
+}
+
+/// On Windows each entry's metadata comes with the folder listing, so a build folder of a
+/// hundred thousand files is measured without asking about each file again.
+fn folder_size(dir: &Path, stamp: u64) -> (u64, u64, u64) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return (0, 0, stamp);
     };
-    let mut total = (0, 0);
+    let mut total = (0, 0, stamp);
     for entry in entries.flatten() {
-        let (bytes, files) = size_of(&entry.path());
+        let Ok(meta) = entry.metadata() else {
+            continue;
+        };
+        if is_link_meta(&meta) {
+            continue;
+        }
+        let (bytes, files, newest) = if meta.is_dir() {
+            folder_size(&entry.path(), written(&meta))
+        } else {
+            (meta.len(), 1, written(&meta))
+        };
         total.0 += bytes;
         total.1 += files;
+        total.2 = total.2.max(newest);
     }
     total
+}
+
+/// A Rust build folder says so with the marker cargo writes into it.
+pub(crate) fn is_rust_target(path: &Path) -> bool {
+    path.file_name().is_some_and(|name| name == "target")
+        && (path.join("CACHEDIR.TAG").is_file() || path.join(".rustc_info.json").is_file())
+}
+
+/// One profile folder of a Rust build, with its incremental cache counted on its own.
+fn profile_size(dir: &Path, stamp: u64) -> Part {
+    let mut part = Part {
+        path: dir.to_path_buf(),
+        bytes: 0,
+        files: 0,
+        newest: stamp,
+        incremental: None,
+    };
+    let Ok(entries) = fs::read_dir(dir) else {
+        return part;
+    };
+    for entry in entries.flatten() {
+        let Ok(meta) = entry.metadata() else {
+            continue;
+        };
+        if is_link_meta(&meta) {
+            continue;
+        }
+        let (bytes, files, newest) = if meta.is_dir() {
+            folder_size(&entry.path(), written(&meta))
+        } else {
+            (meta.len(), 1, written(&meta))
+        };
+        if meta.is_dir() && entry.file_name() == "incremental" && bytes > 0 {
+            part.incremental = Some((entry.path(), bytes, files));
+        }
+        part.bytes += bytes;
+        part.files += files;
+        part.newest = part.newest.max(newest);
+    }
+    part
+}
+
+/// A Rust build folder measured folder by folder: the total, and each profile folder.
+fn rust_target_size(path: &Path) -> ((u64, u64, u64), Vec<Part>) {
+    let mut total = (0, 0, 0);
+    let mut parts = Vec::new();
+    let Ok(entries) = fs::read_dir(path) else {
+        return (total, parts);
+    };
+    for entry in entries.flatten() {
+        let Ok(meta) = entry.metadata() else {
+            continue;
+        };
+        if is_link_meta(&meta) {
+            continue;
+        }
+        if !meta.is_dir() {
+            total.0 += meta.len();
+            total.1 += 1;
+            total.2 = total.2.max(written(&meta));
+            continue;
+        }
+        let part = profile_size(&entry.path(), written(&meta));
+        total.0 += part.bytes;
+        total.1 += part.files;
+        total.2 = total.2.max(part.newest);
+        parts.push(part);
+    }
+    (total, parts)
 }
 
 /// Whether one of the named files sits in `dir`; `*.ext` matches by extension.
@@ -265,7 +389,11 @@ fn version_of(name: &str) -> Option<Vec<u64>> {
 }
 
 fn item(root: &Path, path: &Path, rule: &Rule) -> Option<JunkItem> {
-    let (bytes, files) = size_of(path);
+    let ((bytes, files, newest), parts) = if is_rust_target(path) {
+        rust_target_size(path)
+    } else {
+        (size_of(path), Vec::new())
+    };
     if bytes == 0 {
         return None;
     }
@@ -283,10 +411,26 @@ fn item(root: &Path, path: &Path, rule: &Rule) -> Option<JunkItem> {
         bytes,
         files,
         recommended: rule.recommended,
+        newest,
+        parts,
     })
 }
 
-fn walk(root: &Path, dir: &Path, depth: usize, now: u64, out: &mut Vec<JunkItem>) {
+/// A folder a rule recognised, measured once the walk is over.
+struct Found {
+    path: PathBuf,
+    rule: Rule,
+    label: Option<String>,
+}
+
+fn walk(
+    root: &Path,
+    dir: &Path,
+    depth: usize,
+    now: u64,
+    found: &mut Vec<Found>,
+    out: &mut Vec<JunkItem>,
+) {
     let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
@@ -309,10 +453,9 @@ fn walk(root: &Path, dir: &Path, depth: usize, now: u64, out: &mut Vec<JunkItem>
             continue;
         }
         if name.ends_with(".egg-info") {
-            if let Some(found) = item(
-                root,
-                &path,
-                &Rule {
+            found.push(Found {
+                path,
+                rule: Rule {
                     kind: JunkKind::Rebuildable,
                     label: "Python 打包元数据",
                     explain: "打包时生成的 egg-info 目录，重新打包即可恢复。",
@@ -320,26 +463,27 @@ fn walk(root: &Path, dir: &Path, depth: usize, now: u64, out: &mut Vec<JunkItem>
                     evidence: &[],
                     contains: &[],
                 },
-            ) {
-                out.push(found);
-            }
+                label: None,
+            });
             continue;
         }
         if let Some(rule) = rule_for(&name)
             .filter(|rule| has_evidence(dir, rule.evidence) && has_evidence(&path, rule.contains))
         {
-            if let Some(found) = item(root, &path, &rule) {
-                out.push(found);
-            }
+            found.push(Found {
+                path,
+                rule,
+                label: None,
+            });
             // What is inside a matched folder belongs to it.
             continue;
         }
         if name == "release" || name == "releases" {
             for old in superseded_releases(&path) {
-                if let Some(mut found) = item(
-                    root,
-                    &old,
-                    &Rule {
+                let label = format!("历史发布版本 {}", name_of(&old));
+                found.push(Found {
+                    path: old,
+                    rule: Rule {
                         kind: JunkKind::Releases,
                         label: "历史发布版本",
                         explain: "更早版本的发布包，最新的一个版本会保留。",
@@ -347,19 +491,18 @@ fn walk(root: &Path, dir: &Path, depth: usize, now: u64, out: &mut Vec<JunkItem>
                         evidence: &[],
                         contains: &[],
                     },
-                ) {
-                    found.label = format!("历史发布版本 {}", name_of(&old));
-                    out.push(found);
-                }
+                    label: Some(label),
+                });
             }
             continue;
         }
         if depth + 1 < MAX_DEPTH {
-            walk(root, &path, depth + 1, now, out);
+            walk(root, &path, depth + 1, now, found, out);
         }
     }
     if !old_logs.is_empty() {
         let bytes: u64 = old_logs.iter().map(|p| size_of(p).0).sum();
+        let newest = old_logs.iter().map(|p| size_of(p).2).max().unwrap_or(0);
         if bytes > 0 {
             let id = dir
                 .strip_prefix(root)
@@ -378,6 +521,8 @@ fn walk(root: &Path, dir: &Path, depth: usize, now: u64, out: &mut Vec<JunkItem>
                 bytes,
                 files: old_logs.len() as u64,
                 recommended: true,
+                newest,
+                parts: Vec::new(),
             });
         }
     }
@@ -395,8 +540,29 @@ pub fn scan(root: &Path) -> Result<JunkReport, String> {
         return Err("E_PROJECT_MISSING".into());
     }
     let now = now_secs();
+    let mut found = Vec::new();
     let mut items = Vec::new();
-    walk(root, root, 0, now, &mut items);
+    walk(root, root, 0, now, &mut found, &mut items);
+    // A project's build folders are measured side by side: one of them is usually most of it.
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let measured = std::sync::Mutex::new(Vec::new());
+    std::thread::scope(|scope| {
+        for _ in 0..found.len().clamp(1, 6) {
+            scope.spawn(|| loop {
+                let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let Some(one) = found.get(i) else { break };
+                if let Some(mut done) = item(root, &one.path, &one.rule) {
+                    if let Some(label) = &one.label {
+                        done.label = label.clone();
+                    }
+                    if let Ok(mut list) = measured.lock() {
+                        list.push(done);
+                    }
+                }
+            });
+        }
+    });
+    items.extend(measured.into_inner().unwrap_or_default());
     items.sort_by_key(|i| std::cmp::Reverse(i.bytes));
     Ok(JunkReport {
         root: root.to_string_lossy().into_owned(),

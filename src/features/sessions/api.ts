@@ -1,5 +1,5 @@
 import { invoke } from "../../invoke";
-import type { LocationStatus, MigrationCheck, MigrationJob, SummaryJob, SummaryPreview, CleanupJob, CleanupPreview, DeleteJob, DeleteMode, DeletePreview, ProjectRow, Roots, RootsView, SessionDetail, SessionPage, SessionQuery, FootprintReport, WebBrowser, WebchatStatus, WebChat, WebChatDetail, WebPage, WebQuery, DistillCandidate, DistillJob, DistillPage, DistillPreview, DistillQuery, DistillResult, DistillSourceRef } from "./types";
+import type { LeftoverPreview, LeftoverReport, LeftoverSettings, LocationStatus, MigrationCheck, MigrationJob, SummaryJob, SummaryPreview, CleanupJob, CleanupPreview, DeleteJob, DeleteMode, DeletePreview, ProjectRow, Roots, RootsView, SessionDetail, SessionPage, SessionQuery, FootprintReport, WebBrowser, WebchatStatus, WebChat, WebChatDetail, WebPage, WebQuery, DistillCandidate, DistillJob, DistillPage, DistillPreview, DistillQuery, DistillResult, DistillSourceRef } from "./types";
 
 export const listSessions = (query: SessionQuery) => invoke<SessionPage>("sessions_list", { query });
 export const listProjects = () => invoke<ProjectRow[]>("sessions_projects");
@@ -51,3 +51,9 @@ export const setDistillState = (id: string, state: string) => invoke<DistillResu
 export const deleteDistill = (id: string) => invoke<void>("distill_delete", { id });
 export const exportDistill = (query: DistillQuery, locale: string) => invoke<string>("distill_export", { query, locale });
 export const openDistill = (target: "skill" | "skills" | "exports", name: string) => invoke<void>("distill_open", { target, name });
+export const scanLeftovers = (refresh: boolean) => invoke<LeftoverReport>("leftovers_scan", { refresh });
+export const previewLeftovers = (ids: string[]) => invoke<LeftoverPreview>("leftovers_preview", { ids });
+export const executeLeftovers = (token: string) => invoke<CleanupJob>("leftovers_execute", { token });
+export const leftoversJob = () => invoke<CleanupJob | null>("leftovers_job");
+export const saveLeftoverSettings = (update: Pick<LeftoverSettings, "inactiveDays" | "checkpointDays" | "slim" | "slimDays" | "auto">) =>
+  invoke<LeftoverSettings>("leftovers_settings_set", { update });

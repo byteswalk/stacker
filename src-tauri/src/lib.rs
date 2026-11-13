@@ -219,6 +219,7 @@ pub fn run() {
             agents::overrides::refresh();
             binary::migrate_legacy_envs();
             tray::build(app.handle())?;
+            sessions::leftovers::auto::start(app.handle().clone());
             Ok(())
         })
         // 主窗口按已保存策略退出、隐藏到托盘，或通知前端首次询问。
@@ -278,6 +279,11 @@ pub fn run() {
             sessions::commands::footprint_preview,
             sessions::commands::footprint_execute,
             sessions::commands::footprint_job,
+            sessions::leftovers::leftovers_scan,
+            sessions::leftovers::leftovers_preview,
+            sessions::leftovers::leftovers_execute,
+            sessions::leftovers::leftovers_job,
+            sessions::leftovers::leftovers_settings_set,
             sessions::commands::summary_preview,
             sessions::commands::summary_start,
             sessions::commands::summary_job,
