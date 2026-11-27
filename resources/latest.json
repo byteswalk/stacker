@@ -1,17 +1,17 @@
 {
-    "version":  "0.3.5",
-    "released_at":  "2026-11-01T09:37:22+08:00",
-    "release_url":  "https://github.com/byteswalk/stacker/releases/tag/v0.3.5",
-    "installer_url":  "https://github.com/byteswalk/stacker/releases/download/v0.3.5/Stacker-0.3.5-setup-windows-x64.exe",
-    "installer_sha256":  "342d9e123d57f7388857d64b52858dda6fe5330dfd5173fbd6f5a89ea8bff00f",
+    "version":  "0.3.6",
+    "released_at":  "2026-11-26T17:53:18+08:00",
+    "release_url":  "https://github.com/byteswalk/stacker/releases/tag/v0.3.6",
+    "installer_url":  "https://github.com/byteswalk/stacker/releases/download/v0.3.6/Stacker-0.3.6-setup-windows-x64.exe",
+    "installer_sha256":  "54a65e0c41d7397769ac8484a05ae395b798bb063bd5935360afb5096ecd55df",
     "notes":  [
-                  "A new home page, Environment Overview: every launch opens on entry cards for agents, session data, the API service, proxy, disk cleanup and the key vault, each with live numbers and its main action.",
-                  "The checkup score is gone: the page checks by itself and only speaks up when something needs attention, with fixes and AI diagnosis right there.",
-                  "Programming ecosystems show version, version manager, download source, state and pending updates in one panel.",
-                  "A failed install or update can be handed to your own coding agent in a terminal with the failure explained; WinGet and the official installer stand in for each other, and WinINet is one click away when WinGet downloads crawl.",
-                  "AI now reads backups, Git failures, the app log and session footprint items.",
-                  "The window appears only once its first screen is drawn, the vault\u0027s unlock wait counts down, recovery keys can be saved to a file, and Settings lists where Stacker keeps everything.",
-                  "Stacker now ships as the setup installer only; portable packages ended with v0.3.4."
+                  "Session data has a new Leftovers tab: it finds the build output, dependency folders, scratch directories and checkpoints that Claude Code and Codex sessions leave behind, and can slim the screenshots out of old transcripts — the conversation stays, the wasted space goes.",
+                  "Disk cleanup can free space on its own: when a drive drops to a share you set (5% by default), Stacker clears rebuildable build output, package caches and week-old temporary files step by step until the drive has room again. It is on but can be switched off, and every run is kept in a history.",
+                  "The API service and its log are gone, along with the local-model AI option: driving a subscription CLI from another program breaks the vendors\u0027 terms, so Stacker\u0027s AI now uses only an external API with your own key.",
+                  "Agent install and update are steadier: the home page and the install page share one scan, npm 11 runs an agent package\u0027s own install script, an uninstalled program\u0027s leftover entry no longer counts as installed, the Antigravity CLI updates for real, and a download a scanner is still holding is waited for.",
+                  "The Python source speed test says why a source failed and checks both of its paths at once, with an Aliyun fallback for pyenv-win; pyenv\u0027s own files are read instead of running it.",
+                  "Version lists, update checks and downloads all go through Stacker\u0027s own proxy.",
+                  "The vault can switch to another vault file, the Backups page wording is fixed, and the home page\u0027s disk card shows as many disks as it has room for."
               ],
-    "installer_signature":  "untrusted comment: Stacker release\nRURFeBheM9RE7g6ILzSZGBYa2/TCSpoDJ3gVhA+PNDH9RU6ekZs8Ut7MPVWcNSpCzrWfazvzCt2O6eZiVNu535OiGZm8r304jgI=\ntrusted comment: Stacker-0.3.5-setup-windows-x64.exe\nkw7Ed2RptCR39B39XgxpXf9ZPQ9gIj6wCj8UmZlV00HMqBXORgKmNEyghDye+wm2Y1Zllm743lbHAtWWff5EBA=="
+    "installer_signature":  "untrusted comment: Stacker release\nRURFeBheM9RE7iDXJv6BWqgSZO0vhDAG+/AVM0gLFh9OAjKzrDdQnYVY8rlUDqFKYGq3DfzUjUbtb6gNmCOGGshyQw8sgRZlUgQ=\ntrusted comment: Stacker-0.3.6-setup-windows-x64.exe\nmsrusIXq603thbVlTUjWg1QxLN9nhVz3LfLraIUdkjZ/GVhnyk4E/6g2yq3br5wx49rr/Awj68XrDSFP+pvoDg=="
 }

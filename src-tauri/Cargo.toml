@@ -1,6 +1,6 @@
 [package]
 name = "stacker"
-version = "0.3.5"
+version = "0.3.6"
 description = "Windows developer workstation manager for runtimes, AI work agents, Git identities, and developer disk space"
 authors = ["Stacker"]
 license = "MIT"
@@ -56,6 +56,17 @@ base64ct = { version = "1", features = ["alloc"] }
 winreg = "0.52"
 winapi = { version = "0.3", features = ["winuser", "fileapi", "shellapi", "synchapi", "processthreadsapi", "handleapi", "winbase", "dpapi", "wincrypt", "minwindef", "winnt", "errhandlingapi", "tlhelp32", "jobapi2"] }
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Credentials", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Pipes", "Win32_System_Threading", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_StationsAndDesktops"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+trash = "5"
+libc = "0.2"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSPasteboard"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString"] }
+
+# Xcode 27's strip leaves proc-macro libraries rustc can no longer load ("can't find crate
+# for ..._impl"); build scripts and proc macros are left unstripped.
+[profile.release.build-override]
+strip = false
 
 [profile.dev]
 debug = 1

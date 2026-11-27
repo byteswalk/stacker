@@ -1,7 +1,7 @@
 {
   "name": "stacker",
   "private": true,
-  "version": "0.3.5",
+  "version": "0.3.6",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -18,7 +18,8 @@
     "clean:rust-cache": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/clean-rust-dev-cache.ps1",
     "preview": "vite preview",
     "tauri": "tauri",
-    "release:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release-windows.ps1"
+    "release:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release-windows.ps1",
+    "release:macos": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release-macos.ps1"
   },
   "dependencies": {
     "@ant-design/icons": "^6.3.4",
