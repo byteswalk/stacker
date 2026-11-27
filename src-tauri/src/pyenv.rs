@@ -132,10 +132,14 @@ const PYTHON_SPEEDTEST_VERSION: &str = "3.12.10";
 const PYENV_GITHUB_URL: &str =
     "https://github.com/pyenv-win/pyenv-win/archive/refs/heads/master.zip";
 const BUNDLED_PYENV_COMMIT: &str = "067b0829665744483802c19a19376f409b3a81d8";
+#[cfg(windows)]
 const BUNDLED_PYENV_ZIP: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/resources/tools/pyenv-win-067b082.zip"
 ));
+/// The Windows tool is not carried in the Mac build, which has no page for it.
+#[cfg(not(windows))]
+const BUNDLED_PYENV_ZIP: &[u8] = &[];
 
 #[derive(Clone, Copy)]
 enum PythonInstallerKind {
@@ -2707,6 +2711,8 @@ fn finish_pyenv_self_install(window: tauri::Window, root: &Path) -> Result<(), S
 mod file_status_tests {
     use super::{global_from_file, release_from_file, versions_from_dir};
 
+    /// Windows paths and tools only.
+    #[cfg(windows)]
     #[test]
     fn pyenv_win_s_own_files_answer_as_its_script_does() {
         let dir = tempfile::tempdir().unwrap();

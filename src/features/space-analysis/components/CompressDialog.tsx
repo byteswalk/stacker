@@ -6,6 +6,7 @@ import { Modal, useBusy, useToast } from "../../../ui";
 import { Select } from "../../../Select";
 import { formatSpaceBytes } from "./SpaceOverview";
 import { FILES_GONE, type FileToRemove } from "./FileRemoval";
+import { IS_MAC } from "../../../platform";
 
 type MediaTools = { ffmpeg: string | null; version: string; videoEncoders: string[]; imageFormats: string[] };
 type Quality = "high" | "standard" | "small";
@@ -36,12 +37,13 @@ const HEIGHTS = [
 ];
 const ENCODERS: Record<string, string> = {
   x265: "CPU（x265，最省空间）", nvenc: "NVIDIA 显卡（快）", qsv: "Intel 核显（快）", amf: "AMD 显卡（快）",
+  videotoolbox: "Apple 媒体引擎（快）",
 };
 const FORMATS: Record<string, string> = { jpeg: "JPEG（兼容最好）", webp: "WebP", avif: "AVIF（最省空间）" };
 const METHODS: Record<Outcome["method"], string> = { packed: "透明压缩", video: "视频转码", image: "图片压缩" };
 const STATUS: Record<string, string> = {
   ok: "完成", estimated: "", already: "已是压缩格式，跳过", notWorth: "省不了多少，保持原样", keepPng: "PNG 保持原格式",
-  noFfmpeg: "需要先下载 ffmpeg", protected: "系统或程序目录里的文件不能改动", changed: "文件在扫描后变过，已跳过", cancelled: "已停止",
+  noFfmpeg: "需要先下载 ffmpeg", unsupported: "Mac 上暂不支持透明压缩，保持原样", protected: "系统或程序目录里的文件不能改动", changed: "文件在扫描后变过，已跳过", cancelled: "已停止",
 };
 const OPTIONS_KEY = "stacker.space.compressOptions";
 
@@ -103,7 +105,7 @@ export function CompressDialog({ files, onClose, onDone }: {
     try {
       const found = await runBusy({
         title: tr("下载 ffmpeg"),
-        message: tr("从 gyan.dev 下载 ffmpeg 官方 Windows 构建（约 109 MB），校验 SHA-256 后放到 Stacker 的工具目录。"),
+        message: tr(IS_MAC ? "通过 Homebrew 安装 ffmpeg，可能需要几分钟。" : "从 gyan.dev 下载 ffmpeg 官方 Windows 构建（约 109 MB），校验 SHA-256 后放到 Stacker 的工具目录。"),
         progressEvent: "install-progress",
         cancel: { label: tr("取消下载"), onCancel: () => { void invoke("op_cancel").catch(() => undefined); } },
       }, () => invoke<MediaTools>("space_ffmpeg_install"));
@@ -161,7 +163,7 @@ export function CompressDialog({ files, onClose, onDone }: {
     <div className="compress">
       {needsFfmpeg && tools && !tools.ffmpeg && <div className="callout" style={{ margin: 0 }}>
         <i className="ti ti-download" />
-        <div>{tr("压缩视频和图片要用 ffmpeg（开源的音视频工具）。下载一次即可，约 109 MB。")}</div>
+        <div>{tr(IS_MAC ? "压缩视频和图片要用 ffmpeg（开源的音视频工具），通过 Homebrew 安装一次即可。" : "压缩视频和图片要用 ffmpeg（开源的音视频工具）。下载一次即可，约 109 MB。")}</div>
         <button className="pr sm" onClick={() => void installFfmpeg()}><i className="ti ti-download" /> {tr("下载 ffmpeg")}</button>
       </div>}
 
@@ -197,8 +199,8 @@ export function CompressDialog({ files, onClose, onDone }: {
       </section>}
 
       {counts.packed > 0 && <section className="compress-part">
-        <div className="compress-head"><i className="ti ti-file-zip" /> <b>{tr("其他文件")}</b><span>{tr("Windows 透明压缩（NTFS LZX）")}</span></div>
-        <p className="compress-note">{tr("文件名、格式和内容都不变，所有程序照常读写，只是在磁盘上占得更少；文件被修改后会自动变回未压缩。zip、mp4、jpg 这类已压缩的格式会跳过。")}</p>
+        <div className="compress-head"><i className="ti ti-file-zip" /> <b>{tr("其他文件")}</b><span>{tr(IS_MAC ? "Mac 上暂不支持" : "Windows 透明压缩（NTFS LZX）")}</span></div>
+        <p className="compress-note">{tr(IS_MAC ? "这些文件会保持原样；视频和图片照常压缩。" : "文件名、格式和内容都不变，所有程序照常读写，只是在磁盘上占得更少；文件被修改后会自动变回未压缩。zip、mp4、jpg 这类已压缩的格式会跳过。")}</p>
       </section>}
 
       {busy && progress && <div className="compress-progress">

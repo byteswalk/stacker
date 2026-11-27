@@ -203,14 +203,4 @@ pub fn remove_path_in(_: Hive, _: &str) -> Result<(), String> {
     Ok(())
 }
 #[cfg(not(windows))]
-pub fn get_user_raw(_: &str) -> Option<String> {
-    None
-}
-#[cfg(not(windows))]
-pub fn set_user(_: &str, _: &str) -> Result<(), String> {
-    Err("仅支持 Windows".into())
-}
-#[cfg(not(windows))]
-pub fn remove_user(_: &str) -> Result<(), String> {
-    Err("仅支持 Windows".into())
-}
+pub fn broadcast_change() {}

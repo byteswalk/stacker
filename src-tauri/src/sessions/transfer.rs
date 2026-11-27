@@ -410,10 +410,10 @@ fn relative(path: &Path, base: &Path) -> Option<String> {
     let path = plain(&path.to_string_lossy());
     let base = plain(&base.to_string_lossy());
     let lower = path.to_lowercase();
-    let prefix = format!("{}\\", base.trim_end_matches('\\').to_lowercase());
-    lower
-        .starts_with(&prefix)
-        .then(|| path[prefix.len()..].replace('\\', "/"))
+    let base = base.trim_end_matches(['\\', '/']).to_lowercase();
+    let rest = lower.strip_prefix(&base)?;
+    rest.starts_with(['\\', '/'])
+        .then(|| path[base.len() + 1..].replace('\\', "/"))
 }
 
 /// The newest `state_<n>.sqlite` in a Codex folder.

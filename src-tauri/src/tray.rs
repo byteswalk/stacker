@@ -130,7 +130,13 @@ static COUNTED: Mutex<Option<(Option<String>, usize, Instant)>> = Mutex::new(Non
 static COUNTING: AtomicBool = AtomicBool::new(false);
 const COUNT_FOR: Duration = Duration::from_secs(30);
 
+/// Both builds have the proxy page and its lines in the menu.
+const PROXY_SHOWN: bool = cfg!(any(windows, target_os = "macos"));
+
 fn system_proxy() -> Option<String> {
+    if !PROXY_SHOWN {
+        return None;
+    }
     let system = crate::proxy_system::system();
     (system.state == crate::proxy_system::SystemState::On)
         .then(|| crate::proxy_system::first_endpoint(&system.server))
@@ -152,6 +158,9 @@ fn counted(system: &Option<String>) -> Option<(usize, Instant)> {
 
 /// Counts again in the background when the last count is old or was for another proxy.
 fn recount(app: &AppHandle) {
+    if !PROXY_SHOWN {
+        return;
+    }
     let fresh = counted(&system_proxy()).is_some_and(|(_, at)| at.elapsed() < COUNT_FOR);
     if fresh || COUNTING.swap(true, Ordering::SeqCst) {
         return;
@@ -272,6 +281,7 @@ fn create_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let vault = item(app, lines.vault, "lock")?;
     let pages = PAGES
         .iter()
+        .filter(|(id, _, _)| PROXY_SHOWN || *id != "proxy")
         .map(|(id, zh, en)| {
             IconMenuItem::with_id(
                 app,
@@ -299,12 +309,16 @@ fn create_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
 
     let separator = || PredefinedMenuItem::separator(app);
     let (one, two, three) = (separator()?, separator()?, separator()?);
-    let menu = Menu::with_items(
-        app,
-        &[
-            &show, &one, &system, &follow, &vault, &two, &goto, &three, &quit,
-        ],
-    )?;
+    let menu = if PROXY_SHOWN {
+        Menu::with_items(
+            app,
+            &[
+                &show, &one, &system, &follow, &vault, &two, &goto, &three, &quit,
+            ],
+        )?
+    } else {
+        Menu::with_items(app, &[&show, &one, &vault, &two, &goto, &three, &quit])?
+    };
     *ITEMS.lock().unwrap_or_else(|e| e.into_inner()) = Some(Items {
         system,
         follow,

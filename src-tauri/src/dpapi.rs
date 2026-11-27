@@ -77,11 +77,12 @@ pub fn decrypt(data: &[u8]) -> Result<String, String> {
     String::from_utf8(out).map_err(|e| e.to_string())
 }
 
+/// On macOS the key that seals the data lives in the login keychain; never plain text.
 #[cfg(not(windows))]
 pub fn encrypt(plain: &str) -> Result<Vec<u8>, String> {
-    Ok(plain.as_bytes().to_vec())
+    crate::macos::protect::seal(plain.as_bytes())
 }
 #[cfg(not(windows))]
 pub fn decrypt(data: &[u8]) -> Result<String, String> {
-    String::from_utf8(data.to_vec()).map_err(|e| e.to_string())
+    String::from_utf8(crate::macos::protect::open(data)?.to_vec()).map_err(|e| e.to_string())
 }

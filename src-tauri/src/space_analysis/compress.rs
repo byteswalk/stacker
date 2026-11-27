@@ -119,11 +119,16 @@ pub fn ffmpeg_dir() -> PathBuf {
 }
 
 fn tool(name: &str) -> Option<PathBuf> {
-    let own = ffmpeg_dir().join("bin").join(format!("{name}.exe"));
+    let file = if cfg!(windows) {
+        format!("{name}.exe")
+    } else {
+        name.to_string()
+    };
+    let own = ffmpeg_dir().join("bin").join(&file);
     if own.is_file() {
         return Some(own);
     }
-    crate::agents::process::resolve_command(&[&format!("{name}.exe")])
+    crate::agents::process::resolve_command(&[&file])
 }
 
 /// Runs a short command to its end and returns stdout, or why it failed.
@@ -220,6 +225,8 @@ fn detect_tools() -> MediaTools {
         ("nvenc", "hevc_nvenc"),
         ("qsv", "hevc_qsv"),
         ("amf", "hevc_amf"),
+        // Apple's media engine, on every Mac that runs Stacker.
+        ("videotoolbox", "hevc_videotoolbox"),
     ] {
         if has(encoder)
             && run(
@@ -234,6 +241,17 @@ fn detect_tools() -> MediaTools {
                     "color=c=black:s=320x240:d=0.2",
                     "-c:v",
                     encoder,
+                    // The quality mode the real encode uses; Intel's VideoToolbox lacks it.
+                    if encoder == "hevc_videotoolbox" {
+                        "-q:v"
+                    } else {
+                        "-an"
+                    },
+                    if encoder == "hevc_videotoolbox" {
+                        "60"
+                    } else {
+                        "-sn"
+                    },
                     "-f",
                     "null",
                     "-",
@@ -277,6 +295,37 @@ pub async fn space_media_tools(refresh: Option<bool>) -> Result<MediaTools, Stri
 /// site publishes, and unpacks it into Stacker's tools folder.
 /// Downloads ffmpeg (gyan.dev's release essentials build), checks it against the SHA-256 the
 /// site publishes, and unpacks it into Stacker's tools folder.
+/// On macOS ffmpeg comes from Homebrew, which builds it with x265, WebP, AVIF and
+/// VideoToolbox.
+#[cfg(not(windows))]
+pub fn install_ffmpeg(mut progress: impl FnMut(String)) -> Result<MediaTools, String> {
+    let brew = crate::agents::process::resolve_command(&["brew"])
+        .or_else(|| {
+            ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]
+                .iter()
+                .map(PathBuf::from)
+                .find(|p| p.is_file())
+        })
+        .ok_or("没有检测到 Homebrew。请先安装 Homebrew（brew.sh），再回来安装 ffmpeg。")?;
+    progress("正在通过 Homebrew 安装 ffmpeg，可能需要几分钟…".to_string());
+    crate::agents::process::run_command_text(
+        &brew,
+        &["install", "ffmpeg"],
+        "brew install ffmpeg",
+        Duration::from_secs(3600),
+    )?;
+    let tools = detect_tools();
+    if let Ok(mut cached) = TOOLS.lock() {
+        *cached = Some(tools.clone());
+    }
+    tools
+        .ffmpeg
+        .as_ref()
+        .ok_or("Homebrew 装完后没有找到 ffmpeg")?;
+    Ok(tools)
+}
+
+#[cfg(windows)]
 pub fn install_ffmpeg(mut progress: impl FnMut(String)) -> Result<MediaTools, String> {
     crate::installer::op_reset();
     let agent = crate::agents::net::http()
@@ -378,9 +427,13 @@ pub fn allocated(path: &Path) -> u64 {
     (u64::from(high) << 32) | u64::from(low)
 }
 
+/// The blocks the file holds, which APFS compression lowers too.
 #[cfg(not(windows))]
 pub fn allocated(path: &Path) -> u64 {
-    std::fs::metadata(path).map(|m| m.len()).unwrap_or(0)
+    use std::os::unix::fs::MetadataExt;
+    std::fs::metadata(path)
+        .map(|m| m.blocks().saturating_mul(512))
+        .unwrap_or(0)
 }
 
 /// Transparent compression works in 32 KB pieces, so a few pieces deflated on their own say
@@ -537,6 +590,13 @@ pub fn video_args(options: &Options, probe: &Probe, container: &str) -> Vec<Stri
                 .map(String::from)
                 .into_iter()
                 .chain([q(22, 26, 30)]),
+        ),
+        // VideoToolbox's quality runs the other way: higher is better.
+        "videotoolbox" => args.extend(
+            ["-c:v", "hevc_videotoolbox", "-q:v"]
+                .map(String::from)
+                .into_iter()
+                .chain([q(70, 60, 50)]),
         ),
         "amf" => {
             let level = q(22, 26, 30);
@@ -953,6 +1013,7 @@ fn estimate_one(target: &Target, options: &Options, roots: &[PathBuf]) -> Outcom
         }
     };
     let estimated = match kind {
+        Kind::Other if !cfg!(windows) => Err("unsupported".to_string()),
         Kind::Other => {
             outcome.before = allocated(&path).min(target.bytes).max(1);
             if PACKED.contains(&extension(&path).as_str()) {
@@ -1012,6 +1073,14 @@ fn keep_times(from: &std::fs::Metadata, to: &Path) {
     let _ = file.set_times(times);
 }
 
+/// Windows' transparent compression has no counterpart Stacker uses on macOS yet; such files
+/// are left as they are and said so.
+#[cfg(not(windows))]
+fn compact(_: &Path) -> Result<(), String> {
+    Err("unsupported".into())
+}
+
+#[cfg(windows)]
 fn compact(path: &Path) -> Result<(), String> {
     let program = std::env::var_os("SystemRoot")
         .map(|root| PathBuf::from(root).join("System32").join("compact.exe"))
@@ -1357,6 +1426,8 @@ mod tests {
         assert_eq!(final_path(&photo, "webp"), dir.path().join("p (1).webp"));
     }
 
+    /// Windows sources and NTFS compression: the Windows build only.
+    #[cfg(windows)]
     #[test]
     fn text_is_estimated_to_shrink_and_packed_files_are_left_alone() {
         let dir = tempfile::tempdir().unwrap();

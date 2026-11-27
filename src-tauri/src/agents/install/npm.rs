@@ -2,6 +2,13 @@ use crate::agents::{process::*, registry::*, *};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+/// npm's own command: a batch file beside node.exe on Windows, a script beside node elsewhere.
+pub(crate) const NPM_NAMES: &[&str] = if cfg!(windows) {
+    &["npm.cmd", "npm.exe", "npm.bat"]
+} else {
+    &["npm"]
+};
+
 pub(crate) fn update_with_npm_source(
     spec: &ToolSpec,
     program: &Path,
@@ -21,7 +28,7 @@ pub(crate) fn npm_install_latest(
     window: &Option<tauri::Window>,
 ) -> Result<(), String> {
     let npm = npm_for_program(installed_program)
-        .or_else(|| resolve_command(&["npm.cmd", "npm.exe", "npm.bat"]))
+        .or_else(|| resolve_command(NPM_NAMES))
         .ok_or_else(|| "未检测到 npm。请先在 Node 页面安装并设置默认 Node。".to_string())?;
     validate_npm_proxy(&npm)?;
     let spec = format!("{package}@latest");
@@ -89,7 +96,7 @@ pub(crate) fn npm_uninstall(
     window: &Option<tauri::Window>,
 ) -> Result<(), String> {
     let npm = npm_for_program(installed_program)
-        .or_else(|| resolve_command(&["npm.cmd", "npm.exe", "npm.bat"]))
+        .or_else(|| resolve_command(NPM_NAMES))
         .ok_or_else(|| "未检测到 npm。".to_string())?;
     // The npm found may serve another global prefix than the install being removed (the
     // default %APPDATA%\npm has no npm.cmd of its own); naming the install's own prefix keeps
@@ -116,7 +123,7 @@ pub(crate) fn npm_uninstall(
 pub(crate) fn npm_for_program(program: Option<&Path>) -> Option<PathBuf> {
     let program = program?;
     let dir = program.parent()?;
-    for name in ["npm.cmd", "npm.exe", "npm.bat"] {
+    for name in NPM_NAMES {
         let p = dir.join(name);
         if p.is_file() {
             return Some(p);

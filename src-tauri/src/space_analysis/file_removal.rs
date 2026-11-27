@@ -45,6 +45,7 @@ pub(crate) fn system_roots() -> Vec<PathBuf> {
     .iter()
     .filter_map(std::env::var_os)
     .map(PathBuf::from)
+    .chain(crate::platform::system_roots())
     .collect()
 }
 
@@ -74,14 +75,8 @@ pub fn space_protected_paths(paths: Vec<String>) -> Vec<bool> {
         .collect()
 }
 
-#[cfg(windows)]
 fn recycle(path: &Path) -> Result<(), String> {
     crate::python_env::recycle(path)
-}
-
-#[cfg(not(windows))]
-fn recycle(path: &Path) -> Result<(), String> {
-    std::fs::remove_file(path).map_err(|e| e.to_string())
 }
 
 fn remove_one(
@@ -156,6 +151,7 @@ pub fn remove(files: &[FileToRemove], permanent: bool) -> RemovalResult {
         state,
         released_bytes: result.released_bytes,
         items: history,
+        title: None,
     });
     result
 }
@@ -173,6 +169,7 @@ fn folder_off_limits(path: &Path, roots: &[PathBuf], home: Option<&Path>) -> boo
         home == p || home.starts_with(&format!("{p}\\"))
     });
     drive_root
+        || crate::platform::is_volume_root(path)
         || p.matches('\\').count() == 0
         || above_home
         || is_user_folder(&p)
@@ -295,6 +292,7 @@ pub fn remove_folders(folders: &[FileToRemove], permanent: bool) -> RemovalResul
         },
         released_bytes: result.released_bytes,
         items: history,
+        title: None,
     });
     result
 }

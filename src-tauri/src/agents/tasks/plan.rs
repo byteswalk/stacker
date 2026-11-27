@@ -62,7 +62,10 @@ pub(crate) fn hold_running_apps(
                         .find(|tool| tool.id == item.product_id)
                         .and_then(|tool| tool.desktop.path.as_deref())
                         .and_then(|path| std::path::Path::new(path).file_name()?.to_str())
-                        .filter(|name| name.to_ascii_lowercase().ends_with(".exe"))
+                        .filter(|name| {
+                            let name = name.to_ascii_lowercase();
+                            name.ends_with(".exe") || name.ends_with(".app")
+                        })
                         .is_some_and(&is_running)
             });
     plan.auto = keep;
@@ -144,6 +147,21 @@ mod tests {
         surface
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn an_open_mac_app_waits_for_the_user_too() {
+        let idle = crate::agents::test_surface();
+        let mut kimi = updatable(true, "healthy");
+        kimi.path = Some("/Applications/Kimi.app".into());
+        let tools = vec![tool("kimi", None, idle, kimi)];
+        let mut plan = build_update_plan(&tools);
+        hold_running_apps(&mut plan, &tools, |image| image == "Kimi.app");
+        assert!(plan.auto.is_empty());
+        assert_eq!(plan.manual.len(), 1);
+    }
+
+    /// Windows paths and tools only.
+    #[cfg(windows)]
     #[test]
     fn an_open_desktop_app_waits_for_the_user_instead_of_failing() {
         let idle = crate::agents::test_surface();

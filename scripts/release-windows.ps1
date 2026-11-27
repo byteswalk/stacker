@@ -77,6 +77,11 @@ if (-not (Test-Path $ReleaseExe)) { throw "Release executable not found: $Releas
 if (-not (Test-Path $NsisSource)) { throw "NSIS installer not found: $NsisSource" }
 
 $BundledExtension = Join-Path $Root "src-tauri\target\release\extension"
+# Cargo 1.100 puts build scripts' output one folder deeper, so tauri-build copies the
+# resources into target\release\build instead.
+if (-not (Test-Path (Join-Path $BundledExtension "manifest.json"))) {
+    $BundledExtension = Join-Path $Root "src-tauri\target\release\build\extension"
+}
 if (-not (Test-Path (Join-Path $BundledExtension "manifest.json"))) { throw "Browser extension was not bundled: $BundledExtension" }
 if (-not (Test-Path (Join-Path $BundledExtension "chunks"))) { throw "Browser extension subfolders were not bundled: $BundledExtension" }
 

@@ -165,6 +165,10 @@ pub struct LocationRow {
     /// Whether the program is on this machine at all.
     #[serde(default = "yes")]
     pub installed: bool,
+    /// Set by another tool in the shell's start-up files (a Mac terminal proxy Stacker did
+    /// not write): shown, never cleared. Holds `~/.zshrc:1` when the line was found, else "".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shell_source: Option<String>,
 }
 
 #[allow(dead_code)]
@@ -201,11 +205,25 @@ pub fn overview() -> Overview {
                 value,
                 target: None,
                 installed: true,
+                shell_source: None,
             }
         })
         .collect::<Vec<_>>();
-    // Everything described as data, presets first, the user's own after.
     let mut locations = locations;
+    // A Mac terminal can get its proxy from another tool's line in `.zshrc`; with none of
+    // Stacker's own in place, that is what a new terminal uses.
+    #[cfg(target_os = "macos")]
+    if let Some(row) = locations
+        .iter_mut()
+        .find(|row| row.id == "env" && row.value.is_none())
+    {
+        if let Some((value, source)) = crate::macos::shell_env::terminal_proxy() {
+            row.value = Some(value);
+            row.owner = "external".into();
+            row.shell_source = Some(source.unwrap_or_default());
+        }
+    }
+    // Everything described as data, presets first, the user's own after.
     for target in crate::proxy_targets::all() {
         let value = target.read();
         locations.push(LocationRow {
@@ -214,6 +232,7 @@ pub fn overview() -> Overview {
             value,
             installed: target.installed(),
             target: Some(target),
+            shell_source: None,
         });
     }
     Overview {
@@ -484,6 +503,7 @@ mod tests {
             owner: owner.into(),
             target: None,
             installed: true,
+            shell_source: None,
         };
         let rows = vec![
             row("env", "http://127.0.0.1:7890", "managed"),
@@ -523,8 +543,69 @@ mod tests {
         let o = overview();
         println!("windows={:?} write={:?}", o.windows, o.write_address);
         for l in o.locations {
-            println!("  {:<12} {:<9} {:?}", l.id, l.owner, l.value);
+            println!(
+                "  {:<12} {:<9} {:?} {:?}",
+                l.id, l.owner, l.value, l.shell_source
+            );
         }
+    }
+
+    /// Live, on a Mac with the system proxy on: writes the terminal proxy for real, checks a
+    /// new zsh and the login session see it, then takes it all back out.
+    /// `cargo test --lib live_mac_terminal_proxy -- --ignored --nocapture`.
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore]
+    fn live_mac_terminal_proxy() {
+        let backups = std::env::temp_dir().join("stacker-live-proxy-backups");
+        let home = dirs::home_dir().unwrap();
+        let zsh = |script: &str| {
+            let out = std::process::Command::new("/bin/zsh")
+                // A clean, non-interactive zsh reads only .zshenv, where Stacker's block is;
+                // another tool's proxy in .zshrc (Nexa writes one) stays out of the answer.
+                .env_clear()
+                .env("HOME", &home)
+                .args(["-c", script])
+                .output()
+                .unwrap();
+            let text = String::from_utf8_lossy(&out.stdout).into_owned();
+            text.lines().last().unwrap_or_default().trim().to_string()
+        };
+        let launchctl = || {
+            let out = std::process::Command::new("/bin/launchctl")
+                .args(["getenv", "HTTP_PROXY"])
+                .output()
+                .unwrap();
+            String::from_utf8_lossy(&out.stdout).trim().to_string()
+        };
+        crate::backup::with_test_root(&backups, || {
+            let address = write_address().expect("system proxy is on");
+            write_location(Location::Env).unwrap();
+            let wanted = format!("http://{}:{}", address.0, address.1);
+            assert_eq!(zsh("echo $HTTP_PROXY"), wanted);
+            assert_eq!(launchctl(), wanted);
+            assert_eq!(
+                owner(
+                    &crate::settings::proxy_managed(),
+                    "env",
+                    Location::Env.read().as_deref()
+                ),
+                "managed"
+            );
+            println!("on: zsh and launchctl both see {wanted}");
+            println!(
+                "{}",
+                std::fs::read_to_string(home.join(".config/stacker/env.sh")).unwrap()
+            );
+
+            clear_location(Location::Env).unwrap();
+            assert_eq!(zsh("echo ${HTTP_PROXY:-none}"), "none");
+            assert_eq!(launchctl(), "");
+            assert!(!home.join(".config/stacker/env.sh").exists());
+            let zshenv = std::fs::read_to_string(home.join(".zshenv")).unwrap_or_default();
+            assert!(!zshenv.contains("Stacker"));
+            println!("off: everything taken back out");
+        });
     }
 
     #[test]

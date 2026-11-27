@@ -1,6 +1,7 @@
 import type { CredentialTarget, EntryView, EnvHolder, SshLocal } from "./api";
 import { CATEGORY_LABELS, categoryOf } from "./vaultView";
 import { firstServer, parseTarget, publicKeyOf, serversOf, SERVERS_FIELD } from "./SshKeys";
+import { IS_MAC } from "../../platform";
 
 type Tr = (text: string) => string;
 
@@ -9,7 +10,9 @@ type Tr = (text: string) => string;
  * cmdlet for this, so it calls CredReadW itself; the offsets are those of CREDENTIALW on
  * 64-bit Windows (blob size at 32, blob pointer at 40). The name is quoted for PowerShell.
  */
-export function credentialCommand(target: string): string {
+export function credentialCommand(target: string, mac = IS_MAC): string {
+  // macOS: the login keychain, through Apple's own tool; the name is quoted for sh.
+  if (mac) return `secret=$(security find-generic-password -a Stacker -s '${target.replace(/'/g, "'\\''")}' -w)`;
   const name = target.replace(/'/g, "''");
   return `$a=Add-Type -Name Cred -Namespace StackerWin -PassThru -MemberDefinition '[DllImport("advapi32.dll",CharSet=CharSet.Unicode,SetLastError=true)]public static extern bool CredReadW(string target,int type,int flags,out IntPtr cred);[DllImport("advapi32.dll")]public static extern void CredFree(IntPtr cred);'; $p=[IntPtr]::Zero; if($a::CredReadW('${name}',1,0,[ref]$p)){ $m=[Runtime.InteropServices.Marshal]; $secret=$m::PtrToStringUni($m::ReadIntPtr($p,40),$m::ReadInt32($p,32)/2); $a::CredFree($p) }`;
 }
@@ -84,7 +87,7 @@ export function aiBrief(entry: EntryView, local: SshLocal | null, tr: Tr, holder
     if (note.redacted) lines.push(tr("（备注里像密钥的内容已隐去）"));
   }
   if (entry.kind !== "ssh_key" && credentials.length) {
-    lines.push(`${tr("取值命令（PowerShell，把值读进变量 $secret；换别的凭据只改命令里的凭据名）")}:`);
+    lines.push(`${tr(IS_MAC ? "取值命令（终端，把值读进变量 $secret；换别的凭据只改命令里的凭据名）" : "取值命令（PowerShell，把值读进变量 $secret；换别的凭据只改命令里的凭据名）")}:`);
     lines.push(credentialCommand(credentials[0].target));
   }
   lines.push(tr(entry.kind === "ssh_key"

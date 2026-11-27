@@ -470,9 +470,10 @@ where
                 }
 
                 if entry.read_children_path.is_some()
-                    && fs::symlink_metadata(entry.path())
-                        .map(|metadata| is_link_or_reparse_point(&metadata))
-                        .unwrap_or(true)
+                    && (crate::platform::walk_skips(&entry.path())
+                        || fs::symlink_metadata(entry.path())
+                            .map(|metadata| is_link_or_reparse_point(&metadata))
+                            .unwrap_or(true))
                 {
                     entry.read_children_path = None;
                 }

@@ -6,6 +6,9 @@
 //! leftover `ProxyServer` next to a record that says "direct" is not a proxy that is on. The
 //! service proxy (WinHTTP) is a third, separate setting that system services read.
 //!
+//! A Mac keeps one setting per network service; `scutil --proxy` prints the one in effect
+//! for the current network, which is what programs that follow the system use.
+//!
 //! Stacker only reports these. Turning the system proxy on or off is the proxy software's
 //! job, and this module never writes.
 
@@ -179,7 +182,92 @@ fn read_system() -> Option<SystemProxy> {
     })
 }
 
-#[cfg(not(windows))]
+/// `scutil --proxy`: a dictionary printed one `Key : value` per line, with nested ones (the
+/// exception list, and per-interface copies under `__SCOPED__`) indented inside `{ }`. Only
+/// the top level is the setting in effect. The pages write `http://host:port`, so only the
+/// HTTP and HTTPS proxies count; a SOCKS-only setting has no address to give them.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn parse_scutil(text: &str) -> SystemProxy {
+    let mut depth = 0usize;
+    let mut top = std::collections::HashMap::new();
+    let mut in_exceptions = false;
+    let mut exceptions = Vec::new();
+    for line in text.lines() {
+        let line = line.trim();
+        if line.ends_with('{') {
+            if depth == 1 && line.starts_with("ExceptionsList") {
+                in_exceptions = true;
+            }
+            depth += 1;
+            continue;
+        }
+        if line == "}" {
+            depth = depth.saturating_sub(1);
+            if depth == 1 {
+                in_exceptions = false;
+            }
+            continue;
+        }
+        let Some((key, value)) = line.split_once(" : ") else {
+            continue;
+        };
+        if depth == 1 {
+            top.insert(key.trim().to_string(), value.trim().to_string());
+        } else if depth == 2 && in_exceptions {
+            exceptions.push(value.trim().to_string());
+        }
+    }
+    let address = |host: &str, port: &str| {
+        let host = top.get(host).map(String::as_str).unwrap_or_default();
+        let port = top.get(port).map(String::as_str).unwrap_or_default();
+        (!host.is_empty() && port.parse::<u16>().is_ok_and(|p| p > 0))
+            .then(|| format!("{host}:{port}"))
+    };
+    let enabled = |key: &str| top.get(key).map(String::as_str) == Some("1");
+    let pairs = [
+        ("HTTPSEnable", "HTTPSProxy", "HTTPSPort"),
+        ("HTTPEnable", "HTTPProxy", "HTTPPort"),
+    ];
+    let server = pairs
+        .iter()
+        .find(|(on, _, _)| enabled(on))
+        .and_then(|(_, host, port)| address(host, port))
+        .unwrap_or_default();
+    let recorded = pairs
+        .iter()
+        .find_map(|(_, host, port)| address(host, port))
+        .unwrap_or_default();
+    SystemProxy {
+        state: if server.is_empty() {
+            SystemState::Off
+        } else {
+            SystemState::On
+        },
+        server,
+        recorded,
+        bypass: exceptions.join(","),
+    }
+}
+
+/// Read again at most every few seconds: the settings are loaded far more often than the
+/// proxy changes, and each read starts a process.
+#[cfg(target_os = "macos")]
+fn read_system() -> Option<SystemProxy> {
+    use std::sync::Mutex;
+    use std::time::{Duration, Instant};
+    static LAST: Mutex<Option<(Instant, Option<SystemProxy>)>> = Mutex::new(None);
+    let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((at, proxy)) = last.as_ref() {
+        if at.elapsed() < Duration::from_secs(3) {
+            return proxy.clone();
+        }
+    }
+    let proxy = crate::macos::scutil_proxy().map(|text| parse_scutil(&text));
+    *last = Some((Instant::now(), proxy.clone()));
+    proxy
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 fn read_system() -> Option<SystemProxy> {
     None
 }
@@ -264,6 +352,42 @@ mod tests {
         );
         assert_eq!(first_endpoint("http://127.0.0.1:6789/"), "127.0.0.1:6789");
         assert_eq!(first_endpoint(""), "");
+    }
+
+    #[test]
+    fn the_mac_setting_in_effect_is_the_top_level_one() {
+        let text = "<dictionary> {
+  ExceptionsList : <array> {
+    0 : 127.0.0.1
+    1 : localhost
+  }
+  HTTPEnable : 1
+  HTTPPort : 7890
+  HTTPProxy : 127.0.0.1
+  HTTPSEnable : 1
+  HTTPSPort : 7891
+  HTTPSProxy : 127.0.0.1
+  __SCOPED__ : <dictionary> {
+    en0 : <dictionary> {
+      HTTPEnable : 1
+      HTTPPort : 1080
+      HTTPProxy : 10.0.0.1
+    }
+  }
+}
+";
+        let on = parse_scutil(text);
+        assert_eq!(on.state, SystemState::On);
+        assert_eq!(on.server, "127.0.0.1:7891");
+        assert_eq!(on.bypass, "127.0.0.1,localhost");
+
+        let off = parse_scutil(
+            "<dictionary> {\n  HTTPEnable : 0\n  HTTPPort : 7890\n  HTTPProxy : 127.0.0.1\n  SOCKSEnable : 1\n  SOCKSPort : 7890\n  SOCKSProxy : 127.0.0.1\n}\n",
+        );
+        assert_eq!(off.state, SystemState::Off);
+        assert_eq!(off.server, "");
+        assert_eq!(off.recorded, "127.0.0.1:7890");
+        assert_eq!(parse_scutil("<dictionary> {\n}\n").state, SystemState::Off);
     }
 
     #[test]

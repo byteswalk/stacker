@@ -125,7 +125,13 @@ pub fn default_roots(roots: &Roots) -> Vec<Root> {
         root(
             &codex,
             RootKind::CodexApp,
-            local.join("OpenAI").join("Codex"),
+            // Windows keeps the app's components there; macOS keeps its Electron profile in
+            // Application Support (the components live inside the app bundle).
+            if cfg!(windows) {
+                local.join("OpenAI").join("Codex")
+            } else {
+                roaming.join("Codex")
+            },
             None,
         ),
         root(

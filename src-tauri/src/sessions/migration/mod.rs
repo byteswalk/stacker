@@ -77,9 +77,14 @@ fn save(agent: Agent, record: Option<&Record>) -> Result<(), String> {
 pub fn agent_running(agent: Agent, images: &[PathBuf]) -> bool {
     images.iter().any(|p| {
         let lower = p.to_string_lossy().to_lowercase();
-        let name = lower.rsplit('\\').next().unwrap_or("").to_string();
+        let name = lower.rsplit(['\\', '/']).next().unwrap_or("").to_string();
         match agent {
-            Agent::Codex => name.starts_with("codex") || lower.contains("\\openai.codex_"),
+            Agent::Codex => {
+                name.starts_with("codex")
+                    || lower.contains("\\openai.codex_")
+                    || lower.contains("/chatgpt.app/")
+                    || lower.contains("/codex.app/")
+            }
             Agent::CodeBuddy => name.starts_with("codebuddy") || name == "cbc.exe",
             Agent::WorkBuddy | Agent::WorkBuddyAi => name.starts_with("workbuddy"),
             Agent::Qoder | Agent::QoderCn => name.starts_with("qoder"),
@@ -89,8 +94,10 @@ pub fn agent_running(agent: Agent, images: &[PathBuf]) -> bool {
             Agent::Kimi => name.starts_with("kimi"),
             Agent::Claude => {
                 name == "claude.exe"
+                    || name == "claude"
                     || lower.contains("\\windowsapps\\claude_")
                     || lower.contains("\\anthropicclaude\\")
+                    || lower.contains("/claude.app/")
             }
         }
     })
@@ -201,11 +208,36 @@ pub struct CheckResult {
     pub target: String,
 }
 
+/// The path with every link on it resolved, for the part that exists; the rest kept.
+fn real(path: &Path) -> std::path::PathBuf {
+    let mut existing = path.to_path_buf();
+    let mut rest = Vec::new();
+    while !existing.exists() {
+        match (
+            existing.file_name().map(|n| n.to_os_string()),
+            existing.parent(),
+        ) {
+            (Some(name), Some(parent)) => {
+                rest.push(name);
+                existing = parent.to_path_buf();
+            }
+            _ => return path.to_path_buf(),
+        }
+    }
+    let mut out = existing.canonicalize().unwrap_or(existing);
+    for name in rest.into_iter().rev() {
+        out.push(name);
+    }
+    out
+}
+
+/// `a` is `b` or inside it, after links (`/Volumes/Macintosh HD` is `/`) are resolved.
 fn inside(a: &Path, b: &Path) -> bool {
-    let a = a.to_string_lossy().to_lowercase();
-    let b = b.to_string_lossy().to_lowercase();
-    let b = b.trim_end_matches('\\');
-    a == b || a.starts_with(&format!("{b}\\"))
+    let a = real(a).to_string_lossy().to_lowercase();
+    let b = real(b).to_string_lossy().to_lowercase();
+    let b = b.trim_end_matches(['\\', '/']);
+    a.strip_prefix(b)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with(['\\', '/']))
 }
 
 pub fn check_paths(
@@ -245,7 +277,7 @@ pub fn check_paths(
         result.problems.push("E_TARGET".into());
     }
     match fsops::volume_of(target) {
-        Some(v) if v.fixed && v.file_system.eq_ignore_ascii_case("NTFS") => {
+        Some(v) if v.fixed => {
             result.free = v.free;
             if (v.free as f64) < result.bytes as f64 * 1.1 {
                 result.problems.push("E_SPACE".into());

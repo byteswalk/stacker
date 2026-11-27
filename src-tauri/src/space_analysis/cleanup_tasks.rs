@@ -567,6 +567,16 @@ fn revalidate(
     if !is_inside_any_root(&canonical, &validation.allowed_roots) {
         return Err(REASON_OUTSIDE_ROOT);
     }
+    // On a Mac nothing under the system's own folders goes, whatever a scan of `/` found
+    // there; the user's caches under ~/Library are planned by the known-cache rules only.
+    if cfg!(all(target_os = "macos", not(test)))
+        && !matches!(validation.source, ValidationSource::Known { .. })
+    {
+        let system = crate::platform::system_roots();
+        if system.iter().any(|root| canonical.starts_with(root)) {
+            return Err(REASON_OUTSIDE_ROOT);
+        }
+    }
     if file_identity(&canonical).map_err(map_metadata_error)? != validation.expected_identity {
         return Err(REASON_IDENTITY_CHANGED);
     }
@@ -1143,7 +1153,10 @@ mod tests {
         assert_eq!(result.items[0].state, CleanupItemState::Skipped);
         assert_eq!(result.items[0].reason_key.as_deref(), Some(REASON_LINK));
         assert!(outside.path().join("keep.bin").exists());
-        fs::remove_dir(&link).unwrap();
+        // A junction goes like a folder, a symbolic link like a file.
+        fs::remove_dir(&link)
+            .or_else(|_| fs::remove_file(&link))
+            .unwrap();
     }
 
     #[test]

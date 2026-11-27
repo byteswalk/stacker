@@ -4,6 +4,8 @@ import { invoke } from "../invoke";
 import { useToast, useBusy, useBusyRead, Loading, ErrorState, ConfirmModal, Modal } from "../ui";
 import { Select } from "../Select";
 import { AiAskModal, AiButton, askAi } from "../features/ai/AiAsk";
+import { IS_MAC } from "../platform";
+import { useI18n } from "../i18n";
 
 type ProxyStatus = {
   enabled: boolean; host: string; port: number; endpoint_available: boolean;
@@ -17,6 +19,8 @@ type Target = { id: string; name: string; detail: string; icon: string; builtin:
 type LocationRow = {
   id: string; value: string | null; owner: "managed" | "external" | "none";
   target?: Target; installed?: boolean;
+  /** Another tool's line in the shell start-up files (Mac): `~/.zshrc:1`, or "" if not found. */
+  shell_source?: string;
 };
 
 const FORMATS: { value: Writer["format"]; label: string }[] = [
@@ -42,11 +46,17 @@ const SYSTEM_STATE: Record<SystemState, { label: string; on: boolean; hint: stri
   on: { label: "系统代理已开启", on: true, hint: "下面各处写入时都用这个地址；系统代理关掉后一并撤销。" },
   off: { label: "系统代理未开启", on: false, hint: "没有可写入的地址。下面仍写着代理的位置应该撤销，否则请求会发去一个没人监听的端口。" },
   stale: { label: "系统代理设置残留", on: false, hint: "注册表里还写着地址，但连接记录说直连；新启动的程序不会走它。" },
-  unknown: { label: "无法读取系统代理", on: false, hint: "无法读取 Windows 的代理设置。" },
+  unknown: { label: "无法读取系统代理", on: false, hint: IS_MAC ? "无法读取 macOS 的代理设置。" : "无法读取 Windows 的代理设置。" },
 };
 
 const LOCATION_INFO: Record<string, { name: string; detail: string; icon: string }> = {
-  env: { name: "终端环境变量", detail: "用户级 HTTP_PROXY / HTTPS_PROXY / ALL_PROXY，新开终端生效", icon: "ti-terminal-2" },
+  env: {
+    name: "终端环境变量",
+    detail: IS_MAC
+      ? "HTTP_PROXY / HTTPS_PROXY / ALL_PROXY 写进 ~/.config/stacker/env.sh，zsh、bash、fish 启动时读取，新开终端生效"
+      : "用户级 HTTP_PROXY / HTTPS_PROXY / ALL_PROXY，新开终端生效",
+    icon: "ti-terminal-2",
+  },
   winhttp: { name: "服务代理 WinHTTP", detail: "系统服务使用，修改需要管理员权限", icon: "ti-settings-cog" },
   git: { name: "Git", detail: "全局 http.proxy / https.proxy", icon: "ti-brand-git" },
   npm: { name: "npm / pnpm", detail: "~/.npmrc 的 proxy / https-proxy", icon: "ti-brand-npm" },
@@ -58,7 +68,7 @@ const LOCATION_INFO: Record<string, { name: string; detail: string; icon: string
 };
 
 const ERRORS: Record<string, string> = {
-  E_PROXY_ADDR: "Windows 没有开启系统代理，没有可写入的地址。",
+  E_PROXY_ADDR: IS_MAC ? "macOS 没有开启系统代理，没有可写入的地址。" : "Windows 没有开启系统代理，没有可写入的地址。",
   E_EXTERNAL_FILE: "settings.xml 是你自己维护的文件，Stacker 不会改写它，请手动编辑。",
   E_NOT_INSTALLED: "这台机器上没有这个程序，Stacker 不会替它创建配置。",
   E_BROKEN_JSON: "这个 JSON 文件无法解析，Stacker 不会覆盖它，请先修复。",
@@ -88,6 +98,7 @@ function rowState(value: string | null, system: SystemProxy) {
 }
 
 export default function Proxy() {
+  const { tr: t } = useI18n();
   const toast = useToast();
   const runBusy = useBusy();
   const read = useBusyRead();
@@ -101,7 +112,7 @@ export default function Proxy() {
   const [probeUrl, setProbeUrl] = useState("https://api.openai.com");
   const [diagnosing, setDiagnosing] = useState(false);
   const [copied, setCopied] = useState("");
-  const [shell, setShell] = useState<"powershell" | "cmd" | "bash">("powershell");
+  const [shell, setShell] = useState<"powershell" | "cmd" | "bash" | "fish">(IS_MAC ? "bash" : "powershell");
   const [loadErr, setLoadErr] = useState(false);
   const [report, setReport] = useState<SyncReport | null>(null);
 
@@ -171,8 +182,14 @@ export default function Proxy() {
       on: `export HTTP_PROXY="${httpUrl}" HTTPS_PROXY="${httpUrl}" ALL_PROXY="${socks}" NO_PROXY="${noProxy}"`,
       off: `unset HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY`,
     },
+    fish: {
+      on: `set -gx HTTP_PROXY "${httpUrl}"; set -gx HTTPS_PROXY "${httpUrl}"; set -gx ALL_PROXY "${socks}"; set -gx NO_PROXY "${noProxy}"`,
+      off: `set -e HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY`,
+    },
   };
-  const SHELLS: [typeof shell, string][] = [["powershell", "PowerShell"], ["cmd", "cmd"], ["bash", "Git Bash"]];
+  const SHELLS: [typeof shell, string][] = IS_MAC
+    ? [["bash", "zsh / bash"], ["fish", "fish"]]
+    : [["powershell", "PowerShell"], ["cmd", "cmd"], ["bash", "Git Bash"]];
   const cur = SNIP[shell];
 
   // The service proxy is Windows' own setting, but it sits in the same list: one place to
@@ -182,7 +199,8 @@ export default function Proxy() {
     value: report.service.known ? (report.service.server || null) : null,
     owner: report.service.server ? "external" : "none",
   };
-  const rows = [ov.locations[0], serviceRow, ...ov.locations.slice(1)].filter(Boolean);
+  // A Mac has no service proxy of its own: services follow the same system setting.
+  const rows = (IS_MAC ? ov.locations : [ov.locations[0], serviceRow, ...ov.locations.slice(1)]).filter(Boolean);
   const anySet = rows.some((row) => !!(row.value ?? "").trim());
 
   return (
@@ -214,13 +232,17 @@ export default function Proxy() {
               ? { label: "未安装", cls: "n" as const, stale: false }
               : rowState(row.value, system);
             const service = row.id === "winhttp";
+            const fromShell = row.shell_source !== undefined;
+            const detail = !fromShell ? meta.detail
+              : row.shell_source ? t("其他工具写在 {source}，Stacker 不改它；要去掉请自己编辑这一行").replace("{source}", row.shell_source)
+              : t("其他工具在 shell 启动文件里设置的，Stacker 不改它");
             const writable = info.on && !missing && (service ? report.service.known : true);
             return <div className="proxy-location" key={row.id}>
               <i className={"ti " + meta.icon} />
               <div className="mt">
                 <div className="t"><span className="nm">{meta.name}</span><span className={"bd " + state.cls}>{state.label}</span></div>
                 <div className="proxy-sub">
-                  <span className="s dim" title={meta.detail}>{meta.detail}</span>
+                  <span className="s dim" title={detail}>{detail}</span>
                   <span className="mono proxy-value" title={row.value ?? ""}>{row.value ?? "—"}</span>
                 </div>
               </div>
@@ -229,7 +251,8 @@ export default function Proxy() {
                 onClick={() => service ? void setService(system.server) : void write(row)}>
                 <i className={"ti " + (busy === row.id ? "ti-loader spin" : "ti-pencil")} /> 写入
               </button>
-              <button className="gh sm" disabled={!!busy || !(row.value ?? "").trim()}
+              <button className="gh sm" disabled={!!busy || !(row.value ?? "").trim() || fromShell}
+                title={fromShell ? t("这是别的工具写的，Stacker 不改") : undefined}
                 onClick={() => row.owner === "external" ? setConfirmClear(row) : (service ? void setService(null) : void clear(row))}>
                 <i className="ti ti-eraser" /> 清除
               </button>
@@ -281,7 +304,9 @@ export default function Proxy() {
 
       <div className="callout">
         <i className="ti ti-shield-half" />
-        <div><b>Stacker 怎样对待你的代理设置</b> 这一页只读 Windows 的系统代理，从不改它。上面各处的写入和清除都由你点击触发，Stacker 不会在后台动它们。TUN、VPN 由代理软件负责，Stacker 不检测也不配置。</div>
+        <div><b>Stacker 怎样对待你的代理设置</b> {IS_MAC
+          ? "这一页只读 macOS 的系统代理（系统设置里网络的代理），从不改它。上面各处的写入和清除都由你点击触发，Stacker 不会在后台动它们。TUN、增强模式由代理软件负责，Stacker 不检测也不配置。"
+          : "这一页只读 Windows 的系统代理，从不改它。上面各处的写入和清除都由你点击触发，Stacker 不会在后台动它们。TUN、VPN 由代理软件负责，Stacker 不检测也不配置。"}</div>
       </div>
 
       {confirmClear && <ConfirmModal title={`清除 ${LOCATION_INFO[confirmClear.id]?.name ?? confirmClear.id} 代理`} icon="ti-eraser" danger
@@ -326,7 +351,7 @@ export default function Proxy() {
           <label><span>配置文件</span>
             <Select width={230} value={draft.writer.format} options={FORMATS.map((f) => ({ value: f.value, label: f.label }))}
               onChange={(v) => setDraft({ ...draft, writer: { ...draft.writer, format: v as Writer["format"] } })} />
-            <input className="ip full" value={draft.writer.path} placeholder="~/.bunfig.toml 或 %APPDATA%/Tool/config.json"
+            <input className="ip full" value={draft.writer.path} placeholder={IS_MAC ? "~/.bunfig.toml 或 ~/Library/Application Support/Tool/config.json" : "~/.bunfig.toml 或 %APPDATA%/Tool/config.json"}
               onChange={(e) => setDraft({ ...draft, writer: { ...draft.writer, path: e.target.value } })} /></label>
           {draft.writer.entries.map((item, index) => <label key={index}><span>{index === 0 ? "写入的键" : ""}</span>
             {draft.writer.format === "ini" && <input className="ip" style={{ width: 110 }} value={item.section} placeholder="节，如 global"

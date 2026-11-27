@@ -66,4 +66,18 @@ if (isAfter(version, LAST_UNSIGNED_RELEASE)) {
   }
 }
 
+// The Mac packages, once a release has them: each chip's update zip, its hash and signature.
+for (const [chip, entry] of Object.entries(latestMeta.macos ?? {})) {
+  const file = `Stacker-${version}-update-macos-${chip}.zip`;
+  if (typeof entry?.url !== "string" || !entry.url.includes(`${expectedTag}/${file}`)) {
+    throw new Error(`latest.json macos.${chip}.url must contain ${expectedTag}/${file}`);
+  }
+  if (typeof entry.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(entry.sha256)) {
+    throw new Error(`latest.json macos.${chip}.sha256 must be a lowercase 64-character SHA-256`);
+  }
+  if (typeof entry.signature !== "string" || !entry.signature.includes("untrusted comment:")) {
+    throw new Error(`latest.json macos.${chip}.signature must hold the zip's minisign signature`);
+  }
+}
+
 console.log(`Release metadata is consistent for v${version}.`);

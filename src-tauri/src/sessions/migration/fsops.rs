@@ -1,4 +1,5 @@
-//! Directory junctions, volume facts and a copy that rebuilds inner junctions.
+//! Directory junctions (symbolic links to folders on macOS), volume facts and a copy that
+//! rebuilds inner links.
 use crate::space_analysis::walker::is_link_or_reparse_point;
 use std::fs;
 use std::io;
@@ -35,12 +36,26 @@ pub fn is_junction(path: &Path) -> bool {
     })
 }
 
+/// On macOS a symbolic link to a folder plays the junction's part.
 #[cfg(not(windows))]
-pub fn is_junction(_path: &Path) -> bool {
-    false
+pub fn is_junction(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink())
+        && fs::metadata(path).is_ok_and(|m| m.is_dir())
+}
+
+#[cfg(not(windows))]
+pub fn create_junction(link: &Path, target: &Path) -> Result<(), String> {
+    std::os::unix::fs::symlink(target, link).map_err(|_| "E_LINK_CREATE".to_string())?;
+    if is_junction(link) {
+        Ok(())
+    } else {
+        let _ = fs::remove_file(link);
+        Err("E_LINK_CREATE".into())
+    }
 }
 
 /// `mklink /J` needs no elevation for junctions.
+#[cfg(windows)]
 pub fn create_junction(link: &Path, target: &Path) -> Result<(), String> {
     let mut cmd = std::process::Command::new("cmd.exe");
     cmd.args(["/d", "/c", "mklink", "/J"]).arg(link).arg(target);
@@ -58,7 +73,10 @@ pub fn remove_junction(link: &Path) -> Result<(), String> {
     if !is_link(link) {
         return Err("E_NOT_LINK".into());
     }
-    fs::remove_dir(link).map_err(|_| "E_LINK_REMOVE".to_string())
+    // A Windows junction goes like a folder; a symbolic link goes like a file.
+    fs::remove_dir(link)
+        .or_else(|_| fs::remove_file(link))
+        .map_err(|_| "E_LINK_REMOVE".to_string())
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -100,12 +118,15 @@ fn walk_stats(dir: &Path, s: &mut TreeStats) -> Result<(), String> {
 pub fn remap(target: &Path, from: &Path, to: &Path) -> PathBuf {
     let lower = |p: &Path| p.to_string_lossy().to_lowercase();
     let (t, f) = (lower(target), lower(from));
-    let f = f.trim_end_matches('\\');
-    if t == f || t.starts_with(&format!("{f}\\")) {
+    let f = f.trim_end_matches(['\\', '/']);
+    let inner = t
+        .strip_prefix(f)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with(['\\', '/']));
+    if inner {
         let rest = &target.to_string_lossy()[f.len()..];
         PathBuf::from(format!(
             "{}{}",
-            to.to_string_lossy().trim_end_matches('\\'),
+            to.to_string_lossy().trim_end_matches(['\\', '/']),
             rest
         ))
     } else {
@@ -166,8 +187,11 @@ fn copy_dir(
 
 fn copy_error(e: io::Error) -> String {
     match e.raw_os_error() {
-        Some(32) | Some(33) => "E_IN_USE".into(),
-        Some(112) => "E_SPACE".into(),
+        Some(32) | Some(33) if cfg!(windows) => "E_IN_USE".into(),
+        Some(112) if cfg!(windows) => "E_SPACE".into(),
+        // ENOSPC, EDQUOT; EBUSY, ETXTBSY.
+        Some(28) | Some(69) if !cfg!(windows) => "E_SPACE".into(),
+        Some(16) | Some(26) if !cfg!(windows) => "E_IN_USE".into(),
         _ if e.kind() == io::ErrorKind::PermissionDenied => "E_ACCESS".into(),
         _ => "E_STORAGE".into(),
     }
@@ -266,7 +290,9 @@ fn volume_info(root: &str) -> Option<Volume> {
         )
     };
     // DRIVE_FIXED == 3
-    let fixed = unsafe { GetDriveTypeW(root_w.as_ptr()) } == 3;
+    // A local disk of any kind (removable, fixed, RAM): a junction cannot point at a network
+    // share, which is the one kind left out.
+    let fixed = matches!(unsafe { GetDriveTypeW(root_w.as_ptr()) }, 2 | 3 | 6);
     Some(Volume {
         root: root.to_string(),
         file_system: String::from_utf16_lossy(&fs_name[..len]),
@@ -275,7 +301,7 @@ fn volume_info(root: &str) -> Option<Volume> {
     })
 }
 
-/// Fixed NTFS drives other than the system drive, most free space first.
+/// Local drives other than the system drive, of any kind and file system, most free space first.
 #[cfg(windows)]
 pub fn other_drives() -> Vec<Volume> {
     use winapi::um::fileapi::GetLogicalDrives;
@@ -288,20 +314,76 @@ pub fn other_drives() -> Vec<Volume> {
         .map(|i| format!("{}:\\", (b'A' + i) as char))
         .filter(|root| !root.starts_with(&system))
         .filter_map(|root| volume_info(&root))
-        .filter(|v| v.fixed && v.file_system.eq_ignore_ascii_case("NTFS"))
+        .filter(|v| v.fixed)
         .collect();
     list.sort_by_key(|v| std::cmp::Reverse(v.free));
     list
 }
 
-#[cfg(not(windows))]
-pub fn volume_of(_path: &Path) -> Option<Volume> {
-    None
+/// Volume holding `path` (the nearest existing ancestor is used).
+#[cfg(target_os = "macos")]
+pub fn volume_of(path: &Path) -> Option<Volume> {
+    let mut probe = path.to_path_buf();
+    while !probe.exists() {
+        probe = probe.parent()?.to_path_buf();
+    }
+    let c = std::ffi::CString::new(probe.as_os_str().as_encoded_bytes()).ok()?;
+    // SAFETY: `info` is plain data the call fills; `c` is NUL-terminated.
+    let mut info: libc::statfs = unsafe { std::mem::zeroed() };
+    if unsafe { libc::statfs(c.as_ptr(), &mut info) } != 0 {
+        return None;
+    }
+    Some(mac_volume(&info))
 }
 
-#[cfg(not(windows))]
+/// What one `statfs` says. A volume counts as fixed when it can be written to.
+#[cfg(target_os = "macos")]
+fn mac_volume(info: &libc::statfs) -> Volume {
+    let text = |chars: &[libc::c_char]| {
+        let bytes: Vec<u8> = chars
+            .iter()
+            .take_while(|c| **c != 0)
+            .map(|c| *c as u8)
+            .collect();
+        String::from_utf8_lossy(&bytes).into_owned()
+    };
+    // <sys/mount.h>: MNT_RDONLY 0x1. Any disk that can be written to counts, internal,
+    // external or on the network; read-only ones (installer disk images) cannot take a
+    // moved folder, and the system's own volumes live outside /Volumes.
+    let flags = info.f_flags;
+    Volume {
+        root: text(&info.f_mntonname),
+        file_system: text(&info.f_fstypename),
+        free: info.f_bavail.saturating_mul(info.f_bsize as u64),
+        fixed: flags & 0x1 == 0,
+    }
+}
+
+/// Every writable disk mounted under `/Volumes`, most free space first.
+#[cfg(target_os = "macos")]
 pub fn other_drives() -> Vec<Volume> {
-    Vec::new()
+    // SAFETY: the first call counts the mounts; the second fills a buffer of that many.
+    let mounts = unsafe {
+        let count = libc::getfsstat(std::ptr::null_mut(), 0, libc::MNT_NOWAIT);
+        if count <= 0 {
+            return Vec::new();
+        }
+        let mut list: Vec<libc::statfs> = vec![std::mem::zeroed(); count as usize + 8];
+        let size = (list.len() * std::mem::size_of::<libc::statfs>()) as libc::c_int;
+        let found = libc::getfsstat(list.as_mut_ptr(), size, libc::MNT_NOWAIT);
+        if found <= 0 {
+            return Vec::new();
+        }
+        list.truncate(found as usize);
+        list
+    };
+    let mut list: Vec<Volume> = mounts
+        .iter()
+        .map(mac_volume)
+        .filter(|v| v.root.starts_with("/Volumes/") && v.fixed)
+        .collect();
+    list.sort_by_key(|v| std::cmp::Reverse(v.free));
+    list
 }
 
 #[cfg(test)]

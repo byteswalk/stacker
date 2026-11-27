@@ -10,7 +10,7 @@ Stacker gives Windows developers one control surface for the infrastructure behi
 
 **Get Stacker:** [GitHub Releases](https://github.com/byteswalk/stacker/releases/latest) · [Gitee mirror](https://gitee.com/shaxiong/stacker/releases)
 
-**Platform:** Windows 10/11 · **License:** [MIT](LICENSE) · **Desktop runtime:** [Tauri 2](https://tauri.app/)
+**Platform:** Windows 10/11 · macOS 11 or later (Apple silicon and Intel) · **License:** [MIT](LICENSE) · **Desktop runtime:** [Tauri 2](https://tauri.app/)
 
 ## Why Stacker
 
@@ -54,7 +54,7 @@ Keep multiple Git service accounts available without changing a machine-wide def
 
 ### Developer Disk Analysis
 
-Quick Scan checks known developer caches. Deep analysis accepts multiple folders or fixed disks, continues in the background, reports live progress, and shows the result as a space map with drill-down and Explorer access. Project analysis recognizes common stacks, agent traces, dependencies, build output, and dedicated agent build directories. Large and duplicate files can be reviewed and removed, and large files can be compressed: transparent NTFS compression, or re-encoding videos to H.265 and photos to JPEG/WebP/AVIF at a resolution you choose. Cleanup is available only for classified **Development Artifacts** and **Caches & Downloads**; every run requires confirmation, revalidates its targets, and is kept in the cleanup history.
+Quick Scan checks known developer caches. Deep analysis accepts multiple folders or fixed disks, continues in the background, reports live progress, and shows the result as a space map with drill-down and Explorer access. Project analysis recognizes common stacks, agent traces, dependencies, build output, and dedicated agent build directories. Large and duplicate files can be reviewed and removed, and large files can be compressed: transparent NTFS compression, or re-encoding videos to H.265 and photos to JPEG/WebP/AVIF at a resolution you choose. Cleanup is available only for classified **Development Artifacts** and **Caches & Downloads**; every run requires confirmation, revalidates its targets, and is kept in the cleanup history. When a disk's free space falls to a set share (5% by default), Stacker cleans it by itself unless turned off: build output of idle projects, then of projects in use, then package-manager caches nothing has used lately and idle projects' dependencies, and on the system disk week-old temporary files and caches programs rebuild, until free space is twice the setting. Only projects under Git or used by an agent session count; source, documents, virtual environments, models, rendered output, the Recycle Bin and anything running or being built are never touched.
 
 ![Stacker developer disk analysis](assets/screenshots/space-analysis.png)
 
@@ -80,7 +80,7 @@ Storage-location controls are available where the ecosystem provides a stable us
 - Session data is read locally; it reaches a model only when you ask for a summary, handoff or distillation.
 - Git tokens are stored through Windows Credential Manager. The key vault encrypts its entries with Argon2id and XChaCha20-Poly1305; agent sign-in credentials are never read.
 - System-level environment changes and protected-directory scans require explicit Windows UAC approval.
-- Uncertain disk items remain view-only; cleanup is limited to classified targets and requires confirmation.
+- Uncertain disk items remain view-only; cleanup is limited to classified targets and requires confirmation. The one exception is the low-space cleanup, which removes only rebuildable build output, download caches and old temporary files, can be turned off, and records every run in the cleanup history.
 - Supported configuration changes create local backups before writing.
 - Release assets include SHA-256 checksums.
 
@@ -92,12 +92,22 @@ Stacker is not Authenticode-signed and will not be. Each release carries SHA-256
 
 Download the latest build from [GitHub Releases](https://github.com/byteswalk/stacker/releases/latest). If GitHub is slow or unavailable on your network, use the [Gitee release mirror](https://gitee.com/shaxiong/stacker/releases).
 
-- **Installer** (`Stacker-<version>-setup-windows-x64.exe`), the only package; updates install it in place. Portable packages ended with v0.3.4.
+- **Windows installer** (`Stacker-<version>-setup-windows-x64.exe`), the only Windows package; updates install it in place. Portable packages ended with v0.3.4.
+- **Mac** (`Stacker-<version>-macos-arm64.dmg` for Apple silicon, `Stacker-<version>-macos-x64.dmg` for Intel): open it and drag Stacker into Applications. The `update-macos-*.zip` files are for in-app updates.
 - **`SHA256SUMS.txt`** for artifact verification.
+
+### The Mac edition
+
+The Mac edition centres on agents: install and update, session data, footprint and relocation, disk cleanup, the key vault, Git accounts, the network proxy, Stacker AI and the web chat extension. Runtime management (the Python, Node.js, Java and other toolchain pages) is Windows-only; on a Mac, Homebrew and mise cover it. The terminal proxy goes into `~/.config/stacker/env.sh`, which zsh, bash and fish read through one marked line in their start-up files; turning it off takes the file and those lines away again.
+
+- Agent CLIs install with npm or the vendor's own install script; desktop apps install with Homebrew where it has them, and link to the vendor's download otherwise.
+- The vault file is encrypted as on Windows; entries put in the keychain can be read with `security find-generic-password -a Stacker -s <name> -w`.
+- Git account tokens are kept by Git's own keychain helper (git-credential-osxkeychain).
+- The first time it opens, macOS says it cannot verify the developer: choose Open Anyway in System Settings → Privacy & Security. In-app updates are not stopped again.
 
 ## Requirements
 
-- Windows 10 or Windows 11, 64-bit.
+- Windows 10 or Windows 11, 64-bit; or macOS 11 or later on Apple silicon or Intel.
 - Microsoft Edge WebView2 Runtime, included with most current Windows installations.
 - Administrator approval only for operations that explicitly modify system-level state or scan protected paths.
 

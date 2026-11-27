@@ -234,17 +234,7 @@ pub async fn git_account_save_token(
     tauri::async_runtime::spawn_blocking(move || {
         let git = ensure_git()?;
         ensure_gcm(&git)?;
-        let configured = run_output(
-            &git,
-            &["credential-manager", "configure"],
-            Duration::from_secs(20),
-        )?;
-        if !configured.status.success() {
-            return Err(command_error(
-                "无法启用 Git Credential Manager",
-                &configured,
-            ));
-        }
+        configure_gcm(&git)?;
         let platform = normalize_platform(&platform)?;
         validate_credential(&credential)?;
         let verified = verify_platform_token(&platform, credential.trim())?;
@@ -255,12 +245,7 @@ pub async fn git_account_save_token(
             platform_host(&platform),
             credential.trim()
         );
-        let out = run_output_with_input(
-            &git,
-            &["credential-manager", "store", "--no-ui"],
-            &input,
-            Duration::from_secs(15),
-        )?;
+        let out = store_credential(&git, &input)?;
         if !out.status.success() {
             return Err(command_error("无法保存账号令牌", &out));
         }
@@ -360,12 +345,7 @@ pub async fn git_account_save_custom_token(
             verified_user.login,
             credential.trim()
         );
-        let out = run_output_with_input(
-            &git,
-            &["credential-manager", "store", "--no-ui"],
-            &input,
-            Duration::from_secs(15),
-        )?;
+        let out = store_credential(&git, &input)?;
         if !out.status.success() {
             return Err(command_error("无法保存账号令牌", &out));
         }
@@ -432,7 +412,7 @@ pub async fn git_account_remove_token(
         let input = format!("protocol={protocol}\nhost={host}\nusername={username}\n\n");
         let out = run_output_with_input(
             &git,
-            &["credential-manager", "erase", "--no-ui"],
+            &credential_args("erase"),
             &input,
             Duration::from_secs(15),
         )?;
@@ -902,21 +882,16 @@ fn account_credential_exists(git: &Path, profile: &GitAccountProfile) -> bool {
 
 fn account_credential_exists_raw(git: &Path, protocol: &str, host: &str, username: &str) -> bool {
     let input = format!("protocol={protocol}\nhost={host}\nusername={username}\n\n");
-    run_output_with_input(
-        git,
-        &["credential-manager", "get", "--no-ui"],
-        &input,
-        Duration::from_secs(5),
-    )
-    .ok()
-    .filter(|output| output.status.success())
-    .and_then(|output| {
-        output_text(&output)
-            .lines()
-            .find_map(|line| line.strip_prefix("password="))
-            .map(str::to_string)
-    })
-    .is_some_and(|password| !password.is_empty())
+    run_output_with_input(git, &credential_args("get"), &input, Duration::from_secs(5))
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| {
+            output_text(&output)
+                .lines()
+                .find_map(|line| line.strip_prefix("password="))
+                .map(str::to_string)
+        })
+        .is_some_and(|password| !password.is_empty())
 }
 
 fn resolve_account_profile(platform: &str, username: &str) -> Result<GitAccountProfile, String> {
@@ -1048,6 +1023,12 @@ fn account_environment(profile: &GitAccountProfile) -> Vec<(String, String)> {
         ),
         profile.username.clone(),
     )];
+    // Windows' Git uses Credential Manager through its global setting, switched on when an
+    // account is added. On a Mac the account's commands name the keychain helper here, so
+    // the token is found without touching the user's global Git settings.
+    if !cfg!(windows) {
+        entries.push(("credential.helper".into(), "osxkeychain".into()));
+    }
     if let Some(display_name) = profile
         .display_name
         .as_deref()
@@ -1917,7 +1898,7 @@ fn account_credential(git: &Path, profile: &GitAccountProfile) -> Result<String,
     );
     let output = run_output_with_input(
         git,
-        &["credential-manager", "get", "--no-ui"],
+        &credential_args("get"),
         &input,
         Duration::from_secs(15),
     )?;
@@ -2008,12 +1989,63 @@ fn command_output_timeout_drained(
     })
 }
 
+/// Stores a token. Apple's keychain helper keeps an existing item for the same account and
+/// says nothing, so on a Mac the old one is erased first: a renewed token must replace it.
+fn store_credential(git: &Path, input: &str) -> Result<Output, String> {
+    if !cfg!(windows) {
+        let without_secret: String = input
+            .lines()
+            .filter(|line| !line.starts_with("password="))
+            .map(|line| format!("{line}\n"))
+            .collect();
+        let _ = run_output_with_input(
+            git,
+            &credential_args("erase"),
+            &without_secret,
+            Duration::from_secs(15),
+        );
+    }
+    run_output_with_input(
+        git,
+        &credential_args("store"),
+        input,
+        Duration::from_secs(15),
+    )
+}
+
+/// How Git is asked to store, read or erase an HTTPS token: Git Credential Manager on
+/// Windows, Apple's keychain helper (`git-credential-osxkeychain`, part of Git on macOS)
+/// on a Mac. Both speak Git's credential protocol on stdin.
+fn credential_args(operation: &'static str) -> Vec<&'static str> {
+    if cfg!(windows) {
+        vec!["credential-manager", operation, "--no-ui"]
+    } else {
+        vec!["credential-osxkeychain", operation]
+    }
+}
+
+#[cfg(not(windows))]
+fn ensure_gcm(git: &Path) -> Result<String, String> {
+    read_gcm_version(git).map_err(|error| {
+        format!("找不到 Git 的钥匙串助手（{error}）。请运行 xcode-select --install 安装命令行工具，或用 Homebrew 安装 Git。")
+    })
+}
+
+#[cfg(windows)]
 fn ensure_gcm(git: &Path) -> Result<String, String> {
     read_gcm_version(git).map_err(|error| {
         format!("无法运行 Git Credential Manager（{error}）。如果它确实没有装，请更新 Git for Windows 后重试。")
     })
 }
 
+/// Nothing to switch on on a Mac: the account's own terminals name the keychain helper
+/// themselves (see `account_environment`), and the user's global Git settings stay theirs.
+#[cfg(not(windows))]
+fn configure_gcm(_: &Path) -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(windows)]
 fn configure_gcm(git: &Path) -> Result<(), String> {
     let configured = run_output(
         git,
@@ -2030,7 +2062,20 @@ fn configure_gcm(git: &Path) -> Result<(), String> {
     }
 }
 
+/// The keychain helper beside Git's own programs; it has no version of its own to report.
+#[cfg(not(windows))]
+fn read_gcm_version(git: &Path) -> Result<String, String> {
+    let exec_path = run_program(git, &["--exec-path"], Duration::from_secs(10))?;
+    let helper = Path::new(exec_path.trim()).join("git-credential-osxkeychain");
+    if helper.is_file() {
+        Ok("osxkeychain".into())
+    } else {
+        Err(format!("{} 不存在", helper.display()))
+    }
+}
+
 // .NET starts slowly the first time after boot: a short limit reads as "not installed".
+#[cfg(windows)]
 fn read_gcm_version(git: &Path) -> Result<String, String> {
     run_program(
         git,
@@ -2846,7 +2891,12 @@ fn run_git_installer(_: &tauri::Window, _: &Path, _: bool, _: &Path) -> Result<(
 }
 
 fn ensure_git() -> Result<PathBuf, String> {
-    crate::env::resolve_fresh("git.exe").ok_or("未检测到 Git，请先安装 Git for Windows。".into())
+    crate::env::resolve_fresh("git.exe").ok_or(if cfg!(windows) {
+        "未检测到 Git，请先安装 Git for Windows。".into()
+    } else {
+        "未检测到 Git。请运行 xcode-select --install 安装命令行工具，或用 Homebrew 安装 Git。"
+            .into()
+    })
 }
 
 fn git_config_get(key: &str) -> Option<String> {

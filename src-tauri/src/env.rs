@@ -340,16 +340,20 @@ pub fn fresh_path_dirs() -> Vec<PathBuf> {
     }
     v
 }
+/// Off Windows there is no registry to read again: the PATH Stacker took from the login shell
+/// at startup is the current one.
 #[cfg(not(windows))]
 pub fn fresh_path_dirs() -> Vec<PathBuf> {
-    Vec::new()
+    std::env::var_os("PATH")
+        .map(|paths| std::env::split_paths(&paths).collect())
+        .unwrap_or_default()
 }
 
 /// 按「注册表最新 PATH」找可执行文件全路径（不受 app 进程旧快照影响）。
 pub fn resolve_fresh(exe: &str) -> Option<PathBuf> {
     fresh_path_dirs()
         .into_iter()
-        .map(|d| d.join(exe))
+        .map(|d| d.join(crate::platform::command_name(exe)))
         .find(|p| p.is_file())
 }
 
@@ -441,7 +445,8 @@ pub fn list_drives() -> Vec<DriveInfo> {
             let dt = unsafe { GetDriveTypeW(wide.as_ptr()) };
             out.push(DriveInfo {
                 letter: format!("{letter}:"),
-                fixed: dt == 3,
+                // Internal, external, USB and RAM disks; not network or optical drives.
+                fixed: matches!(dt, 2 | 3 | 6),
             }); // DRIVE_FIXED
         }
     }
@@ -1473,6 +1478,8 @@ mod tests {
         assert!(is_related_path("go", r"%GOROOT%\bin", &[]));
     }
 
+    /// Windows paths and tools only.
+    #[cfg(windows)]
     #[test]
     fn every_complete_runtime_in_stackers_folder_is_listed_and_a_partial_one_is_not() {
         let root = tempfile::tempdir().unwrap();

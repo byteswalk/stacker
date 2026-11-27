@@ -1,11 +1,12 @@
 import type { MessageKey } from "./i18n";
 import type { Page } from "./pageState";
+import { IS_MAC, pageAvailable } from "./platform";
 
 export type NavItem = { id: Page; icon: string; labelKey: MessageKey };
 export type NavSection = { labelKey: MessageKey | null; icon?: string; items: NavItem[] };
 
 // Section titles are five Chinese characters and menu items four; product names stay as-is.
-export const NAV_SECTIONS: NavSection[] = [
+const ALL_SECTIONS: NavSection[] = [
   { labelKey: null, items: [{ id: "overview", icon: "ti-layout-dashboard", labelKey: "nav.overview" }] },
   {
     labelKey: "nav.section.agents",
@@ -40,6 +41,15 @@ export const NAV_SECTIONS: NavSection[] = [
     ],
   },
 ];
+
+/** The menu on this platform: the Mac build leaves out the Windows-only pages. */
+export function sectionsFor(mac: boolean): NavSection[] {
+  return ALL_SECTIONS
+    .map((section) => ({ ...section, items: section.items.filter((item) => pageAvailable(item.id, mac)) }))
+    .filter((section) => section.items.length > 0);
+}
+
+export const NAV_SECTIONS: NavSection[] = sectionsFor(IS_MAC);
 
 export const NAV_FOOT: NavItem[] = [
   { id: "history", icon: "ti-history", labelKey: "nav.history" },

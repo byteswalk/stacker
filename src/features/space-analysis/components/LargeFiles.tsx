@@ -7,6 +7,7 @@ import { formatSpaceBytes } from "./SpaceOverview";
 import { RecycleBar, useProtectedPaths } from "./FileRemoval";
 import { useDragPick, setInSet } from "../../../dragPick";
 import { CompressDialog, mediaKind, type Outcome } from "./CompressDialog";
+import { IS_MAC } from "../../../platform";
 
 type TypeFilter = "" | "video" | "image" | "packed";
 const TYPE_FILTERS: { value: TypeFilter; label: string }[] = [
@@ -275,7 +276,7 @@ export function LargeFiles({ taskId, thresholdBytes }: { taskId: string; thresho
       {page.items.length > 0 && shown.length === 0 && <div className="space-analysis-empty compact">{tr("已加载的文件里没有这一类。")}</div>}
       {page.items.length > 0 && <RecycleBar files={chosen} onDone={removed}
         extra={<button type="button" className="gh sm" disabled={!chosen.length}
-          title={tr("视频转 H.265、图片重新压缩，其他文件用 Windows 透明压缩；先估算再压缩")} onClick={() => setCompressing(true)}>
+          title={tr(IS_MAC ? "视频转 H.265、图片重新压缩；先估算再压缩" : "视频转 H.265、图片重新压缩，其他文件用 Windows 透明压缩；先估算再压缩")} onClick={() => setCompressing(true)}>
           <i className="ti ti-file-zip" /> {tr("压缩所选")}{chosen.length ? ` (${chosen.length})` : ""}
         </button>} />}
       {compressing && <CompressDialog files={chosen} onClose={() => setCompressing(false)} onDone={compressed} />}

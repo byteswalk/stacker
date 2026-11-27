@@ -20,6 +20,7 @@ import { UpdatePlanModal } from "../features/agents/UpdatePlanModal";
 import { AiAskModal, AiButton } from "../features/ai/AiAsk";
 import { tileLine } from "../features/agents/tileState";
 import { surfaceTaskText } from "../features/agents/surfaceTask";
+import { IS_MAC, TERMINAL } from "../platform";
 import {
   cancelAgentTask,
   openTaskFor,
@@ -100,8 +101,10 @@ function installMethodHint(surface: VibeSurface) {
       return "安装来源：桌面或开始菜单快捷方式。";
     case "native":
       return "安装来源：官方安装脚本或官方安装器。";
+    case "brew":
+      return "安装来源：Homebrew。更新和卸载会优先使用 Homebrew。";
     case "app":
-      return "安装来源：本地应用。";
+      return IS_MAC ? "安装来源：应用程序文件夹里的应用，它会自己检查更新。" : "安装来源：本地应用。";
     case "download":
       return "安装来源：官方下载。";
     default:
@@ -250,7 +253,7 @@ export default function Agents() {
     setOpening(`cli:${tool.id}`);
     try {
       await invoke("open_shell", { kind: "powershell", cwd: null, command });
-      toast(`已在 PowerShell 中运行 ${command}`, "ok");
+      toast(translateText("已在{terminal}中运行 {command}").replace("{terminal}", translateText(TERMINAL)).replace("{command}", command), "ok");
     } catch (e) {
       toast("打开终端失败：" + e, "err");
     } finally {
@@ -409,7 +412,7 @@ export default function Agents() {
               ? <button className="gh sm" title={`在终端运行 ${tool.workbench_command}，启动本地 Web 工作台`} disabled={!tool.cli.path} onClick={() => openTerminal(tool, tool.workbench_command ?? undefined)}>
                 <i className="ti ti-world-www" /> 打开 Web 工作台
               </button>
-              : <button className="gh sm" title={pending ? pendingTitle : tool.cli.path ? `在 PowerShell 中启动 ${surface.label}` : `尚未安装 ${surface.label}`} disabled={!tool.cli.path || opening === `cli:${tool.id}`} onClick={() => openTerminal(tool)}>
+              : <button className="gh sm" title={pending ? pendingTitle : tool.cli.path ? translateText("在{terminal}中启动 {label}").replace("{terminal}", translateText(TERMINAL)).replace("{label}", surface.label) : `尚未安装 ${surface.label}`} disabled={!tool.cli.path || opening === `cli:${tool.id}`} onClick={() => openTerminal(tool)}>
                 <i className={"ti " + (opening === `cli:${tool.id}` ? "ti-loader-2 spin" : "ti-terminal-2")} /> {opening === `cli:${tool.id}` ? "正在打开…" : "打开终端"}
               </button>
             : <button className="gh sm" title={pending ? pendingTitle : surface.can_open ? `打开 ${surface.label}` : `尚未安装 ${surface.label}`} disabled={!surface.can_open || opening === `desktop:${tool.id}`} onClick={() => openDesktop(tool)}>

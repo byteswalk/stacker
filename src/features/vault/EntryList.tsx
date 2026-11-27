@@ -10,6 +10,7 @@ import { publicKeyOf } from "./SshKeys";
 import { MergeDialog } from "./MergeDialog";
 import { BrowserExport } from "./BrowserExport";
 import { useTitleProgress } from "./titleProgress";
+import { IS_MAC } from "../../platform";
 
 /** How many sites the list draws before asking to show more. */
 const STEP = 100;
@@ -150,7 +151,7 @@ export function EntryList({ entries, today, onView, onEdit, onChanged }: {
         </span>
         <i className={"ti " + (inGroup ? "ti-user" : "ti-key")} aria-hidden="true" />
         <span className="title" translate="no" title={inGroup && account ? `${account}\n${entry.title}` : entry.title}>{name}
-          {entry.windows && <i className="ti ti-brand-windows vault-win" title="已放进 Windows 凭据管理器，本机的其他程序可以按名字取用" />}
+          {entry.windows && <i className={"ti " + (IS_MAC ? "ti-key" : "ti-brand-windows") + " vault-win"} title="已放进 Windows 凭据管理器，本机的其他程序可以按名字取用" />}
         </span>
         <span className="mut" translate="no" title={where || undefined}>{where || "—"}</span>
         <span className="mut">{tr(CATEGORY_LABELS[categoryOf(entry)])}</span>
@@ -183,7 +184,7 @@ export function EntryList({ entries, today, onView, onEdit, onChanged }: {
       <i className={"ti " + (expanded ? "ti-chevron-down" : "ti-chevron-right")} aria-hidden="true" />
       <span className="title" translate="no" title={group.key}>{group.key}</span>
       <span className="mut">{count}</span>
-      <span className="mut">{group.entries.some((entry) => entry.windows) ? <i className="ti ti-brand-windows vault-win" title="其中有条目放进了 Windows 凭据管理器" /> : ""}</span>
+      <span className="mut">{group.entries.some((entry) => entry.windows) ? <i className={"ti " + (IS_MAC ? "ti-key" : "ti-brand-windows") + " vault-win"} title="其中有条目放进了 Windows 凭据管理器" /> : ""}</span>
       <span />
       <span className="mut">{formatTime(newest).slice(0, 10)}</span>
       <span className="ops" onClick={(event) => event.stopPropagation()}>
@@ -211,7 +212,7 @@ export function EntryList({ entries, today, onView, onEdit, onChanged }: {
       </div>}
       {chosen.length > 0 && <div className="vault-batch float-bar">
         <span>{tr("已选 {count} 条").replace("{count}", String(chosen.length))}</span>
-        <button className="gh sm" disabled={busy} title="本机的其他程序（比如 AI）可以按名字从 Windows 凭据管理器取用这些值" onClick={() => void setWindows(true)}><i className="ti ti-brand-windows" /> 放进 Windows 凭据</button>
+        <button className="gh sm" disabled={busy} title="本机的其他程序（比如 AI）可以按名字从 Windows 凭据管理器取用这些值" onClick={() => void setWindows(true)}><i className={"ti " + (IS_MAC ? "ti-key" : "ti-brand-windows")} /> 放进 Windows 凭据</button>
         <button className="gh sm" disabled={busy} onClick={() => void setWindows(false)}><i className="ti ti-lock" /> 移出，只留在保管库</button>
         <button className="gh sm" disabled={busy} title="把选中的登录导出成 Chrome、Edge 或 Firefox 能导入的密码文件" onClick={() => setExporting(chosen.map((entry) => entry.id))}>
           <i className="ti ti-world-upload" /> 导出给浏览器

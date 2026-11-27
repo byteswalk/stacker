@@ -417,6 +417,12 @@ pub(crate) fn recycle(dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// Moves a folder or file to the Trash, so a mistaken removal can be undone.
+#[cfg(not(windows))]
+pub(crate) fn recycle(path: &Path) -> Result<(), String> {
+    crate::macos::trash(path)
+}
+
 /// Drops the folder and its Scripts from the user PATH; says which system PATH entries remain.
 #[cfg(windows)]
 fn unlink_path(dir: &Path) -> Option<String> {
@@ -575,6 +581,8 @@ mod tests {
         );
     }
 
+    /// Windows paths and tools only.
+    #[cfg(windows)]
     #[test]
     fn removal_refuses_what_is_not_a_stray_runtime() {
         let root = Some(r"C:\Users\me\.pyenv\pyenv-win\");

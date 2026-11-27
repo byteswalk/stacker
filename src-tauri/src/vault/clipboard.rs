@@ -1,5 +1,5 @@
-//! 复制保密值：设置排除格式，不进 Win+V 历史与云剪贴板；30 秒后、锁定时、退出时，
-//! 仅当剪贴板仍是这次复制的内容才清空。
+//! 复制保密值：设置排除格式，不进 Win+V 历史与云剪贴板（macOS：标为隐藏、临时，剪贴板
+//! 管理工具不记录）；30 秒后、锁定时、退出时，仅当剪贴板仍是这次复制的内容才清空。
 
 use super::errors::IO;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -242,19 +242,62 @@ mod platform {
     }
 }
 
-#[cfg(not(windows))]
+/// macOS: the general pasteboard, marked with the types clipboard managers agree to leave
+/// out of their history (nspasteboard.org): concealed, and transient so none keeps it at all.
+/// The pasteboard's change count plays the part of Windows' sequence number.
+#[cfg(target_os = "macos")]
 mod platform {
-    pub(super) fn write(_: &str) -> Result<u32, String> {
-        Err(super::IO.into())
+    use objc2_app_kit::{NSPasteboard, NSPasteboardTypeString};
+    use objc2_foundation::NSString;
+
+    const MARKS: [&str; 2] = [
+        "org.nspasteboard.ConcealedType",
+        "org.nspasteboard.TransientType",
+    ];
+
+    fn count(board: &NSPasteboard) -> u32 {
+        board.changeCount() as u32
     }
+
+    pub(super) fn write(text: &str) -> Result<u32, String> {
+        let board = NSPasteboard::generalPasteboard();
+        board.clearContents();
+        // The marks first: a clipboard manager that looks in between sees them, never the
+        // secret without them.
+        for mark in MARKS {
+            board.setString_forType(&NSString::from_str(""), &NSString::from_str(mark));
+        }
+        let value = NSString::from_str(text);
+        // SAFETY: NSPasteboardTypeString is a constant AppKit defines for the process's life.
+        let kind = unsafe { NSPasteboardTypeString };
+        if !board.setString_forType(&value, kind) {
+            board.clearContents();
+            return Err(super::IO.into());
+        }
+        Ok(count(&board))
+    }
+
     pub(super) fn read() -> String {
-        String::new()
+        let board = NSPasteboard::generalPasteboard();
+        // SAFETY: as in `write`.
+        let kind = unsafe { NSPasteboardTypeString };
+        board
+            .stringForType(kind)
+            .map(|text| text.to_string())
+            .unwrap_or_default()
     }
+
     #[cfg(test)]
     pub(super) fn sequence() -> u32 {
-        0
+        count(&NSPasteboard::generalPasteboard())
     }
-    pub(super) fn clear(_: u32) -> bool {
+
+    /// Empties the pasteboard only while it still holds what Stacker put there.
+    pub(super) fn clear(expected: u32) -> bool {
+        let board = NSPasteboard::generalPasteboard();
+        if count(&board) == expected {
+            board.clearContents();
+        }
         true
     }
 }
@@ -287,5 +330,36 @@ mod tests {
         // Leave the clipboard empty.
         assert!(platform::clear(other));
         assert!(!platform::has_text());
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod mac_tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "touches the real pasteboard; run by hand in the logged-in session with --ignored"]
+    fn copied_text_is_marked_and_cleared_only_while_unchanged() {
+        use objc2_app_kit::NSPasteboard;
+        use objc2_foundation::NSString;
+        copy_secret("vault clipboard check").unwrap();
+        let ours = LAST_SEQUENCE.load(Ordering::SeqCst);
+        assert_eq!(platform::sequence(), ours);
+        assert_eq!(read_text(), "vault clipboard check");
+        let board = NSPasteboard::generalPasteboard();
+        let concealed = NSString::from_str("org.nspasteboard.ConcealedType");
+        assert!(board.stringForType(&concealed).is_some());
+        clear_now();
+        assert_eq!(read_text(), "");
+        assert_eq!(LAST_SEQUENCE.load(Ordering::SeqCst), 0);
+
+        // Something copied in between survives.
+        copy_secret("vault clipboard check").unwrap();
+        board.clearContents();
+        let plain = NSString::from_str("someone else's text");
+        board.setString_forType(&plain, unsafe { objc2_app_kit::NSPasteboardTypeString });
+        clear_now();
+        assert_eq!(read_text(), "someone else's text");
+        board.clearContents();
     }
 }

@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { invoke } from "./invoke";
 import { ecosystemUpdateFromInfo, type VersionUpdateInfo } from "./updateHelpers";
 import { runVibeCheck, subscribeVibe, vibeSnapshot } from "./features/agents/catalogStore";
+import { IS_MAC } from "./platform";
 
 type UpdateInfo = {
   current: string;
@@ -499,7 +500,9 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
           succeeded = true;
         }
       }
-      if ((full || settingsOnly || sourcesChanged) && prefs.sourceUpdate) {
+      // The download sources, runtime updates and environment checks belong to the runtime
+      // pages, which only the Windows build has.
+      if (!IS_MAC && (full || settingsOnly || sourcesChanged) && prefs.sourceUpdate) {
         const result = await attempt(invoke<MirrorsUpdateCheck>("mirrors_check_update", { url: null }));
         if (result.ok) {
           setSourceUpdate(result.value.has_update ? result.value : null);
@@ -513,7 +516,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
           succeeded = true;
         }
       }
-      if (prefs.ecosystemUpdate && (full || sourcesChanged || (page && page !== "agents"))) {
+      if (!IS_MAC && prefs.ecosystemUpdate && (full || sourcesChanged || (page && page !== "agents"))) {
         const target = full || sourcesChanged ? undefined : page ?? undefined;
         const result = await attempt(checkEcosystemUpdates(target));
         if (result.ok) {
@@ -530,7 +533,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
           succeeded = true;
         }
       }
-      if (prefs.environmentIssue && (full || page)) {
+      if (!IS_MAC && prefs.environmentIssue && (full || page)) {
         const task = page
           ? invoke<CheckItem[]>("checkup_page", { page })
           : invoke<CheckItem[]>("checkup_extra").then(ecosystemIssueItems);

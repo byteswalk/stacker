@@ -182,6 +182,13 @@ pub(crate) fn detected_proxy_addr() -> Option<(String, u16)> {
             return Some(addr);
         }
     }
+    #[cfg(target_os = "macos")]
+    {
+        let system = crate::proxy_system::system();
+        if system.state == crate::proxy_system::SystemState::On {
+            return parse_proxy_addr(&system.server);
+        }
+    }
     None
 }
 /// There are no proxy modes any more: every install reads the Windows proxy, and nothing is
@@ -769,12 +776,26 @@ pub fn os_info() -> OsInfo {
             supported: build >= 10240,
         }
     }
+    // macOS: the version `sw_vers` reports; Stacker's Mac build needs macOS 11 or later.
     #[cfg(not(windows))]
     {
+        let version = std::process::Command::new("/usr/bin/sw_vers")
+            .arg("-productVersion")
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output()
+            .ok()
+            .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
+            .unwrap_or_default();
+        let major: u32 = version
+            .split('.')
+            .next()
+            .and_then(|part| part.parse().ok())
+            .unwrap_or(0);
         OsInfo {
-            name: "non-windows".into(),
-            build: 0,
-            supported: false,
+            name: format!("macOS {version}"),
+            build: major,
+            supported: major == 0 || major >= 11,
         }
     }
 }

@@ -28,11 +28,15 @@ pub struct HistoryRecord {
     pub state: CleanupTaskState,
     pub released_bytes: u64,
     pub items: Vec<HistoryItem>,
+    /// What started the cleanup, when it was not the page's own plan.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
 }
 
 impl HistoryRecord {
     pub fn from_result(result: &CleanupResult, at: u64) -> Self {
         Self {
+            title: None,
             at,
             state: result.state,
             released_bytes: result.actual_released_bytes,
@@ -50,6 +54,15 @@ impl HistoryRecord {
     }
 }
 
+/// Tests run real cleanups; their records go to a scratch file, never the user's history.
+#[cfg(test)]
+fn file() -> PathBuf {
+    std::env::temp_dir()
+        .join(format!("stacker-test-{}", std::process::id()))
+        .join("cleanup-history.json")
+}
+
+#[cfg(not(test))]
 fn file() -> PathBuf {
     dirs::data_local_dir()
         .unwrap_or_else(std::env::temp_dir)

@@ -1,6 +1,7 @@
 import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { GENERATED_EN } from "./en.generated";
 import { invoke } from "./invoke";
+import { IS_MAC } from "./platform";
 
 export type Locale = "zh-CN" | "en-US";
 
@@ -925,7 +926,7 @@ Object.assign(CURATED_EN, {
   "端口": "Port",
   "Windows 未提供显式系统代理地址；网络连接将使用 Windows 当前路由。": "Windows did not provide an explicit system proxy endpoint. Network connections will use the current Windows routing.",
   "当前未配置显式代理地址。Git 将使用 Windows 当前网络路由，无需单独设置代理。": "No explicit proxy endpoint is configured. Git will use the current Windows routing and does not need a separate proxy.",
-  "当前未检测到可写入终端的代理地址。终端将使用 Windows 当前网络路由，无需开启显式代理。": "No proxy endpoint is available for terminal configuration. Terminals will use the current Windows routing and do not need an explicit proxy.",
+  "当前未检测到可写入终端的代理地址。终端将使用系统当前的网络路由，无需开启显式代理。": "No proxy endpoint is available for terminal configuration. Terminals will use the system's current routing and do not need an explicit proxy.",
   "无效的代理模式": "Invalid proxy mode",
   "Windows 未提供显式代理地址，已清除旧代理配置": "Windows did not provide an explicit proxy endpoint. Stale proxy settings were removed.",
   "未检测到显式代理地址，无需开启终端代理": "No explicit proxy endpoint was detected; terminal proxy is not required",
@@ -1330,6 +1331,39 @@ Object.assign(CURATED_EN, {
   "未知": "Unknown",
   "pyenv versions 未完成": "pyenv versions did not finish",
   "读取中断": "Reading was interrupted",
+  "等待下一次检查": "Waiting for the next check",
+  "自动清理释放": "Auto cleanup freed",
+  "已检查，没有能自动清理的内容": "Checked; nothing on it can be cleaned automatically",
+  "剩下的是你自己的文件：备份、安装包、虚拟机、下载和视频等，自动清理不会删。点上方的磁盘卡片做深度分析，再决定删什么。": "What is left is your own files: backups, installers, virtual machines, downloads, videos and the like, which auto cleanup never deletes. Click a disk card above for a deep analysis, then decide what to delete.",
+  "网页组件缓存": "Web component cache",
+  "显卡着色器缓存": "Graphics shader cache",
+  "Windows 错误报告": "Windows error reports",
+  "编辑器缓存": "Editor cache",
+  "空间不足自动清理": "Low-space auto cleanup",
+  "Windows 系统临时目录需要管理员权限，没有清理": "The Windows system temp folder needs administrator rights and was not cleaned",
+  "闲置项目的开发产物": "Build output of idle projects",
+  "在用项目的开发产物": "Build output of projects in use",
+  "临时文件与系统缓存": "Temporary files and system caches",
+  "正在自动清理 {drive}": "Cleaning {drive} automatically",
+  "无法保存自动清理设置，请重试。": "Could not save the auto cleanup settings. Try again.",
+  "所有磁盘剩余都高于 {percent}%，不需要清理。": "Every disk has more than {percent}% free. Nothing to clean.",
+  "{drives} 空间不足，正在后台清理。": "{drives} is low on space. Cleaning in the background.",
+  "自动清理正在进行，请等它完成。": "An auto cleanup is running. Wait for it to finish.",
+  "无法开始检查，请重试。": "Could not start the check. Try again.",
+  "空间不足时自动清理": "Clean automatically when space runs low",
+  "剩余空间不超过": "When free space is at or below",
+  "自动清理的剩余空间比例": "Free space share that starts an auto cleanup",
+  "现在就看一遍各个磁盘，空间不足的立即清理": "Check every disk now and clean the ones that are low",
+  "自动清理记录": "Auto cleanup history",
+  "依次清理：闲置项目的开发产物 → 在用项目的开发产物 → 缓存与下载 → 系统盘的临时文件与系统缓存，清到剩余达到设定值的两倍为止。源码、文档、虚拟环境、模型和回收站从不自动删除。": "Cleans in order: build output of idle projects → build output of projects in use → caches and downloads → temporary files and system caches on the system disk, until free space reaches twice the setting. Source code, documents, virtual environments, models and the Recycle Bin are never deleted automatically.",
+  "上次": "Last run",
+  "仍然不足，可以选择目录做深度分析，找出大文件。": "Still low. Choose a folder for a deep analysis to find large files.",
+  "每次因空间不足自动清理都记在这里：哪一步、删了什么、释放了多少。": "Every cleanup started by low space is recorded here: which step, what was deleted and how much was freed.",
+  "手动检查": "Manual check",
+  "没有找到可以自动清理的内容。": "Nothing was found that can be cleaned automatically.",
+  "另有 {count} 项": "{count} more items",
+  "{drive} 空间不足，已自动清理，释放 {size}。": "{drive} was low on space and was cleaned automatically, freeing {size}.",
+  "{drive} 空间不足，没有找到可以自动清理的内容。": "{drive} is low on space, but nothing was found that can be cleaned automatically.",
   "Claude 为会话准备的草稿目录，会话结束后就用不上了。": "Scratch folders Claude made for the sessions; nothing uses them once a session is over.",
   "{count} 个会话 · {} 张截图": "{count} sessions · {} screenshots",
   "张截图": "screenshots",
@@ -2363,6 +2397,122 @@ Object.assign(CURATED_EN, {
   "重置": "Reset",
 });
 
+// The Mac build.
+Object.assign(CURATED_EN, {
+  "Apple 媒体引擎（快）": "Apple media engine (fast)",
+  "Mac 上暂不支持透明压缩，保持原样": "Transparent compression is not available on a Mac yet; left as it is",
+  "通过 Homebrew 安装 ffmpeg，可能需要几分钟。": "Installs ffmpeg with Homebrew; this can take a few minutes.",
+  "压缩视频和图片要用 ffmpeg（开源的音视频工具），通过 Homebrew 安装一次即可。": "Compressing videos and photos needs ffmpeg (an open-source media tool); install it once with Homebrew.",
+  "Mac 上暂不支持": "Not available on a Mac yet",
+  "这些文件会保持原样；视频和图片照常压缩。": "These files stay as they are; videos and photos are still compressed.",
+  "视频转 H.265、图片重新压缩；先估算再压缩": "Videos to H.265, photos compressed again; estimate first, then compress",
+  "扫描常见开发缓存和历史版本，不会遍历整个磁盘。": "Scans common development caches and old versions without walking the whole disk.",
+  "快速扫描会统计已知开发工具缓存和历史版本。": "A quick scan measures known development-tool caches and old versions.",
+  "取值命令（终端，把值读进变量 $secret；换别的凭据只改命令里的凭据名）": "Command to read it (Terminal, reads the value into $secret; for another credential change only its name)",
+  "安装来源：Homebrew。更新和卸载会优先使用 Homebrew。": "Installed with Homebrew. Updates and uninstalls use Homebrew first.",
+  "安装来源：应用程序文件夹里的应用，它会自己检查更新。": "An app in the Applications folder; it checks for updates itself.",
+  "已在{terminal}中运行 {command}": "Ran {command} in {terminal}",
+  "在{terminal}中启动 {label}": "Start {label} in {terminal}",
+  "终端": "Terminal",
+  "Xcode 构建缓存（DerivedData）": "Xcode build cache (DerivedData)",
+  "Homebrew 下载缓存": "Homebrew download cache",
+  "- 钥匙串助手（git-credential-osxkeychain）：": "- Keychain helper (git-credential-osxkeychain): ",
+  "正在检测 Git、钥匙串助手与账号配置…": "Checking Git, the keychain helper and account settings…",
+  "在终端运行 xcode-select --install 安装 Apple 命令行工具（含 Git），或用 Homebrew 安装 Git。": "Run xcode-select --install in Terminal to install Apple's command line tools (Git included), or install Git with Homebrew.",
+  "git-credential-osxkeychain：Git 自带的钥匙串助手，把 GitHub、Gitee 等平台的 HTTPS 账号令牌保存在登录钥匙串里。": "git-credential-osxkeychain: Git's own keychain helper, which keeps HTTPS tokens for GitHub, Gitee and other services in the login keychain.",
+  "钥匙串助手": "Keychain helper",
+  "打开该账号的终端": "Open a terminal for this account",
+  "这个版本没有提供 Mac 更新包，请到发布页下载": "This release has no Mac update package; download it from the release page",
+  "登录 Mac 后自动启动 Stacker，仅对当前用户生效。": "Starts Stacker when you log in to the Mac, for the current user only.",
+  "登录 Mac 后自动启动 Stacker。": "Starts Stacker when you log in to the Mac.",
+  "Mac 开发工作站管理器：统一管理 AI 智能体、会话数据、Git 账号、密钥与开发磁盘空间。": "Mac developer workstation manager: AI agents, session data, Git accounts, secrets and developer disk space in one place.",
+  "Mac 开发工作站管理器": "Mac developer workstation manager",
+  "访达": "Finder",
+  "资源管理器": "File Explorer",
+  "废纸篓": "Trash",
+  "钥匙串": "Keychain",
+  "Windows 凭据管理器": "Windows Credential Manager",
+  "Mac 登录密码或触控 ID": "Mac password or Touch ID",
+  "Mac 登录密码": "Mac password",
+  "这个 CLI 暂无自动安装方案，请查看官方文档。": "There is no automatic install for this CLI yet; see its official documentation.",
+  "没有检测到 Homebrew。请先安装 Homebrew（brew.sh），或从官网下载这个应用。": "Homebrew was not found. Install Homebrew (brew.sh) first, or download this app from its website.",
+  "官方没有提供 Mac 桌面应用。": "There is no official Mac desktop app.",
+  "Homebrew 没有收录这个应用，请从官网下载安装。": "Homebrew does not have this app; download it from its website.",
+  "{} 正在运行，请先退出再更新。": "{} is running; quit it before updating.",
+  "{} 不是通过 Homebrew 安装的，请在应用里检查更新。": "{} was not installed with Homebrew; check for updates in the app.",
+  "找不到应用的位置。": "Cannot find where the app is.",
+  "{} 正在运行，请先退出再卸载。": "{} is running; quit it before uninstalling.",
+  "正在把 {} 移到废纸篓…": "Moving {} to the Trash…",
+  "{} 已移到废纸篓，用户数据保留；需要时可以从废纸篓放回。": "{} is in the Trash and its user data is kept; put it back from the Trash if needed.",
+  "无法创建临时目录：{e}": "Cannot create a temporary folder: {e}",
+  "下载到的不是安装脚本，已停止。": "What was downloaded is not an install script; stopped.",
+  "正在运行 {} 官方安装脚本…": "Running the official {} install script…",
+  "正在下载 {} 官方安装脚本…": "Downloading the official {} install script…",
+  "{} 已通过官方安装脚本安装": "{} installed with its official install script",
+  "{} 已通过官方安装脚本更新": "{} updated with its official install script",
+  "正在通过 Homebrew 安装 {}…": "Installing {} with Homebrew…",
+  "{} 已通过 Homebrew 安装": "{} installed with Homebrew",
+  "正在通过 Homebrew 更新 {}…": "Updating {} with Homebrew…",
+  "{} 已通过 Homebrew 更新": "{} updated with Homebrew",
+  "正在通过 Homebrew 卸载 {}…": "Uninstalling {} with Homebrew…",
+  "{} 已通过 Homebrew 卸载": "{} uninstalled with Homebrew",
+  "无法判断 Homebrew 包名。": "Cannot tell the Homebrew package name.",
+  "{} 是用其他方式安装的，请按官方文档更新。": "{} was installed another way; update it as its documentation says.",
+  "{} 的命令已删除，用户配置和会话数据保留。": "{}'s command is removed; settings and sessions are kept.",
+  "找不到用户目录。": "Cannot find the user folder.",
+  "官方没有提供可自动安装的 Mac 版本。": "There is no official Mac version that can be installed automatically.",
+  "找不到 Git 的钥匙串助手（{error}）。请运行 xcode-select --install 安装命令行工具，或用 Homebrew 安装 Git。": "Git's keychain helper was not found ({error}). Run xcode-select --install to install the command line tools, or install Git with Homebrew.",
+  "未检测到 Git。请运行 xcode-select --install 安装命令行工具，或用 Homebrew 安装 Git。": "Git was not found. Run xcode-select --install to install the command line tools, or install Git with Homebrew.",
+  "无法准备终端脚本：{e}": "Cannot prepare the terminal script: {e}",
+  "无法运行 security：{e}": "Cannot run security: {e}",
+  "写入钥匙串失败：{e}": "Writing to the keychain failed: {e}",
+  "写入钥匙串失败：{}": "Writing to the keychain failed: {}",
+  "移到废纸篓失败：{e}": "Moving to the Trash failed: {e}",
+  "其他工具写在 {source}，Stacker 不改它；要去掉请自己编辑这一行": "Set by another tool at {source}; Stacker leaves it alone. Edit that line yourself to remove it",
+  "其他工具在 shell 启动文件里设置的，Stacker 不改它": "Set by another tool in the shell start-up files; Stacker leaves it alone",
+  "这是别的工具写的，Stacker 不改": "Another tool wrote this; Stacker does not change it",
+  "无法读取 macOS 的代理设置。": "Could not read the macOS proxy settings.",
+  "HTTP_PROXY / HTTPS_PROXY / ALL_PROXY 写进 ~/.config/stacker/env.sh，zsh、bash、fish 启动时读取，新开终端生效": "HTTP_PROXY / HTTPS_PROXY / ALL_PROXY go into ~/.config/stacker/env.sh, which zsh, bash and fish read at start; new terminals pick them up",
+  "macOS 没有开启系统代理，没有可写入的地址。": "macOS has no system proxy turned on, so there is no address to write.",
+  "这一页只读 macOS 的系统代理（系统设置里网络的代理），从不改它。上面各处的写入和清除都由你点击触发，Stacker 不会在后台动它们。TUN、增强模式由代理软件负责，Stacker 不检测也不配置。": "This page only reads the macOS system proxy (the proxy under Network in System Settings) and never changes it. Every write and clear above happens when you click it; Stacker does not touch them in the background. TUN and enhanced modes belong to your proxy software; Stacker neither detects nor configures them.",
+  "~/.bunfig.toml 或 ~/Library/Application Support/Tool/config.json": "~/.bunfig.toml or ~/Library/Application Support/Tool/config.json",
+  "环境变量名不合法：{name}": "Invalid environment variable name: {name}",
+  "~/.pip/pip.conf 的 [global] proxy": "proxy under [global] in ~/.pip/pip.conf",
+  "钥匙串里的数据保护密钥已损坏": "The data protection key in the keychain is damaged",
+  "钥匙串保存了数据保护密钥，但读不回来": "The keychain took the data protection key but cannot give it back",
+  "钥匙串里没有数据保护密钥": "The keychain holds no data protection key",
+  "加密失败": "Encryption failed",
+  "不是本机加密的数据": "This data was not encrypted on this computer",
+  "解密失败：数据已损坏，或不是这台 Mac 上的这个用户加密的": "Decryption failed: the data is damaged, or was not encrypted by this user on this Mac",
+  "无法运行 {program}：{e}": "Cannot run {program}: {e}",
+  "请到发布页下载新版 .dmg 手动安装": "download the new .dmg from the release page and install it by hand",
+  "当前不是从 Stacker.app 运行，无法自动更新，{manual}": "Stacker is not running from Stacker.app, so it cannot update itself; {manual}",
+  "找不到 Stacker 所在的文件夹": "Cannot find the folder Stacker is in",
+  "无法在 {} 里准备更新（{e}），{manual}": "Cannot prepare the update in {} ({e}); {manual}",
+  "解压更新包失败：{e}": "Unpacking the update failed: {e}",
+  "更新包里没有 Stacker.app": "The update package has no Stacker.app",
+  "新版本的代码签名校验不通过：{e}": "The new version's code signature does not check out: {e}",
+  "更新包不是 Stacker": "The update package is not Stacker",
+  "更新包的版本号和发布信息不一致": "The update package's version does not match the release",
+  "没有检测到 Homebrew。请先安装 Homebrew（brew.sh），再回来安装 ffmpeg。": "Homebrew was not found. Install Homebrew (brew.sh) first, then come back to install ffmpeg.",
+  "正在通过 Homebrew 安装 ffmpeg，可能需要几分钟…": "Installing ffmpeg with Homebrew; this can take a few minutes…",
+  "Homebrew 装完后没有找到 ffmpeg": "ffmpeg was not found after Homebrew finished",
+  "下载内容不是 Stacker 的更新包": "What was downloaded is not a Stacker update",
+  "更新包已验证，正在替换 Stacker…": "Update verified; replacing Stacker…",
+  "更新已准备好，Stacker 即将重新打开": "The update is ready; Stacker will open again",
+  "无法启动更新程序：{e}": "Cannot start the updater: {e}",
+  "官方没有提供 Mac 桌面应用": "There is no official Mac desktop app",
+  "目标位置不能写入，或是网络位置（Windows 不能把目录联接指向网络盘）。": "The target cannot be written to, or is a network location (Windows cannot point a directory junction at a network drive).",
+  "新版本不是用同一张证书签名的": "The new version is not signed with the same certificate",
+  "这个值太长，放不进钥匙串": "This value is too long for the keychain",
+  "写入钥匙串后读回的内容不一致": "What the keychain gave back after writing does not match",
+  "暂时读不到钥匙串（可能没有解锁），请解锁登录钥匙串后重试": "The keychain cannot be read right now (it may be locked); unlock the login keychain and try again",
+  "这个命令由 {manager} 管理，请用 {manager} 自己的命令卸载，Stacker 不动它的文件。": "This command is managed by {manager}; uninstall it with {manager}'s own commands. Stacker leaves its files alone.",
+  "Node 版本管理器": "a Node version manager",
+  "无法确认找到的就是 {}，Stacker 不替你卸载；请在访达里把它移到废纸篓。": "Stacker cannot confirm the app it found is {}, so it will not remove it; move it to the Trash in Finder yourself.",
+  "这个浏览器还没有在这台 Mac 上运行过，先打开它一次再连接。": "This browser has not been run on this Mac yet; open it once, then connect.",
+});
+
 const EN = { ...GENERATED_EN, ...CURATED_EN };
 const EN_PHRASES = Object.keys(EN)
   .filter((value) => CHINESE_TEXT.test(value))
@@ -2410,7 +2560,46 @@ function polishEnglish(value: string) {
     .replace(/new terminal takes effect/gi, "takes effect in new terminals");
 }
 
+/** What the Mac calls the things the interface text names after Windows' own. */
+const MAC_WORDING: Record<Locale, [RegExp, string][]> = {
+  "zh-CN": [
+    // Chinese puts a space between a word and "Windows"; "钥匙串" and "访达" need none.
+    [/ ?Windows 凭据管理器 ?/g, "钥匙串"],
+    [/凭据管理器/g, "钥匙串"],
+    [/ ?Windows 凭据 ?/g, "钥匙串"],
+    [/Windows 登录密码或 PIN/g, "Mac 登录密码或触控 ID"],
+    [/Windows 登录密码/g, "Mac 登录密码"],
+    [/ ?Windows 资源管理器 ?|资源管理器/g, "访达"],
+    [/回收站/g, "废纸篓"],
+    [/系统托盘|托盘/g, "菜单栏"],
+    // Agent descriptions written for Windows ("Claude 的 Windows 桌面应用").
+    [/Windows (桌面|编辑器|本地)/g, "Mac $1"],
+  ],
+  "en-US": [
+    [/Windows Credential Manager/g, "Keychain"],
+    [/Credential Manager/g, "Keychain"],
+    [/Windows [Cc]redentials?/g, "Keychain"],
+    [/your Windows password or PIN/g, "your Mac password or Touch ID"],
+    [/your Windows password/g, "your Mac password"],
+    [/(Windows )?File Explorer|Windows Explorer|\bExplorer\b/g, "Finder"],
+    [/the Recycle Bin/g, "the Trash"],
+    [/Recycle Bin/g, "Trash"],
+    [/\b(the )?(system )?tray\b/g, "$1menu bar"],
+    [/\b(System )?Tray\b/g, "Menu bar"],
+    [/\bWindows (desktop|editor|local)\b/g, "Mac $1"],
+  ],
+};
+
+export function macWording(text: string, locale: Locale): string {
+  return MAC_WORDING[locale].reduce((out, [pattern, word]) => out.replace(pattern, word), text);
+}
+
 export function translateText(value: string, locale = getLocale()): string {
+  const rendered = translateForLocale(value, locale);
+  return IS_MAC ? macWording(rendered, locale) : rendered;
+}
+
+function translateForLocale(value: string, locale: Locale): string {
   if (locale === "zh-CN" || !value || !CHINESE_TEXT.test(value)) return value;
   const leading = value.match(/^\s*/)?.[0] ?? "";
   const trailing = value.match(/\s*$/)?.[0] ?? "";

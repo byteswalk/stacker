@@ -14,7 +14,7 @@ Stacker 没有、也不会做 Windows 代码签名（Authenticode）。每个版
 
 **下载 Stacker：** [Gitee 发行版](https://gitee.com/shaxiong/stacker/releases) · [GitHub 备用下载](https://github.com/byteswalk/stacker/releases/latest)
 
-**支持系统：** Windows 10/11 · **开源许可：** [MIT](LICENSE) · **桌面框架：** [Tauri 2](https://tauri.app/)
+**支持系统：** Windows 10/11 · macOS 11 及以上（Apple 芯片与 Intel） · **开源许可：** [MIT](LICENSE) · **桌面框架：** [Tauri 2](https://tauri.app/)
 
 ## 为什么需要 Stacker
 
@@ -58,7 +58,7 @@ Stacker 管理的正是这一层，并且不要求接入大模型，也不会上
 
 ### 开发磁盘分析
 
-快速扫描用于检查已知开发缓存；深度分析支持选择多个目录或固定磁盘，在后台持续执行并显示实时进度。结果以占用图展示，支持目录下钻、资源管理器打开和路径关键字筛选，并可按项目查看技术栈、智能体痕迹、依赖目录、构建产物和智能体专用构建目录。大文件和重复文件可以核对后删除；大文件还可以压缩：NTFS 透明压缩，或把视频转为 H.265、把图片转为 JPEG/WebP/AVIF，分辨率可选。清理入口仅在“开发产物”和“缓存与下载”分类开放，每次执行都需要确认并重新校验目标，并记入清理记录。
+快速扫描用于检查已知开发缓存；深度分析支持选择多个目录或固定磁盘，在后台持续执行并显示实时进度。结果以占用图展示，支持目录下钻、资源管理器打开和路径关键字筛选，并可按项目查看技术栈、智能体痕迹、依赖目录、构建产物和智能体专用构建目录。大文件和重复文件可以核对后删除；大文件还可以压缩：NTFS 透明压缩，或把视频转为 H.265、把图片转为 JPEG/WebP/AVIF，分辨率可选。清理入口仅在“开发产物”和“缓存与下载”分类开放，每次执行都需要确认并重新校验目标，并记入清理记录。磁盘剩余空间不超过设定比例（默认 5%）时会自动清理，可随时关闭：依次清理闲置项目的开发产物、在用项目的开发产物、近期没用过的包管理器缓存与闲置项目的依赖目录，系统盘再清 7 天前的临时文件和程序会自己重建的缓存，清到剩余达到设定值的两倍为止。只认 Git 管理下或智能体会话用过的项目，不碰源码、文档、虚拟环境、模型、渲染输出和回收站，也不碰正在运行或正在构建的目录。
 
 ![Stacker 开发磁盘分析](assets/screenshots/zh-CN/space-analysis.png)
 
@@ -84,7 +84,7 @@ Stacker 管理的正是这一层，并且不要求接入大模型，也不会上
 - 会话数据在本机读取；只有你要求生成摘要、交接或提炼时，才会交给模型处理。
 - Git 令牌通过 Windows 凭据管理器保存。密钥保管库用 Argon2id 与 XChaCha20-Poly1305 加密条目；Stacker 从不读取智能体的登录凭据。
 - 系统级环境修改和受保护目录扫描需要明确的 Windows UAC 授权。
-- 无法确认的磁盘内容只展示；清理仅处理已分类目标，并要求用户确认。
+- 无法确认的磁盘内容只展示；清理仅处理已分类目标，并要求用户确认。唯一的例外是空间不足时的自动清理，它只删可重建的构建产物、下载缓存和旧临时文件，可以关闭，每次都记入清理记录。
 - 支持的配置修改会在写入前创建本地备份。
 - Release 产物提供 SHA-256 校验文件。
 
@@ -92,14 +92,23 @@ Stacker 管理的正是这一层，并且不要求接入大模型，也不会上
 
 国内网络建议从 [Gitee 发行版](https://gitee.com/shaxiong/stacker/releases) 下载；也可以使用 [GitHub Releases](https://github.com/byteswalk/stacker/releases/latest) 备用入口。
 
-- **安装版**（`Stacker-<版本>-setup-windows-x64.exe`）：唯一的发布包，应用内更新也只装它。免安装版到 v0.3.4 为止。
+- **Windows 安装版**（`Stacker-<版本>-setup-windows-x64.exe`）：Windows 上唯一的发布包，应用内更新也只装它。免安装版到 v0.3.4 为止。
+- **Mac 版**（`Stacker-<版本>-macos-arm64.dmg` 给 Apple 芯片，`Stacker-<版本>-macos-x64.dmg` 给 Intel）：打开后把 Stacker 拖进「应用程序」。`update-macos-*.zip` 是应用内更新用的，不用手动下载。
 - **`SHA256SUMS.txt`**：用于校验发布文件。
+
+### Mac 版
+
+Mac 版围绕智能体：安装更新、会话数据、占用与迁移、磁盘清理、密钥保管、Git 多账号、网络代理、Stacker AI 和网页对话插件。运行时管理（Python、Node.js、Java 等 9 个页面）只在 Windows 版提供，Mac 上可以用 Homebrew 和 mise。终端代理写进 `~/.config/stacker/env.sh`，zsh、bash、fish 的启动文件里各加一段带标记的引用；关掉代理时，这个文件和这几段一起删掉。
+
+- 智能体 CLI 用 npm 或厂商官方安装脚本安装；桌面端有 Homebrew 收录的用 Homebrew 安装，其余给出官网下载。
+- 密钥保管的保管库文件照常加密；「放进钥匙串」的条目可以用 `security find-generic-password -a Stacker -s <名称> -w` 取用。
+- Git 账号的令牌由 Git 自带的钥匙串助手（git-credential-osxkeychain）保存。
+- 第一次打开时 macOS 会提示「无法验证开发者」：到「系统设置 → 隐私与安全性」点「仍要打开」。之后的应用内更新不会再被拦。
 
 ## 系统要求
 
-- Windows 10 或 Windows 11，64 位。
-- Microsoft Edge WebView2 Runtime，当前 Windows 通常已预装。
-- 只有明确修改系统级状态或扫描受保护路径时才需要管理员授权。
+- Windows 10 或 Windows 11，64 位；Microsoft Edge WebView2 Runtime，当前 Windows 通常已预装。只有明确修改系统级状态或扫描受保护路径时才需要管理员授权。
+- macOS 11 或更新版本，Apple 芯片或 Intel。
 
 ## 从源码构建
 
@@ -124,6 +133,16 @@ cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 
 ```powershell
 npm run release:windows
+```
+
+Mac 版在 Mac 上构建（需要 Xcode 命令行工具、Node.js 和 Rust），再回到发版的 Windows 电脑签名更新包、写入发布清单：
+
+```bash
+scripts/build-mac.sh aarch64-apple-darwin
+```
+
+```powershell
+npm run release:macos
 ```
 
 ## 网页对话浏览器插件

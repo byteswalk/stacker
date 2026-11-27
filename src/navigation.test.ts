@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ALL_NAV_ITEMS, NAV_FOOT, NAV_SECTIONS, initialCollapsedSections, sectionKeyOf, toggleSection } from "./navigation";
+import { ALL_NAV_ITEMS, NAV_FOOT, NAV_SECTIONS, initialCollapsedSections, sectionKeyOf, sectionsFor, toggleSection } from "./navigation";
 import { PAGE_IDS } from "./pageState";
 import { t } from "./i18n";
 
@@ -43,5 +43,11 @@ describe("sidebar navigation", () => {
     expect(sectionKeyOf("vault")).toBe("nav.section.system");
     expect(t("nav.vault", "zh-CN")).toBe("密钥保管");
     expect(t("nav.vault", "en-US")).toBe("Key Vault");
+  });
+
+  it("leaves the Windows-only pages out of the Mac menu and keeps the rest", () => {
+    const mac = sectionsFor(true).flatMap((section) => section.items.map((item) => item.id));
+    expect(mac).toEqual(["overview", "agents", "agent-data", "git", "proxy", "cleanup", "vault"]);
+    expect(sectionsFor(false)).toEqual(NAV_SECTIONS);
   });
 });

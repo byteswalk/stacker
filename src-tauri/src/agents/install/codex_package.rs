@@ -279,6 +279,8 @@ mod tests {
         assert_eq!(release_name("0.166.0"), "0.166.0-x86_64-pc-windows-msvc");
     }
 
+    /// Windows paths and tools only.
+    #[cfg(windows)]
     #[test]
     fn switching_keeps_the_old_release_reachable_and_back_restores_it() {
         let dir = tempfile::tempdir().unwrap();

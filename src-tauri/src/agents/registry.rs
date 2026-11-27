@@ -242,14 +242,55 @@ pub(crate) fn cli_by_id(id: &str) -> Option<&'static CliSpec> {
     CLIS.iter().find(|cli| cli.id == id)
 }
 
+/// The names a CLI's command goes by here. Windows lists `.exe`, `.cmd` and the like; on
+/// macOS the same commands have no extension, so each name is kept once without it.
+#[cfg(not(windows))]
+fn platform_candidates(cli: &CliSpec) -> &'static [&'static str] {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    static MADE: OnceLock<Mutex<HashMap<&'static str, &'static [&'static str]>>> = OnceLock::new();
+    let mut made = MADE
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    made.entry(cli.id).or_insert_with(|| {
+        let mut names: Vec<&'static str> = Vec::new();
+        for name in std::iter::once(cli.command).chain(cli.candidates.iter().copied()) {
+            let bare = name
+                .rsplit_once('.')
+                .filter(|(_, ext)| ["exe", "cmd", "bat", "ps1"].contains(ext))
+                .map_or(name, |(stem, _)| stem);
+            if !bare.is_empty() && !names.contains(&bare) {
+                names.push(bare);
+            }
+        }
+        Box::leak(names.into_boxed_slice())
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn mac_has_app(id: &str) -> bool {
+    super::mac::mac_desktop(id).is_some()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn mac_has_app(_: &str) -> bool {
+    false
+}
+
 fn resolve(product: &'static ProductSpec) -> ToolSpec {
     let (cli_id, cli) = match product.cli {
-        CliSlot::Shared(id) => (
-            Some(id),
-            cli_by_id(id)
+        CliSlot::Shared(id) => (Some(id), {
+            #[allow(unused_mut)]
+            let mut cli = cli_by_id(id)
                 .expect("registry invariant: referenced cli exists")
-                .clone(),
-        ),
+                .clone();
+            #[cfg(not(windows))]
+            {
+                cli.candidates = platform_candidates(&cli);
+            }
+            cli
+        }),
         CliSlot::Unavailable {
             name,
             description,
@@ -307,7 +348,8 @@ fn resolve(product: &'static ProductSpec) -> ToolSpec {
         cli_note: product.cli_note,
         cli,
         desktop,
-        desktop_available,
+        // A product with no Windows app may have a Mac one (DeepSeek Harness does).
+        desktop_available: desktop_available || mac_has_app(product.id),
         workbench_command: product.workbench_command,
         data_dirs: product.data_dirs,
     }

@@ -1,0 +1,2 @@
+# Shell scripts run on the Mac, where a CRLF line end breaks them.
+*.sh text eol=lf

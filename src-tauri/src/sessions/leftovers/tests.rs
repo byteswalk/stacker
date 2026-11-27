@@ -1,5 +1,5 @@
 use super::model::LeftoverKind;
-use super::scan::{scan_with, why_skipped, Env, ORPHAN_KEY};
+use super::scan::{norm, scan_with, why_skipped, Env, ORPHAN_KEY};
 use super::settings::Settings;
 use crate::sessions::catalog::tests_support::session;
 use crate::sessions::model::{Agent, ProjectRef, Session};
@@ -97,7 +97,7 @@ fn kinds(scan: &super::model::Scan, key: &str) -> Vec<(LeftoverKind, bool)> {
 }
 
 fn key(path: &Path) -> String {
-    path.to_string_lossy().to_lowercase()
+    norm(path)
 }
 
 #[test]

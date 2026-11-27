@@ -5,6 +5,7 @@ import { AnalysisTabs } from "../features/space-analysis/components/AnalysisTabs
 import { cancelScan, startQuickScan, useSpaceScan } from "../features/space-analysis/store";
 import type { KnownSpaceItem } from "../features/space-analysis/types";
 import { quickScanView } from "../features/space-analysis/viewModel";
+import { KNOWN_ITEM_NAMES } from "../features/space-analysis/knownNames";
 import { useI18n } from "../i18n";
 import { invoke } from "../invoke";
 import { useNotifications } from "../notifications";
@@ -26,39 +27,6 @@ type CacheItem = {
 };
 
 type Translate = (value: string) => string;
-
-const KNOWN_ITEM_NAMES: Record<string, string> = {
-  "spaceAnalysis.known.gradle": "Gradle 缓存",
-  "spaceAnalysis.known.goModules": "Go 模块缓存",
-  "spaceAnalysis.known.pnpm": "pnpm 存储",
-  "spaceAnalysis.known.npm": "npm 缓存",
-  "spaceAnalysis.known.cargoRegistry": "Cargo registry 缓存",
-  "spaceAnalysis.known.pip": "pip 缓存",
-  "spaceAnalysis.known.electron": "Electron 下载缓存",
-  "spaceAnalysis.known.playwright": "Playwright 浏览器",
-  "spaceAnalysis.known.huggingFace": "Hugging Face 模型缓存",
-  "spaceAnalysis.known.mavenRepository": "Maven 本地仓库",
-  "spaceAnalysis.known.yarn": "Yarn 缓存",
-  "spaceAnalysis.known.bun": "Bun 安装缓存",
-  "spaceAnalysis.known.deno": "Deno 缓存",
-  "spaceAnalysis.known.nuget": "NuGet 包缓存",
-  "spaceAnalysis.known.uv": "uv 缓存",
-  "spaceAnalysis.known.poetry": "Poetry 缓存",
-  "spaceAnalysis.known.conda": "Conda 包缓存",
-  "spaceAnalysis.known.cargoSources": "Cargo 源码缓存",
-  "spaceAnalysis.known.sccache": "sccache 编译缓存",
-  "spaceAnalysis.known.androidAvd": "Android 模拟器镜像",
-  "spaceAnalysis.known.crashDumps": "崩溃转储",
-  "spaceAnalysis.known.firefoxCache": "Firefox 缓存",
-  "spaceAnalysis.known.braveCache": "Brave 缓存",
-  "spaceAnalysis.known.ollamaModels": "Ollama 本地模型",
-  "spaceAnalysis.known.lmStudioModels": "LM Studio 本地模型",
-  "spaceAnalysis.known.chromeCache": "Chrome 缓存",
-  "spaceAnalysis.known.edgeCache": "Edge 缓存",
-  "spaceAnalysis.known.jetbrainsHistory": "开发工具历史版本",
-  "spaceAnalysis.known.windowsTemp": "Windows 临时目录",
-  "spaceAnalysis.known.userTemp": "用户临时目录",
-};
 
 const SAFETY_LABELS: Record<string, string> = {
   safe: "可安全清理",

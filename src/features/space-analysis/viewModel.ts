@@ -1,4 +1,5 @@
 import type { SpaceScanSnapshot } from "./store";
+import { IS_MAC } from "../../platform";
 
 export type QuickScanPhase =
   | "idle"
@@ -26,7 +27,7 @@ const VIEWS: Record<QuickScanPhase, Omit<QuickScanView, "showProgress" | "snapsh
   idle: {
     phase: "idle",
     title: "空间分析",
-    description: "快速扫描会统计已知开发工具缓存、历史版本和 Windows 临时目录。",
+    description: IS_MAC ? "快速扫描会统计已知开发工具缓存和历史版本。" : "快速扫描会统计已知开发工具缓存、历史版本和 Windows 临时目录。",
     primaryLabel: "开始扫描",
     autoStart: false,
     canStart: true,

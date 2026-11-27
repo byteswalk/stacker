@@ -846,6 +846,8 @@ mod tests {
             .any(|change| change.path == "removed.txt" && change.delta_bytes == -4));
     }
 
+    /// Windows paths and tools only.
+    #[cfg(windows)]
     #[test]
     fn directory_changes_are_accumulated_and_ranked() {
         let changes = vec![

@@ -14,6 +14,7 @@ import { formatBytes, useNotifications } from "../notifications";
 import { useI18n, type Locale } from "../i18n";
 import { disableRememberScanTargets } from "../features/space-analysis/targetStore";
 import { resetMainWindowSize } from "../windowSize";
+import { IS_MAC } from "../platform";
 
 type AppSettings = {
   close_behavior: CloseBehavior;
@@ -322,7 +323,7 @@ export default function Settings() {
 
   async function installAppUpdate() {
     if (!updateInfo?.installer_url) {
-      toast("当前版本未提供 Windows 安装包", "info");
+      toast(IS_MAC ? "这个版本没有提供 Mac 更新包，请到发布页下载" : "当前版本未提供 Windows 安装包", "info");
       return;
     }
     // 校验值和签名缺一个都无法确认下载到的是这次发布的安装包，不自动安装。
@@ -376,6 +377,8 @@ export default function Settings() {
 
   return (
     <>
+      {/* The download sources serve the runtime pages, which only the Windows build has. */}
+      {!IS_MAC && <>
       <div className="grouphd">
         <span className="gt">
           <i className="ti ti-database-cog" /> 源管理
@@ -409,8 +412,9 @@ export default function Settings() {
       )}
       <WingetDownloader />
       <div className="callout"><i className="ti ti-info-circle" /><div>服务器清单用于更新内置源，拉取后会以服务器清单为准全量替换；本地自定义源由当前电脑维护，不会被服务器清单覆盖。</div></div>
+      </>}
 
-      <div className="grouphd" style={{ marginTop: 18 }}><span className="gt"><i className="ti ti-sparkles" /> {tr("AI 能力")}</span></div>
+      <div className="grouphd" style={{ marginTop: IS_MAC ? 0 : 18 }}><span className="gt"><i className="ti ti-sparkles" /> {tr("AI 能力")}</span></div>
       <AiSettings />
 
       <div className="grouphd" style={{ marginTop: 18 }}><span className="gt"><i className="ti ti-adjustments" /> 通用与外观</span></div>
@@ -435,7 +439,7 @@ export default function Settings() {
       </div>
       <div className="srcrow">
         <span className="av st"><i className="ti ti-player-play" /></span>
-        <div className="mt"><div className="t">开机自启</div><div className="s dim" title="登录 Windows 后自动启动 Stacker，仅对当前用户生效。">登录 Windows 后自动启动 Stacker。</div></div>
+        <div className="mt"><div className="t">开机自启</div><div className="s dim" title={IS_MAC ? "登录 Mac 后自动启动 Stacker，仅对当前用户生效。" : "登录 Windows 后自动启动 Stacker，仅对当前用户生效。"}>{IS_MAC ? "登录 Mac 后自动启动 Stacker。" : "登录 Windows 后自动启动 Stacker。"}</div></div>
         <label className="sw sm2"><input type="checkbox" disabled={noBackend} checked={autostart} onChange={(e) => toggleAutostart(e.target.checked)} /><span className="tk" /></label>
       </div>
       <div className="srcrow">
@@ -605,7 +609,7 @@ export default function Settings() {
       <div className="srcrow">
         <span className="av st"><i className="ti ti-hexagon-letter-s" /></span>
         <div className="mt"><div className="t">Stacker {versionLabel(appVersion)} <span className="bd n">{tr("开源 · 无遥测")}</span>{activeAppUpdate && <span className="bd r">{tr("发现新版本")} v{activeAppUpdate.latest}</span>}</div>
-          <div className="s dim" title={tr("Windows 开发工作站管理器：统一管理运行时、AI 智能体、Git 账号、网络源与开发磁盘空间。")}>{tr("Windows 开发工作站管理器")} · github.com/byteswalk/stacker</div></div>
+          <div className="s dim" title={tr(IS_MAC ? "Mac 开发工作站管理器：统一管理 AI 智能体、会话数据、Git 账号、密钥与开发磁盘空间。" : "Windows 开发工作站管理器：统一管理运行时、AI 智能体、Git 账号、网络源与开发磁盘空间。")}>{tr(IS_MAC ? "Mac 开发工作站管理器" : "Windows 开发工作站管理器")} · github.com/byteswalk/stacker</div></div>
         <button className="gh sm" onClick={() => openUrl("https://github.com/byteswalk/stacker")}>
           <i className="ti ti-brand-github" /> GitHub</button>
         <button className="gh sm" onClick={() => openUrl("https://gitee.com/shaxiong/stacker")}>

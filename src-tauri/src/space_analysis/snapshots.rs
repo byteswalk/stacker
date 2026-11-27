@@ -314,6 +314,8 @@ mod tests {
             target_fingerprint(&["c:/a/".into(), "d:/b".into()])
         );
     }
+    /// Windows paths and tools only.
+    #[cfg(windows)]
     #[test]
     fn relative_entries_do_not_expose_target_prefix() {
         assert_eq!(

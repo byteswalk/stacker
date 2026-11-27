@@ -25,13 +25,31 @@ pub fn connect_at(dir: &Path) -> Result<Connection, String> {
         Connection::open(dir.join("sessions.sqlite3")).map_err(|_| "E_STORAGE".to_string())?;
     conn.busy_timeout(std::time::Duration::from_secs(5))
         .map_err(|_| "E_STORAGE".to_string())?;
-    conn.execute_batch(
-        "PRAGMA journal_mode=WAL;
-         CREATE TABLE IF NOT EXISTS session_notes (id TEXT PRIMARY KEY, favorite INTEGER NOT NULL DEFAULT 0,
-             summary TEXT NOT NULL DEFAULT '', summary_fingerprint TEXT NOT NULL DEFAULT '');
-         CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);",
-    )
-    .map_err(|_| "E_STORAGE".to_string())?;
+    // Switching a new database to WAL takes it whole, and SQLite gives up at once rather than
+    // wait when another connection is doing the same (the home page opens two together on a
+    // new install), so the setup is tried again for a moment.
+    let mut tries = 0;
+    loop {
+        match conn.execute_batch(
+            "PRAGMA journal_mode=WAL;
+             CREATE TABLE IF NOT EXISTS session_notes (id TEXT PRIMARY KEY, favorite INTEGER NOT NULL DEFAULT 0,
+                 summary TEXT NOT NULL DEFAULT '', summary_fingerprint TEXT NOT NULL DEFAULT '');
+             CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);",
+        ) {
+            Ok(()) => break,
+            Err(rusqlite::Error::SqliteFailure(error, _))
+                if tries < 50
+                    && matches!(
+                        error.code,
+                        rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked
+                    ) =>
+            {
+                tries += 1;
+                std::thread::sleep(std::time::Duration::from_millis(40));
+            }
+            Err(_) => return Err("E_STORAGE".into()),
+        }
+    }
     add_summary_columns(&conn)?;
     migrate(&conn, dir)?;
     Ok(conn)
@@ -55,14 +73,17 @@ pub(crate) fn set_setting(conn: &Connection, key: &str, value: &str) -> Result<(
     .map_err(|_| "E_STORAGE".to_string())
 }
 
-fn add_summary_columns(conn: &Connection) -> Result<(), String> {
-    let have: Vec<String> = conn
-        .prepare("PRAGMA table_info(session_notes)")
+fn columns(conn: &Connection) -> Result<Vec<String>, String> {
+    conn.prepare("PRAGMA table_info(session_notes)")
         .and_then(|mut s| {
             s.query_map([], |r| r.get::<_, String>(1))
                 .map(|m| m.filter_map(Result::ok).collect())
         })
-        .map_err(|_| "E_STORAGE".to_string())?;
+        .map_err(|_| "E_STORAGE".to_string())
+}
+
+fn add_summary_columns(conn: &Connection) -> Result<(), String> {
+    let have = columns(conn)?;
     for (name, sql) in [
         (
             "summary_by",
@@ -73,8 +94,13 @@ fn add_summary_columns(conn: &Connection) -> Result<(), String> {
             "ALTER TABLE session_notes ADD COLUMN summary_at INTEGER NOT NULL DEFAULT 0",
         ),
     ] {
-        if !have.iter().any(|c| c == name) {
-            conn.execute(sql, []).map_err(|_| "E_STORAGE".to_string())?;
+        // Two connections opened at once on a new database both find the column missing;
+        // the one that loses the race finds it there afterwards, which is what it wanted.
+        if !have.iter().any(|c| c == name)
+            && conn.execute(sql, []).is_err()
+            && !columns(conn)?.iter().any(|c| c == name)
+        {
+            return Err("E_STORAGE".into());
         }
     }
     Ok(())
@@ -223,6 +249,26 @@ pub fn set_roots(conn: &Connection, roots: &Roots) -> Result<(), String> {
 mod tests {
     use super::super::catalog::tests_support::session;
     use super::*;
+
+    /// The home page reads sessions and their footprint at once; on a new install both
+    /// connections set up the same database.
+    #[test]
+    fn a_new_database_opened_from_many_threads_at_once_works_for_all() {
+        for _ in 0..5 {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().to_path_buf();
+            let results: Vec<_> = (0..8)
+                .map(|_| {
+                    let path = path.clone();
+                    std::thread::spawn(move || connect_at(&path).map(|_| ()))
+                })
+                .collect::<Vec<_>>()
+                .into_iter()
+                .map(|handle| handle.join().unwrap())
+                .collect();
+            assert!(results.iter().all(Result::is_ok), "{results:?}");
+        }
+    }
 
     #[test]
     fn favorites_and_roots_round_trip() {

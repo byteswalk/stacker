@@ -61,7 +61,11 @@ struct KnownRule {
 }
 
 pub fn known_candidates() -> Vec<KnownCandidate> {
-    let mut candidates = known_cache_rules()
+    let mut rules = known_cache_rules();
+    if cfg!(target_os = "macos") {
+        with_mac_places(&mut rules);
+    }
+    let mut candidates = rules
         .into_iter()
         .filter_map(|rule| {
             let path = first_plain_directory(&rule.candidates)?;
@@ -76,8 +80,69 @@ pub fn known_candidates() -> Vec<KnownCandidate> {
         })
         .collect::<Vec<_>>();
     candidates.extend(developer_tool_history_candidates());
-    candidates.extend(temp_directory_candidates());
+    // A Mac's per-user temporary folder is the system's own and cleans itself.
+    if cfg!(windows) {
+        candidates.extend(temp_directory_candidates());
+    }
     candidates
+}
+
+/// Where the same caches live on a Mac: most under `~/Library/Caches`, a few under `~/.cache`.
+/// These come first, the Windows places after (they simply are not there); and two caches
+/// only a Mac has join the list.
+fn with_mac_places(rules: &mut Vec<KnownRule>) {
+    let home = home();
+    let caches = home.join("Library").join("Caches");
+    let dot_cache = home.join(".cache");
+    for rule in rules.iter_mut() {
+        let mac: Vec<PathBuf> = match rule.id {
+            "pnpm" => vec![home.join("Library").join("pnpm").join("store")],
+            "pip" => vec![caches.join("pip")],
+            "electron" => vec![caches.join("electron")],
+            "playwright" => vec![caches.join("ms-playwright")],
+            "yarn" => vec![caches.join("Yarn")],
+            "deno" => vec![caches.join("deno")],
+            "uv" => vec![dot_cache.join("uv"), caches.join("uv")],
+            "poetry" => vec![caches.join("pypoetry")],
+            "sccache" => vec![caches.join("Mozilla.sccache")],
+            "crash-dumps" => vec![home.join("Library").join("Logs").join("DiagnosticReports")],
+            "firefox-cache" => vec![caches.join("Firefox").join("Profiles")],
+            "brave-cache" => vec![caches
+                .join("BraveSoftware")
+                .join("Brave-Browser")
+                .join("Default")
+                .join("Cache")],
+            "chrome-cache" => vec![caches
+                .join("Google")
+                .join("Chrome")
+                .join("Default")
+                .join("Cache")],
+            "edge-cache" => vec![caches.join("Microsoft Edge").join("Default").join("Cache")],
+            _ => Vec::new(),
+        };
+        if !mac.is_empty() {
+            let windows = std::mem::take(&mut rule.candidates);
+            rule.candidates = mac.into_iter().chain(windows).collect();
+        }
+    }
+    rules.push(KnownRule {
+        id: "homebrew",
+        name_key: "spaceAnalysis.known.homebrew",
+        ecosystem: "homebrew",
+        safety: SafetyClass::Safe,
+        candidates: vec![caches.join("Homebrew")],
+    });
+    rules.push(KnownRule {
+        id: "xcode-derived-data",
+        name_key: "spaceAnalysis.known.xcodeDerivedData",
+        ecosystem: "xcode",
+        safety: SafetyClass::Safe,
+        candidates: vec![home
+            .join("Library")
+            .join("Developer")
+            .join("Xcode")
+            .join("DerivedData")],
+    });
 }
 
 /// How many known folders are measured at once: the work is all disk, and one thread per
@@ -562,13 +627,15 @@ type VersionedDirectory = (PathBuf, Vec<u32>, String);
 
 fn developer_tool_history_candidates() -> Vec<KnownCandidate> {
     const ANDROID_STUDIO_PRODUCTS: &[&str] = &["AndroidStudio"];
+    // A Mac keeps the IDEs' caches in ~/Library/Caches and their settings in Application
+    // Support, which is both "local" and "roaming" there.
+    let local = if cfg!(target_os = "macos") {
+        home().join("Library").join("Caches")
+    } else {
+        local_app_data()
+    };
     let roots = [
-        (
-            "JetBrainsLocal",
-            local_app_data().join("JetBrains"),
-            None,
-            "jetbrains",
-        ),
+        ("JetBrainsLocal", local.join("JetBrains"), None, "jetbrains"),
         (
             "JetBrainsRoaming",
             roaming_app_data().join("JetBrains"),
@@ -577,7 +644,7 @@ fn developer_tool_history_candidates() -> Vec<KnownCandidate> {
         ),
         (
             "AndroidStudioLocal",
-            local_app_data().join("Google"),
+            local.join("Google"),
             Some(ANDROID_STUDIO_PRODUCTS),
             "android-studio",
         ),

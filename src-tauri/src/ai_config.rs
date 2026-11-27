@@ -379,12 +379,12 @@ fn dpapi(input: &[u8], protect: bool) -> Result<Vec<u8>, String> {
 
 #[cfg(not(windows))]
 fn seal(plain: &[u8]) -> Result<Vec<u8>, String> {
-    Ok(plain.to_vec())
+    crate::macos::protect::seal(plain)
 }
 
 #[cfg(not(windows))]
 fn unseal(sealed: &[u8]) -> Result<Vec<u8>, String> {
-    Ok(sealed.to_vec())
+    crate::macos::protect::open(sealed).map(|plain| plain.to_vec())
 }
 
 #[tauri::command]

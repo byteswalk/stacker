@@ -68,11 +68,15 @@ pub fn storage_place_open(key: String) -> Result<(), String> {
     if !path.is_dir() {
         return Err("这个文件夹还没有创建".into());
     }
-    std::process::Command::new("explorer.exe")
-        .arg(&path)
-        .spawn()
-        .map(|_| ())
-        .map_err(|error| format!("打开文件夹失败：{error}"))
+    std::process::Command::new(if cfg!(windows) {
+        "explorer.exe"
+    } else {
+        "open"
+    })
+    .arg(&path)
+    .spawn()
+    .map(|_| ())
+    .map_err(|error| format!("打开文件夹失败：{error}"))
 }
 
 #[cfg(test)]

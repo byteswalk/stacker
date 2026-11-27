@@ -1,5 +1,9 @@
 //! Native-messaging host registration for Chrome and Edge, current user only.
 //! Written only when the user clicks 「连接」; 「断开」 removes it.
+//!
+//! Windows points a registry key at the manifest. macOS reads the manifest from a fixed
+//! folder of each browser's own; Stacker puts a symbolic link to its manifest there, so the
+//! two platforms share the rest.
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -71,16 +75,65 @@ impl Registry for UserRegistry {
     }
 }
 
-#[cfg(not(windows))]
+/// Where the browser behind a registry subkey looks for manifests on macOS:
+/// `~/Library/Application Support/<browser>/NativeMessagingHosts/<host>.json`.
+#[cfg(target_os = "macos")]
+fn mac_manifest(subkey: &str) -> Option<PathBuf> {
+    let browser = if subkey.contains("Google") {
+        "Google/Chrome"
+    } else if subkey.contains("Edge") {
+        "Microsoft Edge"
+    } else {
+        return None;
+    };
+    Some(
+        dirs::data_dir()?
+            .join(browser)
+            .join("NativeMessagingHosts")
+            .join(format!("{HOST_NAME}.json")),
+    )
+}
+
+#[cfg(target_os = "macos")]
 impl Registry for UserRegistry {
-    fn read_default(&self, _subkey: &str) -> Option<String> {
-        None
+    /// The manifest the browser's link points at.
+    fn read_default(&self, subkey: &str) -> Option<String> {
+        let link = mac_manifest(subkey)?;
+        let meta = std::fs::symlink_metadata(&link).ok()?;
+        if meta.file_type().is_symlink() {
+            std::fs::read_link(&link)
+                .ok()
+                .map(|p| p.to_string_lossy().into_owned())
+        } else {
+            // A manifest someone else wrote there.
+            Some(link.to_string_lossy().into_owned())
+        }
     }
-    fn write_default(&self, _subkey: &str, _value: &str) -> Result<(), String> {
-        Err("E_REGISTRY".into())
+
+    /// The browser's own folder is made only by the browser: macOS refuses to let another
+    /// program create some of them, and one that was never run has no use for a manifest.
+    fn write_default(&self, subkey: &str, value: &str) -> Result<(), String> {
+        let link = mac_manifest(subkey).ok_or("E_REGISTRY")?;
+        let hosts = link.parent().ok_or("E_REGISTRY")?;
+        if !hosts.parent().is_some_and(Path::is_dir) {
+            return Err("E_BROWSER_MISSING".into());
+        }
+        std::fs::create_dir_all(hosts).map_err(|_| "E_REGISTRY".to_string())?;
+        if std::fs::symlink_metadata(&link).is_ok() {
+            std::fs::remove_file(&link).map_err(|_| "E_REGISTRY".to_string())?;
+        }
+        std::os::unix::fs::symlink(value, &link).map_err(|_| "E_REGISTRY".to_string())
     }
-    fn delete_key(&self, _subkey: &str) -> Result<(), String> {
-        Ok(())
+
+    fn delete_key(&self, subkey: &str) -> Result<(), String> {
+        let Some(link) = mac_manifest(subkey) else {
+            return Ok(());
+        };
+        match std::fs::remove_file(&link) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(_) => Err("E_REGISTRY".into()),
+        }
     }
 }
 
@@ -213,6 +266,10 @@ fn extension_candidates() -> Vec<PathBuf> {
         .and_then(|p| p.parent().map(Path::to_path_buf))
     {
         list.push(dir.join("extension"));
+        // Stacker.app/Contents/MacOS/stacker → Stacker.app/Contents/Resources/extension
+        if let Some(contents) = dir.parent() {
+            list.push(contents.join("Resources").join("extension"));
+        }
     }
     if cfg!(debug_assertions) {
         if let Some(repo) = Path::new(env!("CARGO_MANIFEST_DIR")).parent() {
@@ -288,8 +345,8 @@ mod tests {
             v["allowed_origins"],
             serde_json::json!([format!("chrome-extension://{ID}/")])
         );
-        assert!(manifest_path(Path::new("D:\\data"))
-            .ends_with("native-messaging\\com.stacker.webchat.json"));
+        assert!(manifest_path(Path::new("data"))
+            .ends_with(Path::new("native-messaging").join("com.stacker.webchat.json")));
     }
 
     #[test]
@@ -372,6 +429,37 @@ mod tests {
             Some(dev)
         );
         assert_eq!(pick_extension_dir(&[installed]), None);
+    }
+
+    /// macOS, by hand: registers with the real Chrome folder, checks the state the page
+    /// shows, and takes it out again. Edge's folder is never created by Stacker.
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "writes into the real Chrome profile folder; run by hand"]
+    fn live_mac_connect_and_disconnect() {
+        let root = tempfile::tempdir().unwrap();
+        let exe = root.path().join("stacker");
+        std::fs::write(&exe, b"").unwrap();
+        let link = mac_manifest(&Browser::Chrome.subkey()).unwrap();
+        connect(&UserRegistry, Browser::Chrome, root.path(), &exe, "abc").unwrap();
+        assert!(std::fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(
+            std::fs::read_link(&link).unwrap(),
+            manifest_path(root.path())
+        );
+        let now = status(&UserRegistry, root.path(), &exe);
+        assert_eq!(now[0].state, HostState::Connected, "{now:?}");
+        assert_eq!(
+            connect(&UserRegistry, Browser::Edge, root.path(), &exe, "abc").unwrap_err(),
+            "E_BROWSER_MISSING"
+        );
+        disconnect(&UserRegistry, Browser::Chrome, root.path()).unwrap();
+        assert!(std::fs::symlink_metadata(&link).is_err());
+        assert!(!manifest_path(root.path()).exists());
+        println!("connected and removed: {}", link.display());
     }
 
     /// Controller-only (Task 19): registers the debug build for Chrome and keeps it.

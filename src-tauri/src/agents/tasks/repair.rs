@@ -148,8 +148,30 @@ fn opening_prompt(task: &AgentTask, brief: &str) -> String {
     )
 }
 
+/// A single-quoted word for sh.
+#[cfg(not(windows))]
+fn sh_quoted(text: &str) -> String {
+    format!("'{}'", text.replace('\'', "'\\''"))
+}
+
+/// The same for the shell Terminal opens on macOS.
+#[cfg(not(windows))]
+fn launch_command(program: &str, prompt: &str, proxy: Option<&str>) -> String {
+    let proxy_lines = proxy
+        .into_iter()
+        .flat_map(proxy_env)
+        .map(|(name, value)| format!("export {name}={}\n", sh_quoted(&value)));
+    format!(
+        "{}{} {}",
+        proxy_lines.collect::<String>(),
+        sh_quoted(program),
+        sh_quoted(prompt)
+    )
+}
+
 /// PowerShell that starts the agent on the brief, with whatever approvals it normally asks for.
 /// The agent needs the same proxy Stacker's own agent runs get: a new terminal has none of it.
+#[cfg(windows)]
 fn launch_command(program: &str, prompt: &str, proxy: Option<&str>) -> String {
     let proxy_lines = proxy
         .into_iter()
@@ -224,6 +246,8 @@ mod tests {
         assert!(!text.contains("hunter2"), "{text}");
     }
 
+    /// Windows paths and tools only.
+    #[cfg(windows)]
     #[test]
     fn the_brief_is_named_after_the_task_and_stays_in_the_folder_given() {
         let path = brief_path(
@@ -241,6 +265,8 @@ mod tests {
         assert!(text.chars().count() < MAX_LOG_CHARS + 1_500);
     }
 
+    /// PowerShell syntax: the Windows form.
+    #[cfg(windows)]
     #[test]
     fn the_agent_starts_on_the_brief_with_no_approval_turned_off() {
         let prompt = opening_prompt(&failed(), r"C:\Temp\stacker-repair-7.md");
@@ -278,6 +304,8 @@ mod tests {
         );
     }
 
+    /// PowerShell syntax: the Windows form.
+    #[cfg(windows)]
     #[test]
     fn the_agent_gets_stackers_proxy_before_it_starts() {
         let command = launch_command("codex", "b.md", Some("http://127.0.0.1:7890"));
@@ -285,6 +313,17 @@ mod tests {
             .find("$env:HTTPS_PROXY='http://127.0.0.1:7890'")
             .unwrap();
         assert!(proxy < command.find("& 'codex'").unwrap(), "{command}");
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn on_a_mac_the_agent_starts_in_sh_with_the_proxy_set_first() {
+        let command = launch_command("/opt/it's/codex", "b.md", Some("http://127.0.0.1:7890"));
+        let proxy = command
+            .find("export HTTPS_PROXY='http://127.0.0.1:7890'")
+            .unwrap();
+        let start = command.find("'/opt/it'\\''s/codex' 'b.md'").unwrap();
+        assert!(proxy < start, "{command}");
     }
 
     #[test]

@@ -6,7 +6,7 @@ import { cleanupLabel } from "./CleanupResultModal";
 import { formatSpaceBytes } from "./DevelopmentArtifacts";
 
 type HistoryItem = { path: string; state: string; releasedBytes: number; reasonKey: string | null };
-type HistoryRecord = { at: number; state: string; releasedBytes: number; items: HistoryItem[] };
+type HistoryRecord = { at: number; state: string; releasedBytes: number; items: HistoryItem[]; title?: string };
 
 /** Every cleanup that ran, so "what did I delete last week" has an answer. */
 export function CleanupHistory({ onClose }: { onClose: () => void }) {
@@ -50,6 +50,7 @@ export function CleanupHistory({ onClose }: { onClose: () => void }) {
             <button className="clean-history-head" onClick={() => setOpen(open === index ? null : index)}>
               <i className={"ti " + (open === index ? "ti-chevron-down" : "ti-chevron-right")} />
               <span className="when">{new Date(record.at * 1000).toLocaleString(locale)}</span>
+              {record.title && <span className="bd n">{tr(record.title)}</span>}
               <span className={"bd " + (record.state === "completed" ? "g" : record.state === "failed" ? "r" : "n")}>{tr(cleanupLabel(record.state))}</span>
               <span className="s dim">{done} / {record.items.length} {tr("项")}</span>
               <b>{formatSpaceBytes(record.releasedBytes)}</b>

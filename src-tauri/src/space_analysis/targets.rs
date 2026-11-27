@@ -192,7 +192,7 @@ pub fn list_fixed_volumes() -> Vec<VolumeInfo> {
     use winapi::um::fileapi::{
         GetDiskFreeSpaceExW, GetDriveTypeW, GetLogicalDrives, GetVolumeInformationW,
     };
-    use winapi::um::winbase::DRIVE_FIXED;
+    use winapi::um::winbase::{DRIVE_FIXED, DRIVE_RAMDISK, DRIVE_REMOTE, DRIVE_REMOVABLE};
 
     fn wide_string(buffer: &[u16]) -> String {
         let length = buffer
@@ -215,7 +215,14 @@ pub fn list_fixed_volumes() -> Vec<VolumeInfo> {
         let letter = char::from(b'A' + index as u8);
         let root = format!("{letter}:\\");
         let wide_root: Vec<u16> = root.encode_utf16().chain(std::iter::once(0)).collect();
-        if unsafe { GetDriveTypeW(wide_root.as_ptr()) } != DRIVE_FIXED {
+        // Every disk the user has: internal and external ones, USB sticks and cards, network
+        // drives and RAM disks. Only optical drives and letters with nothing behind them are
+        // left out (an empty card reader fails the volume query below).
+        let kind = unsafe { GetDriveTypeW(wide_root.as_ptr()) };
+        if !matches!(
+            kind,
+            DRIVE_FIXED | DRIVE_REMOVABLE | DRIVE_REMOTE | DRIVE_RAMDISK
+        ) {
             continue;
         }
 
@@ -262,7 +269,49 @@ pub fn list_fixed_volumes() -> Vec<VolumeInfo> {
     volumes
 }
 
-#[cfg(not(windows))]
+/// The startup disk, then every local disk mounted under `/Volumes`. The startup disk's
+/// numbers come from its data volume, where the user's files are.
+#[cfg(target_os = "macos")]
+pub fn list_fixed_volumes() -> Vec<VolumeInfo> {
+    use crate::sessions::migration::fsops::volume_of;
+    let mut volumes = Vec::new();
+    let data = Path::new("/System/Volumes/Data");
+    if let Some(info) =
+        crate::platform::disk_usage(if data.is_dir() { data } else { Path::new("/") })
+    {
+        volumes.push(VolumeInfo {
+            root: "/".into(),
+            label: crate::macos::volume_name(Path::new("/"))
+                .unwrap_or_else(|| "Macintosh HD".into()),
+            file_system: volume_of(Path::new("/"))
+                .map(|v| v.file_system)
+                .unwrap_or_default(),
+            total_bytes: info.0,
+            free_bytes: info.1,
+            fixed: true,
+        });
+    }
+    for volume in crate::sessions::migration::fsops::other_drives() {
+        let root = Path::new(&volume.root);
+        let Some((total, free)) = crate::platform::disk_usage(root) else {
+            continue;
+        };
+        volumes.push(VolumeInfo {
+            label: root
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            root: volume.root,
+            file_system: volume.file_system,
+            total_bytes: total,
+            free_bytes: free,
+            fixed: true,
+        });
+    }
+    volumes
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 pub fn list_fixed_volumes() -> Vec<VolumeInfo> {
     Vec::new()
 }
@@ -426,9 +475,9 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn fixed_volume_discovery_only_returns_fixed_roots() {
+    fn volume_discovery_returns_every_disk_but_optical_ones() {
         use winapi::um::fileapi::GetDriveTypeW;
-        use winapi::um::winbase::DRIVE_FIXED;
+        use winapi::um::winbase::{DRIVE_FIXED, DRIVE_RAMDISK, DRIVE_REMOTE, DRIVE_REMOVABLE};
 
         let volumes = list_fixed_volumes();
         assert!(
@@ -443,7 +492,11 @@ mod tests {
                 .chain(std::iter::once(0))
                 .collect();
             assert!(volume.fixed);
-            assert_eq!(unsafe { GetDriveTypeW(root.as_ptr()) }, DRIVE_FIXED);
+            let kind = unsafe { GetDriveTypeW(root.as_ptr()) };
+            assert!(matches!(
+                kind,
+                DRIVE_FIXED | DRIVE_REMOVABLE | DRIVE_REMOTE | DRIVE_RAMDISK
+            ));
             assert!(volume.total_bytes >= volume.free_bytes);
         }
     }

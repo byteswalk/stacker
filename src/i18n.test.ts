@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeLocale, translateText } from "./i18n";
+import { macWording, normalizeLocale, translateText } from "./i18n";
 
 describe("internationalization", () => {
   it("normalizes supported browser locales", () => {
@@ -58,5 +58,15 @@ describe("internationalization", () => {
   it("translates dynamic messages without changing values", () => {
     expect(translateText("当前版本：1.2.3", "en-US")).toContain("1.2.3");
     expect(translateText("安装失败：network timeout", "en-US")).toBe("Installation failed: network timeout");
+  });
+});
+
+describe("the Mac's own words", () => {
+  it("names the Trash, Finder, the keychain and the menu bar", () => {
+    expect(macWording("移到回收站，或在资源管理器中打开", "zh-CN")).toBe("移到废纸篓，或在访达中打开");
+    expect(macWording("放进 Windows 凭据管理器；最小化到托盘", "zh-CN")).toBe("放进钥匙串；最小化到菜单栏");
+    expect(macWording("Move to the Recycle Bin, or open in File Explorer", "en-US")).toBe("Move to the Trash, or open in Finder");
+    expect(macWording("Minimize to the system tray", "en-US")).toBe("Minimize to the menu bar");
+    expect(macWording("Kept in Windows Credential Manager", "en-US")).toBe("Kept in Keychain");
   });
 });

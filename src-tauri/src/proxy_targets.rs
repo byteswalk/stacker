@@ -81,19 +81,33 @@ fn ini_entry(section: &str, key: &str, value: &str) -> Entry {
 }
 
 /// The tools Stacker knows about, beyond the eight it reads and writes itself.
+// pip on a Mac reads `~/.pip/pip.conf` whichever of its newer places is in use.
+#[cfg(windows)]
+const PIP_CONFIG: &str = "%APPDATA%/pip/pip.ini";
+#[cfg(not(windows))]
+const PIP_CONFIG: &str = "~/.pip/pip.conf";
+#[cfg(windows)]
+const PIP_DETAIL: &str = "pip.ini 的 [global] proxy";
+#[cfg(not(windows))]
+const PIP_DETAIL: &str = "~/.pip/pip.conf 的 [global] proxy";
+#[cfg(windows)]
+const VSCODE_USER: &str = "%APPDATA%/Code/User";
+#[cfg(not(windows))]
+const VSCODE_USER: &str = "~/Library/Application Support/Code/User";
+
 pub fn builtin() -> Vec<Target> {
     vec![
         Target {
             id: "pip".into(),
             name: "pip".into(),
-            detail: "pip.ini 的 [global] proxy".into(),
+            detail: PIP_DETAIL.into(),
             icon: "ti-brand-python".into(),
             builtin: true,
             detect: Detect::CommandOnPath {
                 command: "pip".into(),
             },
             writer: Writer::Ini {
-                path: "%APPDATA%/pip/pip.ini".into(),
+                path: PIP_CONFIG.into(),
                 entries: vec![ini_entry("global", "proxy", "http://{proxy}")],
             },
         },
@@ -135,10 +149,10 @@ pub fn builtin() -> Vec<Target> {
             icon: "ti-code".into(),
             builtin: true,
             detect: Detect::PathExists {
-                path: "%APPDATA%/Code/User".into(),
+                path: VSCODE_USER.into(),
             },
             writer: Writer::Json {
-                path: "%APPDATA%/Code/User/settings.json".into(),
+                path: format!("{VSCODE_USER}/settings.json"),
                 entries: vec![entry("/http.proxy", "http://{proxy}")],
             },
         },
@@ -206,8 +220,12 @@ pub fn find(id: &str) -> Option<Target> {
 
 /// `~` and `%VAR%` as the shell would read them.
 pub fn expand(path: &str) -> PathBuf {
+    #[cfg(windows)]
     let mut text = path.replace('/', "\\");
-    if let Some(rest) = text.strip_prefix("~\\") {
+    #[cfg(not(windows))]
+    let mut text = path.to_string();
+    let home_prefix = if cfg!(windows) { "~\\" } else { "~/" };
+    if let Some(rest) = text.strip_prefix(home_prefix) {
         let home = dirs::home_dir().unwrap_or_default();
         text = home.join(rest).to_string_lossy().into_owned();
     }
@@ -293,6 +311,11 @@ impl Target {
         }
         if next == text {
             return Ok(());
+        }
+        // Clearing the only key leaves nothing worth keeping: a file Stacker created to hold
+        // the proxy (`~/.curlrc` most often) goes away again instead of lingering empty.
+        if proxy.is_none() && next.trim().is_empty() {
+            return std::fs::remove_file(&path).map_err(|error| error.to_string());
         }
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
@@ -508,12 +531,51 @@ pub fn inside_home(path: &Path) -> bool {
     let Some(home) = dirs::home_dir() else {
         return false;
     };
-    path.starts_with(home)
+    // `~/../..` starts with the home folder too, as far as components go.
+    let climbs = path
+        .components()
+        .any(|part| part == std::path::Component::ParentDir);
+    path.starts_with(home) && !climbs
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clearing_the_only_key_removes_the_file_it_made() {
+        let dir = std::env::temp_dir().join(format!("stacker-target-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("curlrc");
+        let target = Target {
+            id: "t".into(),
+            name: "t".into(),
+            detail: String::new(),
+            icon: String::new(),
+            builtin: false,
+            detect: Detect::PathExists {
+                path: dir.to_string_lossy().into_owned(),
+            },
+            writer: Writer::KeyValue {
+                path: file.to_string_lossy().into_owned(),
+                entries: vec![entry("proxy", "http://{proxy}")],
+            },
+        };
+        target.write("127.0.0.1", 7890).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap().trim(),
+            "proxy=http://127.0.0.1:7890"
+        );
+        target.clear().unwrap();
+        assert!(!file.exists());
+        // A file with something else of the user's in it stays.
+        std::fs::write(&file, "silent\n").unwrap();
+        target.write("127.0.0.1", 7890).unwrap();
+        target.clear().unwrap();
+        assert_eq!(std::fs::read_to_string(&file).unwrap().trim(), "silent");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn a_key_is_replaced_where_it_is_and_added_when_it_is_missing() {

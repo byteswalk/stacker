@@ -12,6 +12,8 @@ import {
 } from "../targetStore";
 import type { ScanRequest } from "../types";
 import { CleanupHistory } from "./CleanupHistory";
+import { LowSpaceAuto } from "./LowSpaceAuto";
+import { IS_MAC } from "../../../platform";
 import {
   closeDiskSelectorRequest,
   launcherControlsDisabled,
@@ -147,7 +149,7 @@ export function ScanLauncher({ disabled = false }: { disabled?: boolean }) {
           <span>{tr("先看本机磁盘，再决定扫哪里：快速扫描只看已知的缓存与临时目录，选择目录可以深入到任意范围（含磁盘根目录）。")}</span>
         </div>
         <div className="scan-launcher-toolbar">
-          <button className="pr" disabled={controlsDisabled} title={tr("扫描常见开发缓存、历史版本和 Windows 临时目录，不会遍历整个磁盘。")} onClick={() => launch({ mode: "quick", targets: [] })}>
+          <button className="pr" disabled={controlsDisabled} title={tr(IS_MAC ? "扫描常见开发缓存和历史版本，不会遍历整个磁盘。" : "扫描常见开发缓存、历史版本和 Windows 临时目录，不会遍历整个磁盘。")} onClick={() => launch({ mode: "quick", targets: [] })}>
             <i className={`ti ${busy ? "ti-loader spin" : "ti-bolt"}`} aria-hidden="true" />
             {tr("快速扫描")}
           </button>
@@ -161,6 +163,7 @@ export function ScanLauncher({ disabled = false }: { disabled?: boolean }) {
           </button>
         </div>
         <DiskOverview disabled={controlsDisabled} onScan={(root) => launch({ mode: "directories", targets: [root] })} />
+        <LowSpaceAuto />
         {commonDirectories.length > 0 && (
           <div className="scan-common-directories" aria-label={tr("常用扫描目录")}>
             <span>{tr("常用目录")}</span>
@@ -194,13 +197,14 @@ export function ScanLauncher({ disabled = false }: { disabled?: boolean }) {
             </button>
           </>}
         >
-          <label className="scan-elevation-option">
+          {/* Protected folders on a Mac are opened up by Full Disk Access, not by a prompt per scan. */}
+          {!IS_MAC && <label className="scan-elevation-option">
             <input className="ck2" type="checkbox" checked={elevated} disabled={busy} onChange={(event) => setElevated(event.target.checked)} />
             <span>
               <strong>{tr("使用管理员权限扫描")}</strong>
               <small>{tr("适用于包含受保护目录的范围；开始时将显示 Windows 用户账户控制提示。")}</small>
             </span>
-          </label>
+          </label>}
           <div className="scan-directory-toolbar">
             <button className="gh sm" disabled={busy} onClick={addDirectory}>
               <i className="ti ti-folder-plus" /> {tr("添加目录")}

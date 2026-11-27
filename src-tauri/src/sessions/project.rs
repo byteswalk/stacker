@@ -10,11 +10,18 @@ pub fn project_key(path: &str) -> String {
 }
 
 /// Claude worktree sessions (`<repo>\.claude\worktrees\<name>`) belong to the repository.
+/// On macOS the path keeps its own `/` separators, so it still names a real folder.
 pub fn repository_root(path: &str) -> String {
-    let normalized = path.trim().trim_start_matches(r"\\?\").replace('/', "\\");
+    let trimmed = path.trim().trim_start_matches(r"\\?\");
+    let normalized = trimmed.replace('/', "\\");
+    let kept = if cfg!(windows) {
+        normalized.as_str()
+    } else {
+        trimmed
+    };
     match normalized.to_lowercase().find(r"\.claude\worktrees\") {
-        Some(index) => normalized[..index].to_string(),
-        None => normalized.trim_end_matches('\\').to_string(),
+        Some(index) => kept[..index].to_string(),
+        None => kept.trim_end_matches(['\\', '/']).to_string(),
     }
 }
 

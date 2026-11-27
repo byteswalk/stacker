@@ -6,6 +6,8 @@ mod feeds;
 mod health;
 pub(crate) mod hidden_console;
 pub(crate) mod install;
+#[cfg(target_os = "macos")]
+pub(crate) mod mac;
 pub(crate) mod net;
 pub(crate) mod overrides;
 pub(crate) mod process;
@@ -309,7 +311,14 @@ pub(crate) fn unavailable_surface(
         install_url: install_url.into(),
         docs_url: docs_url.into(),
         can_install: false,
-        install_unavailable_reason: Some("官方未提供可自动安装的独立 Windows 应用。".into()),
+        install_unavailable_reason: Some(
+            if cfg!(windows) {
+                "官方未提供可自动安装的独立 Windows 应用。"
+            } else {
+                "官方没有提供可自动安装的 Mac 版本。"
+            }
+            .into(),
+        ),
         can_update: false,
         can_uninstall: false,
         can_open: false,
@@ -335,6 +344,18 @@ pub(crate) fn run_tool_action(
     crate::installer::op_reset();
     let spec = spec_by_id(id).ok_or_else(|| "未知的工作智能体工具".to_string())?;
     log::info!("work agent action started: id={id} target={target} action={action}");
+    #[cfg(target_os = "macos")]
+    let res = match (target, action) {
+        ("cli", "install") => mac::install_cli(&spec, &window),
+        ("cli", "update") => mac::update_cli(&spec, &window),
+        ("cli", "uninstall") => mac::uninstall_cli(&spec, &window),
+        ("cli", "repair") => mac::update_cli(&spec, &window),
+        ("desktop", "install") => mac::install_desktop(&spec, &window),
+        ("desktop", "update") => mac::update_desktop(&spec, &window),
+        ("desktop", "uninstall") => mac::uninstall_desktop(&spec, &window),
+        _ => Err("不支持的操作".into()),
+    };
+    #[cfg(not(target_os = "macos"))]
     let res = match (target, action) {
         ("cli", "install") => install_cli_tool(&spec, &window),
         ("cli", "update") => update_cli_tool(&spec, &window),
@@ -482,7 +503,7 @@ pub(crate) fn open_external_target(target: &str) -> Result<(), String> {
         } else {
             "xdg-open"
         };
-        Command::new(opener)
+        std::process::Command::new(opener)
             .arg(target)
             .spawn()
             .map_err(|e| format!("打开失败：{e}"))?;

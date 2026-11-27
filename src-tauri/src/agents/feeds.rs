@@ -571,18 +571,22 @@ pub(crate) fn git_head(checkout: &std::path::Path) -> Option<String> {
         None => head.to_string(),
         Some(reference) => {
             let reference = reference.trim();
-            std::fs::read_to_string(git.join(reference.replace('/', "\\")))
-                .ok()
-                .map(|text| text.trim().to_string())
-                .or_else(|| {
-                    std::fs::read_to_string(git.join("packed-refs"))
-                        .ok()?
-                        .lines()
-                        .find_map(|line| {
-                            let (sha, name) = line.split_once(' ')?;
-                            (name.trim() == reference).then(|| sha.to_string())
-                        })
-                })?
+            std::fs::read_to_string(
+                reference
+                    .split('/')
+                    .fold(git.clone(), |path, part| path.join(part)),
+            )
+            .ok()
+            .map(|text| text.trim().to_string())
+            .or_else(|| {
+                std::fs::read_to_string(git.join("packed-refs"))
+                    .ok()?
+                    .lines()
+                    .find_map(|line| {
+                        let (sha, name) = line.split_once(' ')?;
+                        (name.trim() == reference).then(|| sha.to_string())
+                    })
+            })?
         }
     };
     (sha.len() >= 7 && sha.chars().all(|ch| ch.is_ascii_hexdigit()))

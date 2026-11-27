@@ -620,7 +620,7 @@ pub(crate) fn resolve_command(candidates: &[&str]) -> Option<PathBuf> {
             continue;
         }
         for name in candidates {
-            let p = dir.join(name);
+            let p = dir.join(crate::platform::command_name(name));
             if p.is_file() {
                 return Some(p);
             }
@@ -632,7 +632,7 @@ pub(crate) fn resolve_command(candidates: &[&str]) -> Option<PathBuf> {
 pub(crate) fn resolve_command_including_windowsapps(candidates: &[&str]) -> Option<PathBuf> {
     for dir in command_dirs() {
         for name in candidates {
-            let p = dir.join(name);
+            let p = dir.join(crate::platform::command_name(name));
             if p.is_file() {
                 return Some(p);
             }

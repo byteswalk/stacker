@@ -61,7 +61,12 @@ fn every_command_hides_its_console_or_means_to_show_one() {
             .rsplit_once("/src/")
             .map(|(_, rest)| rest)
             .unwrap_or(&file);
-        if relative == "console_audit.rs" || VISIBLE_ON_PURPOSE.contains(&relative) {
+        // macOS has no console windows to flash.
+        if relative == "console_audit.rs"
+            || relative.starts_with("macos/")
+            || relative == "agents/mac.rs"
+            || VISIBLE_ON_PURPOSE.contains(&relative)
+        {
             continue;
         }
         let text = std::fs::read_to_string(&file).unwrap_or_default();

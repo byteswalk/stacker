@@ -1,6 +1,13 @@
 //! 终端代理：设用户级 HTTP_PROXY/HTTPS_PROXY/ALL_PROXY，覆盖几乎所有 CLI 工具。
 //! NO_PROXY 自动带上 localhost + 当前镜像源域名，避免镜像源请求进入终端代理。
+//!
+//! Windows 写注册表里的用户环境变量；Mac 没有这种东西，写 Stacker 自己的
+//! `~/.config/stacker/env.sh`，由各 shell 启动时读取（见 `macos::user_env`）。
 
+#[cfg(target_os = "macos")]
+use crate::macos::user_env as uenv;
+#[cfg(not(target_os = "macos"))]
+use crate::winenv as uenv;
 use crate::{backup, sources, winenv};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -81,8 +88,8 @@ fn auto_no_proxy() -> Vec<String> {
 
 // ── 当前状态 ──
 pub fn status() -> ProxyStatus {
-    let http = winenv::get_user_raw("HTTP_PROXY").unwrap_or_default();
-    let all = winenv::get_user_raw("ALL_PROXY").unwrap_or_default();
+    let http = uenv::get_user_raw("HTTP_PROXY").unwrap_or_default();
+    let all = uenv::get_user_raw("ALL_PROXY").unwrap_or_default();
     let enabled = !http.is_empty() || !all.is_empty();
 
     let detected = detect_clash_port();
@@ -91,7 +98,7 @@ pub fn status() -> ProxyStatus {
     let endpoint_available = !host.trim().is_empty() && port > 0;
 
     let auto = auto_no_proxy();
-    let current_np: Vec<String> = winenv::get_user_raw("NO_PROXY")
+    let current_np: Vec<String> = uenv::get_user_raw("NO_PROXY")
         .unwrap_or_default()
         .split(',')
         .map(|s| s.trim().to_string())
@@ -123,7 +130,7 @@ pub fn status() -> ProxyStatus {
 
 fn jvm_has_proxy() -> bool {
     gradle_has_proxy()
-        || winenv::get_user_raw("MAVEN_OPTS")
+        || uenv::get_user_raw("MAVEN_OPTS")
             .unwrap_or_default()
             .contains("-Dhttp.proxyHost")
 }
@@ -132,7 +139,7 @@ fn jvm_has_proxy() -> bool {
 pub fn enable(host: &str, port: u16, also_jvm: bool, manual: Vec<String>) -> Result<(), String> {
     if host.trim().is_empty() || port == 0 {
         return Err(
-            "当前未检测到可写入终端的代理地址。终端将使用 Windows 当前网络路由，无需开启显式代理。"
+            "当前未检测到可写入终端的代理地址。终端将使用系统当前的网络路由，无需开启显式代理。"
                 .into(),
         );
     }
@@ -149,9 +156,9 @@ pub fn enable(host: &str, port: u16, also_jvm: bool, manual: Vec<String>) -> Res
     );
     let http = format!("http://{host}:{port}");
     let socks = format!("socks5://{host}:{port}");
-    winenv::set_user("HTTP_PROXY", &http)?;
-    winenv::set_user("HTTPS_PROXY", &http)?;
-    winenv::set_user("ALL_PROXY", &socks)?;
+    uenv::set_user("HTTP_PROXY", &http)?;
+    uenv::set_user("HTTPS_PROXY", &http)?;
+    uenv::set_user("ALL_PROXY", &socks)?;
     std::env::set_var("HTTP_PROXY", &http);
     std::env::set_var("HTTPS_PROXY", &http);
     std::env::set_var("ALL_PROXY", &socks);
@@ -164,7 +171,7 @@ pub fn enable(host: &str, port: u16, also_jvm: bool, manual: Vec<String>) -> Res
             list.push(h);
         }
     }
-    winenv::set_user("NO_PROXY", &list.join(","))?;
+    uenv::set_user("NO_PROXY", &list.join(","))?;
     std::env::set_var("NO_PROXY", list.join(","));
 
     if also_jvm {
@@ -187,7 +194,7 @@ pub(crate) fn sync_manual(manual: &[String]) -> Result<(), String> {
         }
     }
     let value = list.join(",");
-    winenv::set_user("NO_PROXY", &value)?;
+    uenv::set_user("NO_PROXY", &value)?;
     std::env::set_var("NO_PROXY", value);
     Ok(())
 }
@@ -204,10 +211,10 @@ pub fn disable(also_jvm: bool) -> Result<(), String> {
             "MAVEN_OPTS",
         ],
     );
-    winenv::remove_user("HTTP_PROXY")?;
-    winenv::remove_user("HTTPS_PROXY")?;
-    winenv::remove_user("ALL_PROXY")?;
-    winenv::remove_user("NO_PROXY")?;
+    uenv::remove_user("HTTP_PROXY")?;
+    uenv::remove_user("HTTPS_PROXY")?;
+    uenv::remove_user("ALL_PROXY")?;
+    uenv::remove_user("NO_PROXY")?;
     std::env::remove_var("HTTP_PROXY");
     std::env::remove_var("HTTPS_PROXY");
     std::env::remove_var("ALL_PROXY");
@@ -297,7 +304,7 @@ const MAVEN_PROXY_FLAGS: [&str; 6] = [
 
 // 取出 MAVEN_OPTS 里非代理的部分（保留用户自己的设置）
 fn maven_opts_kept() -> Vec<String> {
-    winenv::get_user_raw("MAVEN_OPTS")
+    uenv::get_user_raw("MAVEN_OPTS")
         .unwrap_or_default()
         .split_whitespace()
         .filter(|t| !MAVEN_PROXY_FLAGS.iter().any(|k| t.starts_with(k)))
@@ -308,7 +315,9 @@ fn maven_opts_kept() -> Vec<String> {
 fn maven_set_proxy(host: &str, port: u16, no_proxy: &[String]) -> Result<(), String> {
     let non = no_proxy.join("|").replace('"', "");
     // Windows cmd treats `|` as a pipe when mvn.cmd expands MAVEN_OPTS.
-    // Quoting keeps nonProxyHosts as a single JVM property value.
+    // Quoting keeps nonProxyHosts as a single JVM property value. The `mvn` shell script
+    // splits MAVEN_OPTS on spaces without parsing it, so there the quotes would stay in.
+    #[cfg(windows)]
     let non = format!("\"{non}\"");
     let mut toks = maven_opts_kept();
     toks.push(format!("-Dhttp.proxyHost={host}"));
@@ -317,22 +326,22 @@ fn maven_set_proxy(host: &str, port: u16, no_proxy: &[String]) -> Result<(), Str
     toks.push(format!("-Dhttps.proxyPort={port}"));
     toks.push(format!("-Dhttp.nonProxyHosts={non}"));
     toks.push(format!("-Dhttps.nonProxyHosts={non}"));
-    winenv::set_user("MAVEN_OPTS", &toks.join(" "))
+    uenv::set_user("MAVEN_OPTS", &toks.join(" "))
 }
 
 fn maven_clear_proxy() -> Result<(), String> {
     let toks = maven_opts_kept();
     if toks.is_empty() {
-        winenv::remove_user("MAVEN_OPTS")
+        uenv::remove_user("MAVEN_OPTS")
     } else {
-        winenv::set_user("MAVEN_OPTS", &toks.join(" "))
+        uenv::set_user("MAVEN_OPTS", &toks.join(" "))
     }
 }
 
 // ── Proxy locations used by the proxy ledger ──
 
 pub(crate) fn env_proxy() -> Option<String> {
-    winenv::get_user_raw("HTTP_PROXY").filter(|v| !v.trim().is_empty())
+    uenv::get_user_raw("HTTP_PROXY").filter(|v| !v.trim().is_empty())
 }
 
 fn host_port(host: Option<String>, port: Option<String>) -> Option<String> {
@@ -340,7 +349,7 @@ fn host_port(host: Option<String>, port: Option<String>) -> Option<String> {
 }
 
 pub(crate) fn maven_opts_proxy() -> Option<String> {
-    let raw = winenv::get_user_raw("MAVEN_OPTS").unwrap_or_default();
+    let raw = uenv::get_user_raw("MAVEN_OPTS").unwrap_or_default();
     let flag = |name: &str| {
         raw.split_whitespace().find_map(|t| {
             t.strip_prefix(&format!("{name}="))

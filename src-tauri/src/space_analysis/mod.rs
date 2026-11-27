@@ -7,6 +7,7 @@ pub mod elevated;
 pub mod file_removal;
 pub mod history;
 pub mod known;
+pub mod low_space;
 pub mod model;
 pub mod monitor;
 pub mod snapshots;

@@ -9,6 +9,8 @@ import { EcoPanel, EcoTally, ecoTone, type EcosystemSnapshot } from "../features
 import "../features/overview/coreEntries.css";
 import { quickScanUnlessBusy } from "../features/space-analysis/store";
 import { AiAskModal, AiButton, askAi } from "../features/ai/AiAsk";
+import { IS_MAC } from "../platform";
+
 
 type Mirror = { id: string; name: string; url: string; host: string };
 type ToolState = {
@@ -189,6 +191,11 @@ function runOverviewCheck() {
     try {
       // Each shows as soon as it is read: the cache scan and the network probes behind
       // checkup_extra can take minutes.
+      // The Mac build has no runtime pages: its home page is the core entries alone.
+      if (IS_MAC) {
+        publishOverview({ checked: true });
+        return;
+      }
       const results = await Promise.allSettled([
         invoke<ToolState[]>("list_sources").then((tools) => publishOverview({ tools })),
         invoke<CheckItem[]>("checkup_extra").then((extra) => publishOverview({ extra })),
@@ -466,6 +473,7 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
         onClose={() => setConfirming(null)}
         onConfirm={() => { const item = confirming; setConfirming(null); const fixer = extraFixer(item.id); if (fixer) void runExtra(item.id, fixer); }} />}
 
+      {!IS_MAC && <>
       <div className="grouphd" style={{ marginTop: 12 }}>
         <span className="gt"><i className="ti ti-stack-2" /> 编程生态
           {ecosystem && <EcoTally tones={ecosystems.map((item) => ecoTone(item, hasIssue(item)))} updates={ecosystems.filter((item) => latestOf(item)).length} />}
@@ -488,6 +496,7 @@ export default function Overview({ goto }: { goto: (p: Page) => void }) {
         onClose={() => setConfirmOfficial(false)}
         onConfirm={() => { setConfirmOfficial(false); void restoreOfficial(); }} />}
       {ecosystem && <EcoPanel items={ecosystems} toneOf={(item) => ecoTone(item, hasIssue(item))} sourceOf={sourceOf} latestOf={latestOf} onOpen={goto} />}
+      </>}
     </>
   );
 }

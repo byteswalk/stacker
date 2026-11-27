@@ -1,0 +1,27 @@
+{
+  "app": {
+    "windows": [
+      {
+        "title": "Stacker",
+        "width": 1280,
+        "height": 720,
+        "minWidth": 1280,
+        "minHeight": 720,
+        "center": true,
+        "visible": false,
+        "resizable": true,
+        "decorations": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": { "x": 14, "y": 17 },
+        "fullscreen": false
+      }
+    ]
+  },
+  "bundle": {
+    "targets": ["app"],
+    "macOS": {
+      "minimumSystemVersion": "11.0"
+    }
+  }
+}

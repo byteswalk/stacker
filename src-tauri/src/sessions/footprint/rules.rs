@@ -23,26 +23,40 @@ impl Context<'_> {
 
     fn codex_running(&self) -> bool {
         self.images().any(|p| {
-            let name = p.rsplit('\\').next().unwrap_or("");
-            name.starts_with("codex") || p.contains("\\openai.codex_")
+            let name = file_name(&p);
+            name.starts_with("codex")
+                || p.contains("\\openai.codex_")
+                || p.contains("/chatgpt.app/")
+                || p.contains("/codex.app/")
         })
     }
 
     fn claude_app_running(&self) -> bool {
-        self.images()
-            .any(|p| p.contains("\\windowsapps\\claude_") || p.contains("\\anthropicclaude\\"))
+        self.images().any(|p| {
+            p.contains("\\windowsapps\\claude_")
+                || p.contains("\\anthropicclaude\\")
+                || p.contains("/claude.app/")
+        })
     }
 
     fn claude_cli_running(&self) -> bool {
         self.images()
-            .any(|p| p.rsplit('\\').next() == Some("claude.exe"))
+            .any(|p| matches!(file_name(&p), "claude.exe" | "claude"))
     }
 
     fn in_use(&self, dir: &Path) -> bool {
         let dir = dir.to_string_lossy().to_lowercase();
-        let prefix = format!("{}\\", dir.trim_end_matches('\\'));
-        self.images().any(|p| p.starts_with(&prefix))
+        let dir = dir.trim_end_matches(['\\', '/']);
+        self.images().any(|p| {
+            p.strip_prefix(dir)
+                .is_some_and(|rest| rest.starts_with(['\\', '/']))
+        })
     }
+}
+
+/// The last part of a process image path, whichever separator it uses.
+fn file_name(path: &str) -> &str {
+    path.rsplit(['\\', '/']).next().unwrap_or("")
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -816,7 +830,17 @@ mod tests {
             .any(|p| p.ends_with("live")));
     }
 
+    /// On macOS a folder opens like a file, so std can set its time.
+    #[cfg(not(windows))]
+    fn filetime_dir(path: &Path, days: u64) {
+        fs::File::open(path)
+            .unwrap()
+            .set_modified(SystemTime::now() - Duration::from_secs(days * DAY))
+            .unwrap();
+    }
+
     /// Directory mtimes cannot be set through std on stable; age via a PowerShell call.
+    #[cfg(windows)]
     fn filetime_dir(path: &Path, days: u64) {
         let _ = std::process::Command::new("powershell")
             .args(["-NoProfile", "-Command"])

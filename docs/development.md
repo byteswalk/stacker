@@ -4,7 +4,7 @@
 
 - 应用版本元数据为 `0.3.5`；`v0.3.4` 标签（首个签名发行版）是上一个已发布基线。
 - 技术栈为 React 19 + TypeScript 6 + Vite 8 + Tauri 2 + Rust 2021，最低 Rust 版本为 1.77.2。
-- 仅支持 Windows 10/11 x64。开发、测试和正式环境的数据目录由后端隔离。
+- 支持 Windows 10/11 x64，以及 macOS 11 及以上（Apple 芯片与 Intel，见下文「Mac 版」）。开发、测试和正式环境的数据目录由后端隔离。
 - GitHub `origin` 与 Gitee `gitee` 是等价发布目标。源码提交、标签和发行资产必须保持一致；中文链接优先 Gitee，英文链接优先 GitHub。
 
 ## 模块边界
@@ -17,7 +17,7 @@
 | 智能体管理 · 会话数据 | `src/pages/AgentData.tsx`、`src/features/sessions` | `sessions/`、`webchat/`、`distill/` | 读取 Codex、Claude、CodeBuddy、WorkBuddy、Qoder、Kimi、MiMo 及桌面端自带的会话；项目归类、收藏、摘要与交接、精简导出、批量删除、跨电脑迁移、占用统计与数据目录迁移；网页对话与知识提炼 |
 | 密钥保管 | `src/pages/Vault.tsx`、`src/features/vault` | `vault/` | 本机加密保管库（Argon2id + XChaCha20-Poly1305），恢复密钥、凭据管理器同步、SSH 密钥放置，配合浏览器插件保存网站密码 |
 | Stacker AI | `src/features/ai` | `ai_config.rs`、`ai_features.rs` | 全局 AI 来源（外部兼容接口）与推理强度；各页面的 AI 诊断、搜索与解释 |
-| 磁盘清理 | `src/pages/Cleanup.tsx`、`src/features/space-analysis` | `space_analysis/`、`cleanup.rs`、`project_junk.rs` | 后台扫描、磁盘占用图、项目识别、大文件与重复文件、文件压缩、空间变化、清理计划、清理历史和提权执行 |
+| 磁盘清理 | `src/pages/Cleanup.tsx`、`src/features/space-analysis` | `space_analysis/`、`cleanup.rs`、`project_junk.rs` | 后台扫描、磁盘占用图、项目识别、大文件与重复文件、文件压缩、空间变化、清理计划、清理历史和提权执行；空间不足自动清理（`space_analysis/low_space/`） |
 | 代理、源与设置 | `src/pages/Proxy.tsx`、`src/pages/Settings.tsx` | `proxy.rs`、`sources.rs`、`settings.rs` | 只管理明确选择的终端和开发工具配置，不检测或配置 TUN/VPN |
 | 桌面生命周期 | `src/App.tsx`、`src/main.tsx` | `lib.rs`、`logging.rs` | 单实例、窗口恢复、托盘、首次关闭选择、统一日志和错误边界 |
 
@@ -28,9 +28,10 @@ IPC 命令集中注册在 `src-tauri/src/lib.rs`。新命令需要同时补充 R
 
 - 日志、设置、备份、会话索引和任务报告使用 Tauri 解析出的应用数据目录。不要把用户数据写进源码目录。
 - 会话列表直接读取智能体自己的元数据，Stacker 只保存收藏、摘要和数据来源设置。分类规则与删除边界见 [sessions.md](sessions.md)。
-- Git 凭据使用 Windows 凭据管理器；兼容摘要接口的可选密钥使用 Windows DPAPI。日志和诊断不得记录聊天正文、访问令牌、密钥或授权头。
+- Git 凭据使用 Windows 凭据管理器（Mac：Git 自带的 git-credential-osxkeychain）；AI 来源的密钥等本机加密数据使用 Windows DPAPI（Mac：登录钥匙串里一把随机密钥加 XChaCha20-Poly1305，见 `macos/protect.rs`，绝不明文落盘）。日志和诊断不得记录聊天正文、访问令牌、密钥或授权头。
 - 存储位置迁移先备份配置，再复制到空目录，最后写入配置。旧目录始终保留，不能自动删除。
 - 磁盘清理只能执行后端生成并再次校验的计划。未知目录、源码、配置、工作树和无法证明可重建的内容保持只读。
+- 空间不足自动清理不经确认，所以规则更窄：项目只认 Git 管理下（磁盘遍历找到的）或智能体会话用过的；安装在 Program Files 之外的程序（`resources\app`、`.asar.unpacked`）、`site-packages`、`node_modules` 里的包、`out` 目录、虚拟环境、发布包、日志、30 分钟内写过的目录和正在运行的程序所在目录一律不动；包管理器缓存在闲置天数内写入过、或读它的工具正在运行时也不动。删除不跟随链接与联接，路径须解析在被清理的目录内。改动规则后，用 `cargo test --lib live_low_space_plan -- --ignored --nocapture` 只读地查看本机每块盘每一步会清什么。
 
 ## 开发与验证
 
@@ -120,6 +121,64 @@ Windows 代码签名证书（Authenticode）已决定不做：首次安装仍会
 - `.idea/`、`src-tauri/gen/`、日志和各类 `*.tmp`：本机或生成内容。
 
 不要清理用户配置目录、会话备份目录、项目工作树或未确认的扫描结果。对 Windows 路径执行批量删除前应先解析并核对绝对路径。
+
+## Mac 版
+
+Mac 版和 Windows 版是同一套源码。Windows 专属的页面（9 个运行时页面）在 Mac 上不显示（`src/platform.ts` 的 `pageAvailable`），后端照样编译，只是用不到（`lib.rs` 顶部对非 Windows 放宽了未使用代码的警告）。
+
+### 平台差异放在哪里
+
+| 能力 | Windows | macOS |
+| --- | --- | --- |
+| 本机加密（AI 密钥、登录索引） | DPAPI（`dpapi.rs`） | 钥匙串里的随机密钥 + XChaCha20（`macos/protect.rs`） |
+| 保管库「放进系统凭据」 | 凭据管理器（`vault/wincred.rs`） | 登录钥匙串，经 `/usr/bin/security`（`macos/keychain.rs`） |
+| Git 令牌 | Git Credential Manager | git-credential-osxkeychain（`git.rs` 的 `credential_args`） |
+| 回收 | 回收站（`python_env::recycle`） | 废纸篓，NSFileManager（`macos::trash`） |
+| 系统代理（只读） | 注册表 + WinHTTP（`proxy_system.rs`） | `scutil --proxy`，3 秒内复用（`proxy_system::parse_scutil`） |
+| 终端代理的环境变量 | 注册表里的用户环境变量（`winenv`） | `~/.config/stacker/env.sh`，`.zshenv`/bash 登录文件里各一段标记块，fish 用 `conf.d/stacker.fish`；Dock 启动的程序靠 `launchctl setenv`，每次启动重新设一遍（`macos/user_env.rs`） |
+| 进程列表 | Toolhelp | `proc_listallpids`（`sessions/footprint/processes.rs`） |
+| 数据目录迁移 | 目录联接 | 符号链接（`sessions/migration/fsops.rs`） |
+| 智能体安装 | 各厂商安装器、WinGet、npm | npm、厂商官方 `install.sh`、Homebrew cask（`agents/mac.rs`） |
+| 浏览器插件桥接 | 注册表指向清单 | 浏览器自己的 `NativeMessagingHosts` 里放指向清单的符号链接（`webchat/host.rs`） |
+| 打开终端 | Windows Terminal / PowerShell | 写一个 `.command` 文件交给「终端」打开，不需要任何授权（`installer.rs`） |
+| 自动更新 | 下载安装包静默安装 | 下载 zip → 校验 SHA-256 与签名 → `codesign` 复核 → 脚本换包重开，新版没起来就换回旧版（`macos/updater.rs`） |
+| 剪贴板保密值 | 排除 Win+V 历史 | 标记 Concealed/Transient 类型，剪贴板工具不记录（`vault/clipboard.rs`） |
+
+**不要在 Stacker 自己的钥匙串条目上用 Security 框架直接读写。** 没有 Apple 团队 ID 时，程序自己写的条目按每个版本的代码哈希加锁，每次升级都会弹窗要登录密码；经 `security` 工具写入的条目信任的是 `security`，所以哪个版本都能静默读取。
+
+Mac 上从访达打开的程序只有 launchd 的精简 PATH，启动时 `macos/shell_env.rs` 会向用户的登录 shell 要一次 PATH。
+
+### 构建与测试
+
+打包用的 Mac 是 `ssh mac`（使用说明见用户的 Mac 笔记，不要动 `/Applications/Nexa.app`）。在 Mac 上：
+
+```bash
+scripts/build-mac.sh aarch64-apple-darwin r12    # Intel：x86_64-apple-darwin
+```
+
+产物在 `release/macos/v<版本>/`：给用户的 `.dmg`（不签名，避免被拦两次）、应用内更新用的 `update-macos-<芯片>.zip`、校验文件。这样直接跑是临时（ad-hoc）签名，只适合测试。
+
+正式包用 Stacker 的自签名证书签名。证书只存在发版这台 Windows 的凭据管理器里（`StackerRelease/macOS Signing Certificate`，指纹 `BFCEBF9DB95316CB350C6B41094C3F672226C858`，2026-11-21 由 `scripts/new-mac-signing-cert.ps1` 生成），打包时经 SSH 管道传给 Mac，导入一个用完即删的临时钥匙串，不落盘。在 Git Bash 里：
+
+```bash
+powershell.exe -NoProfile -File scripts/read-mac-signing-cert.ps1 | tr -d '\r' | ssh mac 'cd ~/work/stacker && STACKER_SIGN=stdin scripts/build-mac.sh aarch64-apple-darwin'
+```
+
+必须去掉 `\r`：Windows PowerShell 往管道里写的是 CRLF。同一张证书签的每个版本，签名要求都是 `identifier "com.stacker.app" and certificate leaf = H"bfcebf9d…"`，系统授予的权限跨版本保留；应用内更新也据此拒绝不是这张证书签的包。**证书丢了就找不回来**：换新证书后，已装的版本无法应用内升级，只能手动重装一次。请把它备份到保管库。证书名故意不以 `Stacker:` 开头，因为保管库会删除自己不认识的 `Stacker:` 凭据。
+
+Mac 上的检查和 Windows 一样：`cargo test`、`cargo clippy --all-targets -- -D warnings`（在 `src-tauri/`）。要碰真实钥匙串或剪贴板的测试默认忽略，要在已登录的桌面会话里跑：
+
+```bash
+sudo -n launchctl asuser $(id -u) sudo -n -u $(whoami) <测试程序> --ignored keychain
+```
+
+### 发布
+
+1. 在 Mac 上两种芯片各跑一次 `scripts/build-mac.sh`。
+2. 回到发版的 Windows 电脑运行 `npm run release:macos`：取回 Mac 产物，用发布私钥签名更新包，补进同一份 `SHA256SUMS.txt`，并把 `macos` 一节写进 `resources/latest.json`（测试包加 `-Revision r12`，不改清单）。
+3. `.dmg`、`update-macos-*.zip`、`.minisig` 和 `SHA256SUMS.txt` 与 Windows 安装包一起上传到 GitHub 和 Gitee 的同一个 Release。
+
+首次打开时 macOS 会要求用户到「系统设置 → 隐私与安全性」点「仍要打开」；应用内更新自己下载的包不带隔离标记，不会再被拦。
 
 ## 人工验收重点
 

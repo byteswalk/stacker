@@ -2,6 +2,7 @@ import { type ReactNode, useState } from "react";
 import { invoke } from "./invoke";
 import { translateText } from "./i18n";
 import { Modal, useToast } from "./ui";
+import { IS_MAC } from "./platform";
 
 type Shells = { powershell: boolean; gitbash: boolean; cmd: boolean };
 type EcosystemId = "python" | "php" | "node" | "java" | "maven" | "gradle" | "go" | "rust" | "git";
@@ -57,7 +58,10 @@ export function TerminalBar({
       toast("复制临时生效命令失败：" + e, "err");
     }
   };
-  const items: [keyof Shells, string][] = [["powershell", "PowerShell"], ["gitbash", "Git Bash"], ["cmd", "cmd"]];
+  // A Mac has one terminal, Terminal itself, running the user's own shell.
+  const items: [string, string, boolean][] = IS_MAC
+    ? [["zsh", "终端", true]]
+    : [["powershell", "PowerShell", avail.powershell], ["gitbash", "Git Bash", avail.gitbash], ["cmd", "cmd", avail.cmd]];
   return (
     <div className="banner gray terminal-bar" style={{ alignItems: "center" }}>
       <i className="ti ti-terminal-2 lead" />
@@ -66,8 +70,7 @@ export function TerminalBar({
         <i className="ti ti-help-circle" title={tip} style={{ cursor: "help", opacity: 0.55, fontSize: 15 }} />
       </div>
       <div className="shells" style={{ marginLeft: "auto" }}>
-        {items.map(([k, label]) => {
-          const ok = avail[k];
+        {items.map(([k, label, ok]) => {
           return (
             <span
               key={k}
@@ -82,7 +85,7 @@ export function TerminalBar({
           );
         })}
       </div>
-      {ecosystem && (
+      {ecosystem && !IS_MAC && (
         <button className="gh sm" style={{ marginLeft: 8 }} title="复制命令到已打开的终端执行，让该终端立即读取当前环境配置" onClick={showActivation}>
           <i className="ti ti-bolt" /> 临时生效
         </button>

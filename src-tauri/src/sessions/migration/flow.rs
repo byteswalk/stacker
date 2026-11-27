@@ -250,6 +250,9 @@ mod tests {
         );
     }
 
+    /// Only Windows refuses to rename a folder with an open file; on macOS the running-app
+    /// check is what keeps a folder in use from being moved.
+    #[cfg(windows)]
     #[test]
     fn a_locked_source_rolls_back() {
         let (_dir, src, target) = setup();

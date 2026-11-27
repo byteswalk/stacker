@@ -8,6 +8,7 @@ import { remoteRepositoryCreationHint, supportsRemoteRepositoryCreation } from "
 import { translateText } from "../i18n";
 import { useNotifications } from "../notifications";
 import { AiAskModal, askAi } from "../features/ai/AiAsk";
+import { IS_MAC } from "../platform";
 
 type Shells = { powershell: boolean; gitbash: boolean; cmd: boolean };
 type GitStatus = {
@@ -192,7 +193,8 @@ export default function Git() {
   // 立即更新 button is there without a trip through 检查更新.
   const installed = !!status?.installed;
   useEffect(() => {
-    if (!installed) return;
+    // A Mac's Git comes with Apple's tools or Homebrew; Git for Windows' releases say nothing about it.
+    if (!installed || IS_MAC) return;
     let alive = true;
     invoke<GitUpdateInfo>("git_check_update", { sourceId: downloadSource })
       .then((info) => { if (alive) setUpdateInfo(info.has_update ? info : null); })
@@ -235,8 +237,12 @@ export default function Git() {
   const gitSummary = [
     "## Git 开发生态摘要",
     `- Git：${status?.installed ? "可用" : "未安装"}${status?.version ? `，版本：${status.version}` : ""}${status?.path ? `，路径：${status.path}` : ""}`,
-    `- Git Bash：${status?.bash_path || "未检测到"}`,
-    `- Git Credential Manager：${github.gcm_available ? "可用" : "未检测到"}${github.gcm_version ? `，版本：${github.gcm_version}` : ""}`,
+    ...(IS_MAC
+      ? [`- 钥匙串助手（git-credential-osxkeychain）：${github.gcm_available ? "可用" : "未检测到"}`]
+      : [
+        `- Git Bash：${status?.bash_path || "未检测到"}`,
+        `- Git Credential Manager：${github.gcm_available ? "可用" : "未检测到"}${github.gcm_version ? `，版本：${github.gcm_version}` : ""}`,
+      ]),
     `- 普通终端默认提交身份：${status?.user_name || "未配置"} <${status?.user_email || "未配置"}>`,
     `- 默认分支：${status?.default_branch || "未配置"}`,
     `- autocrlf：${status?.autocrlf || "未配置"}`,
@@ -666,7 +672,7 @@ export default function Git() {
     <>
       {failureBar}
       {statusLoading ? (
-        <Loading text="正在检测 Git for Windows、Git Bash、GCM 与账号配置…" />
+        <Loading text={IS_MAC ? "正在检测 Git、钥匙串助手与账号配置…" : "正在检测 Git for Windows、Git Bash、GCM 与账号配置…"} />
       ) : (
         <TerminalBar
           avail={shells}
@@ -676,7 +682,8 @@ export default function Git() {
         />
       )}
 
-      <div className="srcrow" style={{ marginBottom: 10 }}>
+      {/* Git comes with Apple's command line tools (or Homebrew) on a Mac; Stacker does not install it there. */}
+      {!IS_MAC && <div className="srcrow" style={{ marginBottom: 10 }}>
         <span className="av st"><i className="ti ti-download" /></span>
         <div className="mt">
           <div className="t">Git 下载源</div>
@@ -685,28 +692,33 @@ export default function Git() {
         <Select value={pendingDownloadSource} width={220} onChange={setPendingDownloadSource} options={sourceOptions} />
         <button className="gh sm" disabled={busy} onClick={speedtestSources}><i className="ti ti-bolt" /> 测速</button>
         <button className="pr sm" disabled={busy} onClick={applyDownloadSource} title={`当前已应用：${sourceName(downloadSource)}`}><i className="ti ti-check" /> 应用</button>
-      </div>
+      </div>}
 
       <div className={"checkup " + (statusLoading ? "agent" : gitStatus.installed ? "ok" : "bad")}>
         <span className="cnum"><i className={"ti " + (statusLoading ? "ti-loader spin" : gitStatus.installed ? "ti-brand-git" : "ti-download")} style={{ fontSize: 27 }} /></span>
         <div className="ct">
-          <div className="t1">Git for Windows · {statusLoading ? "检测中" : gitStatus.installed ? "已就绪" : "未安装"}</div>
-          <div className="t2">{statusLoading ? "正在检测 Git 命令、Git Bash 和安全凭据组件…" : gitStatus.installed ? `${gitStatus.version || "Git 可用"} · ${gitStatus.path || ""}` : "安装后可使用账号终端、工程初始化和仓库迁移功能。"}</div>
+          <div className="t1">{IS_MAC ? "Git" : "Git for Windows"} · {statusLoading ? "检测中" : gitStatus.installed ? "已就绪" : "未安装"}</div>
+          <div className="t2">{statusLoading ? "正在检测 Git 命令、Git Bash 和安全凭据组件…" : gitStatus.installed ? `${gitStatus.version || "Git 可用"} · ${gitStatus.path || ""}` : IS_MAC ? "在终端运行 xcode-select --install 安装 Apple 命令行工具（含 Git），或用 Homebrew 安装 Git。" : "安装后可使用账号终端、工程初始化和仓库迁移功能。"}</div>
           {updateInfo && <div className="t2">{updateInfo.has_update ? `「${updateInfo.source_name}」提供 ${updateInfo.latest}，当前 ${updateInfo.current}。` : `当前版本 ${updateInfo.current} 已是「${updateInfo.source_name}」提供的最新版本。`}</div>}
         </div>
         <div className="cacts">
           <button className="gh sm" disabled={busy || statusLoading} onClick={refresh}><i className="ti ti-refresh" /> 刷新状态</button>
+          {!IS_MAC && <>
           <button className="gh sm" disabled={busy || statusLoading || !gitStatus.installed} onClick={checkUpdate}><i className="ti ti-cloud-search" /> 检查更新</button>
           {!statusLoading && !gitStatus.installed && <button className="pr sm" disabled={busy} onClick={() => void installGit()}><i className="ti ti-download" /> 安装 Git</button>}
           {gitStatus.installed && updateInfo?.has_update && <button className="pr sm" disabled={busy} onClick={() => void installGit()}><i className="ti ti-download" /> 立即更新</button>}
+          </>}
         </div>
       </div>
 
       <div className="effbox">
         <div className="eh"><i className="ti ti-target" /> 生效情况 <span className="sub">账号环境相互隔离，不设置全局默认账号</span></div>
         <div className="effrow"><div className="ek"><i className="ti ti-terminal-2" /> Git 命令</div><div className="ev">{statusLoading ? "检测中…" : gitStatus.version || "未检测到"}</div>{!statusLoading && (gitStatus.installed ? <span className="bd g">可用</span> : <span className="bd r">缺失</span>)}</div>
-        <div className="effrow"><div className="ek"><i className="ti ti-brand-git" /> Git Bash</div><div className="ev mono">{statusLoading ? "检测中…" : gitStatus.bash_path || "未检测到"}</div>{!statusLoading && (gitStatus.bash_path ? <span className="bd g">可用</span> : <span className="bd n">未安装</span>)}</div>
-        <div className="effrow"><div className="ek" title="Git Credential Manager：由 Git for Windows 提供，用于安全保存和调用 GitHub、Gitee 等平台的 HTTPS 账号凭据。"><i className="ti ti-shield-lock" /> GCM <i className="ti ti-help-circle" style={{ fontSize: 13, opacity: 0.6 }} /></div><div className="ev">{statusLoading ? "检测中…" : github.gcm_version ? `版本 ${github.gcm_version} · 管理 HTTPS 账号凭据` : gitStatus.credential_helper || "未检测到"}</div>{!statusLoading && (github.gcm_available ? <span className="bd g">可用</span> : <span className="bd r">缺失</span>)}</div>
+        {!IS_MAC && <div className="effrow"><div className="ek"><i className="ti ti-brand-git" /> Git Bash</div><div className="ev mono">{statusLoading ? "检测中…" : gitStatus.bash_path || "未检测到"}</div>{!statusLoading && (gitStatus.bash_path ? <span className="bd g">可用</span> : <span className="bd n">未安装</span>)}</div>}
+        {IS_MAC
+          ? <div className="effrow"><div className="ek" title="git-credential-osxkeychain：Git 自带的钥匙串助手，把 GitHub、Gitee 等平台的 HTTPS 账号令牌保存在登录钥匙串里。"><i className="ti ti-shield-lock" /> 钥匙串助手 <i className="ti ti-help-circle" style={{ fontSize: 13, opacity: 0.6 }} /></div><div className="ev">{statusLoading ? "检测中…" : github.gcm_available ? "git-credential-osxkeychain · 管理 HTTPS 账号凭据" : "未检测到"}</div>
+            {!statusLoading && (github.gcm_available ? <span className="bd g">可用</span> : <span className="bd r">缺失</span>)}</div>
+          : <div className="effrow"><div className="ek" title="Git Credential Manager：由 Git for Windows 提供，用于安全保存和调用 GitHub、Gitee 等平台的 HTTPS 账号凭据。"><i className="ti ti-shield-lock" /> GCM <i className="ti ti-help-circle" style={{ fontSize: 13, opacity: 0.6 }} /></div><div className="ev">{statusLoading ? "检测中…" : github.gcm_version ? `版本 ${github.gcm_version} · 管理 HTTPS 账号凭据` : gitStatus.credential_helper || "未检测到"}</div>{!statusLoading && (github.gcm_available ? <span className="bd g">可用</span> : <span className="bd r">缺失</span>)}</div>}
       </div>
 
       <div className="grouphd git-account-heading" style={{ marginTop: 18 }}>
@@ -752,9 +764,12 @@ export default function Git() {
             );
           })()}
           <div className="gitacc-acts">
+            {IS_MAC && <button className="pr sm soft" disabled={busy || !accountReady} title={!accountReady ? credentialBadge.detail : "打开该账号的终端"} onClick={() => openAccountTerminal(account, "powershell")}><i className="ti ti-terminal-2" /> 终端</button>}
+            {!IS_MAC && <>
             <button className="pr sm soft" disabled={busy || !accountReady || !shells.powershell} title={!accountReady ? credentialBadge.detail : "打开该账号的 PowerShell 终端"} onClick={() => openAccountTerminal(account, "powershell")}><i className="ti ti-terminal-2" /> PS</button>
             <button className="pr sm soft" disabled={busy || !accountReady || !shells.gitbash} title={!accountReady ? credentialBadge.detail : "打开该账号的 Git Bash 终端"} onClick={() => openAccountTerminal(account, "gitbash")}><i className="ti ti-brand-git" /> Bash</button>
             <button className="pr sm soft" disabled={busy || !accountReady || !shells.cmd} title={!accountReady ? credentialBadge.detail : "打开该账号的 cmd 终端"} onClick={() => openAccountTerminal(account, "cmd")}><i className="ti ti-terminal" /> cmd</button>
+            </>}
             <button className="gh sm" disabled={busy || !accountReady} title={!accountReady ? credentialBadge.detail : "写入普通终端默认提交身份和该平台默认 HTTPS 账号"} onClick={() => setAccountGlobal(account)}><i className="ti ti-user-check" /> 设为全局</button>
             <button className="gh sm" disabled={busy || !accountReady} title={!accountReady ? credentialBadge.detail : undefined} onClick={() => beginInit(account)}><i className="ti ti-folder-plus" /> 初始化工程</button>
             <button className="gh sm" disabled={busy || !accountReady} title={!accountReady ? credentialBadge.detail : "复制该账号的 Git 操作摘要，方便 AI 按指定账号操作仓库"} onClick={() => copyAccountContext(account)}><i className="ti ti-copy" /> 复制摘要给 AI</button>

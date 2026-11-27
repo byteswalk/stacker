@@ -974,6 +974,8 @@ mod tests {
         assert_eq!(fs::read(&path).unwrap(), vec![0xff, 0xfe, 0xfd]);
     }
 
+    /// Windows paths and tools only.
+    #[cfg(windows)]
     #[test]
     fn target_probe_never_overwrites_an_existing_file() {
         let root = tempdir().unwrap();

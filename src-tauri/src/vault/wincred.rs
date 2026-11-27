@@ -24,6 +24,21 @@ pub(crate) trait CredStore: Send + Sync {
     fn delete(&self, target: &str);
 }
 
+/// A value the system store cannot hold: Credential Manager takes 2560 bytes of UTF-16, the
+/// macOS keychain (through `security`) somewhat less of UTF-8.
+fn too_long(value: &str) -> bool {
+    if cfg!(target_os = "macos") {
+        value.len() > MAC_MAX_BYTES
+    } else {
+        value.encode_utf16().count() * 2 > MAX_BLOB_BYTES
+    }
+}
+
+#[cfg(target_os = "macos")]
+const MAC_MAX_BYTES: usize = crate::macos::keychain::MAX_SECRET_BYTES;
+#[cfg(not(target_os = "macos"))]
+const MAC_MAX_BYTES: usize = 1800;
+
 /// One secret field of one entry and the name it goes by in Credential Manager.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Wanted {
@@ -83,10 +98,7 @@ pub(crate) fn named(body: &Body) -> Vec<(Wanted, &str)> {
     let mut out = Vec::new();
     for entry in entries {
         for field in &entry.fields {
-            if !field.secret
-                || field.value.is_empty()
-                || field.value.encode_utf16().count() * 2 > MAX_BLOB_BYTES
-            {
+            if !field.secret || field.value.is_empty() || too_long(&field.value) {
                 continue;
             }
             let mut target = format!("{PREFIX}{}:{}", part(&entry.title), part(&field.name));
@@ -318,28 +330,36 @@ mod platform {
     }
 }
 
-#[cfg(not(windows))]
+/// On macOS the mirror is the login keychain: `security find-generic-password -a Stacker
+/// -s '<name>' -w` gives a program the value, as Credential Manager does on Windows.
+#[cfg(target_os = "macos")]
 mod platform {
     use super::CredStore;
+    use crate::macos::keychain;
     use zeroize::Zeroizing;
 
     pub(crate) struct System;
 
+    /// Git's own keychain items belong to its credential helper; reading them from here would
+    /// ask for the login password, so they are not offered.
     pub(super) fn saved(_: &str) -> Vec<super::Saved> {
         Vec::new()
     }
 
     impl CredStore for System {
-        fn list_prefix(&self, _: &str) -> Vec<String> {
-            Vec::new()
+        fn list_prefix(&self, prefix: &str) -> Vec<String> {
+            keychain::list(prefix)
         }
-        fn read(&self, _: &str) -> Option<Zeroizing<String>> {
-            None
+        fn read(&self, target: &str) -> Option<Zeroizing<String>> {
+            let bytes = keychain::read(target).found()?;
+            String::from_utf8(bytes.to_vec()).ok().map(Zeroizing::new)
         }
-        fn write(&self, _: &str, _: &str) -> bool {
-            false
+        fn write(&self, target: &str, value: &str) -> bool {
+            keychain::write(target, value.as_bytes()).is_ok()
         }
-        fn delete(&self, _: &str) {}
+        fn delete(&self, target: &str) {
+            keychain::delete(target)
+        }
     }
 }
 

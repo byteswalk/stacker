@@ -1397,6 +1397,17 @@ fn hermes_not_busy() -> Result<(), String> {
     Ok(())
 }
 
+/// On macOS `image` is the app bundle's name, `Kimi.app`: it runs when a process does from
+/// inside a bundle of that name.
+#[cfg(target_os = "macos")]
+pub(crate) fn image_is_running(image: &str) -> bool {
+    let inside = format!("/{}/contents/", image.to_lowercase());
+    crate::sessions::footprint::processes::running_images()
+        .iter()
+        .any(|path| path.to_string_lossy().to_lowercase().contains(&inside))
+}
+
+#[cfg(not(target_os = "macos"))]
 pub(crate) fn image_is_running(image: &str) -> bool {
     let mut command = Command::new("tasklist.exe");
     command.args(["/FI", &format!("IMAGENAME eq {image}"), "/FO", "CSV", "/NH"]);
@@ -1597,6 +1608,8 @@ mod tests {
         );
     }
 
+    /// Windows paths and tools only.
+    #[cfg(windows)]
     #[test]
     fn a_native_command_and_the_folder_made_for_it_are_removed() {
         // Under %LOCALAPPDATA%\Temp, inside the profile as remove_cli_binary requires.

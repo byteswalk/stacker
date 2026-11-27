@@ -1,3 +1,4 @@
+use crate::agents::install::npm::NPM_NAMES;
 use crate::agents::{install::winget::*, process::*, registry::*, *};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -126,8 +127,9 @@ pub(crate) fn cli_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurface {
         install_method: method,
         install_url: spec.cli.install_url.into(),
         docs_url: spec.cli.docs_url.into(),
-        can_install: true,
-        install_unavailable_reason: None,
+        can_install: cli_can_install(spec),
+        install_unavailable_reason: (!cli_can_install(spec))
+            .then(|| "这个 CLI 暂无自动安装方案，请查看官方文档。".to_string()),
         can_update: installed,
         can_uninstall: program.is_some(),
         can_open: installed,
@@ -145,6 +147,9 @@ pub(crate) fn cli_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurface {
 }
 
 pub(crate) fn desktop_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurface {
+    #[cfg(target_os = "macos")]
+    return super::mac::desktop_surface(spec, check_latest);
+    #[allow(unreachable_code)]
     if !spec.desktop_available {
         return unavailable_surface(
             spec.desktop.name,
@@ -286,6 +291,16 @@ pub(crate) fn desktop_surface(spec: &ToolSpec, check_latest: bool) -> VibeSurfac
     }
 }
 
+fn cli_can_install(spec: &ToolSpec) -> bool {
+    #[cfg(target_os = "macos")]
+    return super::mac::can_install_cli(spec);
+    #[allow(unreachable_code)]
+    {
+        let _ = spec;
+        true
+    }
+}
+
 /// A latest-version lookup: the version and where it came from, `None` when the product
 /// publishes no version anywhere Stacker can read, or why the lookup failed.
 pub(crate) type LatestLookup = Result<Option<(String, &'static str)>, String>;
@@ -322,6 +337,9 @@ pub(crate) fn is_community_grok(path: &Path) -> bool {
 }
 
 pub(crate) fn detect_install_method(spec: &ToolSpec, program: Option<&Path>) -> Option<String> {
+    #[cfg(target_os = "macos")]
+    return super::mac::cli_install_method(spec, program);
+    #[allow(unreachable_code)]
     let program = program?;
     let p = program.to_string_lossy().replace('/', "\\").to_lowercase();
     if spec.vendor == Vendor::Claude
@@ -515,6 +533,9 @@ pub(crate) fn cli_source(spec: &ToolSpec, method: Option<&str>) -> CliSource {
 /// A CLI's latest version from where it is published. With no such place the answer is
 /// `Ok(None)`, never the installed version passed off as the latest.
 pub(crate) fn latest_for_cli(spec: &ToolSpec, method: Option<&str>) -> LatestLookup {
+    #[cfg(target_os = "macos")]
+    return super::mac::cli_latest(spec, method);
+    #[allow(unreachable_code)]
     match cli_source(spec, method) {
         CliSource::Winget(id) => winget_latest(id, None).map(|version| Some((version, "WinGet"))),
         CliSource::MimoRelease => mimo_latest().map(|version| Some((version, "MiMo 官方发布"))),
@@ -816,6 +837,9 @@ pub(crate) fn parse_claude_ready_update_version(line: &str) -> Option<String> {
 /// and into one folder; the update feed each was built with (`resources/app-update.yml`)
 /// tells them apart, and an install of the other edition is not this one.
 pub(crate) fn detect_desktop_for(spec: &ToolSpec) -> Option<DesktopFound> {
+    #[cfg(target_os = "macos")]
+    return super::mac::detect_desktop(spec);
+    #[allow(unreachable_code)]
     let found = detect_desktop_app(&spec.desktop)?;
     if spec.vendor == Vendor::MiniMax {
         let feed = found
@@ -1495,7 +1519,7 @@ fn configured_npm_registry() -> Option<String> {
             }
         }
     }
-    let value = resolve_command(&["npm.cmd", "npm.exe", "npm.bat"])
+    let value = resolve_command(NPM_NAMES)
         .and_then(|npm| {
             run_command_text(
                 &npm,
@@ -1658,6 +1682,8 @@ url: https://filecdn.minimax.chat/public/minimax-agent/release
         );
     }
 
+    /// Windows paths and tools only.
+    #[cfg(windows)]
     #[test]
     fn script_installs_are_told_apart_by_where_they_live() {
         let method = |id: &str, path: &str| detect_install_method(&spec(id), Some(Path::new(path)));
@@ -1732,6 +1758,8 @@ url: https://filecdn.minimax.chat/public/minimax-agent/release
         }
     }
 
+    /// Windows sources and NTFS compression: the Windows build only.
+    #[cfg(windows)]
     #[test]
     fn every_desktop_app_has_a_version_source() {
         for spec in crate::agents::registry::tool_specs() {

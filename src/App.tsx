@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { invoke, reportFrontendError, reportFrontendWarning } from "./invoke";
 import { collectFrontendSettings, restoreFrontendSettings, type FrontendSettings } from "./frontendSettings";
 import { open, save } from "@tauri-apps/plugin-dialog";
@@ -11,6 +11,7 @@ import { Select } from "./Select";
 import { useI18n, translateText } from "./i18n";
 import { NotificationProvider, useNotifications, formatBytes } from "./notifications";
 import { DEFAULT_PAGE, PAGE_IDS, type Page } from "./pageState";
+import { IS_MAC, pageAvailable } from "./platform";
 import { resetMainWindowSize } from "./windowSize";
 import { TOOLCHAIN_PAGES, ToolchainAsk } from "./features/ai/ToolchainAsk";
 import { ToolRelocation } from "./features/relocation/ToolRelocation";
@@ -23,6 +24,7 @@ import "./features/agent-tasks/agentTasks.css";
 import { useVaultActivity } from "./features/vault/useVaultActivity";
 import { useVaultLockNotice } from "./features/vault/useVaultLockNotice";
 import { useLeftoversNotice } from "./features/sessions/useLeftoversNotice";
+import { useLowSpaceNotice } from "./features/space-analysis/useLowSpaceNotice";
 
 const Overview = lazy(() => import("./pages/Overview"));
 const Agents = lazy(() => import("./pages/Agents"));
@@ -215,6 +217,8 @@ function WindowControls() {
       onClick={() => void toggleTop()}><i className={"ti " + (onTop ? "ti-pinned" : "ti-pin")} /></button>
     <button className="pbtn" title={tr("恢复默认位置和大小")} aria-label={tr("恢复默认位置和大小")}
       onClick={() => void restore()}><i className="ti ti-frame" /></button>
+    {/* A Mac window has the system's own buttons at its top left. */}
+    {!IS_MAC && <>
     <button className="capbtn" title={tr("最小化")} aria-label={tr("最小化")}
       onClick={() => void act("minimize", () => getCurrentWindow().minimize(), "无法最小化窗口")}>
       <i className="ti ti-minus" /></button>
@@ -224,6 +228,7 @@ function WindowControls() {
     <button className="capbtn close" title={tr("关闭")} aria-label={tr("关闭")}
       onClick={() => void act("close the window", () => getCurrentWindow().close(), "无法关闭窗口")}>
       <i className="ti ti-x" /></button>
+    </>}
   </div>;
 }
 
@@ -232,6 +237,7 @@ function Shell() {
   useVaultActivity();
   useVaultLockNotice();
   useLeftoversNotice();
+  useLowSpaceNotice();
   const [collapsedSections, setCollapsedSections] = useState<string[]>(initialCollapsedSections);
   const [sideNarrow, setSideNarrowState] = useState(() => {
     try { return localStorage.getItem(SIDE_NARROW_KEY) === "1"; } catch { return false; }
@@ -243,7 +249,9 @@ function Shell() {
   const { t, tr } = useI18n();
   const toast = useToast();
   const notices = useNotifications();
-  const [page, setPage] = useState<Page>(DEFAULT_PAGE);
+  const [page, showPage] = useState<Page>(DEFAULT_PAGE);
+  // A page this build does not have (the Windows-only ones on a Mac) is never opened.
+  const setPage = useCallback((next: Page) => { if (pageAvailable(next)) showPage(next); }, []);
   // A dialog anywhere can ask for a page ("go and set the AI up") without holding `setPage`.
   useEffect(() => {
     const open = (event: Event) => {
@@ -257,7 +265,7 @@ function Shell() {
     void listen<string>("tray-goto", (event) => window.dispatchEvent(new CustomEvent(GOTO_EVENT, { detail: event.payload })))
       .then((unlisten) => { if (disposed) unlisten(); else stopTray = unlisten; });
     return () => { disposed = true; stopTray?.(); window.removeEventListener(GOTO_EVENT, open); };
-  }, []);
+  }, [setPage]);
   // Opening a page inside a collapsed section expands that section (and closes the others).
   useEffect(() => {
     const key = sectionKeyOf(page);
@@ -403,7 +411,7 @@ function Shell() {
 
   return (
     <div className="a">
-      <div className="titlebar" data-tauri-drag-region>
+      <div className={"titlebar" + (IS_MAC ? " mac" : "")} data-tauri-drag-region>
         {sideNarrow
           ? <button className="tb-title tb-title-btn" title={tr("展开侧栏")} onClick={() => setSideNarrow(false)}>Stacker</button>
           : <span className="tb-title" data-tauri-drag-region>Stacker</span>}
@@ -456,7 +464,7 @@ function Shell() {
           </div>
           <TaskCenter />
           {TOOLCHAIN_PAGES.has(page) && <ToolchainAsk key={page} page={page} label={t(cur.labelKey)} />}
-          {page === "overview" && (
+          {page === "overview" && !IS_MAC && (
             <div className="hdright">
               <div className="profile">
                 <i className="ti ti-bookmark" style={{ fontSize: 14 }} />

@@ -556,17 +556,14 @@ fn node_zip_url(mirror: &str, version: &str) -> String {
     )
 }
 
-#[cfg(windows)]
 fn node_version_dir_at(root: &Path, version: &str) -> PathBuf {
     root.join("node-versions").join(version)
 }
 
-#[cfg(windows)]
 fn node_installation_dir_at(root: &Path, version: &str) -> PathBuf {
     node_version_dir_at(root, version).join("installation")
 }
 
-#[cfg(windows)]
 fn log_node_version_dir_snapshot_at(log: &NodeInstallLog, root: &Path, version: &str, stage: &str) {
     let version_dir = node_version_dir_at(root, version);
     let install_dir = node_installation_dir_at(root, version);
@@ -609,7 +606,6 @@ fn log_node_version_dir_snapshot_at(log: &NodeInstallLog, root: &Path, version: 
     }
 }
 
-#[cfg(windows)]
 fn prepare_node_installation_dir_at(
     root: &Path,
     version: &str,
@@ -834,7 +830,6 @@ fn write_block(path: &Path, block: &str) -> Result<(), String> {
 }
 
 // fnm 的版本目录（FNM_DIR，未设时 Windows 默认 %APPDATA%\fnm）。
-#[cfg(windows)]
 fn fnm_dir() -> PathBuf {
     if let Ok(d) = std::env::var("FNM_DIR") {
         if !d.trim().is_empty() {
@@ -853,7 +848,6 @@ fn fnm_dir() -> PathBuf {
 }
 // 解析「默认版」的真实安装目录：<FNM_DIR>\node-versions\<vX.Y.Z>\installation。
 // 直接指向安装目录、绕开 aliases\default junction（本机环境下该 junction 解析不了 → cmd 拿不到 fnm 的 node）。
-#[cfg(windows)]
 pub fn default_node_dir() -> Option<PathBuf> {
     let root = fnm_dir();
     let root_env = root.to_string_lossy().into_owned();
@@ -992,10 +986,14 @@ fn app_fnm_dir() -> PathBuf {
 }
 const FNM_URL: &str = "https://github.com/Schniz/fnm/releases/latest/download/fnm-windows.zip";
 const BUNDLED_FNM_VERSION: &str = "1.39.0";
+#[cfg(windows)]
 const BUNDLED_FNM_ZIP: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/resources/tools/fnm-v1.39.0-windows.zip"
 ));
+/// The Windows tool is not carried in the Mac build, which has no page for it.
+#[cfg(not(windows))]
+const BUNDLED_FNM_ZIP: &[u8] = &[];
 fn fnm_self_candidates() -> Vec<String> {
     vec![FNM_URL.to_string()]
 }

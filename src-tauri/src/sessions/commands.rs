@@ -185,8 +185,14 @@ pub fn sessions_favorite(ids: Vec<String>, favorite: bool) -> Result<(), String>
     Ok(())
 }
 
+/// Opens a folder in the file manager, or a URL in the app that owns it: Explorer on Windows,
+/// `open` (Finder or the app) on macOS.
 pub(crate) fn explorer(arg: impl AsRef<std::ffi::OsStr>) -> Result<(), String> {
-    let mut cmd = std::process::Command::new("explorer.exe");
+    let mut cmd = std::process::Command::new(if cfg!(windows) {
+        "explorer.exe"
+    } else {
+        "open"
+    });
     cmd.arg(arg);
     super::codex_rpc::hidden(&mut cmd);
     cmd.spawn().map(|_| ()).map_err(super::err)

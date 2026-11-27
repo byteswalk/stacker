@@ -349,7 +349,8 @@ fn fill_checksums_with(info: &mut UpdateInfo, read: impl Fn(&str) -> Result<Stri
     }
     for url in [DEFAULT_LATEST_URL, GITEE_LATEST_URL] {
         let Ok(body) = read(url) else { continue };
-        let Ok(file) = serde_json::from_str::<LatestFile>(&body) else {
+        let Ok(file) = serde_json::from_str::<LatestFile>(&body).map(LatestFile::for_this_platform)
+        else {
             continue;
         };
         if file.version.trim().trim_start_matches('v') != info.latest {
@@ -484,11 +485,12 @@ pub async fn app_download_update(
     }
     crate::installer::op_reset();
     let target = std::env::temp_dir().join(format!(
-        "stacker-update-{}.exe",
+        "stacker-update-{}.{}",
         version
             .chars()
             .filter(|ch| ch.is_ascii_alphanumeric() || *ch == '.' || *ch == '-')
-            .collect::<String>()
+            .collect::<String>(),
+        if cfg!(windows) { "exe" } else { "zip" }
     ));
     let download_window = window.clone();
     let download_url = url.trim().to_string();
@@ -523,9 +525,18 @@ pub async fn app_download_update(
             let _ = std::fs::remove_file(&download_target);
             format!("无法读取更新包：{error}")
         })?;
-        if !bytes.starts_with(b"MZ") {
+        let looks_right = if cfg!(windows) {
+            bytes.starts_with(b"MZ")
+        } else {
+            bytes.starts_with(b"PK")
+        };
+        if !looks_right {
             let _ = std::fs::remove_file(&download_target);
-            return Err("下载内容不是有效的 Windows 安装程序".into());
+            return Err(if cfg!(windows) {
+                "下载内容不是有效的 Windows 安装程序".into()
+            } else {
+                "下载内容不是 Stacker 的更新包".into()
+            });
         }
         if let Err(error) = verify_release_signature(&bytes, &signature) {
             let _ = std::fs::remove_file(&download_target);
@@ -538,6 +549,24 @@ pub async fn app_download_update(
     .await
     .map_err(|error| error.to_string())??;
 
+    #[cfg(target_os = "macos")]
+    {
+        let _ = window.emit("app-update-progress", "更新包已验证，正在替换 Stacker…");
+        let staged = tauri::async_runtime::spawn_blocking(move || {
+            crate::macos::updater::stage(&target, &version)
+        })
+        .await
+        .map_err(|error| error.to_string())??;
+        crate::macos::updater::swap_after_exit(&staged)?;
+        let app = window.app_handle().clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(800));
+            app.exit(0);
+        });
+        return Ok("更新已准备好，Stacker 即将重新打开".into());
+    }
+
+    #[allow(unreachable_code)]
     let current_pid = std::process::id();
     let launch_script = format!(
         "$p=Get-Process -Id {current_pid} -ErrorAction SilentlyContinue; if($p){{Wait-Process -Id {current_pid} -Timeout 30 -ErrorAction SilentlyContinue}}; Start-Process -FilePath '{}' -ArgumentList '/S'",
@@ -603,6 +632,9 @@ struct GiteeRelease {
 #[derive(Deserialize)]
 struct LatestFile {
     version: String,
+    /// The Mac packages, by chip (`arm64`, `x64`); the top-level fields are Windows'.
+    #[serde(default)]
+    macos: std::collections::HashMap<String, PlatformPackage>,
     #[serde(default)]
     release_url: Option<String>,
     #[serde(default)]
@@ -619,6 +651,39 @@ struct LatestFile {
     notes: Vec<String>,
 }
 
+#[derive(Deserialize, Clone, Default)]
+struct PlatformPackage {
+    #[serde(default)]
+    url: Option<String>,
+    #[serde(default)]
+    sha256: Option<String>,
+    #[serde(default)]
+    signature: Option<String>,
+}
+
+/// This Mac's chip as release files name it.
+pub(crate) fn mac_arch() -> &'static str {
+    if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        "x64"
+    }
+}
+
+impl LatestFile {
+    /// The package for the platform this build runs on: Windows' fields as they are, or the
+    /// Mac block for this chip put in their place (nothing when the release has none).
+    fn for_this_platform(mut self) -> LatestFile {
+        if cfg!(target_os = "macos") {
+            let package = self.macos.remove(mac_arch()).unwrap_or_default();
+            self.installer_url = package.url;
+            self.installer_sha256 = package.sha256;
+            self.installer_signature = package.signature;
+        }
+        self
+    }
+}
+
 fn notes_from_body(body: &str) -> Vec<String> {
     body.lines()
         .map(|line| {
@@ -632,8 +697,16 @@ fn notes_from_body(body: &str) -> Vec<String> {
         .collect()
 }
 
-/// Stacker ships one package, the setup exe; updates install only that.
+/// Stacker ships one package, the setup exe; updates install only that. A Mac updates from
+/// the zipped app for its chip, `Stacker-<version>-update-macos-<chip>.zip`.
 fn pick_installer(assets: &[GitHubAsset]) -> Option<String> {
+    if cfg!(target_os = "macos") {
+        let wanted = format!("update-macos-{}.zip", mac_arch());
+        return assets
+            .iter()
+            .find(|a| a.name.to_ascii_lowercase().ends_with(&wanted))
+            .map(|a| a.browser_download_url.clone());
+    }
     assets
         .iter()
         .find(|a| {
@@ -764,8 +837,9 @@ fn gitee_latest_release(repo: &str, current: &str) -> Result<UpdateInfo, String>
 
 fn latest_json_update_from(url: &str, current: &str) -> Result<UpdateInfo, String> {
     let body = fetch(url)?;
-    let file: LatestFile =
-        serde_json::from_str(&body).map_err(|e| format!("latest.json 格式错误：{e}"))?;
+    let file: LatestFile = serde_json::from_str::<LatestFile>(&body)
+        .map_err(|e| format!("latest.json 格式错误：{e}"))?
+        .for_this_platform();
     let latest = file.version.trim_start_matches('v').trim().to_string();
     Ok(UpdateInfo {
         has_update: ver_lt(current, &latest),
@@ -1018,8 +1092,20 @@ mod tests {
         }
     }
 
+    /// A manifest with the same package for Windows (top level) and this Mac's chip.
+    fn manifest_with(version: &str, installer: &str, signature: Option<&str>) -> String {
+        let sig = signature.map_or(String::new(), |s| {
+            format!(r#","installer_signature":"{s}""#)
+        });
+        let mac_sig = signature.map_or(String::new(), |s| format!(r#","signature":"{s}""#));
+        format!(
+            r#"{{"version":"{version}","installer_sha256":"{installer}"{sig},"macos":{{"{}":{{"sha256":"{installer}"{mac_sig}}}}}}}"#,
+            super::mac_arch()
+        )
+    }
+
     fn manifest(version: &str, installer: &str) -> String {
-        format!(r#"{{"version":"{version}","installer_sha256":"{installer}"}}"#)
+        manifest_with(version, installer, None)
     }
 
     #[test]
@@ -1053,10 +1139,7 @@ mod tests {
         let mut info = info_needing_a_checksum();
         info.installer_sha256 = Some("c".repeat(64));
         super::fill_checksums_with(&mut info, |_| {
-            Ok(format!(
-                r#"{{"version":"0.3.4","installer_sha256":"{}","installer_signature":"sig"}}"#,
-                "a".repeat(64)
-            ))
+            Ok(manifest_with("0.3.4", &"a".repeat(64), Some("sig")))
         });
         // 发布接口给的校验值不被清单覆盖，只是顺带把清单里的签名带回来。
         assert_eq!(
@@ -1064,6 +1147,29 @@ mod tests {
             Some("c".repeat(64).as_str())
         );
         assert_eq!(info.installer_signature.as_deref(), Some("sig"));
+    }
+
+    #[test]
+    fn a_mac_reads_its_own_chip_s_package_and_never_the_windows_one() {
+        let body = format!(
+            r#"{{"version":"1.0","installer_url":"https://x/setup.exe","installer_sha256":"{}","macos":{{"arm64":{{"url":"https://x/update-macos-arm64.zip","sha256":"{}","signature":"m"}}}}}}"#,
+            "a".repeat(64),
+            "b".repeat(64)
+        );
+        let file = serde_json::from_str::<super::LatestFile>(&body)
+            .unwrap()
+            .for_this_platform();
+        if cfg!(windows) {
+            assert_eq!(file.installer_url.as_deref(), Some("https://x/setup.exe"));
+        } else if super::mac_arch() == "arm64" {
+            assert_eq!(
+                file.installer_url.as_deref(),
+                Some("https://x/update-macos-arm64.zip")
+            );
+            assert_eq!(file.installer_signature.as_deref(), Some("m"));
+        } else {
+            assert_eq!(file.installer_url, None);
+        }
     }
 
     #[test]

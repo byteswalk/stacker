@@ -49,6 +49,7 @@ impl Env {
         ]
         .into_iter()
         .flatten()
+        .chain(crate::platform::system_roots())
         .filter(|path| !path.as_os_str().is_empty())
         .collect();
         Env {
@@ -62,7 +63,7 @@ impl Env {
     }
 }
 
-fn norm(path: &Path) -> String {
+pub(super) fn norm(path: &Path) -> String {
     path.to_string_lossy()
         .replace('/', "\\")
         .trim_end_matches('\\')
@@ -82,7 +83,7 @@ pub fn why_skipped(path: &Path, env: &Env) -> Option<&'static str> {
         return Some("目录已不存在");
     }
     let here = norm(path);
-    if path.parent().is_none() || here.len() <= 3 {
+    if path.parent().is_none() || here.len() <= 3 || crate::platform::is_volume_root(path) {
         return Some("是磁盘根目录");
     }
     if inside(&norm(&env.home), &here) {

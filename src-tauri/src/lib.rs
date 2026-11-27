@@ -1,3 +1,8 @@
+// The Windows-only pages (runtimes, PATH, UAC, WinGet) still build on macOS but go unused there.
+#![cfg_attr(
+    not(windows),
+    allow(dead_code, unused_imports, unused_variables, unused_mut)
+)]
 mod agents;
 mod ai_config;
 mod ai_features;
@@ -19,6 +24,9 @@ mod gradle;
 mod installer;
 mod jdk;
 mod logging;
+#[cfg(target_os = "macos")]
+mod macos;
+mod platform;
 mod profile;
 mod project_junk;
 mod proxy;
@@ -120,6 +128,13 @@ pub fn run() {
         std::process::exit(webchat::bridge::run_stdio(&origin));
     }
 
+    // Finder starts apps with launchd's bare PATH; the user's shell knows npm, brew and the CLIs.
+    #[cfg(target_os = "macos")]
+    macos::shell_env::adopt_login_path();
+    // What `launchctl setenv` gave Dock-started programs is gone after a logout.
+    #[cfg(target_os = "macos")]
+    std::thread::spawn(macos::user_env::publish_to_session);
+
     #[cfg(debug_assertions)]
     if let Some(code) = agents::devcli::run(&args) {
         std::process::exit(code);
@@ -191,6 +206,9 @@ pub fn run() {
             )?;
             log::set_max_level(settings::log_level_filter(&app_settings.log_level));
             logging::install_panic_hook();
+            // Removing the old bundle also tells the update script this version started.
+            #[cfg(target_os = "macos")]
+            macos::updater::clean_up_after_update();
             std::thread::spawn(|| {
                 if let Ok(exe) = std::env::current_exe() {
                     webchat::host::repoint_if_gone(&webchat::root(), &exe, webchat::extension_id());
@@ -220,6 +238,7 @@ pub fn run() {
             binary::migrate_legacy_envs();
             tray::build(app.handle())?;
             sessions::leftovers::auto::start(app.handle().clone());
+            space_analysis::low_space::watch::start(app.handle().clone());
             Ok(())
         })
         // 主窗口按已保存策略退出、隐藏到托盘，或通知前端首次询问。
@@ -413,6 +432,9 @@ pub fn run() {
             space_analysis::file_removal::space_protected_paths,
             space_analysis::space_cleanup_history,
             space_analysis::space_cleanup_history_clear,
+            space_analysis::low_space::low_space_status,
+            space_analysis::low_space::low_space_settings_set,
+            space_analysis::low_space::low_space_check_now,
             space_analysis::space_snapshot_save,
             space_analysis::space_snapshot_list,
             space_analysis::space_snapshot_compare,
@@ -626,6 +648,16 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while running tauri application");
     app.run(|app_handle, event| {
+        // Clicking the Dock icon brings back a window closed to the menu bar.
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Reopen { .. } = event {
+            use tauri::Manager;
+            if let Some(window) = app_handle.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }
         if let tauri::RunEvent::Exit = event {
             use tauri::Manager;
 

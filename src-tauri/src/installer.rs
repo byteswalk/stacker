@@ -708,6 +708,21 @@ fn apply_fresh_env_to_command(c: &mut std::process::Command) {
     }
 }
 
+#[cfg(not(windows))]
+fn apply_fresh_env_to_command(_: &mut std::process::Command) {}
+
+#[cfg(not(windows))]
+fn fresh_env_overrides() -> Vec<(String, String)> {
+    std::env::var("PATH")
+        .map(|path| vec![("PATH".to_string(), path)])
+        .unwrap_or_default()
+}
+
+#[cfg(not(windows))]
+pub fn git_bash() -> Option<String> {
+    None
+}
+
 fn base64_encode(bytes: &[u8]) -> String {
     const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
@@ -784,6 +799,12 @@ pub(crate) fn open_agent_terminal(command: &str, title: &str) -> Result<(), Stri
 
 #[tauri::command]
 pub fn open_ecosystem_verify_shell(kind: String, ecosystem: String) -> Result<(), String> {
+    // A Mac's Terminal runs the same sh commands Git Bash gets; its own shell stays open after.
+    #[cfg(target_os = "macos")]
+    let command = verification_command("gitbash", &ecosystem)?
+        .trim_end_matches("; exec bash -i")
+        .to_string();
+    #[cfg(not(target_os = "macos"))]
     let command = verification_command(&kind, &ecosystem)?;
     launch_shell(&kind, &home_or_app_dir(), Some(&command))
 }
@@ -797,6 +818,48 @@ fn launch_shell(kind: &str, cwd: &str, command: Option<&str>) -> Result<(), Stri
     launch_shell_titled(kind, cwd, command, title)
 }
 
+/// A single-quoted word for sh: everything inside stays literal.
+#[cfg(target_os = "macos")]
+fn sh_quote(text: &str) -> String {
+    format!("'{}'", text.replace('\'', "'\\''"))
+}
+
+/// macOS: Terminal opens a `.command` file and runs it in a new window, with no permission
+/// to ask for; the script starts in `cwd`, runs `command`, then leaves the user's own login
+/// shell open. Every terminal kind asked for is this one.
+#[cfg(target_os = "macos")]
+fn launch_shell_titled(
+    _kind: &str,
+    cwd: &str,
+    command: Option<&str>,
+    title: &str,
+) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+    let script = std::env::temp_dir().join(format!(
+        "stacker-terminal-{}.command",
+        chrono::Local::now().format("%Y%m%d%H%M%S%3f")
+    ));
+    let mut body = String::from("#!/bin/sh\n");
+    // Gone before anything can fail: it holds the account's variables and the proxy.
+    body.push_str(&format!("rm -f {}\n", sh_quote(&script.to_string_lossy())));
+    body.push_str(&format!("printf '\\033]0;%s\\007' {}\n", sh_quote(title)));
+    body.push_str(&format!("cd {} || exit 1\n", sh_quote(cwd)));
+    if let Some(command) = command {
+        body.push_str(&format!("{command}\n"));
+    }
+    body.push_str("exec \"${SHELL:-/bin/zsh}\" -l\n");
+    std::fs::write(&script, body).map_err(|e| format!("无法准备终端脚本：{e}"))?;
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700))
+        .map_err(|e| format!("无法准备终端脚本：{e}"))?;
+    std::process::Command::new("/usr/bin/open")
+        .args(["-a", "Terminal"])
+        .arg(&script)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("打开终端失败：{e}"))
+}
+
+#[cfg(not(target_os = "macos"))]
 fn launch_shell_titled(
     kind: &str,
     cwd: &str,
@@ -1122,6 +1185,21 @@ pub(crate) fn open_scoped_shell_with_intro(
     }
     validate_scoped_shell_values(title, environment)?;
 
+    // macOS: one Terminal window with the variables exported and the intro printed.
+    #[cfg(target_os = "macos")]
+    {
+        let _ = kind;
+        let mut lines: Vec<String> = environment
+            .iter()
+            .map(|(key, value)| format!("export {key}={}", sh_quote(value)))
+            .collect();
+        for line in intro_lines {
+            lines.push(format!("printf '%s\\n' {}", sh_quote(line)));
+        }
+        return launch_shell_titled("zsh", &cwd, Some(&lines.join("\n")), title);
+    }
+
+    #[allow(unreachable_code)]
     match kind {
         "powershell" => {
             let mut script = powershell_launch_script(&cwd, None);

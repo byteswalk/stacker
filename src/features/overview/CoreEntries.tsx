@@ -12,11 +12,13 @@ import { AGENT_LABEL, formatAge } from "../sessions/sessionsView";
 import { EMPTY_QUERY, type AgentCount, type AgentName, type FootprintReport } from "../sessions/types";
 import { vaultApi, type EntryView, type VaultStatus } from "../vault/api";
 import { CoreArt } from "./coreArt";
+import { IS_MAC } from "../../platform";
+
 
 type SystemState = "on" | "off" | "stale" | "unknown";
 type SyncReport = { system: { state: SystemState; server: string }; rows: { id: string }[] };
 type ProxyOverview = { locations: { id: string; value: string | null }[] };
-type VolumeInfo = { root: string; totalBytes: number; freeBytes: number; fixed: boolean };
+type VolumeInfo = { root: string; label?: string; totalBytes: number; freeBytes: number; fixed: boolean };
 export type GroupTone = "ok" | "warn" | "bad" | "idle";
 
 const SESSIONS_KEY = "stacker.overview.sessions.v2";
@@ -133,7 +135,7 @@ const TONE_RANK: Record<GroupTone, number> = { bad: 0, warn: 1, ok: 2, idle: 3 }
 export function rankedVolumes(volumes: VolumeInfo[]) {
   return volumes.filter((v) => v.fixed && v.totalBytes > 0).map((v) => {
     const ratio = (v.totalBytes - v.freeBytes) / v.totalBytes;
-    return { root: v.root.replace(/\\$/, ""), ratio, free: v.freeBytes, tone: diskTone(v.freeBytes, ratio) };
+    return { root: v.root.replace(/\\$/, ""), label: v.label ?? "", ratio, free: v.freeBytes, tone: diskTone(v.freeBytes, ratio) };
   }).sort((a, b) => TONE_RANK[a.tone] - TONE_RANK[b.tone] || b.ratio - a.ratio);
 }
 
@@ -311,7 +313,8 @@ function DiskRing({ disk }: { disk: ReturnType<typeof rankedVolumes>[number] }) 
       <b>{percent}%</b>
     </span>
     <span className="core-ring-text">
-      <b>{t("{disk} 盘").replace("{disk}", disk.root.replace(":", ""))}</b>
+      {/* A Mac's disks go by their names ("Macintosh HD"), not drive letters. */}
+      <b>{IS_MAC ? disk.label || disk.root : t("{disk} 盘").replace("{disk}", disk.root.replace(":", ""))}</b>
       <small>{t("剩 {free}").replace("{free}", formatBytes(disk.free))}</small>
     </span>
   </div>;
